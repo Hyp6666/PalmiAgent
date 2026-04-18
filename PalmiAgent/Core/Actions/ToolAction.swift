@@ -1,0 +1,108 @@
+import Foundation
+
+enum ToolPresentationKind: String, Codable, Sendable {
+    case data
+    case action
+    case interactive
+
+    var title: String {
+        switch self {
+        case .data:
+            "结果"
+        case .action:
+            "系统动作"
+        case .interactive:
+            "等待继续"
+        }
+    }
+}
+
+enum ToolActionID: String, CaseIterable, Codable, Sendable {
+    case bootstrapWorkspace
+    case writeFile
+    case read
+    case listWorkspaceFiles
+    case inspectSandboxCapabilities
+    case runSandboxTerminal
+    case exportWorkspace
+    case runJavaScriptSandbox
+    case pythonSandbox
+    case searchWeb
+    case fetchStaticWebPage
+    case fetchWebBatch
+    case saveWebPageToWorkspace
+    case openInAppBrowser
+    case createCalendarEvent
+    case listTodayEvents
+    case createReminder
+    case listReminders
+    case createContact
+    case searchContacts
+    case getCurrentDateTime
+    case requestAlarmPermission
+    case listAlarms
+    case createAlarm
+    case createClockTimer
+    case manageAlarm
+    case requestLocation
+    case searchNearbyPlaces
+    case openMapsRoute
+    case openCamera
+    case openPhotoLibrary
+    case saveGeneratedPhoto
+    case scanDocument
+    case scanLiveText
+    case requestNotificationPermission
+    case sendLocalNotification
+    case requestSpeechPermission
+    case speakText
+    case openMailDraft
+    case openMessageDraft
+    case callPhoneNumber
+    case openFaceTime
+    case openAppSettings
+    case openAppStore
+    case openPodcasts
+    case openBooks
+    case openTV
+    case indexWorkspaceToSpotlight
+    case clearSpotlightIndex
+    case appIntentsDiagnostics
+    case publishHandoffActivity
+
+    var presentationKind: ToolPresentationKind {
+        switch self {
+        case .openMapsRoute,
+             .openMailDraft,
+             .openMessageDraft,
+             .callPhoneNumber,
+             .openFaceTime,
+             .openAppSettings,
+             .openAppStore,
+             .openPodcasts,
+             .openBooks,
+             .openTV,
+             .publishHandoffActivity:
+            return .action
+
+        case .openInAppBrowser,
+             .openCamera,
+             .openPhotoLibrary,
+             .scanDocument,
+             .scanLiveText:
+            return .interactive
+
+        default:
+            return .data
+        }
+    }
+}
+
+struct ToolAction: Identifiable, Hashable, Sendable {
+    let id: ToolActionID
+    let category: ToolCategory
+    let title: String
+    let effect: String
+    let details: String
+    let availability: ToolAvailability
+}

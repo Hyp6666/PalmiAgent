@@ -1,17 +1,17 @@
-//
-//  PalmiAgentApp.swift
-//  PalmiAgent
-//
-//  Created by 洪昱鹏 on 2026/4/11.
-//
-
 import SwiftUI
 
 @main
 struct PalmiAgentApp: App {
+    @State private var container = AppContainer()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(
+                manualLabStore: container.store,
+                workspaceStore: container.workspaceStore,
+                skillRegistry: container.skillRegistry,
+                chatStore: container.chatStore
+            )
         }
     }
 }

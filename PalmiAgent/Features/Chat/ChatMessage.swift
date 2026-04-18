@@ -1,0 +1,218 @@
+import Foundation
+
+struct PalmiChatSessionHeader: Codable, Sendable {
+    let startedAt: Date
+    let finishedAt: Date?
+    let outputTokens: Int
+
+    init(
+        startedAt: Date,
+        finishedAt: Date? = nil,
+        outputTokens: Int = 0
+    ) {
+        self.startedAt = startedAt
+        self.finishedAt = finishedAt
+        self.outputTokens = outputTokens
+    }
+}
+
+enum PalmiCardKind: String, Codable, Sendable {
+    case tool
+    case phaseThought
+    case modelThink
+}
+
+struct PalmiToolCallCard: Codable, Sendable {
+    let cardKind: PalmiCardKind
+    let toolTitle: String
+    let toolName: String
+    let presentationKind: ToolPresentationKind
+    let status: ToolResult.Status
+    let summary: String
+    let details: String
+    let argumentsJSON: String
+    let requiresUserInteraction: Bool
+    let isRunning: Bool?
+}
+
+enum PalmiChatTurnPlacement: String, Codable, Sendable {
+    case leadingUser
+    case inTurn
+    case standalone
+}
+
+enum PalmiChatFoldBehavior: String, Codable, Sendable {
+    case withTurn
+    case alwaysVisible
+}
+
+struct PalmiContextCompactionNotice: Codable, Sendable {
+    enum Status: String, Codable, Sendable {
+        case running
+        case completed
+    }
+
+    enum Source: String, Codable, Sendable {
+        case automatic
+        case manual
+    }
+
+    let status: Status
+    let summary: String
+    let source: Source
+
+    init(
+        status: Status,
+        summary: String,
+        source: Source = .manual
+    ) {
+        self.status = status
+        self.summary = summary
+        self.source = source
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case status
+        case summary
+        case source
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let status = try container.decode(Status.self, forKey: .status)
+        let summary = try container.decode(String.self, forKey: .summary)
+        let source = try container.decodeIfPresent(Source.self, forKey: .source) ?? .manual
+        self.init(status: status, summary: summary, source: source)
+    }
+}
+
+struct PalmiChatMessage: Identifiable, Codable, Sendable {
+    enum Role: String, Codable, Sendable {
+        case user
+        case agent
+    }
+
+    enum Kind: String, Codable, Sendable {
+        case normal
+        case toolCall
+        case summary
+        case sessionHeader
+        case contextCompaction
+    }
+
+    let id: UUID
+    let role: Role
+    let kind: Kind
+    let content: String
+    let toolCall: PalmiToolCallCard?
+    let sessionHeader: PalmiChatSessionHeader?
+    let contextCompaction: PalmiContextCompactionNotice?
+    let turnPlacement: PalmiChatTurnPlacement
+    let foldBehavior: PalmiChatFoldBehavior
+    let timestamp: Date
+
+    init(
+        id: UUID = UUID(),
+        role: Role,
+        kind: Kind = .normal,
+        content: String,
+        toolCall: PalmiToolCallCard? = nil,
+        sessionHeader: PalmiChatSessionHeader? = nil,
+        contextCompaction: PalmiContextCompactionNotice? = nil,
+        turnPlacement: PalmiChatTurnPlacement? = nil,
+        foldBehavior: PalmiChatFoldBehavior? = nil,
+        timestamp: Date = Date()
+    ) {
+        self.id = id
+        self.role = role
+        self.kind = kind
+        self.content = content
+        self.toolCall = toolCall
+        self.sessionHeader = sessionHeader
+        self.contextCompaction = contextCompaction
+        self.turnPlacement = turnPlacement ?? Self.defaultTurnPlacement(for: role, kind: kind)
+        self.foldBehavior = foldBehavior ?? Self.defaultFoldBehavior(for: role, kind: kind)
+        self.timestamp = timestamp
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case role
+        case kind
+        case content
+        case toolCall
+        case sessionHeader
+        case contextCompaction
+        case turnPlacement
+        case foldBehavior
+        case timestamp
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try container.decode(UUID.self, forKey: .id)
+        let role = try container.decode(Role.self, forKey: .role)
+        let kind = try container.decode(Kind.self, forKey: .kind)
+        let content = try container.decode(String.self, forKey: .content)
+        let toolCall = try container.decodeIfPresent(PalmiToolCallCard.self, forKey: .toolCall)
+        let sessionHeader = try container.decodeIfPresent(PalmiChatSessionHeader.self, forKey: .sessionHeader)
+        let contextCompaction = try container.decodeIfPresent(
+            PalmiContextCompactionNotice.self,
+            forKey: .contextCompaction
+        )
+        let turnPlacement = try container.decodeIfPresent(
+            PalmiChatTurnPlacement.self,
+            forKey: .turnPlacement
+        ) ?? Self.defaultTurnPlacement(for: role, kind: kind)
+        let foldBehavior = try container.decodeIfPresent(
+            PalmiChatFoldBehavior.self,
+            forKey: .foldBehavior
+        ) ?? Self.defaultFoldBehavior(for: role, kind: kind)
+        let timestamp = try container.decode(Date.self, forKey: .timestamp)
+
+        self.init(
+            id: id,
+            role: role,
+            kind: kind,
+            content: content,
+            toolCall: toolCall,
+            sessionHeader: sessionHeader,
+            contextCompaction: contextCompaction,
+            turnPlacement: turnPlacement,
+            foldBehavior: foldBehavior,
+            timestamp: timestamp
+        )
+    }
+
+    var isLeadingUserMessage: Bool {
+        role == .user && turnPlacement == .leadingUser
+    }
+
+    var isInTurnUserBubble: Bool {
+        role == .user && turnPlacement == .inTurn
+    }
+
+    private static func defaultTurnPlacement(for role: Role, kind: Kind) -> PalmiChatTurnPlacement {
+        switch kind {
+        case .contextCompaction:
+            return .standalone
+        case .sessionHeader, .toolCall, .summary:
+            return .inTurn
+        case .normal:
+            return role == .user ? .leadingUser : .inTurn
+        }
+    }
+
+    private static func defaultFoldBehavior(for role: Role, kind: Kind) -> PalmiChatFoldBehavior {
+        switch kind {
+        case .sessionHeader, .summary:
+            return .alwaysVisible
+        case .contextCompaction:
+            return .alwaysVisible
+        case .toolCall:
+            return .withTurn
+        case .normal:
+            return role == .user ? .alwaysVisible : .withTurn
+        }
+    }
+}
