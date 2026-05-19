@@ -1,6 +1,71 @@
 import Foundation
 import Python
 
+enum PythonPackageCatalog {
+    static let bundleBudgetMB = 250
+    static let curatedThirdPartyApproximateMB = 46
+    static let stdlibPruneSavingsApproximateMB = 38
+
+    static let supportedImports = [
+        "bs4",
+        "soupsieve",
+        "dateutil",
+        "pytz",
+        "tzdata",
+        "openpyxl",
+        "et_xmlfile",
+        "tabulate",
+        "networkx",
+        "sympy",
+        "mpmath",
+        "tomli",
+        "tomli_w",
+        "packaging",
+        "six",
+        "typing_extensions"
+    ]
+
+    static let unsupportedExamples = [
+        "numpy",
+        "pandas",
+        "matplotlib",
+        "Pillow",
+        "requests",
+        "pydantic",
+        "scipy"
+    ]
+
+    static let pinnedDistributions = [
+        "beautifulsoup4==4.14.3",
+        "et_xmlfile==2.0.0",
+        "mpmath==1.3.0",
+        "networkx==3.2.1",
+        "openpyxl==3.1.5",
+        "packaging==26.1",
+        "python-dateutil==2.9.0.post0",
+        "pytz==2026.1.post1",
+        "six==1.17.0",
+        "soupsieve==2.8.3",
+        "sympy==1.14.0",
+        "tabulate==0.9.0",
+        "tomli==2.4.1",
+        "tomli-w==1.2.0",
+        "typing_extensions==4.15.0",
+        "tzdata==2026.1"
+    ]
+
+    static let supportedImportsSentence = supportedImports.joined(separator: "、")
+    static let unsupportedExamplesSentence = unsupportedExamples.joined(separator: "、")
+    static let toolingSummary = "Python 运行时资源包预算上限 \(bundleBudgetMB)MB；当前预装第三方包约 \(curatedThirdPartyApproximateMB)MB，仅支持以下 import 名称：\(supportedImportsSentence)。未列出的第三方库一律不可用。"
+    static let promptSummary = "只允许使用标准库、内置 `workspace` 模块，以及以下第三方包：\(supportedImportsSentence)。不要假设 \(unsupportedExamplesSentence) 可用，凡是未列出的第三方库都视为不可用。"
+    static let capabilitySummary = """
+    - 预装第三方包：\(supportedImportsSentence)
+    - 未列出的第三方库：不可用（例如 \(unsupportedExamplesSentence)）
+    - Python 运行时资源包预算上限：\(bundleBudgetMB)MB；当前第三方包约 \(curatedThirdPartyApproximateMB)MB；构建时会额外裁掉约 \(stdlibPruneSavingsApproximateMB)MB 的 stdlib 测试/IDLE/Tk 目录
+    """
+    static let runtimeDescription = "CPython 3.14 + curated pure-Python bundle"
+}
+
 struct EmbeddedPythonExecutionResult: Sendable {
     let transcript: String
     let runtimeDescription: String
@@ -12,7 +77,7 @@ final class EmbeddedPythonRuntime {
 
     private let fileManager = FileManager.default
     private let pythonTag = "3.14"
-    private let runtimeDescription = "CPython 3.14"
+    private let runtimeDescription = PythonPackageCatalog.runtimeDescription
     private var initialized = false
 
     private init() {}
@@ -68,6 +133,7 @@ final class EmbeddedPythonRuntime {
         let resourceRoot = try pythonResourceRoot()
         let stdlibPath = resourceRoot.appendingPathComponent("lib/python\(pythonTag)", isDirectory: true)
         let dynloadPath = stdlibPath.appendingPathComponent("lib-dynload", isDirectory: true)
+        let sitePackagesPath = stdlibPath.appendingPathComponent("site-packages", isDirectory: true)
 
         guard fileManager.fileExists(atPath: stdlibPath.path) else {
             throw AppError.invalidState(
@@ -103,6 +169,9 @@ final class EmbeddedPythonRuntime {
 
         try appendSearchPath(stdlibPath.path, to: &config)
         try appendSearchPath(dynloadPath.path, to: &config)
+        if fileManager.fileExists(atPath: sitePackagesPath.path) {
+            try appendSearchPath(sitePackagesPath.path, to: &config)
+        }
         try appendSearchPath(additionalModuleSearchPath, to: &config)
 
         try check(Py_InitializeFromConfig(&config), context: "初始化 Python 解释器")

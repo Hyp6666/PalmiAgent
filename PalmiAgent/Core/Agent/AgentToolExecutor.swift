@@ -35,11 +35,12 @@ final class AgentToolExecutor {
 
         do {
             let arguments = try ToolArguments(jsonString: toolUse.input)
+            let argumentsJSON = actionExecutor.effectiveArgumentsJSON(for: action, arguments: arguments)
             return .ready(
                 AgentPreparedToolExecution(
                     action: action,
                     arguments: arguments,
-                    argumentsJSON: arguments.normalizedJSONString()
+                    argumentsJSON: argumentsJSON
                 )
             )
         } catch {
@@ -92,7 +93,7 @@ final class AgentToolExecutor {
     }
 }
 
-private struct AgentToolPayload: Encodable {
+struct AgentToolPayload: Codable, Sendable {
     let toolName: String
     let title: String
     let status: String
@@ -111,5 +112,12 @@ private struct AgentToolPayload: Encodable {
         case requiresUserInteraction = "requires_user_interaction"
         case shareURL = "share_url"
         case argumentsJSON = "arguments_json"
+    }
+
+    static func decode(from payload: String) -> AgentToolPayload? {
+        guard let data = payload.data(using: .utf8) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(AgentToolPayload.self, from: data)
     }
 }

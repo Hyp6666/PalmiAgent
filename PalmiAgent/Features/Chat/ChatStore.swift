@@ -3,6 +3,8 @@ import Foundation
 @MainActor
 @Observable
 final class ChatStore {
+    private static let toolsEnabledDefaultsKey = "palmi.chat.tools-enabled"
+
     struct QueuedUserGuidance: Identifiable, Equatable {
         let id: UUID
         let content: String
@@ -56,6 +58,18 @@ final class ChatStore {
         !queuedUserGuidance.isEmpty
     }
 
+    private var activeProviderID: APIProviderID {
+        apiConfigurationStore.activeProviderID()
+    }
+
+    private var composerActions: [ToolAction] {
+        let toolsEnabled = UserDefaults.standard.object(forKey: Self.toolsEnabledDefaultsKey) as? Bool ?? true
+        guard toolsEnabled else {
+            return []
+        }
+        return toolPermissionStore.enabledActions(from: actions)
+    }
+
     var canSend: Bool {
         let trimmedInput = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedInput.isEmpty else { return false }
@@ -68,7 +82,7 @@ final class ChatStore {
 
     var contextCompositionSnapshot: ContextCompositionSnapshot {
         agentLoop.currentContextCompositionSnapshot(
-            actions: toolPermissionStore.enabledActions(from: actions)
+            actions: composerActions
         )
     }
 
@@ -135,8 +149,8 @@ final class ChatStore {
             do {
                 let result = try await agentLoop.runTurn(
                     userInput: text,
-                    providerID: .glm,
-                    actions: toolPermissionStore.enabledActions(from: actions)
+                    providerID: activeProviderID,
+                    actions: composerActions
                 )
 
                 if !result.finalReply.isEmpty {
@@ -173,8 +187,8 @@ final class ChatStore {
 
             do {
                 _ = try await agentLoop.forceCompactContext(
-                    providerID: .glm,
-                    actions: toolPermissionStore.enabledActions(from: actions)
+                    providerID: activeProviderID,
+                    actions: composerActions
                 )
                 persistAgentSession()
                 workspaceStore.refreshCurrentThreadContents()
@@ -197,8 +211,8 @@ final class ChatStore {
 
         do {
             _ = try await agentLoop.compactContextIfNeeded(
-                providerID: .glm,
-                actions: toolPermissionStore.enabledActions(from: actions)
+                providerID: activeProviderID,
+                actions: composerActions
             )
             persistAgentSession()
             workspaceStore.refreshCurrentThreadContents()
@@ -236,7 +250,7 @@ final class ChatStore {
             do {
                 guard let generatedTitle = try await conversationTitleService.generateTitle(
                     from: firstUserMessage,
-                    providerID: .glm
+                    providerID: activeProviderID
                 ) else {
                     return
                 }
@@ -646,6 +660,7 @@ final class ChatStore {
         retainedMessageCount: Int
     ) {
         _ = retainedMessageCount
+        _ = compactedMessageCount
         let summary = didCompact
             ? "上下文已压缩"
             : "上下文压缩未执行"
@@ -658,9 +673,7 @@ final class ChatStore {
                     content: "",
                     contextCompaction: PalmiContextCompactionNotice(
                         status: .completed,
-                        summary: didCompact && compactedMessageCount > 0
-                            ? "\(summary) · 已整理较早的 \(compactedMessageCount) 条消息"
-                            : summary,
+                        summary: summary,
                         source: source == .automatic ? .automatic : .manual
                     )
                 )
@@ -673,9 +686,7 @@ final class ChatStore {
                     content: "",
                     contextCompaction: PalmiContextCompactionNotice(
                         status: .completed,
-                        summary: didCompact && compactedMessageCount > 0
-                            ? "\(summary) · 已整理较早的 \(compactedMessageCount) 条消息"
-                            : summary,
+                        summary: summary,
                         source: source == .automatic ? .automatic : .manual
                     ),
                     turnPlacement: source == .automatic && activeSessionHeaderID != nil ? .inTurn : .standalone,

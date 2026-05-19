@@ -1,5 +1,11 @@
 import Foundation
 
+/// 档位的工具可用状态，用于 UI 徽章。
+enum TierToolingIndicator: Sendable {
+    case enabled   // 工具可用：工具图标
+    case disabled  // 工具屏蔽：工具图标 + 禁止圈
+}
+
 enum ProfessionalReasoningTier: String, CaseIterable, Identifiable, Sendable {
     case speed = "极速"
     case efficiency = "效率"
@@ -25,6 +31,16 @@ enum ProfessionalReasoningTier: String, CaseIterable, Identifiable, Sendable {
         case .infinite:
             return "尽量拉满思考深度。"
         }
+    }
+
+    /// 本档位是否在运行时屏蔽所有工具调用，用于 UI 标识。
+    var suppressesTools: Bool {
+        false
+    }
+
+    /// 档位工具可用状态徽章。
+    var toolingIndicator: TierToolingIndicator {
+        suppressesTools ? .disabled : .enabled
     }
 }
 
@@ -59,6 +75,16 @@ enum ChatReasoningTier: String, CaseIterable, Identifiable, Sendable {
             return .infinite
         }
     }
+
+    /// 本档位是否在运行时屏蔽所有工具调用，用于 UI 标识。
+    var suppressesTools: Bool {
+        mappedProfessionalTier.suppressesTools
+    }
+
+    /// 档位工具可用状态徽章。
+    var toolingIndicator: TierToolingIndicator {
+        mappedProfessionalTier.toolingIndicator
+    }
 }
 
 struct WebSearchAutoBrowseConfiguration: Sendable {
@@ -81,16 +107,8 @@ struct WebSearchAutoBrowseConfiguration: Sendable {
 }
 
 struct WebSearchStrengthConfiguration: Sendable {
-    let defaultMaxResults: Int
-    let allowedMaxResults: ClosedRange<Int>
-    let hardLimit: Int
+    let maxResults: Int
     let autoBrowse: WebSearchAutoBrowseConfiguration
-
-    func clampedMaxResults(requested: Int?) -> Int {
-        let baseline = requested ?? defaultMaxResults
-        let clampedToTier = min(max(baseline, allowedMaxResults.lowerBound), allowedMaxResults.upperBound)
-        return min(max(1, clampedToTier), hardLimit)
-    }
 }
 
 struct WebContentStrengthConfiguration: Sendable {
@@ -104,6 +122,7 @@ struct ReasoningStrengthProfile: Sendable {
 
     let professionalTier: ProfessionalReasoningTier
     let maxIterations: Int
+    let modelReasoningEffort: LLMReasoningEffort
     let contextCompaction: ContextCompactionConfiguration
     let webSearch: WebSearchStrengthConfiguration
     let webContent: WebContentStrengthConfiguration
@@ -132,48 +151,49 @@ struct ReasoningStrengthProfile: Sendable {
     }
 
     private static func profile(for tier: ProfessionalReasoningTier) -> ReasoningStrengthProfile {
-        let searchRange: ClosedRange<Int>
-        let defaultSearchResults: Int
+        let searchMaxResults: Int
         let webPageCharacters: Int
         let maxIterations: Int
+        let modelReasoningEffort: LLMReasoningEffort
         let targetSummaryTokenCount: Int
 
         switch tier {
         case .speed:
-            searchRange = 7...13
-            defaultSearchResults = 10
+            searchMaxResults = 10
             webPageCharacters = 750
             maxIterations = 30
+            modelReasoningEffort = .low
             targetSummaryTokenCount = 10_000
         case .efficiency:
-            searchRange = 18...22
-            defaultSearchResults = 20
+            searchMaxResults = 20
             webPageCharacters = 750
             maxIterations = 50
+            modelReasoningEffort = .low
             targetSummaryTokenCount = 10_000
         case .balanced:
-            searchRange = 25...35
-            defaultSearchResults = 30
+            searchMaxResults = 30
             webPageCharacters = 1_000
             maxIterations = 50
+            modelReasoningEffort = .medium
             targetSummaryTokenCount = 15_000
         case .quality:
-            searchRange = 38...42
-            defaultSearchResults = 40
+            searchMaxResults = 40
             webPageCharacters = 1_250
             maxIterations = 75
+            modelReasoningEffort = .high
             targetSummaryTokenCount = 20_000
         case .infinite:
-            searchRange = 50...50
-            defaultSearchResults = 50
+            searchMaxResults = 50
             webPageCharacters = 1_500
             maxIterations = 1_000
+            modelReasoningEffort = .xhigh
             targetSummaryTokenCount = 30_000
         }
 
         return ReasoningStrengthProfile(
             professionalTier: tier,
             maxIterations: maxIterations,
+            modelReasoningEffort: modelReasoningEffort,
             contextCompaction: ContextCompactionConfiguration(
                 maximumContextTokenCount: 200_000,
                 triggerRatio: 0.9,
@@ -184,9 +204,7 @@ struct ReasoningStrengthProfile: Sendable {
                 minimumMessagesToCompact: 1
             ),
             webSearch: WebSearchStrengthConfiguration(
-                defaultMaxResults: defaultSearchResults,
-                allowedMaxResults: searchRange,
-                hardLimit: 50,
+                maxResults: searchMaxResults,
                 autoBrowse: WebSearchAutoBrowseConfiguration(
                     isEnabled: true,
                     ratio: 0.5,

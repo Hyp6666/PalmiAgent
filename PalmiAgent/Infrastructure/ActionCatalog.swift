@@ -2,16 +2,16 @@ import Foundation
 
 enum ActionCatalog {
     static let all: [ToolAction] = [
-        .init(id: .bootstrapWorkspace, category: .workspace, title: "创建工作区", effect: "在应用沙盒里创建 ManualWorkspace 目录", details: "这是后续脚本、网页抓取和导出功能的根目录。", availability: .live),
+        .init(id: .bootstrapWorkspace, category: .workspace, title: "初始化工作区", effect: "确保当前项目或聊天的工作区已就绪", details: "如果当前工作区还不存在就创建；如果已经存在则直接复用。", availability: .live),
         .init(id: .writeFile, category: .workspace, title: "写入文件", effect: "写入任意文本文件到工作区", details: "由模型提供文件路径和内容，支持 .md、.py、.js、.txt、.json 等所有文本格式。根据文件扩展名自动推断用途。", availability: .live),
-        .init(id: .read, category: .workspace, title: "read", effect: "读取文件或目录里的可读文本", details: "支持代码、Markdown、JSON、CSV、PDF、RTF、plist、ipynb 等文本内容；图片和其他二进制会自动忽略。", availability: .live),
+        .init(id: .read, category: .workspace, title: "read", effect: "读取文件或目录里的可读文本", details: "支持代码、Markdown、JSON、CSV、PDF、RTF、plist、ipynb 等文本内容；图片和其他二进制会自动忽略。适合定位本地来源，也适合显式精读长文档；支持用 mode / focus / offset / chunk_size 控制读取范围。", availability: .live),
         .init(id: .listWorkspaceFiles, category: .workspace, title: "列出工作区文件", effect: "列出当前工作区内所有文件", details: "用于快速验证文件落盘和后续导出。", availability: .live),
         .init(id: .inspectSandboxCapabilities, category: .workspace, title: "查看沙盒能力边界", effect: "输出当前 iOS 沙盒运行时的真实上限", details: "明确哪些是可做的模拟终端，哪些是真实 shell 目前做不到。", availability: .live),
         .init(id: .runSandboxTerminal, category: .workspace, title: "运行终端脚本", effect: "执行一段受控终端脚本并生成 transcript", details: "支持多行脚本，适合单轮真实工具调用。", availability: .live),
         .init(id: .exportWorkspace, category: .workspace, title: "导出工作区", effect: "弹出系统分享面板", details: "把整个工作区目录作为文件 URL 导出。", availability: .live),
         .init(id: .runJavaScriptSandbox, category: .workspace, title: "运行脚本沙盒", effect: "用 JavaScriptCore 执行工作区里的脚本", details: "这版已经接入 workspace API，可读写文件并输出执行日志。", availability: .live),
-        .init(id: .pythonSandbox, category: .workspace, title: "Python 沙盒", effect: "执行真实 CPython 脚本并返回结果", details: "使用内嵌 CPython 3.14 运行工作区里的 Python 代码。适合数学计算、算法实验、JSON/CSV 处理和文件读写；支持常见标准库以及内置 workspace 辅助模块。不支持第三方 pip 包，也不要依赖系统进程、GUI 或长期阻塞脚本。", availability: .live),
-        .init(id: .searchWeb, category: .web, title: "网页搜索", effect: "按关键词搜索网页并返回候选 URL", details: "当前通过原生 WebKit 无感加载百度搜索结果页并提取链接；工具内部会继续预读部分命中网页正文。", availability: .live),
+        .init(id: .pythonSandbox, category: .workspace, title: "Python 沙盒", effect: "执行真实 CPython 脚本并返回结果", details: "使用内嵌 CPython 3.14 运行工作区里的 Python 代码。适合数学计算、符号推导、图算法、JSON/CSV/Excel 处理和文件读写；支持常见标准库、内置 workspace 辅助模块，以及预装纯 Python 包：\(PythonPackageCatalog.supportedImportsSentence)。\(PythonPackageCatalog.toolingSummary) 不支持 pip 即装即用、系统进程、GUI、长期阻塞脚本，以及任何未列出的第三方库（例如 \(PythonPackageCatalog.unsupportedExamplesSentence)）。", availability: .live),
+        .init(id: .searchWeb, category: .web, title: "网页搜索", effect: "按关键词搜索网页并返回候选 URL", details: "当前通过原生 WebKit 无感加载百度搜索结果页并提取链接。它负责找候选来源；需要精读时，应继续调用网页浏览或批量抓取工具。", availability: .live),
         .init(id: .fetchStaticWebPage, category: .web, title: "网页浏览", effect: "按 URL 读取网页标题与正文片段", details: "适合已知网址的单页读取，不负责搜索。", availability: .live),
         .init(id: .fetchWebBatch, category: .web, title: "批量抓取网页", effect: "并发抓取多个网页", details: "由模型传入 URL 数组并并发执行抓取，返回标题、URL、字节数和正文片段。", availability: .live),
         .init(id: .saveWebPageToWorkspace, category: .web, title: "网页结果落盘", effect: "把抓取结果保存到工作区", details: "便于后续 Agent 再加工和导出。", availability: .live),

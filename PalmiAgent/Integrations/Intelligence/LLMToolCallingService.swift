@@ -79,15 +79,18 @@ final class LLMToolCallingService {
     private let apiConfigurationStore: APIConfigurationStore
     private let session: URLSession
     private let userDefaults: UserDefaults
+    private let lmStudioDiscoveryService: LMStudioDiscoveryService
 
     init(
         apiConfigurationStore: APIConfigurationStore,
         session: URLSession = .palmiLLM,
-        userDefaults: UserDefaults = .standard
+        userDefaults: UserDefaults = .standard,
+        lmStudioDiscoveryService: LMStudioDiscoveryService = .init()
     ) {
         self.apiConfigurationStore = apiConfigurationStore
         self.session = session
         self.userDefaults = userDefaults
+        self.lmStudioDiscoveryService = lmStudioDiscoveryService
     }
 
     func runSession(
@@ -106,8 +109,12 @@ final class LLMToolCallingService {
         }
 
         let configuration = try apiConfigurationStore.resolvedConfiguration(for: providerID)
+        let resolvedSessionModel = try await resolvedRequestModel(
+            for: configuration,
+            role: .reasoningModel
+        )
         let toolDefinitions = actions.map(makeToolDefinition(for:))
-        var messages: [ChatMessage] = [
+        var messages: [OpenAIChatMessage] = [
             .system(systemPrompt(toolCount: actions.count, includesPythonSandbox: actions.contains(where: { $0.id == .pythonSandbox }))),
             .user(trimmedPrompt)
         ]
@@ -205,8 +212,8 @@ final class LLMToolCallingService {
         return LLMToolSession(
             providerID: configuration.provider.id,
             providerTitle: configuration.provider.title,
-            modelID: configuration.selectedModel.id,
-            modelTitle: configuration.selectedModel.title,
+            modelID: resolvedSessionModel.id,
+            modelTitle: resolvedSessionModel.title,
             userPrompt: trimmedPrompt,
             planningReply: planningReply,
             assistantReply: finalReply,
@@ -219,28 +226,47 @@ final class LLMToolCallingService {
 
     private func createChatCompletion(
         configuration: APIResolvedConfiguration,
-        messages: [ChatMessage],
-        tools: [ChatToolDefinition]
-    ) async throws -> ChatCompletionResponse {
+        messages: [OpenAIChatMessage],
+        tools: [OpenAIChatToolDefinition]
+    ) async throws -> OpenAIChatCompletionResponse {
         guard configuration.provider.transport == .openAICompatibleChatCompletions else {
             throw AppError.unsupported("当前 provider 的传输协议还没有接入。")
         }
 
-        let requestBody = ChatCompletionRequest(
-            model: configuration.selectedModel.id,
-            messages: messages,
+        let resolvedModel = try await resolvedRequestModel(
+            for: configuration,
+            role: .reasoningModel
+        )
+        let requestMessages = normalizedRequestMessages(
+            from: messages,
+            for: configuration.provider.id
+        )
+        let runtimeProfile = LLMProviderRuntimeResolver.runtimeProfile(
+            for: configuration,
+            model: resolvedModel,
+            preferredReasoning: .auto
+        )
+
+        let requestBody = OpenAICompatibleChatAdapter.makeRequestBody(
+            model: resolvedModel.id,
+            messages: requestMessages,
             tools: tools.isEmpty ? nil : tools,
             toolChoice: tools.isEmpty ? nil : "auto",
             temperature: resolvedInteractiveTemperature(),
-            stream: nil
+            stream: nil,
+            runtimeProfile: runtimeProfile
         )
 
-        let endpoint = configuration.baseURL.appendingPathComponent("chat/completions")
+        let endpoint = OpenAICompatibleChatAdapter.chatCompletionsURL(
+            for: configuration.baseURL,
+            providerID: configuration.provider.id
+        )
         var request = URLRequest(url: endpoint, timeoutInterval: LLMHTTPTransport.defaultTimeoutInterval)
         request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("Bearer \(configuration.apiKey)", forHTTPHeaderField: "Authorization")
+        applyHeaders(
+            OpenAICompatibleChatAdapter.headers(for: runtimeProfile, acceptsStreaming: false),
+            to: &request
+        )
         request.httpBody = try JSONEncoder().encode(requestBody)
 
         let transportResponse: LLMHTTPResponse
@@ -253,21 +279,29 @@ final class LLMToolCallingService {
                     makeServiceError(
                         statusCode: statusCode,
                         data: data,
-                        accessMode: configuration.accessMode
+                        configuration: configuration
                     ),
                     attempts: attempts
                 )
             case .invalidHTTPResponse(let attempts):
                 throw AppError.operationFailed(retryAnnotatedMessage("模型服务没有返回有效的 HTTP 响应。", attempts: attempts))
             case .transport(let underlyingError, let attempts):
-                throw AppError.operationFailed(retryAnnotatedMessage(transportErrorMessage(for: underlyingError), attempts: attempts))
+                throw AppError.operationFailed(
+                    retryAnnotatedMessage(
+                        transportErrorMessage(
+                            for: underlyingError,
+                            provider: configuration.provider
+                        ),
+                        attempts: attempts
+                    )
+                )
             }
         }
 
         let data = transportResponse.data
 
         do {
-            return try JSONDecoder().decode(ChatCompletionResponse.self, from: data)
+            return try JSONDecoder().decode(OpenAIChatCompletionResponse.self, from: data)
         } catch {
             let payload = String(decoding: data, as: UTF8.self)
             throw AppError.operationFailed("模型响应解析失败。\n\(payload)")
@@ -277,7 +311,7 @@ final class LLMToolCallingService {
     /// Streaming version — used for the final summary reply (no tools).
     private func createStreamingChatCompletion(
         configuration: APIResolvedConfiguration,
-        messages: [ChatMessage],
+        messages: [OpenAIChatMessage],
         onDelta: @escaping @MainActor (String) -> Void,
         onTokenEstimate: (@MainActor (Int) -> Void)? = nil
     ) async throws -> (content: String, totalTokens: Int) {
@@ -285,24 +319,43 @@ final class LLMToolCallingService {
             throw AppError.unsupported("当前 provider 的传输协议还没有接入。")
         }
 
-        let requestBody = ChatCompletionRequest(
-            model: configuration.selectedModel.id,
-            messages: messages,
+        let resolvedModel = try await resolvedRequestModel(
+            for: configuration,
+            role: .reasoningModel
+        )
+        let requestMessages = normalizedRequestMessages(
+            from: messages,
+            for: configuration.provider.id
+        )
+        let runtimeProfile = LLMProviderRuntimeResolver.runtimeProfile(
+            for: configuration,
+            model: resolvedModel,
+            preferredReasoning: .auto
+        )
+
+        let requestBody = OpenAICompatibleChatAdapter.makeRequestBody(
+            model: resolvedModel.id,
+            messages: requestMessages,
             tools: nil,
             toolChoice: nil,
             temperature: resolvedInteractiveTemperature(),
-            stream: true
+            stream: true,
+            runtimeProfile: runtimeProfile
         )
 
-        let endpoint = configuration.baseURL.appendingPathComponent("chat/completions")
+        let endpoint = OpenAICompatibleChatAdapter.chatCompletionsURL(
+            for: configuration.baseURL,
+            providerID: configuration.provider.id
+        )
         var request = URLRequest(url: endpoint, timeoutInterval: LLMHTTPTransport.defaultTimeoutInterval)
         request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        request.setValue("Bearer \(configuration.apiKey)", forHTTPHeaderField: "Authorization")
+        applyHeaders(
+            OpenAICompatibleChatAdapter.headers(for: runtimeProfile, acceptsStreaming: true),
+            to: &request
+        )
         request.httpBody = try JSONEncoder().encode(requestBody)
 
-        let promptEstimate = approximatePromptTokenCount(for: messages)
+        let promptEstimate = approximatePromptTokenCount(for: requestMessages)
         onTokenEstimate?(promptEstimate)
 
         let progressState = StreamingReplyState()
@@ -328,19 +381,27 @@ final class LLMToolCallingService {
                     makeServiceError(
                         statusCode: statusCode,
                         data: data,
-                        accessMode: configuration.accessMode
+                        configuration: configuration
                     ),
                     attempts: attempts
                 )
             case .invalidHTTPResponse(let attempts):
                 throw AppError.operationFailed(retryAnnotatedMessage("模型服务没有返回有效的 HTTP 响应。", attempts: attempts))
             case .transport(let underlyingError, let attempts):
-                throw AppError.operationFailed(retryAnnotatedMessage(transportErrorMessage(for: underlyingError), attempts: attempts))
+                throw AppError.operationFailed(
+                    retryAnnotatedMessage(
+                        transportErrorMessage(
+                            for: underlyingError,
+                            provider: configuration.provider
+                        ),
+                        attempts: attempts
+                    )
+                )
             }
         }
     }
 
-    private func reportedTokenCount(from usage: ChatUsage?) -> Int {
+    private func reportedTokenCount(from usage: OpenAIChatUsage?) -> Int {
         if let totalTokens = usage?.totalTokens {
             return totalTokens
         }
@@ -350,22 +411,113 @@ final class LLMToolCallingService {
         return usage?.completionTokens ?? 0
     }
 
-    private func approximatePromptTokenCount(for messages: [ChatMessage]) -> Int {
-        messages.reduce(into: 0) { partialResult, message in
-            var serialized = message.role
-            if let content = message.content {
-                serialized += "\n\(content)"
-            }
-            if let toolCallID = message.toolCallID {
-                serialized += "\n\(toolCallID)"
-            }
-            if let toolCalls = message.toolCalls {
-                for toolCall in toolCalls {
-                    serialized += "\n\(toolCall.id)\n\(toolCall.function.name)\n\(toolCall.function.arguments)"
-                }
-            }
-            partialResult += ApproximateTokenCounter.estimate(serialized) + 4
+    private func approximatePromptTokenCount(for messages: [OpenAIChatMessage]) -> Int {
+        ApproximateTokenCounter.estimate(chatMessages: messages)
+    }
+
+    private func normalizedRequestMessages(
+        from messages: [OpenAIChatMessage],
+        for providerID: APIProviderID
+    ) -> [OpenAIChatMessage] {
+        guard providerID == .lmstudio else {
+            return messages
         }
+
+        var mergedSystemParts: [String] = []
+        var conversationMessages: [OpenAIChatMessage] = []
+
+        for message in messages {
+            if message.role == "system" {
+                let content = message.content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !content.isEmpty {
+                    mergedSystemParts.append(content)
+                }
+            } else {
+                conversationMessages.append(message)
+            }
+        }
+
+        let systemPrompt = mergedSystemParts.joined(separator: "\n\n")
+
+        guard conversationMessages.contains(where: { $0.role == "assistant" || $0.role == "tool" }) else {
+            guard !systemPrompt.isEmpty else {
+                return conversationMessages
+            }
+            return [.system(systemPrompt)] + conversationMessages
+        }
+
+        let compatibilityPrompt = lmStudioCompatibilityPrompt(from: conversationMessages)
+        guard !systemPrompt.isEmpty else {
+            return [.user(compatibilityPrompt)]
+        }
+        return [.system(systemPrompt), .user(compatibilityPrompt)]
+    }
+
+    private func lmStudioCompatibilityPrompt(from messages: [OpenAIChatMessage]) -> String {
+        let transcript = messages
+            .map(formatLMStudioTranscriptEntry)
+            .joined(separator: "\n\n")
+
+        if let latestUserMessage = messages.last(where: { $0.role == "user" })?.content?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !latestUserMessage.isEmpty {
+            return """
+            以下是已经发生的对话和执行记录，请把它们当作上下文，不要逐字复述给用户。
+
+            \(transcript)
+
+            当前需要你直接响应的最新用户消息是：
+            \(latestUserMessage)
+            """
+        }
+
+        return """
+        以下是已经发生的对话和执行记录，请把它们当作上下文，不要逐字复述给用户。
+
+        \(transcript)
+
+        当前没有新的用户消息。请基于上面的上下文继续完成当前回复。
+        """
+    }
+
+    private func formatLMStudioTranscriptEntry(_ message: OpenAIChatMessage) -> String {
+        let roleTitle: String
+        switch message.role {
+        case "user":
+            roleTitle = "用户"
+        case "assistant":
+            roleTitle = "助手"
+        case "tool":
+            roleTitle = "工具结果"
+        default:
+            roleTitle = message.role
+        }
+
+        var sections: [String] = []
+        let content = message.content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !content.isEmpty {
+            sections.append(content)
+        }
+
+        if let toolCalls = message.toolCalls, !toolCalls.isEmpty {
+            let toolLines = toolCalls.map { toolCall in
+                """
+                - \(toolCall.function.name)
+                参数：\(toolCall.function.arguments)
+                """
+            }
+            sections.append("工具调用：\n" + toolLines.joined(separator: "\n"))
+        }
+
+        if let toolCallID = message.toolCallID, !toolCallID.isEmpty {
+            sections.append("tool_call_id: \(toolCallID)")
+        }
+
+        if sections.isEmpty {
+            sections.append("（空）")
+        }
+
+        return "\(roleTitle)：\n" + sections.joined(separator: "\n")
     }
 
     private func resolvedInteractiveTemperature() -> Double {
@@ -373,10 +525,23 @@ final class LLMToolCallingService {
             .requestTemperature(from: userDefaults)
     }
 
-    private func makeToolDefinition(for action: ToolAction) -> ChatToolDefinition {
+    private func resolvedRequestModel(
+        for configuration: APIResolvedConfiguration,
+        role: APIModelRole
+    ) async throws -> APIModelDefinition {
+        guard configuration.provider.id == .lmstudio else {
+            return configuration.model(for: role)
+        }
+
+        return try await lmStudioDiscoveryService
+            .resolvePreferredModel(for: role, configuration: configuration)
+            .model
+    }
+
+    private func makeToolDefinition(for action: ToolAction) -> OpenAIChatToolDefinition {
         let definition = LLMToolDefinitionBuilder.makeToolDefinition(for: action)
-        return ChatToolDefinition(
-            function: ChatFunctionDefinition(
+        return OpenAIChatToolDefinition(
+            function: OpenAIChatFunctionDefinition(
                 name: definition.function.name,
                 description: definition.function.description,
                 parameters: definition.function.parameters
@@ -434,7 +599,8 @@ final class LLMToolCallingService {
         Python 沙盒特别规则：
         - 它是真实的 CPython 3.14 运行时。
         - 如果你要调用 Python 沙盒，优先使用标准库和内置 `workspace` 模块。
-        - 避免 pip 第三方包、系统进程、GUI、长期阻塞任务。
+        - \(PythonPackageCatalog.promptSummary)
+        - 避免 pip 动态装包、系统进程、GUI、长期阻塞任务。
         """ : ""
 
         return """
@@ -460,32 +626,49 @@ final class LLMToolCallingService {
     private func makeServiceError(
         statusCode: Int,
         data: Data,
-        accessMode: APIAccessModeDefinition
+        configuration: APIResolvedConfiguration
     ) -> AppError {
         let rawPayload = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        let providerTitle = configuration.provider.title
 
-        if let envelope = try? JSONDecoder().decode(GLMErrorEnvelope.self, from: data) {
+        if let envelope = try? JSONDecoder().decode(OpenAICompatibleErrorEnvelope.self, from: data) {
             let code = envelope.error.code ?? ""
             let message = envelope.error.message?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "未知错误。"
 
-            switch (statusCode, code) {
-            case (429, "1113"):
-                if accessMode.id == .codingPlan {
-                    return .operationFailed("GLM 调用失败：当前走的是 Coding Plan 链路，服务端返回 1113。请优先检查 3 件事：1）是否使用了 Coding 专属端点；2）是否选择了 Coding Plan 支持的模型；3）该调用场景是否被智谱视为受支持的 Coding 工具链路。")
+            if configuration.provider.id == .glm {
+                switch (statusCode, code) {
+                case (429, "1113"):
+                    if configuration.accessMode.id == .codingPlan {
+                        return .operationFailed("GLM 调用失败：当前走的是 Coding Plan 链路，服务端返回 1113。请优先检查 3 件事：1）是否使用了 Coding 专属端点；2）是否选择了 Coding Plan 支持的模型；3）该调用场景是否被智谱视为受支持的 Coding 工具链路。")
+                    }
+                    return .operationFailed("GLM 调用失败：当前走的是标准 API 链路，服务端返回 1113，表示这个 API Key 在标准 API 侧余额不足或没有可用资源包。即使你在其他客户端里能正常使用，也不代表标准 API 侧一定有可用额度。")
+                case (401, _):
+                    return .operationFailed("GLM 调用失败：API Key 无效、过期，或没有访问当前模型的权限。")
+                case (403, _):
+                    return .operationFailed("GLM 调用失败：当前 Key 没有权限访问这个模型或接口。")
+                case (429, _):
+                    return .operationFailed("GLM 调用失败：请求过于频繁或账号配额已触发限制。\n服务端信息：\(message)")
+                default:
+                    return .operationFailed("GLM 调用失败：HTTP \(statusCode)\n服务端信息：\(message)")
                 }
-                return .operationFailed("GLM 调用失败：当前走的是标准 API 链路，服务端返回 1113，表示这个 API Key 在标准 API 侧余额不足或没有可用资源包。即使你在其他客户端里能正常使用，也不代表标准 API 侧一定有可用额度。")
-            case (401, _):
-                return .operationFailed("GLM 调用失败：API Key 无效、过期，或没有访问当前模型的权限。")
-            case (403, _):
-                return .operationFailed("GLM 调用失败：当前 Key 没有权限访问这个模型或接口。")
-            case (429, _):
-                return .operationFailed("GLM 调用失败：请求过于频繁或账号配额已触发限制。\n服务端信息：\(message)")
+            }
+
+            switch statusCode {
+            case 401:
+                if configuration.provider.id == .lmstudio {
+                    return .operationFailed("LM Studio 调用失败：当前服务端开启了 Require Authentication，请在配置里填写 API Token。")
+                }
+                return .operationFailed("\(providerTitle) 调用失败：API Key 无效、过期，或没有访问当前模型的权限。")
+            case 403:
+                return .operationFailed("\(providerTitle) 调用失败：当前凭据没有权限访问这个模型或接口。")
+            case 429:
+                return .operationFailed("\(providerTitle) 调用失败：请求过于频繁或额度受限。\n服务端信息：\(message)")
             default:
-                return .operationFailed("GLM 调用失败：HTTP \(statusCode)\n服务端信息：\(message)")
+                return .operationFailed("\(providerTitle) 调用失败：HTTP \(statusCode)\n服务端信息：\(message)")
             }
         }
 
-        return .operationFailed("GLM 调用失败：HTTP \(statusCode)\n\(rawPayload)")
+        return .operationFailed("\(providerTitle) 调用失败：HTTP \(statusCode)\n\(rawPayload)")
     }
 
     private func annotateRetryContext(_ error: AppError, attempts: Int) -> AppError {
@@ -499,22 +682,31 @@ final class LLMToolCallingService {
         return "\(baseMessage)\n已自动重试 \(attempts - 1) 次。"
     }
 
-    private func transportErrorMessage(for error: Error) -> String {
+    private func transportErrorMessage(for error: Error, provider: APIProviderDefinition) -> String {
         guard let urlError = error as? URLError else {
-            return "GLM 调用失败：网络请求异常。\n\(error.localizedDescription)"
+            return "\(provider.title) 调用失败：网络请求异常。\n\(error.localizedDescription)"
         }
 
         switch urlError.code {
         case .timedOut:
-            return "GLM 调用失败：请求超时，服务端在限定时间内没有返回结果。"
+            return "\(provider.title) 调用失败：请求超时，服务端在限定时间内没有返回结果。"
         case .networkConnectionLost:
-            return "GLM 调用失败：网络连接在请求过程中断开。"
+            return "\(provider.title) 调用失败：网络连接在请求过程中断开。"
         case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed:
-            return "GLM 调用失败：当前无法连接模型服务。"
+            if provider.id == .lmstudio {
+                return "LM Studio 调用失败：当前无法连接已配对的局域网服务器。请确认目标设备已启动服务并保持在同一网络。"
+            }
+            return "\(provider.title) 调用失败：当前无法连接模型服务。"
         case .notConnectedToInternet:
-            return "GLM 调用失败：当前没有可用网络连接。"
+            return "\(provider.title) 调用失败：当前没有可用网络连接。"
         default:
-            return "GLM 调用失败：网络请求异常。\n\(urlError.localizedDescription)"
+            return "\(provider.title) 调用失败：网络请求异常。\n\(urlError.localizedDescription)"
+        }
+    }
+
+    private func applyHeaders(_ headers: [String: String], to request: inout URLRequest) {
+        for (field, value) in headers {
+            request.setValue(value, forHTTPHeaderField: field)
         }
     }
 }
@@ -523,13 +715,16 @@ final class LLMToolCallingService {
 final class APIConnectionValidationService {
     private let apiConfigurationStore: APIConfigurationStore
     private let session: URLSession
+    private let lmStudioDiscoveryService: LMStudioDiscoveryService
 
     init(
         apiConfigurationStore: APIConfigurationStore,
-        session: URLSession = .palmiLLM
+        session: URLSession = .palmiLLM,
+        lmStudioDiscoveryService: LMStudioDiscoveryService = .init()
     ) {
         self.apiConfigurationStore = apiConfigurationStore
         self.session = session
+        self.lmStudioDiscoveryService = lmStudioDiscoveryService
     }
 
     func validateConnection(
@@ -538,23 +733,36 @@ final class APIConnectionValidationService {
         role: APIModelRole
     ) async throws -> APIModelDefinition {
         let configuration = try apiConfigurationStore.resolvedConfiguration(for: providerID, profileID: profileID)
-        let model = configuration.model(for: role)
+        let model = try await resolvedRequestModel(for: configuration, role: role)
+        if model.id == APIModelSelection.noneMultimodalID {
+            return model
+        }
+        let runtimeProfile = LLMProviderRuntimeResolver.runtimeProfile(
+            for: configuration,
+            model: model,
+            preferredReasoning: .off
+        )
 
-        let requestBody = ChatCompletionRequest(
+        let requestBody = OpenAICompatibleChatAdapter.makeRequestBody(
             model: model.id,
             messages: [.user("你好")],
             tools: nil,
             toolChoice: nil,
             temperature: 0,
-            stream: nil
+            stream: nil,
+            runtimeProfile: runtimeProfile
         )
 
-        let endpoint = configuration.baseURL.appendingPathComponent("chat/completions")
+        let endpoint = OpenAICompatibleChatAdapter.chatCompletionsURL(
+            for: configuration.baseURL,
+            providerID: configuration.provider.id
+        )
         var request = URLRequest(url: endpoint, timeoutInterval: LLMHTTPTransport.defaultTimeoutInterval)
         request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("Bearer \(configuration.apiKey)", forHTTPHeaderField: "Authorization")
+        applyHeaders(
+            OpenAICompatibleChatAdapter.headers(for: runtimeProfile, acceptsStreaming: false),
+            to: &request
+        )
         request.httpBody = try JSONEncoder().encode(requestBody)
 
         do {
@@ -566,7 +774,7 @@ final class APIConnectionValidationService {
                     makeValidationError(
                         statusCode: statusCode,
                         data: data,
-                        accessMode: configuration.accessMode,
+                        configuration: configuration,
                         role: role,
                         model: model
                     ),
@@ -575,7 +783,15 @@ final class APIConnectionValidationService {
             case .invalidHTTPResponse(let attempts):
                 throw AppError.operationFailed(validationRetryMessage("联通验证失败：模型服务没有返回有效的 HTTP 响应。", attempts: attempts))
             case .transport(let underlyingError, let attempts):
-                throw AppError.operationFailed(validationRetryMessage(validationTransportErrorMessage(for: underlyingError), attempts: attempts))
+                throw AppError.operationFailed(
+                    validationRetryMessage(
+                        validationTransportErrorMessage(
+                            for: underlyingError,
+                            provider: configuration.provider
+                        ),
+                        attempts: attempts
+                    )
+                )
             }
         }
 
@@ -585,25 +801,41 @@ final class APIConnectionValidationService {
     private func makeValidationError(
         statusCode: Int,
         data: Data,
-        accessMode: APIAccessModeDefinition,
+        configuration: APIResolvedConfiguration,
         role: APIModelRole,
         model: APIModelDefinition
     ) -> AppError {
-        let rawPayload = String(decoding: data, as: UTF8.self)
-        if let envelope = try? JSONDecoder().decode(GLMErrorEnvelope.self, from: data) {
+        let rawPayload = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        if let envelope = try? JSONDecoder().decode(OpenAICompatibleErrorEnvelope.self, from: data) {
             let code = envelope.error.code ?? "unknown"
-            let message = envelope.error.message ?? rawPayload
+            let message = envelope.error.message?.trimmingCharacters(in: .whitespacesAndNewlines) ?? rawPayload
 
-            switch (statusCode, code) {
-            case (401, _):
-                return .operationFailed("\(role.title) 未联通：API Key 无效、过期，或没有访问 \(model.title) 的权限。")
-            case (403, _):
-                return .operationFailed("\(role.title) 未联通：当前 Key 没有权限访问 \(model.title)。")
-            case (429, "1113") where accessMode.id == .codingPlan:
-                return .operationFailed("\(role.title) 未联通：Coding Plan 端点当前不接受 \(model.title)，或套餐额度/模型权限不匹配。")
-            case (429, "1113"):
-                return .operationFailed("\(role.title) 未联通：标准 API 侧额度不足，或 \(model.title) 当前不可用。")
-            case (429, _):
+            if configuration.provider.id == .glm {
+                switch (statusCode, code) {
+                case (401, _):
+                    return .operationFailed("\(role.title) 未联通：API Key 无效、过期，或没有访问 \(model.title) 的权限。")
+                case (403, _):
+                    return .operationFailed("\(role.title) 未联通：当前 Key 没有权限访问 \(model.title)。")
+                case (429, "1113") where configuration.accessMode.id == .codingPlan:
+                    return .operationFailed("\(role.title) 未联通：Coding Plan 端点当前不接受 \(model.title)，或套餐额度/模型权限不匹配。")
+                case (429, "1113"):
+                    return .operationFailed("\(role.title) 未联通：标准 API 侧额度不足，或 \(model.title) 当前不可用。")
+                case (429, _):
+                    return .operationFailed("\(role.title) 未联通：请求频率或配额受限。")
+                default:
+                    return .operationFailed("\(role.title) 未联通：HTTP \(statusCode) - \(message)")
+                }
+            }
+
+            switch statusCode {
+            case 401:
+                if configuration.provider.id == .lmstudio {
+                    return .operationFailed("\(role.title) 未联通：LM Studio 已开启鉴权，请填写 API Token 后重试。")
+                }
+                return .operationFailed("\(role.title) 未联通：凭据无效，或没有访问 \(model.title) 的权限。")
+            case 403:
+                return .operationFailed("\(role.title) 未联通：当前凭据没有权限访问 \(model.title)。")
+            case 429:
                 return .operationFailed("\(role.title) 未联通：请求频率或配额受限。")
             default:
                 return .operationFailed("\(role.title) 未联通：HTTP \(statusCode) - \(message)")
@@ -624,7 +856,7 @@ final class APIConnectionValidationService {
         return "\(baseMessage)\n已自动重试 \(attempts - 1) 次。"
     }
 
-    private func validationTransportErrorMessage(for error: Error) -> String {
+    private func validationTransportErrorMessage(for error: Error, provider: APIProviderDefinition) -> String {
         guard let urlError = error as? URLError else {
             return "联通验证失败：网络请求异常。\n\(error.localizedDescription)"
         }
@@ -635,11 +867,33 @@ final class APIConnectionValidationService {
         case .networkConnectionLost:
             return "联通验证失败：网络连接在请求过程中断开。"
         case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed:
+            if provider.id == .lmstudio {
+                return "联通验证失败：当前无法连接已配对的 LM Studio 局域网服务器。"
+            }
             return "联通验证失败：当前无法连接模型服务。"
         case .notConnectedToInternet:
             return "联通验证失败：当前没有可用网络连接。"
         default:
             return "联通验证失败：网络请求异常。\n\(urlError.localizedDescription)"
+        }
+    }
+
+    private func resolvedRequestModel(
+        for configuration: APIResolvedConfiguration,
+        role: APIModelRole
+    ) async throws -> APIModelDefinition {
+        guard configuration.provider.id == .lmstudio else {
+            return configuration.model(for: role)
+        }
+
+        return try await lmStudioDiscoveryService
+            .resolvePreferredModel(for: role, configuration: configuration)
+            .model
+    }
+
+    private func applyHeaders(_ headers: [String: String], to request: inout URLRequest) {
+        for (field, value) in headers {
+            request.setValue(value, forHTTPHeaderField: field)
         }
     }
 }
@@ -666,119 +920,7 @@ private struct ToolPayload: Encodable {
     }
 }
 
-private struct ChatCompletionRequest: Encodable {
-    let model: String
-    let messages: [ChatMessage]
-    let tools: [ChatToolDefinition]?
-    let toolChoice: String?
-    let temperature: Double
-    let stream: Bool?
-
-    enum CodingKeys: String, CodingKey {
-        case model
-        case messages
-        case tools
-        case toolChoice = "tool_choice"
-        case temperature
-        case stream
-    }
-}
-
 @MainActor
 private final class StreamingReplyState {
     var content = ""
-}
-
-private struct ChatCompletionResponse: Decodable {
-    let choices: [ChatChoice]
-    let usage: ChatUsage?
-}
-
-private struct ChatChoice: Decodable {
-    let message: ChatResponseMessage
-}
-
-private struct ChatUsage: Decodable {
-    let promptTokens: Int?
-    let completionTokens: Int?
-    let totalTokens: Int?
-
-    enum CodingKeys: String, CodingKey {
-        case promptTokens = "prompt_tokens"
-        case completionTokens = "completion_tokens"
-        case totalTokens = "total_tokens"
-    }
-}
-
-private struct ChatResponseMessage: Decodable {
-    let role: String
-    let content: String?
-    let toolCalls: [ChatToolCall]?
-
-    enum CodingKeys: String, CodingKey {
-        case role
-        case content
-        case toolCalls = "tool_calls"
-    }
-}
-
-private struct ChatMessage: Encodable {
-    let role: String
-    let content: String?
-    let toolCalls: [ChatToolCall]?
-    let toolCallID: String?
-
-    static func system(_ content: String) -> ChatMessage {
-        ChatMessage(role: "system", content: content, toolCalls: nil, toolCallID: nil)
-    }
-
-    static func user(_ content: String) -> ChatMessage {
-        ChatMessage(role: "user", content: content, toolCalls: nil, toolCallID: nil)
-    }
-
-    static func assistant(_ content: String?, toolCalls: [ChatToolCall]?) -> ChatMessage {
-        ChatMessage(role: "assistant", content: content, toolCalls: toolCalls, toolCallID: nil)
-    }
-
-    static func tool(_ content: String, toolCallID: String) -> ChatMessage {
-        ChatMessage(role: "tool", content: content, toolCalls: nil, toolCallID: toolCallID)
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case role
-        case content
-        case toolCalls = "tool_calls"
-        case toolCallID = "tool_call_id"
-    }
-}
-
-private struct ChatToolDefinition: Encodable {
-    let type = "function"
-    let function: ChatFunctionDefinition
-}
-
-private struct ChatFunctionDefinition: Encodable {
-    let name: String
-    let description: String
-    let parameters: JSONValue
-}
-
-private struct ChatToolCall: Codable {
-    let id: String
-    let type: String
-    let function: ChatToolFunction
-}
-
-private struct ChatToolFunction: Codable {
-    let name: String
-    let arguments: String
-}
-
-private struct GLMErrorEnvelope: Decodable {
-    let error: GLMErrorBody
-}
-
-private struct GLMErrorBody: Decodable {
-    let code: String?
-    let message: String?
 }

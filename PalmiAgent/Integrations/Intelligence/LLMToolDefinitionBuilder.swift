@@ -1,11 +1,12 @@
 import Foundation
 
+@MainActor
 enum LLMToolDefinitionBuilder {
-    nonisolated static func makeToolDefinitions(for actions: [ToolAction]) -> [OpenAIChatToolDefinition] {
+    static func makeToolDefinitions(for actions: [ToolAction]) -> [OpenAIChatToolDefinition] {
         actions.map(makeToolDefinition(for:))
     }
 
-    nonisolated static func makeToolDefinition(for action: ToolAction) -> OpenAIChatToolDefinition {
+    static func makeToolDefinition(for action: ToolAction) -> OpenAIChatToolDefinition {
         OpenAIChatToolDefinition(
             function: OpenAIChatFunctionDefinition(
                 name: action.id.rawValue,
@@ -15,7 +16,7 @@ enum LLMToolDefinitionBuilder {
         )
     }
 
-    nonisolated private static func toolDescription(for action: ToolAction) -> String {
+    private static func toolDescription(for action: ToolAction) -> String {
         var lines = [
             "[\(action.category.title)] \(action.title)：\(action.effect)",
             action.details
@@ -32,7 +33,7 @@ enum LLMToolDefinitionBuilder {
         return lines.joined(separator: "\n")
     }
 
-    nonisolated private static func routingHint(for actionID: ToolActionID) -> String? {
+    private static func routingHint(for actionID: ToolActionID) -> String? {
         switch actionID {
         case .pythonSandbox:
             return "只在用户明确需要编写/运行 Python，或你已经拿到了完整输入数据且需要计算/转换时使用。不要用它替代闹钟、地图、通知、短信、日历、联系人或网页搜索，也不要用它编造现实世界数据。"
@@ -45,7 +46,9 @@ enum LLMToolDefinitionBuilder {
         case .requestLocation:
             return "仅当任务真的依赖当前位置时再调用，不要把定位当默认第一步；但如果用户说这里、附近、我这、离我最近、本地等明显依赖当前位置的表达，就应优先先定位。"
         case .searchWeb:
-            return "涉及当前事实、票价、时刻表、在线信息时优先考虑它，而不是 Python。做综合调研时不要默认只搜 5 条，优先请求 20 到 50 条结果。"
+            return "涉及当前事实、票价、时刻表、在线信息时优先考虑它，而不是 Python。它负责找候选来源；拿到候选后，请显式调用网页浏览工具精读关键网页。只需要给出查询词，搜索结果数会按当前推理强度固定生效。"
+        case .read:
+            return "适合读取工作区内文件或目录里的可读文本。长文档和多文件目录优先围绕当前目标抽取关键事实，不要把整批长文一次性当作最终证据；需要定点阅读时，使用 mode、focus、offset、chunk_size 控制读取范围。"
         case .openMapsRoute:
             return "它只负责打开 Apple 地图展示地点或路线，不提供跨城交通方案优化、实时票价或时刻表计算。"
         case .sendLocalNotification:
@@ -55,7 +58,7 @@ enum LLMToolDefinitionBuilder {
         }
     }
 
-    nonisolated static func toolParametersSchema(for action: ToolAction) -> JSONValue {
+    static func toolParametersSchema(for action: ToolAction) -> JSONValue {
         switch action.id {
         case .bootstrapWorkspace:
             return ToolJSONSchema.object(
@@ -76,6 +79,11 @@ enum LLMToolDefinitionBuilder {
                 properties: [
                     "path": ToolJSONSchema.string(description: "必填。要读取的文件或目录相对路径。"),
                     "recursive": ToolJSONSchema.bool(description: "可选。读取目录时是否递归展开，默认 true。"),
+                    "mode": ToolJSONSchema.string(description: "可选。读取模式。`auto` 默认；`head` 读开头；`tail` 读结尾；`chunk` 从 offset 开始读一段；`section` 围绕 focus 读相关片段；`abstract` 优先提取摘要/概要段。", enumValues: WorkspaceReadMode.allCases.map(\.rawValue)),
+                    "offset": ToolJSONSchema.integer(description: "可选。`chunk` 模式下从第几个字符开始读取，默认 0。"),
+                    "chunk_size": ToolJSONSchema.integer(description: "可选。单次返回的目标字符数。未传时使用 max_chars 或当前剩余额度。"),
+                    "focus": ToolJSONSchema.string(description: "可选。`section` 或 `auto` 模式下围绕该关键词/主题提取相关片段。"),
+                    "query": ToolJSONSchema.string(description: "可选。`focus` 的同义参数，便于按当前研究问题抽取相关片段。"),
                     "max_chars": ToolJSONSchema.integer(description: "可选。总输出最大字符数，默认 20000。"),
                     "max_files": ToolJSONSchema.integer(description: "可选。读取目录时最多展开多少个文件，默认 64。")
                 ],
@@ -121,29 +129,26 @@ enum LLMToolDefinitionBuilder {
                     "script": ToolJSONSchema.string(description: "可选。直接执行的内联 Python 源码。和 script_path 二选一。"),
                     "save_to": ToolJSONSchema.string(description: "可选。执行内联 Python 时，先保存到工作区的相对路径。")
                 ],
-                description: "执行真实 CPython 3.14 脚本。优先使用标准库和内置 workspace 模块，适合算法、数据处理和工作区文件读写；不要依赖 pip 第三方包、系统进程、GUI 或长期阻塞任务。"
+                description: "执行真实 CPython 3.14 脚本。优先使用标准库、内置 workspace 模块和以下预装纯 Python 包：\(PythonPackageCatalog.supportedImportsSentence)。\(PythonPackageCatalog.toolingSummary) 不要依赖 pip 动态装包、系统进程、GUI、长期阻塞任务或任何未列出的第三方库。"
             )
         case .searchWeb:
             return ToolJSONSchema.object(
                 properties: [
-                    "query": ToolJSONSchema.string(description: "必填。要搜索的关键词或自然语言查询。"),
-                    "max_results": ToolJSONSchema.integer(description: "可选。最多返回多少条搜索结果；未填写时跟随当前推理强度，执行时也会按当前强度范围夹逼。搜索结果返回后，工具会自动预读一部分命中网页。")
+                    "query": ToolJSONSchema.string(description: "必填。要搜索的关键词或自然语言查询。搜索结果数与自动预读范围会按当前推理强度固定生效。")
                 ],
                 required: ["query"]
             )
         case .fetchStaticWebPage:
             return ToolJSONSchema.object(
                 properties: [
-                    "url": ToolJSONSchema.string(description: "必填。要抓取的网页 URL。", format: "uri"),
-                    "max_chars": ToolJSONSchema.integer(description: "可选。正文片段的最大字符数；未填写时跟随当前推理强度。")
+                    "url": ToolJSONSchema.string(description: "必填。要抓取的网页 URL。正文片段最大字符数按当前推理强度固定生效。", format: "uri")
                 ],
                 required: ["url"]
             )
         case .fetchWebBatch:
             return ToolJSONSchema.object(
                 properties: [
-                    "urls": ToolJSONSchema.stringArray(description: "必填。要并发抓取的网页 URL 数组。"),
-                    "max_chars": ToolJSONSchema.integer(description: "可选。每个网页正文片段的最大字符数；未填写时跟随当前推理强度。")
+                    "urls": ToolJSONSchema.stringArray(description: "必填。要并发抓取的网页 URL 数组。每个网页正文片段最大字符数按当前推理强度固定生效。")
                 ],
                 required: ["urls"]
             )
@@ -151,8 +156,7 @@ enum LLMToolDefinitionBuilder {
             return ToolJSONSchema.object(
                 properties: [
                     "url": ToolJSONSchema.string(description: "必填。要抓取并保存的网页 URL。", format: "uri"),
-                    "path": ToolJSONSchema.string(description: "可选。保存的相对路径。未提供时按网页标题生成。"),
-                    "max_chars": ToolJSONSchema.integer(description: "可选。正文片段的最大字符数；未填写时跟随当前推理强度。")
+                    "path": ToolJSONSchema.string(description: "可选。保存的相对路径。未提供时按网页标题生成。")
                 ],
                 required: ["url"]
             )

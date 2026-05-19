@@ -110,6 +110,7 @@ struct WorkspaceShellScreen: View {
                     shellMode: .professional,
                     onOpenModeSwitcher: { isShowingModePicker = true }
                 )
+                .id(workspaceStore.selectedThreadID)
             }
         }
     }
@@ -138,6 +139,7 @@ struct WorkspaceShellScreen: View {
                         shellMode: .chat,
                         onOpenModeSwitcher: { isShowingModePicker = true }
                     )
+                    .id(workspaceStore.selectedThreadID)
                 }
             }
         }
@@ -165,6 +167,7 @@ struct WorkspaceShellScreen: View {
                         shellMode: .professional,
                         onOpenModeSwitcher: { isShowingModePicker = true }
                     )
+                    .id(workspaceStore.selectedThreadID)
                 }
             }
         }
@@ -390,10 +393,15 @@ private struct WorkspaceSidebar: View {
     }
 
     private func presentThreadCreation(for project: WorkspaceProjectRecord) {
+        let previousThreadCount = store.threadCount(for: project.id)
         expandedProjectIDs.insert(project.id)
         store.selectProject(project)
         store.createThread(in: project.id)
-        onSelectThread()
+        guard store.threadCount(for: project.id) > previousThreadCount else { return }
+        // Let the sidebar list settle before pushing the compact chat screen.
+        DispatchQueue.main.async {
+            onSelectThread()
+        }
     }
 
     private func handleNameEditorSubmit(_ route: WorkspaceNameEditorRoute, name: String) {
@@ -691,7 +699,7 @@ private enum WorkspaceDeletionTarget {
         case .project(let project):
             return "确定删除项目“\(project.name)”吗？项目下的会话和工作区文件都会被移除。"
         case .thread(let thread):
-            return "确定删除会话“\(thread.name)”吗？该会话下的聊天记录和工作区文件都会被移除。"
+            return "确定删除会话“\(thread.name)”吗？该会话下的聊天记录会被移除，项目文件夹会保留。"
         }
     }
 }
@@ -742,7 +750,7 @@ private struct WorkspaceNameEditorDialog: View {
                             .font(.title3.weight(.semibold))
                             .foregroundStyle(.primary)
 
-                        Text("名称会立即应用到当前工作区。")
+                        Text("名称会立即应用到当前项目或会话。")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -1097,7 +1105,7 @@ private struct AppSettingsScreen: View {
         NavigationStack {
             List {
                 NavigationLink {
-                    ModelConfigurationManagerScreen(store: store, providerID: .glm)
+                    ModelConfigurationManagerScreen(store: store)
                 } label: {
                     Label("大模型管理", systemImage: "brain.head.profile")
                 }
@@ -1120,7 +1128,7 @@ private struct AppSettingsScreen: View {
                 NavigationLink {
                     PersonalizationSettingsScreen()
                 } label: {
-                    Label("个性化", systemImage: "person.crop.circle.badge.sparkles")
+                    Label("个性化", systemImage: "paintpalette.fill")
                 }
             }
             .navigationTitle("设置")
@@ -1184,6 +1192,8 @@ private struct PersonalizationSettingsScreen: View {
             selectedPresetRaw = preset.rawValue
         } label: {
             HStack(spacing: 12) {
+                personalityIcon(for: preset)
+
                 Text(preset.title)
                     .foregroundStyle(.primary)
 
@@ -1193,6 +1203,13 @@ private struct PersonalizationSettingsScreen: View {
             }
         }
         .buttonStyle(.plain)
+    }
+
+    private func personalityIcon(for preset: AgentPersonalityPreset) -> some View {
+        Image(systemName: preset.systemImageName)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(preset.tintColor)
+            .frame(width: 22, height: 22)
     }
 
     private var customPresetRow: some View {
@@ -1213,6 +1230,8 @@ private struct PersonalizationSettingsScreen: View {
                 }
             } label: {
                 HStack(spacing: 12) {
+                    personalityIcon(for: .custom)
+
                     Text(customConfiguration.displayTitle)
                         .foregroundStyle(.primary)
 
@@ -1287,19 +1306,32 @@ private struct PersonalizationSettingsScreen: View {
 
 private struct ModelConfigurationManagerScreen: View {
     @Bindable var store: ManualLabStore
-    let providerID: APIProviderID
-    @State private var presentedEditor: ModelConfigurationEditorRoute?
-    @State private var isPresentingProviderPicker = false
+    @State private var presentedSheet: ModelConfigurationSheetRoute?
+    @State private var pendingDeletion: APIConfigurationProfileSnapshot?
+    @State private var deletionErrorMessage: String?
 
     private var profiles: [APIConfigurationProfileSnapshot] {
-        store.profiles(for: providerID)
+        APIProviderID.allCases
+            .flatMap { providerID in
+                store.profiles(for: providerID).filter(isVisibleProfile)
+            }
+            .sorted {
+                if $0.updatedAt == $1.updatedAt {
+                    return $0.profileName.localizedCompare($1.profileName) == .orderedAscending
+                }
+                return $0.updatedAt > $1.updatedAt
+            }
     }
 
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 10) {
-                ForEach(profiles) { profile in
-                    profileRow(profile)
+                if profiles.isEmpty {
+                    emptyState
+                } else {
+                    ForEach(profiles) { profile in
+                        profileRow(profile)
+                    }
                 }
             }
             .padding(.horizontal, 16)
@@ -1311,31 +1343,107 @@ private struct ModelConfigurationManagerScreen: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("新建配置") {
-                    isPresentingProviderPicker = true
+                    presentedSheet = .create
                 }
             }
         }
-        .confirmationDialog("选择供应商", isPresented: $isPresentingProviderPicker, titleVisibility: .visible) {
-            Button(APIProviderID.glm.vendorTitle) {
-                let profileID = store.createProfile(for: .glm)
-                presentedEditor = .init(providerID: .glm, profileID: profileID)
+        .sheet(item: $presentedSheet) { route in
+            NavigationStack {
+                sheetContent(for: route)
             }
         }
-        .sheet(item: $presentedEditor) { route in
-            NavigationStack {
-                ModelConfigurationProfileEditorScreen(
-                    store: store,
-                    providerID: route.providerID,
-                    profileID: route.profileID
-                )
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button("关闭") {
-                            presentedEditor = nil
-                        }
+        .confirmationDialog(
+            "删除配置",
+            isPresented: deleteConfirmationBinding,
+            presenting: pendingDeletion
+        ) { profile in
+            Button("删除配置", role: .destructive) {
+                confirmDeleteProfile(profile)
+            }
+            Button("取消", role: .cancel) {}
+        } message: { profile in
+            Text("将删除 \(profile.profileName)。")
+        }
+        .alert("无法删除配置", isPresented: deletionErrorBinding) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(deletionErrorMessage ?? "")
+        }
+    }
+
+    private func isVisibleProfile(_ profile: APIConfigurationProfileSnapshot) -> Bool {
+        profile.isUserCreated ||
+        profile.isConfigured ||
+        profile.hasAPIKey ||
+        !profile.customBaseURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        profile.selectedServer != nil
+    }
+
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Image(systemName: "key.horizontal")
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            Text("还没有模型配置")
+                .font(.headline)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .glassEffect(.regular.tint(.white.opacity(0.08)), in: .rect(cornerRadius: 24))
+    }
+
+    @ViewBuilder
+    private func sheetContent(for route: ModelConfigurationSheetRoute) -> some View {
+        switch route {
+        case .create:
+            ModelConfigurationCreationScreen(initialProviderID: store.activeProviderID) { providerID in
+                let profileID = store.createProfile(for: providerID)
+                store.setActiveProviderID(providerID)
+                presentedSheet = .edit(providerID: providerID, profileID: profileID)
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("关闭") {
+                        presentedSheet = nil
                     }
                 }
             }
+        case let .edit(providerID, profileID):
+            ModelConfigurationProfileEditorScreen(
+                store: store,
+                providerID: providerID,
+                profileID: profileID
+            )
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("关闭") {
+                        presentedSheet = nil
+                    }
+                }
+            }
+        }
+    }
+
+    private func isSelected(_ profile: APIConfigurationProfileSnapshot) -> Bool {
+        store.activeProviderID == profile.provider.id && profile.isActive
+    }
+
+    private func selectProfile(_ profile: APIConfigurationProfileSnapshot) {
+        store.activateProfile(profile.id, for: profile.provider.id)
+        store.setActiveProviderID(profile.provider.id)
+    }
+
+    private func confirmDeleteProfile(_ profile: APIConfigurationProfileSnapshot) {
+        do {
+            try store.deleteProfile(profile.id, for: profile.provider.id)
+            if case let .edit(providerID, profileID) = presentedSheet,
+               providerID == profile.provider.id,
+               profileID == profile.id {
+                presentedSheet = nil
+            }
+        } catch {
+            deletionErrorMessage = error.localizedDescription
         }
     }
 
@@ -1345,28 +1453,30 @@ private struct ModelConfigurationManagerScreen: View {
                 Text(profile.profileName)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.primary)
+                    .lineLimit(1)
 
-                Text(profile.provider.id.vendorTitle)
-                    .font(.footnote)
+                Text("\(profile.provider.title) · \(profile.selectedAccessMode.title)")
+                    .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .onTapGesture {
-                presentedEditor = .init(providerID: providerID, profileID: profile.id)
+                presentedSheet = .edit(providerID: profile.provider.id, profileID: profile.id)
             }
 
             Spacer()
 
             Button {
-                store.activateProfile(profile.id, for: providerID)
+                selectProfile(profile)
             } label: {
                 ZStack {
                     Circle()
-                        .stroke(profile.isActive ? Color.blue : Color.secondary.opacity(0.45), lineWidth: 1.5)
+                        .stroke(isSelected(profile) ? Color.blue : Color.secondary.opacity(0.45), lineWidth: 1.5)
                         .frame(width: 30, height: 30)
 
-                    if profile.isActive {
+                    if isSelected(profile) {
                         Circle()
                             .fill(Color.blue)
                             .frame(width: 10, height: 10)
@@ -1377,7 +1487,153 @@ private struct ModelConfigurationManagerScreen: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button(role: .destructive) {
+                pendingDeletion = profile
+            } label: {
+                Label("删除配置", systemImage: "trash")
+            }
+            .disabled(!store.canDeleteProfile(profile.id, for: profile.provider.id))
+        }
         .glassEffect(.regular.tint(.white.opacity(0.08)), in: .rect(cornerRadius: 22))
+    }
+
+    private var deleteConfirmationBinding: Binding<Bool> {
+        Binding(
+            get: { pendingDeletion != nil },
+            set: { isPresented in
+                if !isPresented {
+                    pendingDeletion = nil
+                }
+            }
+        )
+    }
+
+    private var deletionErrorBinding: Binding<Bool> {
+        Binding(
+            get: { deletionErrorMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    deletionErrorMessage = nil
+                }
+            }
+        )
+    }
+}
+
+private struct ModelConfigurationCreationScreen: View {
+    let onCreate: (APIProviderID) -> Void
+    @State private var selectedProviderID: APIProviderID
+
+    private struct ProviderSection: Identifiable {
+        let id: String
+        let title: String
+        let providers: [APIProviderID]
+    }
+
+    private let providerSections: [ProviderSection] = [
+        ProviderSection(
+            id: "official",
+            title: "官方直连",
+            providers: [.deepseek, .glm, .qwen, .kimi, .minimax, .openai]
+        ),
+        ProviderSection(
+            id: "cloud",
+            title: "云平台与厂商",
+            providers: [.volcengine, .hunyuan, .qianfan, .stepfun, .azureOpenAI]
+        ),
+        ProviderSection(
+            id: "aggregator",
+            title: "聚合与托管",
+            providers: [.siliconflow, .modelscope, .openrouter]
+        ),
+        ProviderSection(
+            id: "local",
+            title: "本地与自定义",
+            providers: [.lmstudio, .ollama, .customOpenAI]
+        )
+    ]
+
+    init(initialProviderID: APIProviderID, onCreate: @escaping (APIProviderID) -> Void) {
+        self.onCreate = onCreate
+        _selectedProviderID = State(initialValue: initialProviderID)
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                ForEach(providerSections) { section in
+                    providerSection(section)
+                }
+
+                Button {
+                    onCreate(selectedProviderID)
+                } label: {
+                    Text("继续")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(.cyan.opacity(0.16), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .padding(6)
+                .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 28))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 18)
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+        .navigationTitle("新建配置")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func providerSection(_ section: ProviderSection) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(section.title)
+                .font(.headline)
+                .padding(.horizontal, 4)
+
+            VStack(spacing: 8) {
+                ForEach(section.providers) { providerID in
+                    providerRow(providerID)
+                }
+            }
+        }
+    }
+
+    private func providerRow(_ providerID: APIProviderID) -> some View {
+        let isSelected = selectedProviderID == providerID
+        let definition = APIProviderCatalog.definition(for: providerID)
+
+        return Button {
+            selectedProviderID = providerID
+        } label: {
+            HStack(spacing: 12) {
+                Text(definition.title)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                ZStack {
+                    Circle()
+                        .stroke(isSelected ? Color.blue : Color.secondary.opacity(0.45), lineWidth: 1.5)
+                        .frame(width: 30, height: 30)
+
+                    if isSelected {
+                        Circle()
+                            .fill(Color.blue)
+                            .frame(width: 10, height: 10)
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
+            .glassEffect(.regular.tint(.white.opacity(0.08)), in: .rect(cornerRadius: 22))
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -1392,55 +1648,93 @@ private struct ModelConfigurationProfileEditorScreen: View {
         store.profiles(for: providerID).first(where: { $0.id == profileID })
     }
 
+    private var editableRoles: [APIModelRole] {
+        store.editableModelRoles(for: providerID)
+    }
+
     var body: some View {
         Group {
             if let profile {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        identityCard(profile)
-                        apiKeyCard(profile)
-                        modelCard
-                        actionRow(profile)
-
-                        if let feedback = store.feedback(for: providerID, profileID: profileID) {
-                            feedbackCard(feedback)
+                ZStack {
+                    Color(uiColor: .systemGroupedBackground)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            isEditingInput = false
                         }
 
-                        if let connectionFeedback = store.connectionFeedback(for: providerID, profileID: profileID) {
-                            feedbackCard(connectionFeedback)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            identityCard(profile)
+
+                            if profile.provider.endpointStrategy == .profileManaged {
+                                endpointCard()
+                            }
+
+                            apiKeyCard(profile)
+
+                            if profile.provider.supportsManualModelSelection {
+                                modelCard
+                            } else {
+                                automaticModelCard(profile)
+                            }
+
+                            actionRow(profile)
+
+                            if let feedback = store.feedback(for: providerID, profileID: profileID) {
+                                feedbackCard(feedback)
+                            }
+
+                            if let connectionFeedback = store.connectionFeedback(for: providerID, profileID: profileID) {
+                                feedbackCard(connectionFeedback)
+                            }
                         }
+                        .contentShape(Rectangle())
+                        .simultaneousGesture(
+                            TapGesture().onEnded {
+                                isEditingInput = false
+                            }
+                        )
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 18)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 18)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .scrollDismissesKeyboard(.interactively)
                 }
-                .contentShape(Rectangle())
-                .scrollDismissesKeyboard(.interactively)
-                .simultaneousGesture(
-                    TapGesture().onEnded {
-                        isEditingInput = false
-                    }
-                )
-                .background(Color(uiColor: .systemGroupedBackground))
             } else {
                 Color.clear
             }
         }
         .navigationTitle(profile?.profileName ?? "配置")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            store.activateProfile(profileID, for: providerID)
-        }
     }
 
     private func identityCard(_ profile: APIConfigurationProfileSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            providerSelectionMenu
+        let accessModes = store.availableAccessModes(for: providerID)
 
-            TextField("点击此处填写", text: profileNameBinding)
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Text("自定义配置名称")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+
+                Spacer(minLength: 12)
+
+                Text(profile.provider.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.white.opacity(0.08), in: Capsule())
+            }
+
+            TextField("配置名称", text: profileNameBinding)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+                .submitLabel(.done)
                 .focused($isEditingInput)
+                .onSubmit {
+                    isEditingInput = false
+                }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
                 .background(
@@ -1452,12 +1746,120 @@ private struct ModelConfigurationProfileEditorScreen: View {
                         .stroke(Color.white.opacity(0.34), lineWidth: 1)
                 )
 
-            Picker("接入方式", selection: accessModeBinding) {
-                ForEach(store.availableAccessModes(for: providerID)) { accessMode in
-                    Text(accessMode.title).tag(accessMode.id)
+            if accessModes.count > 1 {
+                Picker("接入方式", selection: accessModeBinding) {
+                    ForEach(accessModes) { accessMode in
+                        Text(accessMode.title).tag(accessMode.id)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+        }
+        .padding(18)
+        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 28))
+    }
+
+    private func endpointCard() -> some View {
+        let supportsDiscovery = store.supportsServerDiscovery(for: providerID)
+        let selectedServer = store.selectedLMStudioServer(for: providerID, profileID: profileID)
+        let discoveredServers = store.discoveredLMStudioServers(for: providerID, profileID: profileID)
+
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center) {
+                Text(supportsDiscovery ? "服务器" : "API Endpoint")
+                    .font(.headline)
+
+                Spacer()
+
+                if supportsDiscovery {
+                    Button {
+                        isEditingInput = false
+                        store.autoConfigureLMStudio(for: providerID, profileID: profileID)
+                    } label: {
+                        HStack(spacing: 8) {
+                            if store.isDiscoveringLMStudioServers(for: providerID, profileID: profileID) {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "sparkles")
+                            }
+                            Text(store.isDiscoveringLMStudioServers(for: providerID, profileID: profileID) ? "配置中" : "自动配置")
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(.white.opacity(0.08), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(store.isDiscoveringLMStudioServers(for: providerID, profileID: profileID))
                 }
             }
-            .pickerStyle(.segmented)
+
+            TextField("Endpoint", text: customBaseURLBinding)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+                .focused($isEditingInput)
+                .onSubmit {
+                    isEditingInput = false
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(Color.white.opacity(0.24))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(Color.white.opacity(0.34), lineWidth: 1)
+                )
+
+            if supportsDiscovery, let selectedServer {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(selectedServer.displayName)
+                        .font(.subheadline.weight(.semibold))
+
+                    Text(selectedServer.baseURLString)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .padding(14)
+                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            }
+
+            if supportsDiscovery, !discoveredServers.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(discoveredServers) { server in
+                        Button {
+                            isEditingInput = false
+                            store.selectLMStudioServer(server, for: providerID, profileID: profileID)
+                        } label: {
+                            HStack(alignment: .top, spacing: 10) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(server.displayName)
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(.primary)
+
+                                    Text(server.baseURLString)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+
+                                Spacer(minLength: 8)
+
+                                Image(systemName: selectedServer?.id == server.id ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(selectedServer?.id == server.id ? .cyan : .secondary)
+                            }
+                            .padding(12)
+                            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
         }
         .padding(18)
         .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 28))
@@ -1471,32 +1873,41 @@ private struct ModelConfigurationProfileEditorScreen: View {
 
                 Spacer(minLength: 12)
 
-                Button {
-                    store.validateConnections(for: providerID, profileID: profileID)
-                } label: {
-                    HStack(spacing: 8) {
-                        if store.isValidatingConnections(for: providerID, profileID: profileID) {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Image(systemName: "bolt.horizontal.circle")
-                        }
-                        Text("联通验证")
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(.white.opacity(0.08), in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .disabled(store.isValidatingConnections(for: providerID, profileID: profileID))
+                modelActionButtons
             }
 
             VStack(spacing: 10) {
-                modelPickerRow(role: .reasoningModel)
-                modelPickerRow(role: .multimodalModel)
-                modelPickerRow(role: .lightweightModel)
+                ForEach(editableRoles) { role in
+                    modelPickerRow(role: role)
+                }
+            }
+        }
+        .padding(18)
+        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 28))
+    }
+
+    private func automaticModelCard(_ profile: APIConfigurationProfileSnapshot) -> some View {
+        let selectedServer = store.selectedLMStudioServer(for: providerID, profileID: profileID)
+
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center) {
+                Text("模型")
+                    .font(.headline)
+
+                Spacer(minLength: 12)
+
+                modelActionButtons
+            }
+
+            compactValueRow(title: "主模型", value: profile.reasoningModel.title)
+            compactValueRow(title: "多模态模型", value: profile.multimodalModel.title)
+
+            if let selectedServer {
+                compactValueRow(title: "设备", value: selectedServer.displayName)
+            }
+
+            if let selectedModelTitle = selectedServer?.selectedModelTitle {
+                compactValueRow(title: "当前模型", value: selectedModelTitle)
             }
         }
         .padding(18)
@@ -1506,7 +1917,7 @@ private struct ModelConfigurationProfileEditorScreen: View {
     private func apiKeyCard(_ profile: APIConfigurationProfileSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("API Key")
+                Text(secretFieldTitle)
                     .font(.headline)
 
                 Spacer()
@@ -1516,6 +1927,7 @@ private struct ModelConfigurationProfileEditorScreen: View {
                     .foregroundStyle(profile.hasAPIKey ? .green : .orange)
 
                 Button(isShowingAPIKey ? "隐藏" : "显示") {
+                    isEditingInput = false
                     isShowingAPIKey.toggle()
                 }
                 .font(.subheadline.weight(.semibold))
@@ -1524,32 +1936,56 @@ private struct ModelConfigurationProfileEditorScreen: View {
 
             Group {
                 if isShowingAPIKey {
-                    TextField("点击此处填写", text: apiKeyBinding)
+                    TextField(secretFieldPlaceholder, text: apiKeyBinding)
                 } else {
-                    SecureField("点击此处填写", text: apiKeyBinding)
+                    SecureField(secretFieldPlaceholder, text: apiKeyBinding)
                 }
             }
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
+            .submitLabel(.done)
             .focused($isEditingInput)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-                .background(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(Color.white.opacity(0.24))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(Color.white.opacity(0.34), lineWidth: 1)
-                )
+            .onSubmit {
+                isEditingInput = false
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color.white.opacity(0.24))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(Color.white.opacity(0.34), lineWidth: 1)
+            )
+
         }
         .padding(18)
         .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 28))
     }
 
+    private var modelActionButtons: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                if store.supportsRemoteModelDiscovery(for: providerID) {
+                    modelFetchButton
+                }
+                validationButton
+            }
+
+            VStack(alignment: .trailing, spacing: 8) {
+                if store.supportsRemoteModelDiscovery(for: providerID) {
+                    modelFetchButton
+                }
+                validationButton
+            }
+        }
+    }
+
     private func actionRow(_ profile: APIConfigurationProfileSnapshot) -> some View {
         HStack(spacing: 12) {
             Button {
+                isEditingInput = false
                 store.saveAPIConfiguration(for: providerID, profileID: profileID)
             } label: {
                 Text("保存")
@@ -1562,9 +1998,10 @@ private struct ModelConfigurationProfileEditorScreen: View {
             .buttonStyle(.plain)
 
             Button {
+                isEditingInput = false
                 store.clearAPIKey(for: providerID, profileID: profileID)
             } label: {
-                Text("清空 Key")
+                Text(profile.provider.secretRequirement == .optional ? "清空 Token" : "清空 Key")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.red)
                     .frame(maxWidth: .infinity)
@@ -1614,6 +2051,75 @@ private struct ModelConfigurationProfileEditorScreen: View {
         .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
+    private func compactValueRow(title: String, value: String) -> some View {
+        HStack(spacing: 14) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .frame(width: 92, alignment: .leading)
+
+            Spacer(minLength: 8)
+
+            Text(value)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private var validationButton: some View {
+        Button {
+            isEditingInput = false
+            store.validateConnections(for: providerID, profileID: profileID)
+        } label: {
+            HStack(spacing: 8) {
+                if store.isValidatingConnections(for: providerID, profileID: profileID) {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "bolt.horizontal.circle")
+                }
+                Text("联通验证")
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(.white.opacity(0.08), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(store.isValidatingConnections(for: providerID, profileID: profileID))
+    }
+
+    private var modelFetchButton: some View {
+        Button {
+            isEditingInput = false
+            store.refreshRemoteModels(for: providerID, profileID: profileID)
+        } label: {
+            HStack(spacing: 8) {
+                if store.isFetchingRemoteModels(for: providerID, profileID: profileID) {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.down.circle")
+                }
+                Text("检测模型")
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(.white.opacity(0.08), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(store.isFetchingRemoteModels(for: providerID, profileID: profileID))
+    }
+
     private var profileNameBinding: Binding<String> {
         Binding(
             get: { store.profileName(for: providerID, profileID: profileID) },
@@ -1635,41 +2141,29 @@ private struct ModelConfigurationProfileEditorScreen: View {
         )
     }
 
-    private var providerSelectionBinding: Binding<APIProviderID> {
-        Binding(
-            get: { providerID },
-            set: { _ in }
-        )
+    private var secretFieldTitle: String {
+        switch providerID {
+        case .lmstudio, .ollama, .customOpenAI:
+            return "API Token"
+        case .openai, .azureOpenAI, .glm, .deepseek, .qwen, .kimi, .minimax, .volcengine, .hunyuan, .qianfan, .stepfun, .modelscope, .siliconflow, .openrouter:
+            return "API Key"
+        }
     }
 
-    private var providerSelectionMenu: some View {
-        Menu {
-            ForEach(APIProviderID.allCases) { provider in
-                Button {
-                    providerSelectionBinding.wrappedValue = provider
-                } label: {
-                    if provider == providerSelectionBinding.wrappedValue {
-                        Label(provider.vendorTitle, systemImage: "checkmark")
-                    } else {
-                        Text(provider.vendorTitle)
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 8) {
-                Text(providerSelectionBinding.wrappedValue.vendorTitle)
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(.primary)
-                Image(systemName: "chevron.down")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(.white.opacity(0.08), in: Capsule())
+    private var secretFieldPlaceholder: String {
+        switch providerID {
+        case .lmstudio, .ollama, .customOpenAI:
+            return "Token"
+        case .openai, .azureOpenAI, .glm, .deepseek, .qwen, .kimi, .minimax, .volcengine, .hunyuan, .qianfan, .stepfun, .modelscope, .siliconflow, .openrouter:
+            return "API Key"
         }
-        .buttonStyle(.plain)
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var customBaseURLBinding: Binding<String> {
+        Binding(
+            get: { store.customBaseURLDraft(for: providerID, profileID: profileID) },
+            set: { store.setCustomBaseURLDraft($0, for: providerID, profileID: profileID) }
+        )
     }
 
     private func modelBinding(role: APIModelRole) -> Binding<String> {
@@ -1682,7 +2176,8 @@ private struct ModelConfigurationProfileEditorScreen: View {
     private func selectedModelOption(for role: APIModelRole) -> APIModelDefinition {
         let selectedID = store.selectedModelID(for: providerID, role: role, profileID: profileID)
         return store.availableModels(for: providerID, role: role, profileID: profileID)
-            .first(where: { $0.id == selectedID }) ?? .automatic(for: role)
+            .first(where: { $0.id == selectedID }) ??
+            store.selectedModel(for: providerID, role: role, profileID: profileID)
     }
 
     private func modelSelectionMenu(role: APIModelRole, selectedOption: APIModelDefinition) -> some View {
@@ -1715,6 +2210,11 @@ private struct ModelConfigurationProfileEditorScreen: View {
             .background(.cyan.opacity(0.14), in: Capsule())
         }
         .buttonStyle(.plain)
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                isEditingInput = false
+            }
+        )
     }
 
     private func validationIndicator(for state: APIConnectionValidationState) -> some View {
@@ -1738,11 +2238,16 @@ private struct ModelConfigurationProfileEditorScreen: View {
     }
 }
 
-private struct ModelConfigurationEditorRoute: Identifiable {
-    let providerID: APIProviderID
-    let profileID: UUID
+private enum ModelConfigurationSheetRoute: Identifiable {
+    case create
+    case edit(providerID: APIProviderID, profileID: UUID)
 
     var id: String {
-        "\(providerID.rawValue)-\(profileID.uuidString)"
+        switch self {
+        case .create:
+            return "create"
+        case let .edit(providerID, profileID):
+            return "\(providerID.rawValue)-\(profileID.uuidString)"
+        }
     }
 }

@@ -8,9 +8,22 @@ final class AppContainer {
     let toolPermissionStore = ToolPermissionStore()
     lazy var skillRegistry = SkillRegistry(workspaceManager: workspaceManager)
     let llmSession = URLSession.palmiLLM
-    lazy var llmToolCallingService = LLMToolCallingService(apiConfigurationStore: apiConfigurationStore, session: llmSession)
-    lazy var llmAPIClient = LLMAPIClient(apiConfigurationStore: apiConfigurationStore, session: llmSession)
-    lazy var apiConnectionValidationService = APIConnectionValidationService(apiConfigurationStore: apiConfigurationStore, session: llmSession)
+    lazy var lmStudioDiscoveryService = LMStudioDiscoveryService(session: llmSession)
+    lazy var llmToolCallingService = LLMToolCallingService(
+        apiConfigurationStore: apiConfigurationStore,
+        session: llmSession,
+        lmStudioDiscoveryService: lmStudioDiscoveryService
+    )
+    lazy var llmAPIClient = LLMAPIClient(
+        apiConfigurationStore: apiConfigurationStore,
+        session: llmSession,
+        lmStudioDiscoveryService: lmStudioDiscoveryService
+    )
+    lazy var apiConnectionValidationService = APIConnectionValidationService(
+        apiConfigurationStore: apiConfigurationStore,
+        session: llmSession,
+        lmStudioDiscoveryService: lmStudioDiscoveryService
+    )
     lazy var javaScriptSandboxService = JavaScriptSandboxService(workspaceManager: workspaceManager)
     lazy var workspaceReadService = WorkspaceReadService(workspaceManager: workspaceManager)
     lazy var pythonNotebookSandboxService = PythonNotebookSandboxService(
@@ -57,9 +70,17 @@ final class AppContainer {
 
     lazy var agentToolExecutor = AgentToolExecutor(actionExecutor: executor)
     lazy var promptComposer = PromptComposer()
-    lazy var contextAssembler = ContextAssembler(promptComposer: promptComposer)
+    let toolContextProjector = ToolContextProjector()
+    let researchStateAssembler = ResearchStateAssembler()
+    lazy var contextAssembler = ContextAssembler(
+        promptComposer: promptComposer,
+        toolContextProjector: toolContextProjector,
+        researchStateAssembler: researchStateAssembler
+    )
+    lazy var toolArtifactPipeline = ToolArtifactPipeline(apiClient: llmAPIClient)
     lazy var contextCompactor = ContextCompactor(
-        apiClient: llmAPIClient
+        apiClient: llmAPIClient,
+        toolContextProjector: toolContextProjector
     )
     lazy var agentLoop = AgentLoop(
         apiClient: llmAPIClient,
@@ -69,6 +90,8 @@ final class AppContainer {
         workspaceManager: workspaceManager,
         contextAssembler: contextAssembler,
         contextCompactor: contextCompactor,
+        toolArtifactPipeline: toolArtifactPipeline,
+        toolContextProjector: toolContextProjector,
         configuration: .default
     )
     lazy var conversationTitleService = ConversationTitleService(apiClient: llmAPIClient)
@@ -79,6 +102,7 @@ final class AppContainer {
         apiConfigurationStore: apiConfigurationStore,
         llmToolCallingService: llmToolCallingService,
         apiConnectionValidationService: apiConnectionValidationService,
+        lmStudioDiscoveryService: lmStudioDiscoveryService,
         workspaceStore: workspaceStore,
         toolPermissionStore: toolPermissionStore
     )

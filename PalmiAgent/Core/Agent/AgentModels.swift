@@ -11,6 +11,19 @@ struct AgentToolUse: Sendable {
     let input: String
 }
 
+struct AgentToolResultRecord: Sendable {
+    let toolUseID: String
+    let toolName: String
+    let output: String
+    let isError: Bool
+}
+
+struct AgentNativeReasoningPayload: Codable, Sendable, Hashable {
+    let reasoningContent: String?
+    let reasoningDetails: JSONRuntimeValue?
+    let providerID: String
+}
+
 struct AgentTokenUsage: Codable, Sendable {
     var totalTokens: Int = 0
 
@@ -35,17 +48,20 @@ struct AgentMessage: Identifiable, Codable, Sendable {
     let id: UUID
     let role: AgentMessageRole
     let blocks: [AgentContentBlock]
+    let nativeReasoning: AgentNativeReasoningPayload?
     let timestamp: Date
 
     init(
         id: UUID = UUID(),
         role: AgentMessageRole,
         blocks: [AgentContentBlock],
+        nativeReasoning: AgentNativeReasoningPayload? = nil,
         timestamp: Date = .now
     ) {
         self.id = id
         self.role = role
         self.blocks = blocks
+        self.nativeReasoning = nativeReasoning
         self.timestamp = timestamp
     }
 
@@ -77,11 +93,29 @@ struct AgentMessage: Identifiable, Codable, Sendable {
         }
     }
 
+    var toolResultRecords: [AgentToolResultRecord] {
+        blocks.compactMap { block in
+            guard case .toolResult(let toolUseID, let toolName, let output, let isError) = block else {
+                return nil
+            }
+            return AgentToolResultRecord(
+                toolUseID: toolUseID,
+                toolName: toolName,
+                output: output,
+                isError: isError
+            )
+        }
+    }
+
     static func user(text: String) -> AgentMessage {
         AgentMessage(role: .user, blocks: [.text(text)])
     }
 
-    static func assistant(text: String?, toolUses: [AgentToolUse]) -> AgentMessage {
+    static func assistant(
+        text: String?,
+        toolUses: [AgentToolUse],
+        nativeReasoning: AgentNativeReasoningPayload? = nil
+    ) -> AgentMessage {
         var blocks: [AgentContentBlock] = []
         if let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             blocks.append(.text(text))
@@ -91,7 +125,7 @@ struct AgentMessage: Identifiable, Codable, Sendable {
                 .toolUse(id: toolUse.id, name: toolUse.name, input: toolUse.input)
             }
         )
-        return AgentMessage(role: .assistant, blocks: blocks)
+        return AgentMessage(role: .assistant, blocks: blocks, nativeReasoning: nativeReasoning)
     }
 
     static func toolResult(
@@ -119,17 +153,20 @@ struct AgentSession: Codable, Sendable {
     var messages: [AgentMessage]
     var cumulativeUsage: AgentTokenUsage
     var hiddenContextSummary: AgentHiddenContextSummary?
+    var hiddenArtifacts: AgentHiddenArtifacts?
 
     init(
         id: UUID = UUID(),
         messages: [AgentMessage] = [],
         cumulativeUsage: AgentTokenUsage = AgentTokenUsage(),
-        hiddenContextSummary: AgentHiddenContextSummary? = nil
+        hiddenContextSummary: AgentHiddenContextSummary? = nil,
+        hiddenArtifacts: AgentHiddenArtifacts? = nil
     ) {
         self.id = id
         self.messages = messages
         self.cumulativeUsage = cumulativeUsage
         self.hiddenContextSummary = hiddenContextSummary
+        self.hiddenArtifacts = hiddenArtifacts
     }
 
     mutating func append(_ message: AgentMessage) {

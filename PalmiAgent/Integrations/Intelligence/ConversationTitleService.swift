@@ -27,7 +27,7 @@ final class ConversationTitleService {
                     - 只输出标题本身，不要加引号、句号、前缀、解释或 Markdown。
                     - 长度尽量控制在 4 到 12 个汉字内，最多不要超过 18 个字符。
                     - 优先概括任务主题，不要照抄整句。
-                    - 不要输出“新聊天”“新绘画”“未命名”“对话标题”这类占位词。
+                    - 不要输出“新聊天”“新会话”“新绘画”“未命名”“对话标题”这类占位词。
                     """
                 ),
                 .user(trimmedMessage)
@@ -52,7 +52,7 @@ final class ConversationTitleService {
 
         guard !cleaned.isEmpty else { return nil }
 
-        let blocked = ["新聊天", "新绘画", "未命名", "会话标题", "聊天标题", "标题"]
+        let blocked = ["新聊天", "新会话", "新绘画", "未命名", "会话标题", "聊天标题", "标题"]
         guard !blocked.contains(cleaned) else { return nil }
 
         if cleaned.count <= 18 {

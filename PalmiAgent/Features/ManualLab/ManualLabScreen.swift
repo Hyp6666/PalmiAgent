@@ -16,6 +16,19 @@ struct ManualLabScreen: View {
         GridItem(.flexible(), spacing: 16)
     ]
 
+    private struct ProviderSection: Identifiable {
+        let id: String
+        let title: String
+        let providers: [APIProviderID]
+    }
+
+    private let manualLabProviderSections: [ProviderSection] = [
+        ProviderSection(id: "official", title: "官方直连", providers: [.deepseek, .glm, .qwen, .kimi, .minimax, .openai]),
+        ProviderSection(id: "cloud", title: "云平台与厂商", providers: [.volcengine, .hunyuan, .qianfan, .stepfun, .azureOpenAI]),
+        ProviderSection(id: "aggregator", title: "聚合与托管", providers: [.siliconflow, .modelscope, .openrouter]),
+        ProviderSection(id: "local", title: "本地与自定义", providers: [.lmstudio, .ollama, .customOpenAI])
+    ]
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -96,7 +109,7 @@ struct ManualLabScreen: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("模型接入配置")
                         .font(.title3.weight(.bold))
-                    Text("Base URL 由系统内置管理。当前先接入 GLM，后面扩 DeepSeek、Qwen 直接复用同一套结构。")
+                    Text("沿用同一套 provider 卡片：GLM、DeepSeek 走标准 API；LM Studio 走局域网发现和自动配对。")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -104,7 +117,9 @@ struct ManualLabScreen: View {
                 configurationCountPill
             }
 
-            providerConfigurationCard(for: .glm)
+            activeProviderPicker
+
+            providerConfigurationCard(for: store.activeProviderID)
         }
         .padding(22)
         .glassEffect(.regular.tint(.cyan.opacity(0.08)), in: .rect(cornerRadius: 32))
@@ -127,6 +142,7 @@ struct ManualLabScreen: View {
             }
 
             HStack(spacing: 12) {
+                configurationMetric(title: "当前 Provider", value: snapshot.provider.title, tint: .cyan)
                 configurationMetric(title: "当前模式", value: snapshot.selectedAccessMode.title, tint: .teal)
                 configurationMetric(title: "当前模型", value: snapshot.selectedModel.title, tint: .indigo)
                 configurationMetric(title: "可选工具", value: "\(store.exposedToolCount)", tint: .green)
@@ -257,20 +273,71 @@ struct ManualLabScreen: View {
         .glassEffect(.regular.tint(.white.opacity(0.04)), in: .rect(cornerRadius: 32))
     }
 
+    private var activeProviderPicker: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("当前聊天默认 Provider")
+                .font(.subheadline.weight(.semibold))
+
+            Menu {
+                ForEach(manualLabProviderSections) { section in
+                    Section(section.title) {
+                        ForEach(section.providers) { providerID in
+                            Button {
+                                activeProviderBinding.wrappedValue = providerID
+                            } label: {
+                                Label(
+                                    providerID.vendorTitle,
+                                    systemImage: store.activeProviderID == providerID ? "checkmark.circle.fill" : "circle"
+                                )
+                            }
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Text(store.activeProviderID.vendorTitle)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    Spacer()
+
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
     private func providerConfigurationCard(for providerID: APIProviderID) -> some View {
         let snapshot = store.snapshot(for: providerID)
         let selectedAccessMode = store.selectedAccessMode(for: providerID)
         let selectedModel = store.selectedModel(for: providerID)
         let feedback = store.feedback(for: providerID)
+        let isActiveProvider = store.activeProviderID == providerID
+        let keyStatusTitle = snapshot.provider.secretRequirement == .optional ? "Token 状态" : "Key 状态"
+        let keyStatusValue = snapshot.hasAPIKey ? (snapshot.maskedAPIKey ?? "已保存") : "未配置"
 
         return VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(snapshot.provider.title)
-                        .font(.headline)
-                    Text(snapshot.provider.subtitle)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        Text(snapshot.provider.title)
+                            .font(.headline)
+                        if isActiveProvider {
+                            Text("当前默认")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.cyan)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(.cyan.opacity(0.14), in: Capsule())
+                        }
+                    }
                 }
                 Spacer(minLength: 12)
                 configurationStatusBadge(isConfigured: snapshot.isConfigured)
@@ -283,13 +350,13 @@ struct ManualLabScreen: View {
                     tint: .teal
                 )
                 configurationMetric(
-                    title: "已选模型",
+                    title: snapshot.provider.supportsManualModelSelection ? "已选模型" : "当前配对",
                     value: selectedModel.title,
                     tint: .blue
                 )
                 configurationMetric(
-                    title: "Key 状态",
-                    value: snapshot.hasAPIKey ? (snapshot.maskedAPIKey ?? "已保存") : "未配置",
+                    title: keyStatusTitle,
+                    value: keyStatusValue,
                     tint: snapshot.hasAPIKey ? .green : .orange
                 )
             }
@@ -310,33 +377,47 @@ struct ManualLabScreen: View {
                 }
                 .pickerStyle(.segmented)
 
-                Text(selectedAccessMode.subtitle)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-
                 HStack(spacing: 12) {
-                    configurationMetric(title: "端点", value: selectedAccessMode.baseURL.absoluteString, tint: .purple)
+                    configurationMetric(title: "端点", value: snapshot.endpointDisplayValue, tint: .purple)
                     configurationMetric(title: "口径", value: selectedAccessMode.badgeText, tint: .mint)
                 }
-
-                Text(selectedAccessMode.note)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text("模型")
-                    .font(.subheadline.weight(.semibold))
-                Picker("模型", selection: modelBinding(for: providerID)) {
-                    ForEach(store.availableModels(for: providerID)) { model in
-                        Text(model.title).tag(model.id)
+            if snapshot.provider.endpointStrategy == .profileManaged {
+                profileManagedEndpointSection(for: providerID, snapshot: snapshot)
+            }
+
+            if snapshot.provider.supportsManualModelSelection {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("模型")
+                        .font(.subheadline.weight(.semibold))
+                    Picker("模型", selection: modelBinding(for: providerID)) {
+                        ForEach(store.availableModels(for: providerID)) { model in
+                            Text(model.title).tag(model.id)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    if store.supportsRemoteModelDiscovery(for: providerID) {
+                        Button {
+                            store.refreshRemoteModels(for: providerID)
+                        } label: {
+                            HStack(spacing: 8) {
+                                if store.isFetchingRemoteModels(for: providerID) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    Image(systemName: "arrow.down.circle")
+                                }
+                                Text(store.isFetchingRemoteModels(for: providerID) ? "检测中" : "检测模型")
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(store.isFetchingRemoteModels(for: providerID))
                     }
                 }
-                .pickerStyle(.menu)
-
-                Text(selectedModel.summary)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+            } else {
+                automaticRemoteModelSection(for: providerID, snapshot: snapshot)
             }
 
             VStack(alignment: .leading, spacing: 10) {
@@ -349,9 +430,6 @@ struct ManualLabScreen: View {
                     .padding(.vertical, 14)
                     .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 
-                Text("接口地址已内置，无需填写 Base URL。保存时只会更新你当前改动过的字段。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             HStack(spacing: 12) {
@@ -361,7 +439,7 @@ struct ManualLabScreen: View {
                 .buttonStyle(.borderedProminent)
                 .tint(.cyan)
 
-                Button("清空 API Key") {
+                Button(snapshot.provider.secretRequirement == .optional ? "清空 Token" : "清空 API Key") {
                     store.clearAPIKey(for: providerID)
                 }
                 .buttonStyle(.bordered)
@@ -376,7 +454,10 @@ struct ManualLabScreen: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .background(
+            (isActiveProvider ? Color.cyan : Color.white).opacity(isActiveProvider ? 0.10 : 0.06),
+            in: RoundedRectangle(cornerRadius: 28, style: .continuous)
+        )
     }
 
     private func llmSessionCard(_ session: LLMToolSession) -> some View {
@@ -400,7 +481,7 @@ struct ManualLabScreen: View {
 
             if !session.planningReply.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("前置说明")
+                    Text("前置")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     Text(session.planningReply)
@@ -450,9 +531,9 @@ struct ManualLabScreen: View {
         case .data:
             return details
         case .action:
-            return "这是系统动作型工具，详情文本仅作附带说明，不作为主要结果。"
+            return details
         case .interactive:
-            return "这是交互型工具，主要结果是系统界面已经打开，等待用户继续完成操作。"
+            return details
         }
     }
 
@@ -518,11 +599,153 @@ struct ManualLabScreen: View {
                 .foregroundStyle(.secondary)
             Text(value)
                 .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
+                .lineLimit(2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func profileManagedEndpointSection(
+        for providerID: APIProviderID,
+        snapshot: APIProviderConfigurationSnapshot
+    ) -> some View {
+        let supportsDiscovery = store.supportsServerDiscovery(for: providerID)
+        let discoveredServers = store.discoveredLMStudioServers(for: providerID)
+        let selectedServer = store.selectedLMStudioServer(for: providerID)
+
+        VStack(alignment: .leading, spacing: 12) {
+            Text(supportsDiscovery ? "本地服务器" : "API Endpoint")
+                .font(.subheadline.weight(.semibold))
+
+            TextField("Endpoint", text: customBaseURLBinding(for: providerID))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+            if supportsDiscovery {
+                Button {
+                    store.autoConfigureLMStudio(for: providerID)
+                } label: {
+                    HStack(spacing: 8) {
+                        if store.isDiscoveringLMStudioServers(for: providerID) {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                        } else {
+                            Image(systemName: "sparkles")
+                        }
+                        Text(store.isDiscoveringLMStudioServers(for: providerID) ? "配置中" : "自动配置")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.indigo)
+                .disabled(store.isDiscoveringLMStudioServers(for: providerID))
+            }
+
+            if supportsDiscovery, let selectedServer {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("当前已配对：\(selectedServer.displayName)")
+                        .font(.footnote.weight(.semibold))
+
+                    HStack(spacing: 10) {
+                        if selectedServer.requiresAuthentication {
+                            capsuleLabel("需要鉴权", tint: .orange)
+                        }
+                        if selectedServer.supportsToolUse {
+                            capsuleLabel("支持工具调用", tint: .green)
+                        }
+                        if selectedServer.supportsVision {
+                            capsuleLabel("支持视觉", tint: .blue)
+                        }
+                    }
+
+                    Text(selectedServer.selectedModelSummary ?? snapshot.endpointDisplayValue)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(14)
+                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+
+            if supportsDiscovery, !discoveredServers.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("发现结果")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    ForEach(discoveredServers) { server in
+                        Button {
+                            store.selectLMStudioServer(server, for: providerID)
+                        } label: {
+                            HStack(alignment: .top, spacing: 10) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(server.displayName)
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(.primary)
+                                    Text(server.selectedModelTitle ?? "等待服务端返回模型")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Spacer(minLength: 8)
+
+                                Image(systemName: selectedServer?.id == server.id ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(selectedServer?.id == server.id ? .cyan : .secondary)
+                            }
+                            .padding(12)
+                            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    private func automaticRemoteModelSection(
+        for providerID: APIProviderID,
+        snapshot: APIProviderConfigurationSnapshot
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("模型")
+                .font(.subheadline.weight(.semibold))
+
+            configurationMetric(
+                title: "当前模型",
+                value: snapshot.reasoningModel.title,
+                tint: .blue
+            )
+
+            if store.supportsRemoteModelDiscovery(for: providerID) {
+                Button {
+                    store.refreshRemoteModels(for: providerID)
+                } label: {
+                    HStack(spacing: 8) {
+                        if store.isFetchingRemoteModels(for: providerID) {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.down.circle")
+                        }
+                        Text(store.isFetchingRemoteModels(for: providerID) ? "检测中" : "检测模型")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(store.isFetchingRemoteModels(for: providerID))
+            }
+        }
+    }
+
+    private func capsuleLabel(_ title: String, tint: Color) -> some View {
+        Text(title)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(tint.opacity(0.14), in: Capsule())
     }
 
     private func apiKeyBinding(for providerID: APIProviderID) -> Binding<String> {
@@ -543,6 +766,20 @@ struct ManualLabScreen: View {
         Binding(
             get: { store.selectedModelID(for: providerID) },
             set: { store.setSelectedModelID($0, for: providerID) }
+        )
+    }
+
+    private func customBaseURLBinding(for providerID: APIProviderID) -> Binding<String> {
+        Binding(
+            get: { store.customBaseURLDraft(for: providerID) },
+            set: { store.setCustomBaseURLDraft($0, for: providerID) }
+        )
+    }
+
+    private var activeProviderBinding: Binding<APIProviderID> {
+        Binding(
+            get: { store.activeProviderID },
+            set: { store.setActiveProviderID($0) }
         )
     }
 

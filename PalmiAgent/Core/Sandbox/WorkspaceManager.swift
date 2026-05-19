@@ -12,6 +12,8 @@ struct WorkspaceEntry: Sendable {
 
 @MainActor
 final class WorkspaceManager {
+    @TaskLocal static var pinnedSelection: WorkspaceSelection?
+
     private let fileManager = FileManager.default
     private var activeSelection: WorkspaceSelection?
 
@@ -26,6 +28,20 @@ final class WorkspaceManager {
 
     private var globalSkillsRoot: URL {
         storageRoot.appendingPathComponent("skills/global", isDirectory: true)
+    }
+
+    func withSelection<T>(
+        _ selection: WorkspaceSelection,
+        operation: () throws -> T
+    ) rethrows -> T {
+        try Self.$pinnedSelection.withValue(selection, operation: operation)
+    }
+
+    func withSelection<T>(
+        _ selection: WorkspaceSelection,
+        operation: () async throws -> T
+    ) async rethrows -> T {
+        try await Self.$pinnedSelection.withValue(selection, operation: operation)
     }
 
     func ensureWorkspace() throws -> URL {
@@ -318,6 +334,7 @@ final class WorkspaceManager {
         let directoryURL = projectDirectoryURL(for: project.id)
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
         try fileManager.createDirectory(at: threadsDirectoryURL(for: project.id), withIntermediateDirectories: true, attributes: nil)
+        try fileManager.createDirectory(at: projectWorkspaceDirectoryURL(for: project.id), withIntermediateDirectories: true, attributes: nil)
         try writeJSON(project, to: projectManifestURL(for: project.id))
 
         let initialThread = try createThread(named: initialThreadName, in: project.id)
@@ -388,7 +405,6 @@ final class WorkspaceManager {
         )
         let directoryURL = threadDirectoryURL(for: projectID, threadID: thread.id)
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
-        try fileManager.createDirectory(at: threadWorkspaceDirectoryURL(for: projectID, threadID: thread.id), withIntermediateDirectories: true, attributes: nil)
         try writeJSON(thread, to: threadManifestURL(for: projectID, threadID: thread.id))
         return thread
     }
@@ -421,15 +437,15 @@ final class WorkspaceManager {
             activeSelection = WorkspaceSelection(projectID: projectID, threadID: nextThread.id)
         } else {
             let project = try readProject(at: projectDirectoryURL(for: projectID))
-            let replacementName = project.surface == .chat ? "新聊天" : "新绘画"
+            let replacementName = project.surface == .chat ? "新聊天" : "新会话"
             let replacementThread = try createThread(named: replacementName, in: projectID)
             activeSelection = WorkspaceSelection(projectID: projectID, threadID: replacementThread.id)
         }
     }
 
     func activateThread(projectID: UUID, threadID: UUID) throws {
-        let workspaceURL = threadWorkspaceDirectoryURL(for: projectID, threadID: threadID)
-        if !fileManager.fileExists(atPath: workspaceURL.path) {
+        let threadURL = threadDirectoryURL(for: projectID, threadID: threadID)
+        if !fileManager.fileExists(atPath: threadURL.path) {
             throw AppError.invalidState("目标会话不存在。")
         }
         activeSelection = WorkspaceSelection(projectID: projectID, threadID: threadID)
@@ -440,8 +456,8 @@ final class WorkspaceManager {
         createIfMissing: Bool
     ) throws -> WorkspaceSelection? {
         if let activeSelection {
-            let workspaceURL = threadWorkspaceDirectoryURL(for: activeSelection.projectID, threadID: activeSelection.threadID)
-            if fileManager.fileExists(atPath: workspaceURL.path) {
+            let threadURL = threadDirectoryURL(for: activeSelection.projectID, threadID: activeSelection.threadID)
+            if fileManager.fileExists(atPath: threadURL.path) {
                 let activeProject = try? readProject(at: projectDirectoryURL(for: activeSelection.projectID))
                 if activeProject?.surface == surface {
                     return activeSelection
@@ -456,23 +472,31 @@ final class WorkspaceManager {
                 return WorkspaceSelection(projectID: firstProject.id, threadID: firstThread.id)
             }
 
-            let replacementName = surface == .chat ? "新聊天" : "新绘画"
+            let replacementName = surface == .chat ? "新聊天" : "新会话"
             let thread = try createThread(named: replacementName, in: firstProject.id)
             return WorkspaceSelection(projectID: firstProject.id, threadID: thread.id)
         }
 
         guard createIfMissing else { return nil }
         let fallbackName = surface == .chat ? "新聊天" : "默认项目"
-        let initialThreadName = surface == .chat ? "新聊天" : "新绘画"
+        let initialThreadName = surface == .chat ? "新聊天" : "新会话"
         let project = try createProject(named: fallbackName, surface: surface, initialThreadName: initialThreadName)
         let thread = try currentThread()
         return WorkspaceSelection(projectID: project.id, threadID: thread.id)
     }
 
     func currentSelection() throws -> WorkspaceSelection {
+        if let pinnedSelection = Self.pinnedSelection {
+            let threadURL = threadDirectoryURL(for: pinnedSelection.projectID, threadID: pinnedSelection.threadID)
+            guard fileManager.fileExists(atPath: threadURL.path) else {
+                throw AppError.invalidState("目标会话不存在。")
+            }
+            return pinnedSelection
+        }
+
         if let activeSelection {
-            let workspaceURL = threadWorkspaceDirectoryURL(for: activeSelection.projectID, threadID: activeSelection.threadID)
-            if fileManager.fileExists(atPath: workspaceURL.path) {
+            let threadURL = threadDirectoryURL(for: activeSelection.projectID, threadID: activeSelection.threadID)
+            if fileManager.fileExists(atPath: threadURL.path) {
                 return activeSelection
             }
         }
@@ -494,11 +518,7 @@ final class WorkspaceManager {
 
     func currentThreadWorkspaceURL() throws -> URL {
         let selection = try currentSelection()
-        let url = threadWorkspaceDirectoryURL(for: selection.projectID, threadID: selection.threadID)
-        if !fileManager.fileExists(atPath: url.path) {
-            try fileManager.createDirectory(at: url, withIntermediateDirectories: true, attributes: nil)
-        }
-        return url
+        return try ensureProjectWorkspace(for: selection.projectID)
     }
 
     func saveChatMessagesForCurrentThread(_ messages: [PalmiChatMessage]) throws {
@@ -680,6 +700,10 @@ final class WorkspaceManager {
         threadDirectoryURL(for: projectID, threadID: threadID).appendingPathComponent("workspace", isDirectory: true)
     }
 
+    private func projectWorkspaceDirectoryURL(for projectID: UUID) -> URL {
+        projectDirectoryURL(for: projectID).appendingPathComponent("workspace", isDirectory: true)
+    }
+
     private func projectManifestURL(for projectID: UUID) -> URL {
         projectDirectoryURL(for: projectID).appendingPathComponent(".palmi-project.json")
     }
@@ -707,6 +731,137 @@ final class WorkspaceManager {
     private func normalizedDisplayName(_ name: String, fallback: String) -> String {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? fallback : trimmed
+    }
+
+    private func ensureProjectWorkspace(for projectID: UUID) throws -> URL {
+        let workspaceURL = projectWorkspaceDirectoryURL(for: projectID)
+        if !fileManager.fileExists(atPath: workspaceURL.path) {
+            try fileManager.createDirectory(at: workspaceURL, withIntermediateDirectories: true, attributes: nil)
+        }
+
+        try migrateLegacyThreadWorkspacesIfNeeded(for: projectID, into: workspaceURL)
+        return workspaceURL
+    }
+
+    private func migrateLegacyThreadWorkspacesIfNeeded(
+        for projectID: UUID,
+        into workspaceURL: URL
+    ) throws {
+        let threads = try listThreads(in: projectID)
+        for thread in threads {
+            let legacyURL = threadWorkspaceDirectoryURL(for: projectID, threadID: thread.id)
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: legacyURL.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                continue
+            }
+
+            try mergeDirectoryContents(
+                from: legacyURL,
+                into: workspaceURL,
+                conflictLabel: conflictLabel(for: thread)
+            )
+
+            if try directoryIsEmpty(at: legacyURL) {
+                try? fileManager.removeItem(at: legacyURL)
+            }
+        }
+    }
+
+    private func mergeDirectoryContents(
+        from sourceURL: URL,
+        into destinationURL: URL,
+        conflictLabel: String
+    ) throws {
+        let entries = try fileManager.contentsOfDirectory(
+            at: sourceURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: []
+        )
+
+        for entry in entries {
+            let values = try entry.resourceValues(forKeys: [.isDirectoryKey])
+            let isDirectory = values.isDirectory == true
+            let destinationEntryURL = destinationURL.appendingPathComponent(
+                entry.lastPathComponent,
+                isDirectory: isDirectory
+            )
+
+            if !fileManager.fileExists(atPath: destinationEntryURL.path) {
+                try fileManager.moveItem(at: entry, to: destinationEntryURL)
+                continue
+            }
+
+            var destinationIsDirectory: ObjCBool = false
+            _ = fileManager.fileExists(atPath: destinationEntryURL.path, isDirectory: &destinationIsDirectory)
+
+            if isDirectory && destinationIsDirectory.boolValue {
+                try mergeDirectoryContents(
+                    from: entry,
+                    into: destinationEntryURL,
+                    conflictLabel: conflictLabel
+                )
+                if try directoryIsEmpty(at: entry) {
+                    try? fileManager.removeItem(at: entry)
+                }
+                continue
+            }
+
+            let conflictURL = uniqueConflictURL(
+                for: entry,
+                in: destinationURL,
+                conflictLabel: conflictLabel
+            )
+            try fileManager.moveItem(at: entry, to: conflictURL)
+        }
+    }
+
+    private func uniqueConflictURL(
+        for sourceURL: URL,
+        in directoryURL: URL,
+        conflictLabel: String
+    ) -> URL {
+        let baseName = sourceURL.deletingPathExtension().lastPathComponent
+        let ext = sourceURL.pathExtension
+        let suffix = conflictLabel.isEmpty ? "migrated" : "migrated-\(conflictLabel)"
+        var attempt = 1
+
+        while true {
+            let candidateName = if attempt == 1 {
+                "\(baseName)-\(suffix)"
+            } else {
+                "\(baseName)-\(suffix)-\(attempt)"
+            }
+            let candidate = if ext.isEmpty {
+                directoryURL.appendingPathComponent(candidateName)
+            } else {
+                directoryURL.appendingPathComponent(candidateName)
+                    .appendingPathExtension(ext)
+            }
+            if !fileManager.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+            attempt += 1
+        }
+    }
+
+    private func conflictLabel(for thread: WorkspaceThreadRecord) -> String {
+        let fallback = String(thread.id.uuidString.prefix(8))
+        let raw = normalizedDisplayName(thread.name, fallback: fallback)
+        let allowed = CharacterSet.alphanumerics.union(.whitespaces)
+        let cleaned = raw.unicodeScalars.map { scalar -> Character in
+            allowed.contains(scalar) ? Character(scalar) : "-"
+        }
+        let collapsed = String(cleaned)
+            .replacingOccurrences(of: " ", with: "-")
+            .replacingOccurrences(of: "--", with: "-")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return collapsed.isEmpty ? fallback : collapsed
+    }
+
+    private func directoryIsEmpty(at url: URL) throws -> Bool {
+        let entries = try fileManager.contentsOfDirectory(atPath: url.path)
+        return entries.isEmpty
     }
 
     private func shareableURL(for sourceURL: URL, preferredArchiveName: String) throws -> URL {

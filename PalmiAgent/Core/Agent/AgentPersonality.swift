@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 struct AgentCustomPersonalityConfiguration: Sendable {
     static let titleStorageKey = "palmi.personality.custom-title"
@@ -80,6 +81,42 @@ enum AgentPersonalityPreset: String, CaseIterable, Codable, Identifiable, Sendab
             return "活泼"
         case .custom:
             return "自定义"
+        }
+    }
+
+    /// 每个性格预设在 UI 列表中使用的 SF Symbol。
+    var systemImageName: String {
+        switch self {
+        case .default:
+            return "person.fill"
+        case .focused:
+            return "scope"
+        case .humorous:
+            return "face.smiling.fill"
+        case .cool:
+            return "snowflake"
+        case .lively:
+            return "sparkles"
+        case .custom:
+            return "slider.horizontal.3"
+        }
+    }
+
+    /// 每个性格预设图标的着色，和标题一起体现气质。
+    var tintColor: Color {
+        switch self {
+        case .default:
+            return .secondary
+        case .focused:
+            return .blue
+        case .humorous:
+            return .orange
+        case .cool:
+            return .cyan
+        case .lively:
+            return .pink
+        case .custom:
+            return .purple
         }
     }
 

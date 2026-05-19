@@ -8,23 +8,41 @@ struct AssembledAgentContext {
 
 struct ContextAssembler {
     let promptComposer: PromptComposer
+    let toolContextProjector: ToolContextProjector
+    let researchStateAssembler: ResearchStateAssembler
 
     func assemble(
         baseSystemPrompt: String,
         skills: [SkillPackage],
-        session: AgentSession
+        session: AgentSession,
+        actions: [ToolAction],
+        exposesTools: Bool,
+        exposesPhaseThought: Bool
     ) -> AssembledAgentContext {
-        let composedSystemPrompt = promptComposer.compose(basePrompt: baseSystemPrompt, skills: skills)
-        var apiMessages: [OpenAIChatMessage] = [.system(composedSystemPrompt)]
+        let composedSystemPrompt = promptComposer.compose(
+            basePrompt: baseSystemPrompt,
+            skills: skills,
+            actions: actions,
+            exposesTools: exposesTools,
+            exposesPhaseThought: exposesPhaseThought
+        )
+        var systemPrompt = composedSystemPrompt
 
         if let hiddenSummary = session.hiddenContextSummary,
            !hiddenSummary.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            apiMessages.append(.system(hiddenSummaryPrompt(for: hiddenSummary)))
+            systemPrompt += "\n\n" + hiddenSummaryPrompt(for: hiddenSummary)
         }
+
+        if let hiddenResearch = researchStateAssembler.hiddenResearchPrompt(for: session),
+           !hiddenResearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            systemPrompt += "\n\n" + hiddenResearch
+        }
+
+        var apiMessages: [OpenAIChatMessage] = [.system(systemPrompt)]
 
         let compactedCount = session.hiddenContextSummary?.compactedMessageCount ?? 0
         for message in session.messages.dropFirst(compactedCount) {
-            apiMessages.append(contentsOf: convert(message))
+            apiMessages.append(contentsOf: convert(message, session: session))
         }
 
         return AssembledAgentContext(
@@ -43,7 +61,10 @@ struct ContextAssembler {
         """
     }
 
-    private func convert(_ agentMessage: AgentMessage) -> [OpenAIChatMessage] {
+    private func convert(
+        _ agentMessage: AgentMessage,
+        session: AgentSession
+    ) -> [OpenAIChatMessage] {
         switch agentMessage.role {
         case .user:
             return [.user(agentMessage.textContent)]
@@ -58,9 +79,9 @@ struct ContextAssembler {
             let content = agentMessage.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
             return [.assistant(content.isEmpty ? nil : content, toolCalls: toolCalls.isEmpty ? nil : toolCalls)]
         case .tool:
-            return agentMessage.toolResults.map { result in
+            return agentMessage.toolResultRecords.map { result in
                 .tool(
-                    LLMGuardrails.compactToolPayloadForModel(result.output),
+                    toolContextProjector.projectedToolContent(for: result, session: session),
                     toolCallID: result.toolUseID
                 )
             }

@@ -36,6 +36,8 @@ struct APIProfileDraftState {
     var multimodalModelID: String
     var lightweightModelID: String
     var apiKeyDraft: String
+    var customBaseURLDraft: String
+    var selectedLMStudioServer: LMStudioDiscoveredServer?
 }
 
 @MainActor
@@ -46,6 +48,7 @@ final class ManualLabStore {
     let apiConfigurationStore: APIConfigurationStore
     let llmToolCallingService: LLMToolCallingService
     let apiConnectionValidationService: APIConnectionValidationService
+    let lmStudioDiscoveryService: LMStudioDiscoveryService
     let workspaceStore: WorkspaceStore
     let toolPermissionStore: ToolPermissionStore
 
@@ -66,6 +69,9 @@ final class ManualLabStore {
     private var apiConnectionFeedbacks: [UUID: APIConfigurationFeedback] = [:]
     private var apiConnectionStates: [UUID: [APIModelRole: APIConnectionValidationState]] = [:]
     private var validatingProfileIDs: Set<UUID> = []
+    private var fetchingRemoteModelProfileIDs: Set<UUID> = []
+    private var lmStudioDiscoveredServers: [UUID: [LMStudioDiscoveredServer]] = [:]
+    private var discoveringLMStudioProfileIDs: Set<UUID> = []
 
     init(
         actions: [ToolAction],
@@ -73,6 +79,7 @@ final class ManualLabStore {
         apiConfigurationStore: APIConfigurationStore,
         llmToolCallingService: LLMToolCallingService,
         apiConnectionValidationService: APIConnectionValidationService,
+        lmStudioDiscoveryService: LMStudioDiscoveryService,
         workspaceStore: WorkspaceStore,
         toolPermissionStore: ToolPermissionStore
     ) {
@@ -81,6 +88,7 @@ final class ManualLabStore {
         self.apiConfigurationStore = apiConfigurationStore
         self.llmToolCallingService = llmToolCallingService
         self.apiConnectionValidationService = apiConnectionValidationService
+        self.lmStudioDiscoveryService = lmStudioDiscoveryService
         self.workspaceStore = workspaceStore
         self.toolPermissionStore = toolPermissionStore
         refreshAPIConfiguration()
@@ -118,8 +126,12 @@ final class ManualLabStore {
         toolPermissionStore.enabledActions(from: actions)
     }
 
+    var activeProviderID: APIProviderID {
+        apiConfigurationStore.activeProviderID()
+    }
+
     var activeLLMSnapshot: APIProviderConfigurationSnapshot {
-        snapshot(for: .glm)
+        snapshot(for: activeProviderID)
     }
 
     var canSubmitNaturalLanguagePrompt: Bool {
@@ -185,7 +197,7 @@ final class ManualLabStore {
             do {
                 let session = try await llmToolCallingService.runSession(
                     prompt: trimmedPrompt,
-                    providerID: .glm,
+                    providerID: activeProviderID,
                     actions: enabledActions,
                     onEvent: { event in
                         switch event {
@@ -228,6 +240,11 @@ final class ManualLabStore {
         llmStreamingPreview = nil
     }
 
+    func setActiveProviderID(_ providerID: APIProviderID) {
+        apiConfigurationStore.setActiveProviderID(providerID)
+        refreshAPIConfiguration()
+    }
+
     func snapshot(for providerID: APIProviderID) -> APIProviderConfigurationSnapshot {
         if let snapshot = apiSnapshots[providerID] {
             return snapshot
@@ -246,6 +263,22 @@ final class ManualLabStore {
         return profiles
     }
 
+    func editableModelRoles(for providerID: APIProviderID) -> [APIModelRole] {
+        snapshot(for: providerID).provider.editableModelRoles
+    }
+
+    func supportsManualModelSelection(for providerID: APIProviderID) -> Bool {
+        snapshot(for: providerID).provider.supportsManualModelSelection
+    }
+
+    func supportsServerDiscovery(for providerID: APIProviderID) -> Bool {
+        snapshot(for: providerID).provider.supportsServerDiscovery
+    }
+
+    func supportsRemoteModelDiscovery(for providerID: APIProviderID) -> Bool {
+        snapshot(for: providerID).provider.supportsRemoteModelDiscovery
+    }
+
     func createProfile(for providerID: APIProviderID) -> UUID {
         let profileID = apiConfigurationStore.createProfile(for: providerID)
         refreshAPIConfiguration(for: providerID)
@@ -255,6 +288,31 @@ final class ManualLabStore {
 
     func activateProfile(_ profileID: UUID, for providerID: APIProviderID) {
         apiConfigurationStore.activateProfile(profileID, for: providerID)
+        refreshAPIConfiguration(for: providerID)
+    }
+
+    func canDeleteProfile(_ profileID: UUID, for providerID: APIProviderID) -> Bool {
+        profiles(for: providerID).contains { profile in
+            profile.id == profileID &&
+            (
+                profile.isUserCreated ||
+                profile.isConfigured ||
+                profile.hasAPIKey ||
+                !profile.customBaseURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                profile.selectedServer != nil
+            )
+        }
+    }
+
+    func deleteProfile(_ profileID: UUID, for providerID: APIProviderID) throws {
+        try apiConfigurationStore.deleteProfile(profileID, for: providerID)
+        apiDrafts.removeValue(forKey: profileID)
+        apiFeedbacks.removeValue(forKey: profileID)
+        apiConnectionFeedbacks.removeValue(forKey: profileID)
+        apiConnectionStates.removeValue(forKey: profileID)
+        lmStudioDiscoveredServers.removeValue(forKey: profileID)
+        discoveringLMStudioProfileIDs.remove(profileID)
+        validatingProfileIDs.remove(profileID)
         refreshAPIConfiguration(for: providerID)
     }
 
@@ -279,7 +337,11 @@ final class ManualLabStore {
         role: APIModelRole,
         profileID: UUID? = nil
     ) -> [APIModelDefinition] {
-        selectedAccessMode(for: providerID, profileID: profileID).availableModels(for: role)
+        let provider = snapshot(for: providerID).provider
+        guard provider.supportsManualModelSelection else {
+            return [APIModelDefinition.automatic(for: role)]
+        }
+        return selectedAccessMode(for: providerID, profileID: profileID).availableModels(for: role)
     }
 
     func availableAccessModes(for providerID: APIProviderID) -> [APIAccessModeDefinition] {
@@ -344,21 +406,25 @@ final class ManualLabStore {
         draft.selectedAccessModeID = accessModeID
         draft.defaultModelID = validModelID(
             currentModelID: draft.defaultModelID,
+            for: activeSnapshot.provider,
             for: accessMode,
             role: .defaultModel
         )
         draft.reasoningModelID = validModelID(
             currentModelID: draft.reasoningModelID,
+            for: activeSnapshot.provider,
             for: accessMode,
             role: .reasoningModel
         )
         draft.multimodalModelID = validModelID(
             currentModelID: draft.multimodalModelID,
+            for: activeSnapshot.provider,
             for: accessMode,
             role: .multimodalModel
         )
         draft.lightweightModelID = validModelID(
             currentModelID: draft.lightweightModelID,
+            for: activeSnapshot.provider,
             for: accessMode,
             role: .lightweightModel
         )
@@ -403,16 +469,27 @@ final class ManualLabStore {
         role: APIModelRole,
         profileID: UUID? = nil
     ) -> APIModelDefinition {
+        let provider = snapshot(for: providerID).provider
+        let draft = draftState(for: providerID, profileID: profileID)
+        if !provider.supportsManualModelSelection, let selectedServer = draft.selectedLMStudioServer {
+            if role == .multimodalModel {
+                return selectedServer.configuredVisionModelDefinition ?? .noMultimodal
+            }
+            return selectedServer.configuredModelDefinition ?? selectedAccessMode(for: providerID, profileID: profileID).defaultModel
+        }
+
         let accessMode = selectedAccessMode(for: providerID, profileID: profileID)
         let resolvedDefaultModel = resolveSelectedModel(
             selectedModelID(for: providerID, role: .defaultModel, profileID: profileID),
             role: .defaultModel,
+            provider: provider,
             accessMode: accessMode,
             defaultModel: accessMode.defaultModel
         )
         return resolveSelectedModel(
             selectedModelID(for: providerID, role: role, profileID: profileID),
             role: role,
+            provider: provider,
             accessMode: accessMode,
             defaultModel: resolvedDefaultModel
         )
@@ -434,6 +511,153 @@ final class ManualLabStore {
         let resolvedProfileID = resolvedProfileID(for: providerID, profileID: profileID)
         var draft = draftState(for: providerID, profileID: resolvedProfileID)
         draft.apiKeyDraft = apiKey
+        apiDrafts[resolvedProfileID] = draft
+        apiFeedbacks[resolvedProfileID] = nil
+        resetConnectionValidation(for: resolvedProfileID)
+    }
+
+    func customBaseURLDraft(for providerID: APIProviderID, profileID: UUID? = nil) -> String {
+        draftState(for: providerID, profileID: profileID).customBaseURLDraft
+    }
+
+    func setCustomBaseURLDraft(_ baseURL: String, for providerID: APIProviderID, profileID: UUID? = nil) {
+        let resolvedProfileID = resolvedProfileID(for: providerID, profileID: profileID)
+        var draft = draftState(for: providerID, profileID: resolvedProfileID)
+        draft.customBaseURLDraft = baseURL
+        if !baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            draft.selectedLMStudioServer = nil
+        }
+        apiDrafts[resolvedProfileID] = draft
+        apiFeedbacks[resolvedProfileID] = nil
+        resetConnectionValidation(for: resolvedProfileID)
+    }
+
+    func selectedLMStudioServer(for providerID: APIProviderID, profileID: UUID? = nil) -> LMStudioDiscoveredServer? {
+        draftState(for: providerID, profileID: profileID).selectedLMStudioServer
+    }
+
+    func discoveredLMStudioServers(for providerID: APIProviderID, profileID: UUID? = nil) -> [LMStudioDiscoveredServer] {
+        let resolvedProfileID = resolvedProfileID(for: providerID, profileID: profileID)
+        return lmStudioDiscoveredServers[resolvedProfileID] ?? []
+    }
+
+    func isDiscoveringLMStudioServers(for providerID: APIProviderID, profileID: UUID? = nil) -> Bool {
+        let resolvedProfileID = resolvedProfileID(for: providerID, profileID: profileID)
+        return discoveringLMStudioProfileIDs.contains(resolvedProfileID)
+    }
+
+    func autoConfigureLMStudio(for providerID: APIProviderID, profileID: UUID? = nil) {
+        let resolvedProfileID = resolvedProfileID(for: providerID, profileID: profileID)
+        let candidateURLs = prioritizedLMStudioCandidateURLs(for: providerID, profileID: resolvedProfileID)
+        let apiToken = nonEmpty(apiKeyDraft(for: providerID, profileID: resolvedProfileID))
+
+        discoveringLMStudioProfileIDs.insert(resolvedProfileID)
+        apiFeedbacks[resolvedProfileID] = nil
+        apiConnectionFeedbacks[resolvedProfileID] = nil
+        resetConnectionValidation(for: resolvedProfileID)
+
+        Task {
+            defer {
+                discoveringLMStudioProfileIDs.remove(resolvedProfileID)
+            }
+
+            let discoveryResult = await resolveAutoConfiguredLMStudioSelection(
+                candidateURLs: candidateURLs,
+                apiToken: apiToken
+            )
+
+            lmStudioDiscoveredServers[resolvedProfileID] = discoveryResult.discoveredServers
+
+            guard let selectedServer = discoveryResult.selectedServer else {
+                if let lastError = discoveryResult.lastError {
+                    apiFeedbacks[resolvedProfileID] = .failure(lastError.localizedDescription)
+                } else {
+                    apiFeedbacks[resolvedProfileID] = .failure(
+                        "没有自动发现可用的 LM Studio 服务。确认目标设备已开启 Serve on Local Network，或直接填写 192.168.x.x:1234 后再点“自动配置”。"
+                    )
+                }
+                return
+            }
+
+            do {
+                selectLMStudioServer(selectedServer, for: providerID, profileID: resolvedProfileID)
+                let savedProfile = try persistDraft(for: providerID, profileID: resolvedProfileID)
+                let validationPassed = await validateAutoConfiguredLMStudioConnection(
+                    for: providerID,
+                    profileID: resolvedProfileID
+                )
+
+                if validationPassed {
+                    apiFeedbacks[resolvedProfileID] = .success(
+                        "\(savedProfile.profileName) 已自动配置、保存并完成联通验证。"
+                    )
+                } else if selectedServer.requiresAuthentication && apiToken == nil {
+                    apiFeedbacks[resolvedProfileID] = .success(
+                        "\(savedProfile.profileName) 已发现并保存服务器地址；该服务端需要 API Token，填写后再点一次“自动配置”即可。"
+                    )
+                } else {
+                    apiFeedbacks[resolvedProfileID] = .success(
+                        "\(savedProfile.profileName) 已自动保存服务器信息。"
+                    )
+                }
+            } catch {
+                apiFeedbacks[resolvedProfileID] = .failure(error.localizedDescription)
+            }
+        }
+    }
+
+    func discoverLMStudioServers(for providerID: APIProviderID, profileID: UUID? = nil) {
+        let resolvedProfileID = resolvedProfileID(for: providerID, profileID: profileID)
+        discoveringLMStudioProfileIDs.insert(resolvedProfileID)
+        apiFeedbacks[resolvedProfileID] = nil
+
+        Task {
+            let servers = await lmStudioDiscoveryService.discoverServers()
+            lmStudioDiscoveredServers[resolvedProfileID] = servers
+            discoveringLMStudioProfileIDs.remove(resolvedProfileID)
+
+            if let best = servers.first {
+                selectLMStudioServer(best, for: providerID, profileID: resolvedProfileID)
+                apiFeedbacks[resolvedProfileID] = .success("已发现 \(servers.count) 个 LM Studio 服务，已自动配对首个可用节点。")
+            } else {
+                apiFeedbacks[resolvedProfileID] = .failure("没有发现可用的 LM Studio 服务。确认目标设备已开启 Serve on Local Network，并使用默认端口 1234。")
+            }
+        }
+    }
+
+    func refreshSelectedLMStudioServer(for providerID: APIProviderID, profileID: UUID? = nil) {
+        let resolvedProfileID = resolvedProfileID(for: providerID, profileID: profileID)
+        guard let baseURLString = draftState(for: providerID, profileID: resolvedProfileID)
+            .selectedLMStudioServer?
+            .baseURLString ?? nonEmpty(customBaseURLDraft(for: providerID, profileID: resolvedProfileID)),
+              let baseURL = normalizedLMStudioCandidateURL(from: baseURLString) else {
+            apiFeedbacks[resolvedProfileID] = .failure("还没有可刷新的 LM Studio 服务器地址。")
+            return
+        }
+
+        Task {
+            do {
+                let refreshed = try await lmStudioDiscoveryService.refreshServer(
+                    baseURL: baseURL,
+                    apiToken: nonEmpty(apiKeyDraft(for: providerID, profileID: resolvedProfileID))
+                )
+                selectLMStudioServer(refreshed, for: providerID, profileID: resolvedProfileID)
+                apiFeedbacks[resolvedProfileID] = .success("LM Studio 服务器信息已刷新。")
+            } catch {
+                apiFeedbacks[resolvedProfileID] = .failure(error.localizedDescription)
+            }
+        }
+    }
+
+    func selectLMStudioServer(
+        _ server: LMStudioDiscoveredServer,
+        for providerID: APIProviderID,
+        profileID: UUID? = nil
+    ) {
+        let resolvedProfileID = resolvedProfileID(for: providerID, profileID: profileID)
+        var draft = draftState(for: providerID, profileID: resolvedProfileID)
+        draft.selectedLMStudioServer = server
+        draft.customBaseURLDraft = server.baseURLString
         apiDrafts[resolvedProfileID] = draft
         apiFeedbacks[resolvedProfileID] = nil
         resetConnectionValidation(for: resolvedProfileID)
@@ -467,19 +691,79 @@ final class ManualLabStore {
         return validatingProfileIDs.contains(resolvedProfileID)
     }
 
-    func validateConnections(for providerID: APIProviderID, profileID: UUID? = nil) {
+    func isFetchingRemoteModels(for providerID: APIProviderID, profileID: UUID? = nil) -> Bool {
         let resolvedProfileID = resolvedProfileID(for: providerID, profileID: profileID)
-        validatingProfileIDs.insert(resolvedProfileID)
+        return fetchingRemoteModelProfileIDs.contains(resolvedProfileID)
+    }
+
+    func refreshRemoteModels(for providerID: APIProviderID, profileID: UUID? = nil) {
+        let resolvedProfileID = resolvedProfileID(for: providerID, profileID: profileID)
+        guard supportsRemoteModelDiscovery(for: providerID) else {
+            apiConnectionFeedbacks[resolvedProfileID] = nil
+            return
+        }
+        apiFeedbacks[resolvedProfileID] = nil
         apiConnectionFeedbacks[resolvedProfileID] = nil
 
+        do {
+            _ = try persistDraft(for: providerID, profileID: resolvedProfileID)
+        } catch {
+            apiFeedbacks[resolvedProfileID] = .failure(error.localizedDescription)
+            return
+        }
+
+        fetchingRemoteModelProfileIDs.insert(resolvedProfileID)
+        Task {
+            do {
+                let models = try await apiConfigurationStore.refreshRemoteModels(
+                    for: providerID,
+                    profileID: resolvedProfileID
+                )
+                refreshAPIConfiguration(for: providerID)
+                apiConnectionFeedbacks[resolvedProfileID] = .success("已检测到 \(models.count) 个远程模型。")
+            } catch {
+                let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                apiConnectionFeedbacks[resolvedProfileID] = .failure(message)
+            }
+            fetchingRemoteModelProfileIDs.remove(resolvedProfileID)
+        }
+    }
+
+    func validateConnections(for providerID: APIProviderID, profileID: UUID? = nil) {
+        let resolvedProfileID = resolvedProfileID(for: providerID, profileID: profileID)
+        let provider = snapshot(for: providerID).provider
+        let roles = provider.editableModelRoles.isEmpty
+            ? [APIModelRole.reasoningModel, .multimodalModel]
+            : provider.editableModelRoles
+        apiFeedbacks[resolvedProfileID] = nil
+        apiConnectionFeedbacks[resolvedProfileID] = nil
+
+        do {
+            _ = try persistDraft(for: providerID, profileID: resolvedProfileID)
+        } catch {
+            apiFeedbacks[resolvedProfileID] = .failure(error.localizedDescription)
+            resetConnectionValidation(for: resolvedProfileID)
+            return
+        }
+
+        validatingProfileIDs.insert(resolvedProfileID)
+
         var states: [APIModelRole: APIConnectionValidationState] = [:]
-        APIModelRole.allCases.forEach { states[$0] = .validating }
+        roles.forEach { states[$0] = .validating }
         apiConnectionStates[resolvedProfileID] = states
 
         Task {
             var failures: [String] = []
 
-            for role in APIModelRole.allCases {
+            for role in roles {
+                if selectedModel(
+                    for: providerID,
+                    role: role,
+                    profileID: resolvedProfileID
+                ).id == APIModelSelection.noneMultimodalID {
+                    apiConnectionStates[resolvedProfileID, default: [:]][role] = .success
+                    continue
+                }
                 do {
                     _ = try await apiConnectionValidationService.validateConnection(
                         providerID: providerID,
@@ -509,22 +793,9 @@ final class ManualLabStore {
 
     func saveAPIConfiguration(for providerID: APIProviderID, profileID: UUID? = nil) {
         let resolvedProfileID = resolvedProfileID(for: providerID, profileID: profileID)
-        let draft = draftState(for: providerID, profileID: resolvedProfileID)
 
         do {
-            try apiConfigurationStore.saveConfiguration(
-                profileName: draft.profileName,
-                apiKey: draft.apiKeyDraft,
-                selectedAccessModeID: draft.selectedAccessModeID,
-                defaultModelID: draft.defaultModelID,
-                reasoningModelID: draft.reasoningModelID,
-                multimodalModelID: draft.multimodalModelID,
-                lightweightModelID: draft.lightweightModelID,
-                for: providerID,
-                profileID: resolvedProfileID
-            )
-            refreshAPIConfiguration(for: providerID)
-            let snapshot = snapshot(for: providerID)
+            let snapshot = try persistDraft(for: providerID, profileID: resolvedProfileID)
             apiFeedbacks[resolvedProfileID] = .success("\(snapshot.profileName) 已保存。")
         } catch {
             apiFeedbacks[resolvedProfileID] = .failure(error.localizedDescription)
@@ -591,6 +862,8 @@ final class ManualLabStore {
                 draft.reasoningModelID = profile.reasoningModelSelectionID
                 draft.multimodalModelID = profile.multimodalModelSelectionID
                 draft.lightweightModelID = profile.lightweightModelSelectionID
+                draft.customBaseURLDraft = profile.customBaseURLString
+                draft.selectedLMStudioServer = profile.selectedServer
                 if let savedAPIKey = apiConfigurationStore.apiKey(for: providerID, profileID: profile.id),
                    !savedAPIKey.isEmpty {
                     draft.apiKeyDraft = savedAPIKey
@@ -601,11 +874,49 @@ final class ManualLabStore {
             }
         }
 
-        let staleDraftIDs = Set(apiDrafts.keys).subtracting(profileByID.keys)
+        let staleDraftIDs = Set(
+            apiDrafts.values
+                .filter { $0.providerID == providerID && profileByID[$0.profileID] == nil }
+                .map(\.profileID)
+        )
         for staleDraftID in staleDraftIDs {
             apiDrafts.removeValue(forKey: staleDraftID)
             apiFeedbacks.removeValue(forKey: staleDraftID)
+            apiConnectionFeedbacks.removeValue(forKey: staleDraftID)
+            apiConnectionStates.removeValue(forKey: staleDraftID)
+            lmStudioDiscoveredServers.removeValue(forKey: staleDraftID)
+            discoveringLMStudioProfileIDs.remove(staleDraftID)
+            validatingProfileIDs.remove(staleDraftID)
+            fetchingRemoteModelProfileIDs.remove(staleDraftID)
         }
+    }
+
+    private func persistDraft(
+        for providerID: APIProviderID,
+        profileID: UUID
+    ) throws -> APIConfigurationProfileSnapshot {
+        let draft = draftState(for: providerID, profileID: profileID)
+
+        try apiConfigurationStore.saveConfiguration(
+            profileName: draft.profileName,
+            apiKey: draft.apiKeyDraft,
+            selectedAccessModeID: draft.selectedAccessModeID,
+            defaultModelID: draft.defaultModelID,
+            reasoningModelID: draft.reasoningModelID,
+            multimodalModelID: draft.multimodalModelID,
+            lightweightModelID: draft.lightweightModelID,
+            customBaseURLString: draft.customBaseURLDraft,
+            selectedServer: draft.selectedLMStudioServer,
+            for: providerID,
+            profileID: profileID
+        )
+        refreshAPIConfiguration(for: providerID)
+
+        guard let refreshedProfile = profiles(for: providerID).first(where: { $0.id == profileID }) else {
+            throw AppError.invalidState("配置保存后未能刷新最新状态。")
+        }
+
+        return refreshedProfile
     }
 
     private func resolvedProfileID(for providerID: APIProviderID, profileID: UUID?) -> UUID {
@@ -628,7 +939,9 @@ final class ManualLabStore {
             reasoningModelID: profile.reasoningModelSelectionID,
             multimodalModelID: profile.multimodalModelSelectionID,
             lightweightModelID: profile.lightweightModelSelectionID,
-            apiKeyDraft: apiConfigurationStore.apiKey(for: providerID, profileID: resolvedProfileID) ?? ""
+            apiKeyDraft: apiConfigurationStore.apiKey(for: providerID, profileID: resolvedProfileID) ?? "",
+            customBaseURLDraft: profile.customBaseURLString,
+            selectedLMStudioServer: profile.selectedServer
         )
         apiDrafts[resolvedProfileID] = draft
         return draft
@@ -636,24 +949,207 @@ final class ManualLabStore {
 
     private func validModelID(
         currentModelID: String,
+        for provider: APIProviderDefinition,
         for accessMode: APIAccessModeDefinition,
         role: APIModelRole
     ) -> String {
-        accessMode.availableModels(for: role).contains(where: { $0.id == currentModelID })
-            ? currentModelID
-            : accessMode.defaultModel(for: role).id
+        let availableModels: [APIModelDefinition]
+        if provider.supportsManualModelSelection {
+            availableModels = accessMode.availableModels(for: role)
+        } else {
+            availableModels = [APIModelDefinition.automatic(for: role)]
+        }
+
+        if availableModels.contains(where: { $0.id == currentModelID }) {
+            return currentModelID
+        }
+        if provider.supportsManualModelSelection, role == .defaultModel {
+            return accessMode.defaultModel.id
+        }
+        if provider.supportsManualModelSelection, role == .multimodalModel {
+            return accessMode.defaultModel(for: .multimodalModel).id
+        }
+        return APIModelSelection.automaticID
     }
 
     private func resolveSelectedModel(
         _ selectionID: String,
         role: APIModelRole,
+        provider: APIProviderDefinition,
         accessMode: APIAccessModeDefinition,
         defaultModel: APIModelDefinition
     ) -> APIModelDefinition {
-        if selectionID == APIModelSelection.automaticID {
-            return role == .defaultModel ? accessMode.defaultModel : defaultModel
+        if selectionID == APIModelSelection.automaticID || !provider.supportsManualModelSelection {
+            switch role {
+            case .defaultModel:
+                return accessMode.defaultModel
+            case .multimodalModel:
+                return accessMode.defaultModel(for: .multimodalModel)
+            case .reasoningModel, .lightweightModel:
+                return defaultModel
+            }
         }
         return accessMode.model(withID: selectionID) ?? accessMode.defaultModel(for: role)
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func prioritizedLMStudioCandidateURLs(for providerID: APIProviderID, profileID: UUID) -> [URL] {
+        let draft = draftState(for: providerID, profileID: profileID)
+        let savedProfiles = profiles(for: providerID)
+        var orderedCandidates: [String] = []
+
+        func append(_ rawValue: String?) {
+            guard let rawValue = nonEmpty(rawValue) else { return }
+            orderedCandidates.append(rawValue)
+        }
+
+        append(draft.customBaseURLDraft)
+        append(draft.selectedLMStudioServer?.baseURLString)
+
+        for server in lmStudioDiscoveredServers[profileID] ?? [] {
+            append(server.baseURLString)
+        }
+
+        for profile in savedProfiles {
+            append(profile.customBaseURLString)
+            append(profile.endpointURL?.absoluteString)
+            append(profile.selectedServer?.baseURLString)
+        }
+
+        var seen: Set<String> = []
+        var urls: [URL] = []
+        for rawValue in orderedCandidates {
+            guard let url = normalizedLMStudioCandidateURL(from: rawValue) else { continue }
+            let key = url.absoluteString
+            guard seen.insert(key).inserted else { continue }
+            urls.append(url)
+        }
+        return urls
+    }
+
+    private func normalizedLMStudioCandidateURL(from rawValue: String) -> URL? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        let candidate = trimmed.contains("://") ? trimmed : "http://\(trimmed)"
+        guard var url = URL(string: candidate) else {
+            return nil
+        }
+
+        let normalizedPath = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if normalizedPath.isEmpty {
+            url.appendPathComponent("v1")
+        }
+
+        return url
+    }
+
+    private func resolveAutoConfiguredLMStudioSelection(
+        candidateURLs: [URL],
+        apiToken: String?
+    ) async -> (
+        selectedServer: LMStudioDiscoveredServer?,
+        discoveredServers: [LMStudioDiscoveredServer],
+        lastError: Error?
+    ) {
+        var discoveredByID: [String: LMStudioDiscoveredServer] = [:]
+        var lastError: Error?
+
+        for candidateURL in candidateURLs {
+            do {
+                let server = try await lmStudioDiscoveryService.refreshServer(
+                    baseURL: candidateURL,
+                    apiToken: apiToken
+                )
+                discoveredByID[server.id] = server
+                return (
+                    selectedServer: server,
+                    discoveredServers: sortLMStudioServers(Array(discoveredByID.values)),
+                    lastError: nil
+                )
+            } catch {
+                lastError = error
+            }
+        }
+
+        let scannedServers = await lmStudioDiscoveryService.discoverServers()
+        for server in scannedServers {
+            discoveredByID[server.id] = server
+        }
+
+        guard var selectedServer = scannedServers.first else {
+            return (
+                selectedServer: nil,
+                discoveredServers: sortLMStudioServers(Array(discoveredByID.values)),
+                lastError: lastError
+            )
+        }
+
+        if let apiToken,
+           let baseURL = selectedServer.baseURL,
+           let refreshedServer = try? await lmStudioDiscoveryService.refreshServer(
+                baseURL: baseURL,
+                apiToken: apiToken
+           ) {
+            selectedServer = refreshedServer
+            discoveredByID[refreshedServer.id] = refreshedServer
+        }
+
+        return (
+            selectedServer: selectedServer,
+            discoveredServers: sortLMStudioServers(Array(discoveredByID.values)),
+            lastError: nil
+        )
+    }
+
+    private func validateAutoConfiguredLMStudioConnection(
+        for providerID: APIProviderID,
+        profileID: UUID
+    ) async -> Bool {
+        validatingProfileIDs.insert(profileID)
+        apiConnectionStates[profileID] = [.reasoningModel: .validating]
+        apiConnectionFeedbacks[profileID] = nil
+
+        defer {
+            validatingProfileIDs.remove(profileID)
+        }
+
+        do {
+            _ = try await apiConnectionValidationService.validateConnection(
+                providerID: providerID,
+                profileID: profileID,
+                role: .reasoningModel
+            )
+            apiConnectionStates[profileID] = [.reasoningModel: .success]
+            apiConnectionFeedbacks[profileID] = .success("联通验证完成。")
+            return true
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            apiConnectionStates[profileID] = [.reasoningModel: .failure(message)]
+            apiConnectionFeedbacks[profileID] = .failure(message)
+            return false
+        }
+    }
+
+    private func sortLMStudioServers(_ servers: [LMStudioDiscoveredServer]) -> [LMStudioDiscoveredServer] {
+        servers.sorted { lhs, rhs in
+            if lhs.requiresAuthentication != rhs.requiresAuthentication {
+                return rhs.requiresAuthentication
+            }
+            if (lhs.selectedModelID != nil) != (rhs.selectedModelID != nil) {
+                return lhs.selectedModelID != nil
+            }
+            if lhs.modelCount != rhs.modelCount {
+                return lhs.modelCount > rhs.modelCount
+            }
+            return lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
+        }
     }
 
     private func resetConnectionValidation(for profileID: UUID) {

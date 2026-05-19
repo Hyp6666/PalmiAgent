@@ -2,6 +2,15 @@ import Foundation
 import PDFKit
 import UniformTypeIdentifiers
 
+enum WorkspaceReadMode: String, CaseIterable, Sendable {
+    case auto
+    case head
+    case tail
+    case chunk
+    case section
+    case abstract
+}
+
 struct WorkspaceReadResult: Sendable {
     let summary: String
     let details: String
@@ -9,6 +18,12 @@ struct WorkspaceReadResult: Sendable {
 
 @MainActor
 final class WorkspaceReadService {
+    private struct ReadExtraction: Sendable {
+        let text: String
+        let wasTruncated: Bool
+        let note: String?
+    }
+
     private let workspaceManager: WorkspaceManager
     private let fileManager = FileManager.default
 
@@ -20,7 +35,11 @@ final class WorkspaceReadService {
         at relativePath: String,
         recursive: Bool = true,
         maxCharacters: Int = 20_000,
-        maxFiles: Int = 64
+        maxFiles: Int = 64,
+        mode: WorkspaceReadMode = .auto,
+        offset: Int = 0,
+        chunkSize: Int? = nil,
+        focus: String? = nil
     ) throws -> WorkspaceReadResult {
         let targetURL = try workspaceManager.url(for: relativePath)
         var isDirectory: ObjCBool = false
@@ -34,28 +53,51 @@ final class WorkspaceReadService {
                 relativePath: normalizedRelativePath(relativePath),
                 recursive: recursive,
                 maxCharacters: maxCharacters,
-                maxFiles: maxFiles
+                maxFiles: maxFiles,
+                mode: mode,
+                offset: offset,
+                chunkSize: chunkSize,
+                focus: focus
             )
         }
 
         return try readSingleFile(
             at: targetURL,
             relativePath: normalizedRelativePath(relativePath),
-            maxCharacters: maxCharacters
+            maxCharacters: maxCharacters,
+            mode: mode,
+            offset: offset,
+            chunkSize: chunkSize,
+            focus: focus
         )
     }
 
     private func readSingleFile(
         at url: URL,
         relativePath: String,
-        maxCharacters: Int
+        maxCharacters: Int,
+        mode: WorkspaceReadMode,
+        offset: Int,
+        chunkSize: Int?,
+        focus: String?
     ) throws -> WorkspaceReadResult {
         if let text = try readableText(from: url) {
-            let output = truncated(text, maxCharacters: maxCharacters)
-            let suffix = output.wasTruncated ? "\n\n... 已截断 ..." : ""
+            let extraction = extract(
+                from: text,
+                mode: mode,
+                maxCharacters: maxCharacters,
+                offset: offset,
+                chunkSize: chunkSize,
+                focus: focus
+            )
+            let rendered = renderBody(
+                extraction,
+                mode: mode,
+                focus: focus
+            )
             return WorkspaceReadResult(
-                summary: "已读取 1 个文件",
-                details: "# FILE: \(relativePath)\n\n\(output.text)\(suffix)"
+                summary: "已读取 1 个文件（\(mode.rawValue)）",
+                details: "# FILE: \(relativePath)\n\n\(rendered)"
             )
         }
 
@@ -70,7 +112,11 @@ final class WorkspaceReadService {
         relativePath: String,
         recursive: Bool,
         maxCharacters: Int,
-        maxFiles: Int
+        maxFiles: Int,
+        mode: WorkspaceReadMode,
+        offset: Int,
+        chunkSize: Int?,
+        focus: String?
     ) throws -> WorkspaceReadResult {
         let rootURL = try workspaceManager.currentThreadWorkspaceURL()
         let candidateURLs: [URL]
@@ -82,7 +128,8 @@ final class WorkspaceReadService {
                 .map(\.url)
         }
 
-        let limitedURLs = Array(candidateURLs.prefix(maxFiles))
+        let rankedURLs = rankCandidateURLs(candidateURLs, focus: focus)
+        let limitedURLs = Array(rankedURLs.prefix(maxFiles))
         let omittedCount = max(0, candidateURLs.count - limitedURLs.count)
 
         var readableChunks: [String] = []
@@ -101,18 +148,25 @@ final class WorkspaceReadService {
             let availableForBody = max(0, remainingCharacters - header.count - 2)
             guard availableForBody > 0 else { break }
 
-            let output = truncated(text, maxCharacters: availableForBody)
-            let chunk = header + output.text + (output.wasTruncated ? "\n\n... 已截断 ..." : "")
+            let extraction = extract(
+                from: text,
+                mode: mode,
+                maxCharacters: availableForBody,
+                offset: offset,
+                chunkSize: chunkSize,
+                focus: focus
+            )
+            let chunk = header + renderBody(extraction, mode: mode, focus: focus)
             readableChunks.append(chunk)
             includedCount += 1
             remainingCharacters -= chunk.count + 2
 
-            if output.wasTruncated || remainingCharacters <= 0 {
+            if extraction.wasTruncated || remainingCharacters <= 0 {
                 break
             }
         }
 
-        var summaryParts: [String] = ["已读取 \(includedCount) 个文件"]
+        var summaryParts: [String] = ["已读取 \(includedCount) 个文件（\(mode.rawValue)）"]
         if !skippedPaths.isEmpty {
             summaryParts.append("忽略 \(skippedPaths.count) 个非文本文件")
         }
@@ -265,6 +319,227 @@ final class WorkspaceReadService {
     private func normalizedRelativePath(_ relativePath: String) -> String {
         let trimmed = relativePath.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "." : trimmed
+    }
+
+    private func rankCandidateURLs(_ urls: [URL], focus: String?) -> [URL] {
+        guard let focus = normalizedFocus(focus), !focus.isEmpty else {
+            return urls
+        }
+
+        return urls.sorted { lhs, rhs in
+            let lhsScore = pathScore(for: lhs, focus: focus)
+            let rhsScore = pathScore(for: rhs, focus: focus)
+            if lhsScore == rhsScore {
+                return lhs.path < rhs.path
+            }
+            return lhsScore > rhsScore
+        }
+    }
+
+    private func pathScore(for url: URL, focus: String) -> Int {
+        let haystack = (url.lastPathComponent + " " + url.path).lowercased()
+        let needle = focus.lowercased()
+        if haystack == needle { return 4 }
+        if url.lastPathComponent.lowercased().contains(needle) { return 3 }
+        if haystack.contains(needle) { return 2 }
+        return 0
+    }
+
+    private func renderBody(
+        _ extraction: ReadExtraction,
+        mode: WorkspaceReadMode,
+        focus: String?
+    ) -> String {
+        var sections: [String] = [
+            "[mode: \(mode.rawValue)]"
+        ]
+        if let focus = normalizedFocus(focus), !focus.isEmpty {
+            sections.append("[focus: \(focus)]")
+        }
+        if let note = extraction.note, !note.isEmpty {
+            sections.append("[note: \(note)]")
+        }
+        sections.append(extraction.text)
+        if extraction.wasTruncated {
+            sections.append("... 已截断 ...")
+        }
+        return sections.joined(separator: "\n\n")
+    }
+
+    private func extract(
+        from text: String,
+        mode: WorkspaceReadMode,
+        maxCharacters: Int,
+        offset: Int,
+        chunkSize: Int?,
+        focus: String?
+    ) -> ReadExtraction {
+        let effectiveMaximum = max(1, maxCharacters)
+        let effectiveChunkSize = max(1, min(chunkSize ?? effectiveMaximum, effectiveMaximum))
+        let safeOffset = max(0, offset)
+        let focus = normalizedFocus(focus)
+
+        switch mode {
+        case .auto:
+            if let focus, !focus.isEmpty, let section = extractSection(
+                from: text,
+                focus: focus,
+                maxCharacters: effectiveChunkSize
+            ) {
+                return section
+            }
+            return extractHead(from: text, maxCharacters: effectiveMaximum)
+
+        case .head:
+            return extractHead(from: text, maxCharacters: effectiveChunkSize)
+
+        case .tail:
+            return extractTail(from: text, maxCharacters: effectiveChunkSize)
+
+        case .chunk:
+            return extractChunk(from: text, offset: safeOffset, maxCharacters: effectiveChunkSize)
+
+        case .section:
+            if let focus, !focus.isEmpty, let section = extractSection(
+                from: text,
+                focus: focus,
+                maxCharacters: effectiveChunkSize
+            ) {
+                return section
+            }
+            return extractHead(
+                from: text,
+                maxCharacters: effectiveChunkSize,
+                note: focus == nil ? "未提供 focus，已回退到头部片段。" : "未命中 focus，已回退到头部片段。"
+            )
+
+        case .abstract:
+            if let abstract = extractAbstract(from: text, maxCharacters: effectiveChunkSize) {
+                return abstract
+            }
+            if let focus, !focus.isEmpty, let section = extractSection(
+                from: text,
+                focus: focus,
+                maxCharacters: effectiveChunkSize
+            ) {
+                return ReadExtraction(
+                    text: section.text,
+                    wasTruncated: section.wasTruncated,
+                    note: "未识别到摘要段，已回退到 focus 附近片段。"
+                )
+            }
+            return extractHead(
+                from: text,
+                maxCharacters: effectiveChunkSize,
+                note: "未识别到摘要段，已回退到头部片段。"
+            )
+        }
+    }
+
+    private func extractHead(
+        from text: String,
+        maxCharacters: Int,
+        note: String? = nil
+    ) -> ReadExtraction {
+        let output = truncated(text, maxCharacters: maxCharacters)
+        return ReadExtraction(text: output.text, wasTruncated: output.wasTruncated, note: note)
+    }
+
+    private func extractTail(from text: String, maxCharacters: Int) -> ReadExtraction {
+        guard text.count > maxCharacters else {
+            return ReadExtraction(text: text, wasTruncated: false, note: nil)
+        }
+        return ReadExtraction(
+            text: String(text.suffix(maxCharacters)),
+            wasTruncated: true,
+            note: "已返回尾部片段。"
+        )
+    }
+
+    private func extractChunk(
+        from text: String,
+        offset: Int,
+        maxCharacters: Int
+    ) -> ReadExtraction {
+        let start = min(offset, text.count)
+        let chunk = substring(text, from: start, maxCharacters: maxCharacters)
+        let wasTruncated = start > 0 || start + chunk.count < text.count
+        return ReadExtraction(
+            text: chunk.isEmpty ? "" : chunk,
+            wasTruncated: wasTruncated,
+            note: "已返回从 offset=\(start) 开始的片段。"
+        )
+    }
+
+    private func extractSection(
+        from text: String,
+        focus: String,
+        maxCharacters: Int
+    ) -> ReadExtraction? {
+        let nsText = text as NSString
+        let match = nsText.range(of: focus, options: [.caseInsensitive, .diacriticInsensitive])
+        guard match.location != NSNotFound else {
+            return nil
+        }
+
+        let preferredStart = max(0, match.location - maxCharacters / 3)
+        let lineStart = nsText.lineRange(for: NSRange(location: preferredStart, length: 0)).location
+        let preferredEnd = min(nsText.length, lineStart + maxCharacters)
+        let lineEndRange = nsText.lineRange(for: NSRange(location: max(0, preferredEnd - 1), length: 1))
+        let upperBound = min(nsText.length, lineEndRange.location + lineEndRange.length)
+        let range = NSRange(location: lineStart, length: max(0, upperBound - lineStart))
+        let snippet = nsText.substring(with: range).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !snippet.isEmpty else {
+            return nil
+        }
+
+        return ReadExtraction(
+            text: snippet,
+            wasTruncated: lineStart > 0 || upperBound < nsText.length,
+            note: "已聚焦到与 focus 最相关的片段。"
+        )
+    }
+
+    private func extractAbstract(from text: String, maxCharacters: Int) -> ReadExtraction? {
+        let markers = ["abstract", "摘要", "executive summary", "summary", "概要"]
+        let nsText = text as NSString
+
+        for marker in markers {
+            let match = nsText.range(of: marker, options: [.caseInsensitive, .diacriticInsensitive])
+            guard match.location != NSNotFound else { continue }
+
+            let start = match.location
+            let lineStart = nsText.lineRange(for: NSRange(location: start, length: 0)).location
+            let preferredEnd = min(nsText.length, lineStart + maxCharacters)
+            let lineEndRange = nsText.lineRange(for: NSRange(location: max(0, preferredEnd - 1), length: 1))
+            let upperBound = min(nsText.length, lineEndRange.location + lineEndRange.length)
+            let snippet = nsText.substring(with: NSRange(location: lineStart, length: max(0, upperBound - lineStart)))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !snippet.isEmpty else { continue }
+
+            return ReadExtraction(
+                text: snippet,
+                wasTruncated: lineStart > 0 || upperBound < nsText.length,
+                note: "已优先返回摘要/概要段。"
+            )
+        }
+
+        return nil
+    }
+
+    private func substring(_ text: String, from offset: Int, maxCharacters: Int) -> String {
+        guard offset < text.count, maxCharacters > 0 else {
+            return ""
+        }
+        let startIndex = text.index(text.startIndex, offsetBy: offset)
+        let endIndex = text.index(startIndex, offsetBy: min(maxCharacters, text.distance(from: startIndex, to: text.endIndex)), limitedBy: text.endIndex) ?? text.endIndex
+        return String(text[startIndex..<endIndex])
+    }
+
+    private func normalizedFocus(_ focus: String?) -> String? {
+        guard let focus else { return nil }
+        let trimmed = focus.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func truncated(_ text: String, maxCharacters: Int) -> (text: String, wasTruncated: Bool) {

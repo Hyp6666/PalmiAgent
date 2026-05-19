@@ -1,5 +1,4 @@
 import SwiftUI
-import MarkdownUI
 
 struct ChatScreen: View {
     @Environment(\.dismiss) private var dismiss
@@ -25,25 +24,28 @@ struct ChatScreen: View {
     // 仅在 onAppear / 打开菜单 / override 变化时刷新。
     @State private var cachedModelSelectionState: ModelSelectionState?
 
+    @AppStorage(APIConfigurationStore.activeProviderStorageKey) private var activeProviderRaw = APIProviderID.glm.rawValue
     @AppStorage(ProfessionalReasoningTier.storageKey) private var professionalReasoningTierRaw = ProfessionalReasoningTier.balanced.rawValue
     @AppStorage(ChatReasoningTier.storageKey) private var chatReasoningTierRaw = ChatReasoningTier.normal.rawValue
-    @AppStorage("palmi.chat.override-reasoning-model-id") private var overrideReasoningModelID = ""
+    @AppStorage("palmi.chat.tools-enabled") private var areToolsEnabled = true
+    @AppStorage("palmi.chat.external-reasoning-enabled") private var isExternalReasoningEnabled = true
 
     private let bottomAnchorID = "chat-bottom-anchor"
 
     private enum ComposerMenu: String, Identifiable {
-        case model
-        case reasoning
-        case queuedGuidance
+        case controlCenter
+        case quickSettings
 
         var id: String { rawValue }
     }
 
     private struct ModelSelectionState {
+        let provider: APIProviderDefinition
         let accessMode: APIAccessModeDefinition
         let configuredModel: APIModelDefinition
         let selectedModel: APIModelDefinition
         let followsSettings: Bool
+        let supportsOverride: Bool
     }
 
     init(
@@ -78,23 +80,37 @@ struct ChatScreen: View {
         shellMode == .chat
     }
 
+    private var activeProviderID: APIProviderID {
+        APIProviderID(rawValue: activeProviderRaw) ?? store.apiConfigurationStore.activeProviderID()
+    }
+
     private var modelSelectionState: ModelSelectionState {
         cachedModelSelectionState ?? computedModelSelectionState
     }
 
     private var computedModelSelectionState: ModelSelectionState {
-        let snapshot = store.apiConfigurationStore.chatModelSelectionSnapshot(for: .glm)
+        let snapshot = store.apiConfigurationStore.chatModelSelectionSnapshot(for: activeProviderID)
         let accessMode = snapshot.selectedAccessMode
         let configuredModel = snapshot.configuredReasoningModel
-        let overrideID = overrideReasoningModelID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let selectedModel = accessMode.model(withID: overrideID) ?? configuredModel
+        let overrideID = store.apiConfigurationStore
+            .chatOverrideReasoningModelID(for: activeProviderID)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let selectedModel = snapshot.provider.supportsManualModelSelection
+            ? (accessMode.model(withID: overrideID) ?? configuredModel)
+            : configuredModel
 
         return ModelSelectionState(
+            provider: snapshot.provider,
             accessMode: accessMode,
             configuredModel: configuredModel,
             selectedModel: selectedModel,
-            followsSettings: overrideID.isEmpty
+            followsSettings: overrideID.isEmpty,
+            supportsOverride: snapshot.provider.supportsManualModelSelection
         )
+    }
+
+    private var topOrbTitle: String {
+        "Palmi"
     }
 
     private var selectedReasoningTitle: String {
@@ -102,6 +118,31 @@ struct ChatScreen: View {
             return ChatReasoningTier(rawValue: chatReasoningTierRaw)?.title ?? ChatReasoningTier.normal.title
         }
         return ProfessionalReasoningTier(rawValue: professionalReasoningTierRaw)?.title ?? ProfessionalReasoningTier.balanced.title
+    }
+
+    private var modelSelectionRowCount: Int {
+        modelSelectionState.supportsOverride
+            ? modelSelectionState.accessMode.models.count + 1
+            : 1
+    }
+
+    private var topChromePanelHeight: CGFloat {
+        min(360, max(186, 24 + CGFloat(modelSelectionRowCount) * 54))
+    }
+
+    private var quickSettingsPanelHeight: CGFloat {
+        let reasoningCount = isChatSurface
+            ? ChatReasoningTier.allCases.count
+            : ProfessionalReasoningTier.allCases.count
+        return min(420, max(320, 108 + CGFloat(reasoningCount + 2) * 52))
+    }
+
+    private var topChromeReservedHeight: CGFloat {
+        76
+    }
+
+    private var topChromeOverlayHeight: CGFloat {
+        topChromeReservedHeight + (activeComposerMenu == .controlCenter ? topChromePanelHeight : 0)
     }
 
     private var floatingBubbleAnimation: Animation {
@@ -121,27 +162,29 @@ struct ChatScreen: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                messageList
+                ZStack {
+                    messageList
+                    overlayBackdrop
+                }
                 composerSection
             }
-
-            overlayBackdrop
-            floatingPanelOverlay
-            contextInspectorOverlay
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            Color.clear
+                .frame(height: topChromeReservedHeight)
+        }
+        .overlay(alignment: .top) {
+            GeometryReader { proxy in
+                topChrome(width: proxy.size.width)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            }
+            .frame(height: topChromeOverlayHeight)
         }
         .onAppear {
             cachedModelSelectionState = computedModelSelectionState
         }
-        .onChange(of: overrideReasoningModelID) { _, _ in
+        .onChange(of: activeProviderRaw) { _, _ in
             cachedModelSelectionState = computedModelSelectionState
-        }
-        .onChange(of: store.queuedUserGuidanceCount) { _, newValue in
-            guard newValue == 0, activeComposerMenu == .queuedGuidance else {
-                return
-            }
-            withAnimation(floatingBubbleAnimation) {
-                activeComposerMenu = nil
-            }
         }
         .environment(\.openURL, OpenURLAction { url in
             handleOpenURL(url)
@@ -149,34 +192,8 @@ struct ChatScreen: View {
         .sheet(item: $previewedWorkspaceFile) { file in
             WorkspaceFilePreviewSheet(file: file)
         }
-        .navigationTitle("Palmi")
+        .toolbar(.hidden, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.hidden, for: .navigationBar)
-        .toolbar {
-            if let onShowWorkspace {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        dismissTransientUI()
-                        onShowWorkspace()
-                    } label: {
-                        Label("工作区", systemImage: "chevron.backward")
-                    }
-                }
-            }
-
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                if let onShowFiles {
-                    Button {
-                        dismissTransientUI()
-                        onShowFiles()
-                    } label: {
-                        Image(systemName: "folder")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-        .simultaneousGesture(backSwipeGesture)
     }
 
     private var messageList: some View {
@@ -206,10 +223,6 @@ struct ChatScreen: View {
                 .padding(.bottom, 20)
             }
             .scrollDismissesKeyboard(.interactively)
-            .onTapGesture {
-                isFocused = false
-                dismissTransientUI()
-            }
             .onAppear {
                 scrollToBottom(proxy, animated: false)
             }
@@ -301,7 +314,7 @@ struct ChatScreen: View {
                 if let toolCall = message.toolCall {
                     if toolCall.cardKind == .phaseThought {
                         // 外部阶段思考：按正常字体渲染 details，不套工具卡。
-                        AssistantMarkdownBlock(markdown: renderableMarkdown(from: toolCall.details))
+                        assistantBody(for: toolCall.details)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
                         ToolCallCard(
@@ -357,76 +370,56 @@ struct ChatScreen: View {
         HStack {
             Spacer(minLength: 52)
 
-            Text(message.content)
-                .font(.body)
-                .foregroundStyle(.white)
+            SelectablePlainTextView(
+                text: message.content,
+                textColor: .white,
+                tintColor: .white,
+                widthBehavior: .fitContent
+            )
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
                 .background(
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
                         .fill(Color.accentColor)
                 )
-                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 460, alignment: .trailing)
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
+    @ViewBuilder
     private func assistantMarkdown(for message: PalmiChatMessage) -> some View {
         let isStreamingMessage = store.activeStreamingMessageIDValue == message.id
         let source = isStreamingMessage
             ? stabilizedStreamingMarkdown(from: message.content)
             : message.content
 
-        return AssistantMarkdownBlock(markdown: renderableMarkdown(from: source))
+        assistantBody(for: source)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var composerSection: some View {
-        GlassEffectContainer(spacing: 14) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 10) {
-                    ComposerChip(
-                        title: modelSelectionState.selectedModel.title,
-                        isExpanded: activeComposerMenu == .model
-                    ) {
-                        toggleComposerMenu(.model)
-                    }
-
-                    ComposerChip(
-                        title: selectedReasoningTitle,
-                        isExpanded: activeComposerMenu == .reasoning
-                    ) {
-                        toggleComposerMenu(.reasoning)
-                    }
-
-                    if store.hasQueuedUserGuidance {
-                        QueuedGuidanceButton(
-                            count: store.queuedUserGuidanceCount,
-                            isExpanded: activeComposerMenu == .queuedGuidance
-                        ) {
-                            toggleComposerMenu(.queuedGuidance)
-                        }
-                    }
-
-                    Spacer(minLength: 0)
-
-                    if showsContextWheel {
-                        Button {
-                            toggleContextInfo()
-                        } label: {
-                            ContextUsageWheel(progress: store.contextCompositionSnapshot.usedRatio)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-
-                composerInputBar
-            }
+        VStack(alignment: .leading, spacing: 12) {
+            composerAccessoryRow
+            composerInputBar
         }
         .padding(.horizontal, 16)
         .padding(.top, 10)
         .padding(.bottom, 8)
+    }
+
+    private var composerAccessoryRow: some View {
+        HStack(alignment: .bottom) {
+            quickSettingsHost
+
+            Spacer(minLength: 0)
+
+            if showsContextWheel {
+                contextInspectorHost
+            }
+        }
+        .frame(height: 44)
+        .zIndex(2)
     }
 
     private var composerInputBar: some View {
@@ -469,8 +462,7 @@ struct ChatScreen: View {
     @ViewBuilder
     private var overlayBackdrop: some View {
         if activeComposerMenu != nil || isShowingContextInfo {
-            Color.black.opacity(activeComposerMenu != nil ? 0.10 : 0.16)
-                .ignoresSafeArea()
+            Color.black.opacity(0.001)
                 .contentShape(Rectangle())
                 .onTapGesture {
                     dismissTransientUI()
@@ -479,126 +471,249 @@ struct ChatScreen: View {
         }
     }
 
-    @ViewBuilder
-    private var floatingPanelOverlay: some View {
-        if let activeComposerMenu {
-            GeometryReader { proxy in
-                HStack {
-                    composerSheet(menu: activeComposerMenu, size: proxy.size)
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, max(108, proxy.safeAreaInsets.bottom + 84))
-                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .bottomLeading)
+    private var controlCenterContent: some View {
+        compactModelSelectionContent
+    }
+
+    private var quickSettingsContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            TopChromeMenuRow(
+                title: "工具",
+                isSelected: areToolsEnabled
+            ) {
+                areToolsEnabled.toggle()
             }
-            .ignoresSafeArea()
-            // 去掉 .scale 分量：scale 会导致渲染尺寸在过渡中是 modalHeight × 0.96，
-            // 收尾 snap 回 1.0 时，modalHeight 较大（模型面板 570pt → ~23pt 错位）
-            // 的情况下就看到“差一行”的跳动；同时 GlassEffectContainer 在 scale
-            // 变化时会按子元素边界重算 liquid glass，收尾还要重合成一次。
-            // 只保留 opacity + move，弹出手感不变，错位与重合成都被消掉。
-            .transition(.opacity.combined(with: .move(edge: .bottom)))
+
+            topChromeDivider
+                .padding(.vertical, 6)
+
+            TopChromeMenuRow(
+                title: "外部推理",
+                isSelected: isExternalReasoningEnabled
+            ) {
+                isExternalReasoningEnabled.toggle()
+            }
+
+            topChromeDivider
+                .padding(.vertical, 6)
+
+            Text("推理强度")
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 4)
+
+            quickSettingsReasoningContent
         }
     }
 
-    @ViewBuilder
-    private var contextInspectorOverlay: some View {
-        if isShowingContextInfo {
-            GeometryReader { proxy in
-                HStack {
-                    Spacer(minLength: 0)
-
-                    ContextInspectorModal(
-                        snapshot: store.contextCompositionSnapshot,
-                        isCompacting: store.isCompactingContext,
-                        isTurnRunning: store.isLoading,
-                        onCompact: { store.compactContextNow() },
-                        onClose: { dismissTransientUI() }
-                    )
-                    .frame(maxWidth: min(320, proxy.size.width - 32))
+    private var quickSettingsReasoningContent: some View {
+        VStack(spacing: 0) {
+            if isChatSurface {
+                ForEach(Array(ChatReasoningTier.allCases.reversed())) { tier in
+                    TopChromeMenuRow(
+                        title: tier.title,
+                        isSelected: tier.rawValue == chatReasoningTierRaw
+                    ) {
+                        chatReasoningTierRaw = tier.rawValue
+                    }
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, max(108, proxy.safeAreaInsets.bottom + 84))
-                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .bottomTrailing)
+            } else {
+                ForEach(Array(ProfessionalReasoningTier.allCases.reversed())) { tier in
+                    TopChromeMenuRow(
+                        title: tier.title,
+                        isSelected: tier.rawValue == professionalReasoningTierRaw
+                    ) {
+                        professionalReasoningTierRaw = tier.rawValue
+                    }
+                }
             }
-            .transition(
-                .opacity.combined(
-                    with: .move(edge: .bottom).combined(
-                        with: .scale(scale: 0.96, anchor: .bottomTrailing)
-                    )
-                )
-            )
         }
+        .disabled(store.isLoading)
     }
 
-    private func composerSheet(menu: ComposerMenu, size: CGSize) -> some View {
-        let modalWidth = min(size.width - 32, 356)
-        let modalHeight: CGFloat
-        let modalTitle: String
-
-        switch menu {
-        case .model:
-            modalHeight = min(size.height * 0.72, 570)
-            modalTitle = "选择模型"
-        case .reasoning:
-            modalHeight = min(size.height * 0.72, 364)
-            modalTitle = "选择强度"
-        case .queuedGuidance:
-            modalHeight = min(
-                size.height * 0.62,
-                max(220, min(420, CGFloat(144 + store.queuedUserGuidanceCount * 72)))
-            )
-            modalTitle = "待发送队列"
-        }
-
-        return GlassEffectContainer(spacing: 16) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 12) {
-                    Text(modalTitle)
-                        .font(.headline)
+    private var quickSettingsHost: some View {
+        BottomAnchoredGlassHost(
+            isExpanded: activeComposerMenu == .quickSettings,
+            anchor: .bottomLeading,
+            collapsedSize: CGSize(width: 44, height: 44),
+            expandedSize: CGSize(width: 224, height: quickSettingsPanelHeight),
+            collapsedCornerRadius: 16,
+            expandedCornerRadius: 30,
+            animation: floatingBubbleAnimation
+        ) {
+            toggleComposerMenu(.quickSettings)
+        } collapsedContent: {
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.primary)
+        } expandedContent: {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 8) {
+                    Text("设置")
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
                         .foregroundStyle(.primary)
 
                     Spacer(minLength: 0)
 
-                    Button {
-                        withAnimation(floatingBubbleAnimation) {
-                            activeComposerMenu = nil
-                        }
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 28, height: 28)
-                            .chatGlassSurface(
-                                cornerRadius: 14,
-                                interactive: true,
-                                backgroundOpacity: 0.10,
-                                tintOpacity: 0.24
-                            )
-                    }
-                    .buttonStyle(.plain)
+                    Text(selectedReasoningTitle)
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                        .foregroundStyle(.secondary)
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, 10)
 
-                ScrollView(.vertical, showsIndicators: true) {
-                    switch menu {
-                    case .model:
-                        compactModelSelectionContent
-                    case .reasoning:
-                        compactReasoningSelectionContent
-                    case .queuedGuidance:
-                        compactQueuedGuidanceContent
-                    }
+                ScrollView(.vertical, showsIndicators: false) {
+                    quickSettingsContent
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 14)
                 }
                 .scrollBounceBehavior(.basedOnSize)
             }
-            .padding(16)
         }
-        .frame(width: modalWidth, height: modalHeight)
-        .chatGlassSurface(
-            cornerRadius: 30,
-            backgroundOpacity: 0.12,
-            tintOpacity: 0.30
-        )
+    }
+
+    private var contextInspectorHost: some View {
+        BottomAnchoredGlassHost(
+            isExpanded: isShowingContextInfo,
+            anchor: .bottomTrailing,
+            collapsedSize: CGSize(width: 44, height: 44),
+            expandedSize: CGSize(width: 244, height: 318),
+            collapsedCornerRadius: 16,
+            expandedCornerRadius: 30,
+            animation: floatingBubbleAnimation
+        ) {
+            toggleContextInfo()
+        } collapsedContent: {
+            ContextUsageWheel(
+                progress: store.contextCompositionSnapshot.usedRatio,
+                showsGlassSurface: false
+            )
+        } expandedContent: {
+            ContextInspectorModal(
+                snapshot: store.contextCompositionSnapshot,
+                isCompacting: store.isCompactingContext,
+                isTurnRunning: store.isLoading,
+                onCompact: { store.compactContextNow() },
+                embedsInParentSurface: true
+            )
+        }
+    }
+
+    private func topChrome(width: CGFloat) -> some View {
+        let buttonSize: CGFloat = 48
+        let expandedWidth = min(max(width * 0.56, 216), 228)
+        let collapsedWidth = min(max(width * 0.32, 118), 126)
+
+        return ZStack(alignment: .top) {
+            HStack(spacing: 0) {
+                if let configuration = leadingTopChromeButton {
+                    TopChromeIconButton(
+                        systemImage: configuration.systemImage,
+                        accessibilityLabel: configuration.accessibilityLabel,
+                        action: configuration.action
+                    )
+                } else {
+                    Color.clear
+                        .frame(width: buttonSize, height: buttonSize)
+                }
+
+                Spacer(minLength: 0)
+
+                if let configuration = trailingTopChromeButton {
+                    TopChromeIconButton(
+                        systemImage: configuration.systemImage,
+                        accessibilityLabel: configuration.accessibilityLabel,
+                        action: configuration.action
+                    )
+                } else {
+                    Color.clear
+                        .frame(width: buttonSize, height: buttonSize)
+                }
+            }
+            .zIndex(1)
+
+            ExpandingTopPillHost(
+                title: topOrbTitle,
+                isExpanded: activeComposerMenu == .controlCenter,
+                collapsedWidth: collapsedWidth,
+                expandedWidth: expandedWidth,
+                bodyHeight: topChromePanelHeight,
+                animation: floatingBubbleAnimation
+            ) {
+                toggleComposerMenu(.controlCenter)
+            } content: {
+                controlCenterContent
+            }
+        }
+        .padding(.top, 6)
+        .padding(.horizontal, 16)
+        .padding(.bottom, activeComposerMenu == .controlCenter ? 10 : 12)
+    }
+
+    private var leadingTopChromeButton: TopChromeButtonConfiguration? {
+        if let onShowWorkspace {
+            return TopChromeButtonConfiguration(
+                systemImage: "chevron.left",
+                accessibilityLabel: "返回工作区"
+            ) {
+                dismissTransientUI()
+                onShowWorkspace()
+            }
+        }
+
+        if shellMode == .chat || onShowFiles != nil {
+            return TopChromeButtonConfiguration(
+                systemImage: "chevron.left",
+                accessibilityLabel: "返回"
+            ) {
+                dismissTransientUI()
+                dismiss()
+            }
+        }
+
+        if let onOpenModeSwitcher {
+            return TopChromeButtonConfiguration(
+                systemImage: "line.3.horizontal",
+                accessibilityLabel: "切换模式"
+            ) {
+                dismissTransientUI()
+                onOpenModeSwitcher()
+            }
+        }
+
+        return nil
+    }
+
+    private var trailingTopChromeButton: TopChromeButtonConfiguration? {
+        if let onShowFiles {
+            return TopChromeButtonConfiguration(
+                systemImage: "folder",
+                accessibilityLabel: "文件"
+            ) {
+                dismissTransientUI()
+                onShowFiles()
+            }
+        }
+
+        if let onOpenSkills {
+            return TopChromeButtonConfiguration(
+                systemImage: "square.grid.2x2",
+                accessibilityLabel: "技能"
+            ) {
+                dismissTransientUI()
+                onOpenSkills()
+            }
+        }
+
+        return nil
+    }
+
+    private var topChromeDivider: some View {
+        Divider()
+            .overlay(Color.black.opacity(0.08))
+            .padding(.horizontal, 12)
     }
 
     private var modelSelectionPanel: some View {
@@ -609,8 +724,8 @@ struct ChatScreen: View {
             subtitle: state.accessMode.title
         ) {
             ComposerOptionRow(
-                title: "跟随设置",
-                subtitle: "当前设置：\(state.configuredModel.title)",
+                title: "默认",
+                subtitle: state.configuredModel.title,
                 badge: nil,
                 isSelected: state.followsSettings
             ) {
@@ -620,7 +735,7 @@ struct ChatScreen: View {
             ForEach(state.accessMode.models) { model in
                 ComposerOptionRow(
                     title: model.title,
-                    subtitle: model.summary,
+                    subtitle: "",
                     badge: model.id == state.configuredModel.id ? "设置中" : nil,
                     isSelected: !state.followsSettings && state.selectedModel.id == model.id
                 ) {
@@ -633,23 +748,29 @@ struct ChatScreen: View {
     private var compactModelSelectionContent: some View {
         let state = modelSelectionState
 
-        return CompactGlassList {
-            CompactSelectionRow(
-                title: "跟随设置",
-                trailingText: state.configuredModel.title,
-                isSelected: state.followsSettings
-            ) {
-                selectConfiguredModel()
-            }
-
-            ForEach(state.accessMode.models) { model in
-                CompactSelectionRow(
-                    title: model.title,
-                    trailingText: model.id == state.configuredModel.id ? "设置中" : nil,
-                    isSelected: !state.followsSettings && state.selectedModel.id == model.id
+        return VStack(spacing: 0) {
+            if state.supportsOverride {
+                TopChromeMenuRow(
+                    title: "默认",
+                    isSelected: state.followsSettings
                 ) {
-                    selectModel(model)
+                    selectConfiguredModel()
                 }
+
+                ForEach(state.accessMode.models) { model in
+                    TopChromeMenuRow(
+                        title: model.title,
+                        isSelected: !state.followsSettings && state.selectedModel.id == model.id
+                    ) {
+                        selectModel(model)
+                    }
+                }
+            } else {
+                TopChromeMenuRow(
+                    title: "默认",
+                    isSelected: true,
+                    action: {}
+                )
             }
         }
     }
@@ -748,20 +869,18 @@ struct ChatScreen: View {
     }
 
     private func selectConfiguredModel() {
-        overrideReasoningModelID = ""
+        store.apiConfigurationStore.setChatOverrideReasoningModelID("", for: activeProviderID)
+        cachedModelSelectionState = computedModelSelectionState
     }
 
     private func selectModel(_ model: APIModelDefinition) {
-        overrideReasoningModelID = model.id
+        store.apiConfigurationStore.setChatOverrideReasoningModelID(model.id, for: activeProviderID)
+        cachedModelSelectionState = computedModelSelectionState
     }
 
     private func toggleComposerMenu(_ menu: ComposerMenu) {
         if isFocused { isFocused = false }
-        // 在 state 变化之前预热模型 snapshot 缓存，保证弹窗第一帧渲染时
-        // 不再触发 UserDefaults + JSON decode 的同步开销。
-        if menu == .model, activeComposerMenu != .model {
-            cachedModelSelectionState = computedModelSelectionState
-        }
+        cachedModelSelectionState = computedModelSelectionState
         withAnimation(floatingBubbleAnimation) {
             isShowingContextInfo = false
             activeComposerMenu = activeComposerMenu == menu ? nil : menu
@@ -815,23 +934,6 @@ struct ChatScreen: View {
         } else {
             action()
         }
-    }
-
-    private var backSwipeGesture: some Gesture {
-        DragGesture(minimumDistance: 18, coordinateSpace: .local)
-            .onEnded { value in
-                guard value.startLocation.x <= 24 else { return }
-                guard value.translation.width >= 80 else { return }
-                guard abs(value.translation.height) <= 60 else { return }
-
-                dismissTransientUI()
-
-                if let onShowWorkspace {
-                    onShowWorkspace()
-                } else if shellMode == .chat {
-                    dismiss()
-                }
-            }
     }
 
     private func handleOpenURL(_ url: URL) -> OpenURLAction.Result {
@@ -908,6 +1010,45 @@ struct ChatScreen: View {
         .joined(separator: "```")
     }
 
+    private func shouldUseNativeSelectableText(for content: String) -> Bool {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+
+        let inlineMarkdownHints = ["```", "**", "__", "~~", "![", "]("]
+        if inlineMarkdownHints.contains(where: trimmed.contains) {
+            return false
+        }
+
+        for rawLine in trimmed.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty {
+                continue
+            }
+            if line.hasPrefix("#")
+                || line.hasPrefix(">")
+                || line.hasPrefix("- ")
+                || line.hasPrefix("* ")
+                || line.hasPrefix("+ ")
+                || line.hasPrefix("|") {
+                return false
+            }
+            if line.range(of: #"^\d+\.\s"#, options: .regularExpression) != nil {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    @ViewBuilder
+    private func assistantBody(for content: String) -> some View {
+        if shouldUseNativeSelectableText(for: content) {
+            AssistantPlainTextBlock(text: content)
+        } else {
+            AssistantMarkdownBlock(markdown: renderableMarkdown(from: content))
+        }
+    }
+
     private func stabilizedStreamingMarkdown(from content: String) -> String {
         var normalized = content
 
@@ -980,13 +1121,6 @@ private struct ChatCanvasBackground: View {
             startPoint: .top,
             endPoint: .bottom
         )
-        .overlay(alignment: .topTrailing) {
-            Circle()
-                .fill(Color.accentColor.opacity(0.05))
-                .frame(width: 220, height: 220)
-                .blur(radius: 4)
-                .offset(x: 70, y: -80)
-        }
     }
 }
 
@@ -994,10 +1128,16 @@ private struct AssistantMarkdownBlock: View {
     let markdown: String
 
     var body: some View {
-        Markdown(markdown)
-            .markdownTheme(.basic)
-            .textSelection(.enabled)
-            .fixedSize(horizontal: false, vertical: true)
+        SelectableMarkdownTextView(markdown: markdown)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct AssistantPlainTextBlock: View {
+    let text: String
+
+    var body: some View {
+        SelectablePlainTextView(text: text)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -1230,10 +1370,11 @@ private struct ToolCallCard: View {
 
             if isExpanded,
                !toolCall.details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(toolCall.details)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                SelectablePlainTextView(
+                    text: toolCall.details,
+                    textColor: .secondaryLabel,
+                    font: .preferredFont(forTextStyle: .caption1)
+                )
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, 16)
                     .padding(.top, 2)
@@ -1416,9 +1557,9 @@ private struct ToolCallCard: View {
         case .data:
             return "结果"
         case .action:
-            return "动作说明"
+            return "动作"
         case .interactive:
-            return "交互说明"
+            return "交互"
         }
     }
 
@@ -1479,6 +1620,165 @@ private struct ComposerChip: View {
             .chatGlassSurface(cornerRadius: 18, interactive: true)
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct TopChromeButtonConfiguration {
+    let systemImage: String
+    let accessibilityLabel: String
+    let action: () -> Void
+}
+
+private struct TopChromeIconButton: View {
+    let systemImage: String
+    let accessibilityLabel: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 48, height: 48)
+                .chatGlassSurface(
+                    cornerRadius: 24,
+                    interactive: true,
+                    backgroundOpacity: 0.16,
+                    tintOpacity: 0.24
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+private struct ExpandingTopPillHost<Content: View>: View {
+    let title: String
+    let isExpanded: Bool
+    let collapsedWidth: CGFloat
+    let expandedWidth: CGFloat
+    let bodyHeight: CGFloat
+    let animation: Animation
+    let onToggle: () -> Void
+    @ViewBuilder let content: Content
+
+    private let headerHeight: CGFloat = 48
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button(action: onToggle) {
+                HStack(spacing: 8) {
+                    Text(title)
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: headerHeight)
+                .padding(.horizontal, 12)
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                ScrollView(.vertical, showsIndicators: false) {
+                    content
+                        .padding(.horizontal, 8)
+                        .padding(.top, 2)
+                        .padding(.bottom, 12)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(height: bodyHeight)
+                .transition(.opacity)
+            }
+        }
+        .frame(
+            width: isExpanded ? expandedWidth : collapsedWidth,
+            height: isExpanded ? headerHeight + bodyHeight : headerHeight,
+            alignment: .top
+        )
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: isExpanded ? 36 : 24,
+                style: .continuous
+            )
+        )
+        .chatGlassSurface(
+            cornerRadius: isExpanded ? 36 : 24,
+            interactive: true,
+            backgroundOpacity: 0.08,
+            tintOpacity: isExpanded ? 0.24 : 0.18
+        )
+        .animation(animation, value: isExpanded)
+    }
+}
+
+private struct BottomAnchoredGlassHost<CollapsedContent: View, ExpandedContent: View>: View {
+    let isExpanded: Bool
+    let anchor: Alignment
+    let collapsedSize: CGSize
+    let expandedSize: CGSize
+    let collapsedCornerRadius: CGFloat
+    let expandedCornerRadius: CGFloat
+    let animation: Animation
+    let onToggle: () -> Void
+    @ViewBuilder let collapsedContent: CollapsedContent
+    @ViewBuilder let expandedContent: ExpandedContent
+
+    private var currentSize: CGSize {
+        isExpanded ? expandedSize : collapsedSize
+    }
+
+    private var currentCornerRadius: CGFloat {
+        isExpanded ? expandedCornerRadius : collapsedCornerRadius
+    }
+
+    var body: some View {
+        Color.clear
+            .frame(width: collapsedSize.width, height: collapsedSize.height)
+            .overlay(alignment: anchor) {
+                ZStack(alignment: anchor) {
+                    RoundedRectangle(cornerRadius: currentCornerRadius, style: .continuous)
+                        .fill(Color.clear)
+                        .frame(width: currentSize.width, height: currentSize.height)
+                        .chatGlassSurface(
+                            cornerRadius: currentCornerRadius,
+                            interactive: true,
+                            backgroundOpacity: isExpanded ? 0.08 : 0.02,
+                            tintOpacity: isExpanded ? 0.24 : 0.08
+                        )
+
+                    if isExpanded {
+                        expandedContent
+                            .frame(width: expandedSize.width, height: expandedSize.height, alignment: .top)
+                    } else {
+                        Button(action: onToggle) {
+                            collapsedContent
+                                .frame(width: collapsedSize.width, height: collapsedSize.height)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .frame(width: currentSize.width, height: currentSize.height, alignment: anchor)
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: currentCornerRadius,
+                        style: .continuous
+                    )
+                )
+                .contentShape(
+                    RoundedRectangle(
+                        cornerRadius: currentCornerRadius,
+                        style: .continuous
+                    )
+                )
+                .animation(animation, value: isExpanded)
+                .zIndex(isExpanded ? 3 : 1)
+            }
     }
 }
 
@@ -1573,6 +1873,31 @@ private struct CompactGlassList<Content: View>: View {
     }
 }
 
+private struct TopChromeMenuRow: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: isSelected ? "checkmark" : "circle.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(isSelected ? AnyShapeStyle(.primary) : AnyShapeStyle(Color.clear))
+                    .frame(width: 16, alignment: .leading)
+
+                Text(title)
+                    .font(.system(size: 17, weight: .medium, design: .rounded))
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 4)
+            .padding(.vertical, 13)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 private struct CompactSelectionRow: View {
     let title: String
     let trailingText: String?
@@ -1637,10 +1962,12 @@ private struct ComposerOptionRow: View {
                         }
                     }
 
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.leading)
+                    if !subtitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
+                    }
                 }
 
                 Spacer(minLength: 12)
@@ -1662,11 +1989,12 @@ private struct ComposerOptionRow: View {
 
 private struct ContextUsageWheel: View {
     let progress: Double
+    var showsGlassSurface = true
 
     var body: some View {
         let clampedProgress = min(max(progress, 0), 1)
 
-        ZStack {
+        let ring = ZStack {
             Circle()
                 .stroke(Color.black.opacity(0.10), lineWidth: 4)
 
@@ -1679,9 +2007,17 @@ private struct ContextUsageWheel: View {
                 .rotationEffect(.degrees(-90))
         }
         .frame(width: 28, height: 28)
-        .padding(8)
-        .chatGlassSurface(cornerRadius: 16, interactive: true)
-        .contentShape(Rectangle())
+
+        Group {
+            if showsGlassSurface {
+                ring
+                    .padding(8)
+                    .chatGlassSurface(cornerRadius: 16, interactive: true)
+                    .contentShape(Rectangle())
+            } else {
+                ring
+            }
+        }
     }
 }
 
@@ -1699,46 +2035,47 @@ private struct ContextInspectorModal: View {
     let isCompacting: Bool
     let isTurnRunning: Bool
     let onCompact: () -> Void
-    let onClose: () -> Void
+    var embedsInParentSurface = false
 
     private var rows: [ContextInspectorRow] {
         return [
             ContextInspectorRow(
                 title: "系统提示词",
                 color: ContextInspectorPalette.colors[0],
-                valueText: snapshot.systemPromptTokens.formatted(),
+                valueText: formattedTokenCount(snapshot.systemPromptTokens),
                 ratio: tokenRatio(snapshot.systemPromptTokens)
             ),
             ContextInspectorRow(
                 title: "技能",
                 color: ContextInspectorPalette.colors[1],
-                valueText: snapshot.skillTokens.formatted(),
+                valueText: formattedTokenCount(snapshot.skillTokens),
                 ratio: tokenRatio(snapshot.skillTokens)
             ),
             ContextInspectorRow(
-                title: "消息",
+                title: "工具",
                 color: ContextInspectorPalette.colors[2],
-                valueText: snapshot.messageTokens.formatted(),
-                ratio: tokenRatio(snapshot.messageTokens)
+                valueText: formattedTokenCount(snapshot.toolTokens),
+                ratio: tokenRatio(snapshot.toolTokens)
             ),
             ContextInspectorRow(
-                title: "工具",
+                title: "消息",
                 color: ContextInspectorPalette.colors[3],
-                valueText: snapshot.toolTokens.formatted(),
-                ratio: tokenRatio(snapshot.toolTokens)
+                valueText: formattedTokenCount(snapshot.messageTokens),
+                ratio: tokenRatio(snapshot.messageTokens)
             )
         ]
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        let content = VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("上下文窗口信息")
+                    Text("上下文窗口")
                         .font(.headline)
                         .foregroundStyle(.primary)
+                        .lineLimit(1)
 
-                    Text("\(snapshot.totalTokens.formatted()) / \(snapshot.maxTokens.formatted())")
+                    Text("\(formattedTokenCount(snapshot.totalTokens)) / \(formattedTokenCount(snapshot.maxTokens))")
                         .font(.subheadline.monospacedDigit())
                         .foregroundStyle(.primary)
 
@@ -1775,15 +2112,6 @@ private struct ContextInspectorModal: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(isCompacting || isTurnRunning)
-
-                    Button(action: onClose) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 30, height: 30)
-                            .chatGlassSurface(cornerRadius: 15, interactive: true)
-                    }
-                    .buttonStyle(.plain)
                 }
             }
 
@@ -1800,12 +2128,21 @@ private struct ContextInspectorModal: View {
                 }
             }
         }
-        .padding(16)
-        .chatGlassSurface(
-            cornerRadius: 28,
-            backgroundOpacity: 0.08,
-            tintOpacity: 0.24
-        )
+
+        Group {
+            if embedsInParentSurface {
+                content
+                    .padding(16)
+            } else {
+                content
+                    .padding(16)
+                    .chatGlassSurface(
+                        cornerRadius: 28,
+                        backgroundOpacity: 0.08,
+                        tintOpacity: 0.24
+                    )
+            }
+        }
     }
 
     private func tokenRatio(_ tokens: Int) -> Double {
@@ -1815,6 +2152,10 @@ private struct ContextInspectorModal: View {
 
     private func formattedPercent(_ value: Double) -> String {
         String(format: "%.1f%%", value * 100)
+    }
+
+    private func formattedTokenCount(_ tokens: Int) -> String {
+        String(format: "%.1fk", Double(tokens) / 1000)
     }
 }
 
@@ -1912,24 +2253,24 @@ private struct ChatGlassSurfaceModifier: ViewModifier {
     func body(content: Content) -> some View {
         if interactive {
             content
-                .background(
-                    Color.white.opacity(backgroundOpacity),
-                    in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                )
-                .glassEffect(
-                    .regular.tint(Color.white.opacity(tintOpacity)).interactive(),
-                    in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                )
+                .background {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(Color.white.opacity(backgroundOpacity))
+                        .glassEffect(
+                            .regular.tint(Color.white.opacity(tintOpacity)).interactive(),
+                            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        )
+                }
         } else {
             content
-                .background(
-                    Color.white.opacity(backgroundOpacity),
-                    in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                )
-                .glassEffect(
-                    .regular.tint(Color.white.opacity(tintOpacity)),
-                    in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                )
+                .background {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(Color.white.opacity(backgroundOpacity))
+                        .glassEffect(
+                            .regular.tint(Color.white.opacity(tintOpacity)),
+                            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        )
+                }
         }
     }
 }

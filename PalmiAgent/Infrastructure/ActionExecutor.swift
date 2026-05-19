@@ -88,11 +88,18 @@ final class ActionExecutor {
 
             case .read:
                 let path = try arguments.requiredString("path")
+                let readMode = WorkspaceReadMode(
+                    rawValue: arguments.string("mode")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+                ) ?? .auto
                 let result = try workspaceReadService.read(
                     at: path,
                     recursive: arguments.bool("recursive") ?? true,
                     maxCharacters: arguments.int("max_chars") ?? 20_000,
-                    maxFiles: arguments.int("max_files") ?? 64
+                    maxFiles: arguments.int("max_files") ?? 64,
+                    mode: readMode,
+                    offset: max(0, arguments.int("offset") ?? 0),
+                    chunkSize: arguments.int("chunk_size"),
+                    focus: arguments.string("focus") ?? arguments.string("query")
                 )
                 return success(action, result.summary, details: result.details)
 
@@ -182,12 +189,11 @@ final class ActionExecutor {
             case .searchWeb:
                 let reasoningProfile = currentReasoningStrengthProfile()
                 let query = try arguments.requiredString("query")
-                let maxResults = reasoningProfile.webSearch.clampedMaxResults(
-                    requested: arguments.int("max_results")
-                )
+                let maxResults = reasoningProfile.webSearch.maxResults
                 let results = try await webResearchService.search(query: query, maxResults: maxResults)
-                let prefetchedResultCount = reasoningProfile.webSearch.autoBrowse.browseCount(
-                    for: results.count
+                let prefetchedResultCount = AgentResearchPolicy.default.searchFallbackPrefetchCount(
+                    for: query,
+                    resultsCount: results.count
                 )
                 let prefetchedPages = await webResearchService.batchFetchBestEffort(
                     urls: Array(results.prefix(prefetchedResultCount).map(\.url)),
@@ -238,7 +244,7 @@ final class ActionExecutor {
             case .fetchStaticWebPage:
                 let reasoningProfile = currentReasoningStrengthProfile()
                 let url = try requiredURL(arguments.string("url") ?? "https://developer.apple.com")
-                let maxChars = arguments.int("max_chars") ?? reasoningProfile.webContent.fetchStaticWebPageMaxCharacters
+                let maxChars = reasoningProfile.webContent.fetchStaticWebPageMaxCharacters
                 let summary = try await webResearchService.fetchSummary(from: url, maxBodyCharacters: maxChars)
                 return success(action, "已抓取 \(summary.title)", details: "字节数：\(summary.byteCount)\n正文片段：\(summary.bodyText)")
 
@@ -249,7 +255,7 @@ final class ActionExecutor {
                     URL(string: "https://www.apple.com/ios/")!,
                     URL(string: "https://www.example.com")!
                 ]
-                let maxChars = arguments.int("max_chars") ?? reasoningProfile.webContent.fetchWebBatchMaxCharacters
+                let maxChars = reasoningProfile.webContent.fetchWebBatchMaxCharacters
                 let summaries = try await webResearchService.batchFetch(urls: urls, maxBodyCharacters: maxChars)
                 let details = summaries.map {
                     """
@@ -264,7 +270,7 @@ final class ActionExecutor {
             case .saveWebPageToWorkspace:
                 let reasoningProfile = currentReasoningStrengthProfile()
                 let sourceURL = try requiredURL(arguments.string("url") ?? "https://developer.apple.com")
-                let maxChars = arguments.int("max_chars") ?? reasoningProfile.webContent.saveWebPageToWorkspaceMaxCharacters
+                let maxChars = reasoningProfile.webContent.saveWebPageToWorkspaceMaxCharacters
                 let summary = try await webResearchService.fetchSummary(from: sourceURL, maxBodyCharacters: maxChars)
                 let markdown = """
                 # \(summary.title)
@@ -951,9 +957,70 @@ final class ActionExecutor {
         return try rawValues.map(requiredURL)
     }
 
+    func effectiveArgumentsJSON(for action: ToolAction, arguments: ToolArguments) -> String {
+        let reasoningProfile = currentReasoningStrengthProfile()
+
+        switch action.id {
+        case .searchWeb:
+            var payload: [String: Any] = [
+                "max_results": reasoningProfile.webSearch.maxResults
+            ]
+            if let query = arguments.string("query")?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !query.isEmpty {
+                payload["query"] = query
+            }
+            return normalizedArgumentsJSONString(payload, fallback: arguments.normalizedJSONString())
+
+        case .fetchStaticWebPage:
+            var payload: [String: Any] = [
+                "max_chars": reasoningProfile.webContent.fetchStaticWebPageMaxCharacters
+            ]
+            if let url = arguments.string("url")?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !url.isEmpty {
+                payload["url"] = url
+            }
+            return normalizedArgumentsJSONString(payload, fallback: arguments.normalizedJSONString())
+
+        case .fetchWebBatch:
+            var payload: [String: Any] = [
+                "max_chars": reasoningProfile.webContent.fetchWebBatchMaxCharacters
+            ]
+            if let urls = arguments.stringArray("urls"), !urls.isEmpty {
+                payload["urls"] = urls
+            }
+            return normalizedArgumentsJSONString(payload, fallback: arguments.normalizedJSONString())
+
+        case .saveWebPageToWorkspace:
+            var payload: [String: Any] = [
+                "max_chars": reasoningProfile.webContent.saveWebPageToWorkspaceMaxCharacters
+            ]
+            if let url = arguments.string("url")?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !url.isEmpty {
+                payload["url"] = url
+            }
+            if let path = arguments.string("path")?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !path.isEmpty {
+                payload["path"] = path
+            }
+            return normalizedArgumentsJSONString(payload, fallback: arguments.normalizedJSONString())
+
+        default:
+            return arguments.normalizedJSONString()
+        }
+    }
+
     private func currentReasoningStrengthProfile() -> ReasoningStrengthProfile {
         let surface = (try? workspaceManager.currentProject().surface) ?? .professional
         return ReasoningStrengthProfile.current(for: surface, userDefaults: userDefaults)
+    }
+
+    private func normalizedArgumentsJSONString(_ payload: [String: Any], fallback: String) -> String {
+        guard JSONSerialization.isValidJSONObject(payload),
+              let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys, .prettyPrinted]),
+              let string = String(data: data, encoding: .utf8) else {
+            return fallback
+        }
+        return string
     }
 
     private func coordinateFromArguments(

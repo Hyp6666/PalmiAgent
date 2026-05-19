@@ -1,6 +1,6 @@
 import SwiftUI
-import MarkdownUI
 import QuickLook
+import UIKit
 
 struct WorkspacePreviewFile: Identifiable {
     enum PreviewKind {
@@ -71,18 +71,20 @@ struct WorkspaceFilePreviewSheet: View {
         switch file.kind {
         case .markdown:
             ScrollView {
-                Markdown(file.preview ?? "")
-                    .markdownTheme(.basic)
-                    .textSelection(.enabled)
+                SelectableMarkdownTextView(markdown: file.preview ?? "")
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(16)
             }
 
         case .text:
             ScrollView {
-                Text(file.preview ?? "该文件暂无可预览内容。")
-                    .font(.footnote.monospaced())
-                    .textSelection(.enabled)
+                SelectablePlainTextView(
+                    text: file.preview ?? "该文件暂无可预览内容。",
+                    font: .monospacedSystemFont(
+                        ofSize: UIFont.preferredFont(forTextStyle: .footnote).pointSize,
+                        weight: .regular
+                    )
+                )
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(16)
             }

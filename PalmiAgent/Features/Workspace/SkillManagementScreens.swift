@@ -113,16 +113,20 @@ struct SkillCatalogScreen: View {
     private var displaySections: [SkillSectionData] {
         switch mode {
         case .global:
-            let imported = registry.globalSkills
+            let builtIn = registry.globalSkills.filter { $0.source == .builtIn }
+            let imported = registry.globalSkills.filter { $0.source != .builtIn }
             return [
+                SkillSectionData(title: "系统技能", packages: builtIn),
                 SkillSectionData(title: "全局技能", packages: imported)
             ]
             .filter { !$0.packages.isEmpty }
 
         case .project(let project):
-            let globalImported = registry.globalSkills
+            let builtIn = registry.globalSkills.filter { $0.source == .builtIn }
+            let globalImported = registry.globalSkills.filter { $0.source != .builtIn }
             let projectSkills = registry.projectSkills(for: project.id)
             return [
+                SkillSectionData(title: "系统技能", packages: builtIn),
                 SkillSectionData(title: "全局技能", packages: globalImported),
                 SkillSectionData(title: "当前项目技能", packages: projectSkills)
             ]
@@ -132,7 +136,7 @@ struct SkillCatalogScreen: View {
 
     private var overviewCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(mode == .global ? "全局技能作用于所有项目" : "这里会显示全局技能和当前项目技能")
+            Text(mode == .global ? "系统技能和全局技能会作用于所有项目" : "这里会显示系统技能、全局技能和当前项目技能")
             Text("支持导入 .zip 或单个 SKILL.md 文件")
         }
         .font(.caption)
@@ -378,8 +382,10 @@ private struct SkillDetailScreen: View {
             }
 
             Section {
-                Button("删除", role: .destructive) {
-                    deleteSkill()
+                if skill.source != .builtIn {
+                    Button("删除", role: .destructive) {
+                        deleteSkill()
+                    }
                 }
             }
         }

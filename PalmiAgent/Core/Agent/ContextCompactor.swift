@@ -43,32 +43,71 @@ struct ContextUsageSnapshot: Sendable {
 }
 
 enum ContextUsageEstimator {
+    static func hiddenSummaryPromptText(for summary: String) -> String {
+        """
+        以下是对更早历史对话的隐藏压缩摘要，仅供保持上下文连续性使用。
+        不要向用户逐字暴露或复述这段摘要，只在相关时利用其中事实。
+
+        \(summary)
+        """
+    }
+
+    static func renderedHiddenSummaryTokenCount(for hiddenSummary: AgentHiddenContextSummary?) -> Int {
+        guard let hiddenSummary,
+              !hiddenSummary.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return 0
+        }
+        return ApproximateTokenCounter.estimate(hiddenSummaryPromptText(for: hiddenSummary.summary))
+    }
+
     static func snapshot(
         for session: AgentSession,
-        configuration: ContextCompactionConfiguration = .default()
+        configuration: ContextCompactionConfiguration = .default(),
+        fixedTokenOverhead: Int = 0,
+        toolContextProjector: ToolContextProjector = ToolContextProjector(),
+        researchStateAssembler: ResearchStateAssembler = ResearchStateAssembler()
     ) -> ContextUsageSnapshot {
         let compactedPrefixCount = session.hiddenContextSummary?.compactedMessageCount ?? 0
         let rawMessages = Array(session.messages.dropFirst(compactedPrefixCount))
-        let existingSummaryTokens = session.hiddenContextSummary?.approximateTokens ?? 0
+        let renderedSummaryTokens = renderedHiddenSummaryTokenCount(for: session.hiddenContextSummary)
+        let hiddenResearchTokens = researchStateAssembler.hiddenResearchPrompt(for: session).map {
+            ApproximateTokenCounter.estimate($0)
+        } ?? 0
         let rawTokens = rawMessages.reduce(0) { partialResult, message in
-            partialResult + estimateTokenCount(for: message)
+            partialResult + estimateTokenCount(
+                for: message,
+                session: session,
+                toolContextProjector: toolContextProjector
+            )
         }
 
         return ContextUsageSnapshot(
-            usedTokens: existingSummaryTokens + rawTokens,
+            usedTokens: fixedTokenOverhead + renderedSummaryTokens + hiddenResearchTokens + rawTokens,
             maxTokens: configuration.maximumContextTokenCount,
             compactionCount: session.compactionCount
         )
     }
 
-    static func estimateTokenCount(for message: AgentMessage) -> Int {
-        contextRelevantPayloads(for: message)
+    static func estimateTokenCount(
+        for message: AgentMessage,
+        session: AgentSession,
+        toolContextProjector: ToolContextProjector = ToolContextProjector()
+    ) -> Int {
+        contextRelevantPayloads(
+            for: message,
+            session: session,
+            toolContextProjector: toolContextProjector
+        )
             .reduce(0) { partialResult, payload in
                 partialResult + ApproximateTokenCounter.estimate(payload)
             }
     }
 
-    private static func contextRelevantPayloads(for message: AgentMessage) -> [String] {
+    private static func contextRelevantPayloads(
+        for message: AgentMessage,
+        session: AgentSession,
+        toolContextProjector: ToolContextProjector
+    ) -> [String] {
         switch message.role {
         case .user:
             let text = message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -83,14 +122,14 @@ enum ContextUsageEstimator {
             }
             return [text] + toolUses
         case .tool:
-            return message.blocks.compactMap { block in
-                guard case .toolResult(_, let toolName, let output, let isError) = block else {
+            return message.toolResultRecords.compactMap { result in
+                let projected = toolContextProjector.projectedToolContent(for: result, session: session)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !projected.isEmpty else {
                     return nil
                 }
-                let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmedOutput.isEmpty else { return nil }
-                let status = isError ? "error" : "ok"
-                return "[\(toolName):\(status)]\n\(LLMGuardrails.compactToolPayloadForModel(trimmedOutput))"
+                let status = result.isError ? "error" : "ok"
+                return "[\(result.toolName):\(status)]\n\(projected)"
             }
         }
     }
@@ -100,6 +139,8 @@ enum ContextUsageEstimator {
 final class ContextCompactor {
     private let apiClient: LLMAPIClient
     private let defaultConfiguration: ContextCompactionConfiguration
+    private let toolContextProjector: ToolContextProjector
+    private let promptCatalog: HiddenWorkerPromptCatalog
 
     private struct CompactionPlan {
         let compactedPrefixCount: Int
@@ -111,10 +152,14 @@ final class ContextCompactor {
 
     init(
         apiClient: LLMAPIClient,
-        configuration: ContextCompactionConfiguration = .default()
+        configuration: ContextCompactionConfiguration = .default(),
+        toolContextProjector: ToolContextProjector = ToolContextProjector(),
+        promptCatalog: HiddenWorkerPromptCatalog = HiddenWorkerPromptCatalog()
     ) {
         self.apiClient = apiClient
         self.defaultConfiguration = configuration
+        self.toolContextProjector = toolContextProjector
+        self.promptCatalog = promptCatalog
     }
 
     func maybeCompact(
@@ -123,7 +168,8 @@ final class ContextCompactor {
         baseSystemPrompt: String,
         skills: [SkillPackage],
         protectedRecentMessageCount: Int = 0,
-        configuration: ContextCompactionConfiguration? = nil
+        configuration: ContextCompactionConfiguration? = nil,
+        fixedTokenOverhead: Int = 0
     ) async throws -> ContextCompactionResult {
         try await compact(
             session: session,
@@ -132,7 +178,8 @@ final class ContextCompactor {
             skills: skills,
             force: false,
             protectedRecentMessageCount: protectedRecentMessageCount,
-            configuration: configuration
+            configuration: configuration,
+            fixedTokenOverhead: fixedTokenOverhead
         )
     }
 
@@ -142,7 +189,8 @@ final class ContextCompactor {
         baseSystemPrompt: String,
         skills: [SkillPackage],
         protectedRecentMessageCount: Int = 0,
-        configuration: ContextCompactionConfiguration? = nil
+        configuration: ContextCompactionConfiguration? = nil,
+        fixedTokenOverhead: Int = 0
     ) async throws -> ContextCompactionResult {
         try await compact(
             session: session,
@@ -151,7 +199,8 @@ final class ContextCompactor {
             skills: skills,
             force: true,
             protectedRecentMessageCount: protectedRecentMessageCount,
-            configuration: configuration
+            configuration: configuration,
+            fixedTokenOverhead: fixedTokenOverhead
         )
     }
 
@@ -159,13 +208,15 @@ final class ContextCompactor {
         session: AgentSession,
         force: Bool,
         protectedRecentMessageCount: Int = 0,
-        configuration: ContextCompactionConfiguration? = nil
+        configuration: ContextCompactionConfiguration? = nil,
+        fixedTokenOverhead: Int = 0
     ) -> Bool {
         makeCompactionPlan(
             for: session,
             force: force,
             protectedRecentMessageCount: protectedRecentMessageCount,
-            configuration: configuration ?? defaultConfiguration
+            configuration: configuration ?? defaultConfiguration,
+            fixedTokenOverhead: fixedTokenOverhead
         ) != nil
     }
 
@@ -176,56 +227,36 @@ final class ContextCompactor {
         skills: [SkillPackage],
         force: Bool,
         protectedRecentMessageCount: Int,
-        configuration: ContextCompactionConfiguration?
+        configuration: ContextCompactionConfiguration?,
+        fixedTokenOverhead: Int
     ) async throws -> ContextCompactionResult {
         _ = baseSystemPrompt
         _ = skills
         let activeConfiguration = configuration ?? defaultConfiguration
+        let contextSnapshot = ContextUsageEstimator.snapshot(
+            for: session,
+            configuration: activeConfiguration,
+            fixedTokenOverhead: fixedTokenOverhead,
+            toolContextProjector: toolContextProjector
+        )
+        let summaryTargetTokenCount = recommendedSummaryTokenCount(
+            totalUsedTokens: contextSnapshot.usedTokens,
+            configuration: activeConfiguration
+        )
 
         guard let plan = makeCompactionPlan(
             for: session,
             force: force,
             protectedRecentMessageCount: protectedRecentMessageCount,
-            configuration: activeConfiguration
+            configuration: activeConfiguration,
+            fixedTokenOverhead: fixedTokenOverhead
         ) else {
             return ContextCompactionResult(session: session, notice: nil)
         }
 
         let compactionMessages: [OpenAIChatMessage] = [
             .system(
-                """
-                你是隐藏上下文压缩器。
-                你的任务是把更早历史压缩成一份尽可能短、但足以让后续模型无缝继续工作的隐藏摘要。
-
-                规则：
-                - 只输出摘要正文，不要前言、标题、解释、客套。
-                - 极限压缩：能短则短，删掉寒暄、重复表达、无效过程、冗余日志。
-                - 必须保留：
-                  1. 用户当前目标、约束、偏好、明确反馈
-                  2. 已确认的关键事实、决定、文件路径、命令、参数、标识符
-                  3. 已完成、未完成、被阻塞的工作
-                  4. 对后续步骤仍有影响的工具调用参数与工具结果
-                  5. 紧接着继续时最需要知道的下一步
-                - 已失效、被推翻或与当前任务无关的信息直接删除。
-                - 不要照抄大段原文，也不要原样保留整段工具 JSON；只有关键字面值、路径、命令或参数本身必须保留时才保留。
-                - 这是给后续模型继续工作的隐藏上下文，不是给用户看的总结。
-                - 不要回答历史对话中的问题，不要继续执行任务，不要调用工具。
-                - 使用中文。
-                - 输出尽量控制在 \(activeConfiguration.targetSummaryTokenCount) token 以内，越短越好，但不能丢核心信息。
-
-                输出格式：
-                - 只输出非空字段
-                - 每个字段尽量压成 1 到 3 行短句或短条目
-                - 使用下面这些字段名：
-                  目标:
-                  约束:
-                  已完成:
-                  未完成:
-                  关键事实:
-                  关键结果:
-                  文件/路径:
-                  下一步:
-                """
+                promptCatalog.contextCompactionPrompt(targetTokenCount: summaryTargetTokenCount)
             ),
             .user(
                 """
@@ -233,7 +264,7 @@ final class ContextCompactor {
                 \(plan.existingSummary?.isEmpty == false ? plan.existingSummary! : "（无）")
 
                 下面是需要整合进新摘要的完整历史原文。
-                它包含用户消息、assistant 文本、assistant 发起的工具调用参数，以及工具结果原文。
+                它包含用户消息、assistant 文本、assistant 发起的工具调用参数，以及工具结果投影。
                 现在请把它们与已有隐藏摘要合并成一份新的隐藏摘要：
 
                 \(plan.compactedTranscript)
@@ -277,13 +308,27 @@ final class ContextCompactor {
         for session: AgentSession,
         force: Bool,
         protectedRecentMessageCount: Int,
-        configuration: ContextCompactionConfiguration
+        configuration: ContextCompactionConfiguration,
+        fixedTokenOverhead: Int
     ) -> CompactionPlan? {
-        let contextSnapshot = ContextUsageEstimator.snapshot(for: session, configuration: configuration)
+        let contextSnapshot = ContextUsageEstimator.snapshot(
+            for: session,
+            configuration: configuration,
+            fixedTokenOverhead: fixedTokenOverhead,
+            toolContextProjector: toolContextProjector
+        )
         let compactedPrefixCount = session.hiddenContextSummary?.compactedMessageCount ?? 0
         let rawMessages = Array(session.messages.dropFirst(compactedPrefixCount))
-        let existingSummaryTokens = session.hiddenContextSummary?.approximateTokens ?? 0
-        let rawTokenCounts = rawMessages.map(ContextUsageEstimator.estimateTokenCount(for:))
+        let existingSummaryTokens = ContextUsageEstimator.renderedHiddenSummaryTokenCount(
+            for: session.hiddenContextSummary
+        )
+        let rawTokenCounts = rawMessages.map {
+            ContextUsageEstimator.estimateTokenCount(
+                for: $0,
+                session: session,
+                toolContextProjector: toolContextProjector
+            )
+        }
 
         guard force || contextSnapshot.usedTokens >= configuration.triggerTokenCount else {
             return nil
@@ -315,7 +360,7 @@ final class ContextCompactor {
         }
 
         while cutCount < minimumMaxCut,
-              existingSummaryTokens + retainedRawTokenTotal >= configuration.triggerTokenCount {
+              fixedTokenOverhead + existingSummaryTokens + retainedRawTokenTotal >= configuration.triggerTokenCount {
             retainedRawTokenTotal -= rawTokenCounts[cutCount]
             cutCount += 1
         }
@@ -336,18 +381,21 @@ final class ContextCompactor {
             compactedPrefixCount: compactedPrefixCount,
             cutCount: cutCount,
             retainedMessageCount: retainedMessages.count,
-            compactedTranscript: Self.serialize(messages: messagesToCompact),
+            compactedTranscript: serialize(messages: messagesToCompact, session: session),
             existingSummary: existingSummary
         )
     }
 
-    private static func serialize(messages: [AgentMessage]) -> String {
+    private func serialize(messages: [AgentMessage], session: AgentSession) -> String {
         messages
-            .map(serializedMessage)
+            .map { serializedMessage($0, session: session) }
             .joined(separator: "\n\n")
     }
 
-    private static func serializedMessage(_ message: AgentMessage) -> String {
+    private func serializedMessage(
+        _ message: AgentMessage,
+        session: AgentSession
+    ) -> String {
         switch message.role {
         case .user:
             return "[user]\n\(message.textContent)"
@@ -359,15 +407,25 @@ final class ContextCompactor {
             let textSection = text.isEmpty ? ["[assistant]"] : ["[assistant]\n\(text)"]
             return (textSection + toolUses).joined(separator: "\n\n")
         case .tool:
-            return message.blocks.compactMap { block in
-                guard case .toolResult(_, let toolName, let output, let isError) = block else {
+            return message.toolResultRecords.compactMap { result in
+                let projected = toolContextProjector.projectedToolContent(for: result, session: session)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !projected.isEmpty else {
                     return nil
                 }
-                let marker = isError ? "error" : "ok"
-                return "[tool_result:\(toolName):\(marker)]\n\(output)"
+                let marker = result.isError ? "error" : "ok"
+                return "[tool_result:\(result.toolName):\(marker)]\n\(projected)"
             }
             .joined(separator: "\n")
         }
+    }
+
+    private func recommendedSummaryTokenCount(
+        totalUsedTokens: Int,
+        configuration: ContextCompactionConfiguration
+    ) -> Int {
+        let proportionalTarget = max(2_000, Int((Double(totalUsedTokens) * 0.1).rounded()))
+        return min(configuration.targetSummaryTokenCount, proportionalTarget)
     }
 
 }

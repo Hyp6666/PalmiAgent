@@ -3,6 +3,7 @@ import Foundation
 @MainActor
 final class AgentLoop {
     private static let phaseThoughtToolName = "phase_thought"
+    private static let externalReasoningDefaultsKey = "palmi.chat.external-reasoning-enabled"
 
     private let apiClient: LLMAPIClient
     private let toolExecutor: AgentToolExecutor
@@ -11,6 +12,8 @@ final class AgentLoop {
     private let workspaceManager: WorkspaceManager
     private let contextAssembler: ContextAssembler
     private let contextCompactor: ContextCompactor
+    private let toolArtifactPipeline: ToolArtifactPipeline
+    private let toolContextProjector: ToolContextProjector
     private let configuration: AgentConfiguration
 
     private(set) var session = AgentSession()
@@ -28,6 +31,8 @@ final class AgentLoop {
         workspaceManager: WorkspaceManager,
         contextAssembler: ContextAssembler,
         contextCompactor: ContextCompactor,
+        toolArtifactPipeline: ToolArtifactPipeline,
+        toolContextProjector: ToolContextProjector,
         configuration: AgentConfiguration
     ) {
         self.apiClient = apiClient
@@ -37,6 +42,8 @@ final class AgentLoop {
         self.workspaceManager = workspaceManager
         self.contextAssembler = contextAssembler
         self.contextCompactor = contextCompactor
+        self.toolArtifactPipeline = toolArtifactPipeline
+        self.toolContextProjector = toolContextProjector
         self.configuration = configuration
 
         var continuation: AsyncStream<AgentEvent>.Continuation?
@@ -79,12 +86,19 @@ final class AgentLoop {
 
     func currentContextCompositionSnapshot(actions: [ToolAction]) -> ContextCompositionSnapshot {
         let reasoningProfile = currentReasoningStrengthProfile()
-        let baseSystemPrompt = promptBuilder.build(actions: actions)
+        let baseSystemPrompt = makeBaseSystemPrompt(
+            actions: actions,
+            reasoningProfile: reasoningProfile,
+            phaseThoughtEnabled: isExternalReasoningEnabled
+        )
         let activeProjectID = try? workspaceManager.currentSelection().projectID
         let activeSkills = skillRegistry.enabledSkills(for: activeProjectID)
         let breakdown = contextAssembler.promptComposer.composeBreakdown(
             basePrompt: baseSystemPrompt,
-            skills: activeSkills
+            skills: activeSkills,
+            actions: actions,
+            exposesTools: !actions.isEmpty,
+            exposesPhaseThought: isExternalReasoningEnabled
         )
 
         let compactedPrefixCount = session.hiddenContextSummary?.compactedMessageCount ?? 0
@@ -98,10 +112,13 @@ final class AgentLoop {
         let hiddenSummaryTokens = session.hiddenContextSummary.map {
             ApproximateTokenCounter.estimate(contextAssembler.hiddenSummaryPrompt(for: $0))
         } ?? 0
+        let hiddenResearchTokens = contextAssembler.researchStateAssembler.hiddenResearchPrompt(for: session).map {
+            ApproximateTokenCounter.estimate($0)
+        } ?? 0
         let toolDefinitionContribution = toolDefinitionContextContribution(for: actions)
 
-        var messageTokens = hiddenSummaryTokens
-        var messageCount = hiddenSummaryCount
+        var messageTokens = hiddenSummaryTokens + hiddenResearchTokens
+        var messageCount = hiddenSummaryCount + (hiddenResearchTokens > 0 ? 1 : 0)
 
         for message in rawMessages {
             let messageContribution = messageContextContribution(for: message)
@@ -131,7 +148,11 @@ final class AgentLoop {
         actions: [ToolAction]
     ) async throws -> Bool {
         let reasoningProfile = currentReasoningStrengthProfile()
-        let baseSystemPrompt = promptBuilder.build(actions: actions)
+        let baseSystemPrompt = makeBaseSystemPrompt(
+            actions: actions,
+            reasoningProfile: reasoningProfile,
+            phaseThoughtEnabled: isExternalReasoningEnabled
+        )
         let activeProjectID = try? workspaceManager.currentSelection().projectID
         let activeSkills = skillRegistry.enabledSkills(for: activeProjectID)
         let shouldCompact = contextCompactor.shouldCompact(
@@ -172,7 +193,11 @@ final class AgentLoop {
         protectedRecentMessageCount: Int = 0
     ) async throws -> Bool {
         let reasoningProfile = currentReasoningStrengthProfile()
-        let baseSystemPrompt = promptBuilder.build(actions: actions)
+        let baseSystemPrompt = makeBaseSystemPrompt(
+            actions: actions,
+            reasoningProfile: reasoningProfile,
+            phaseThoughtEnabled: isExternalReasoningEnabled
+        )
         let activeProjectID = try? workspaceManager.currentSelection().projectID
         let activeSkills = skillRegistry.enabledSkills(for: activeProjectID)
         return await maybeCompactContext(
@@ -187,7 +212,8 @@ final class AgentLoop {
     func currentContextUsageSnapshot() -> ContextUsageSnapshot {
         ContextUsageEstimator.snapshot(
             for: session,
-            configuration: currentReasoningStrengthProfile().contextCompaction
+            configuration: currentReasoningStrengthProfile().contextCompaction,
+            toolContextProjector: toolContextProjector
         )
     }
 
@@ -200,12 +226,10 @@ final class AgentLoop {
         guard !trimmedInput.isEmpty else {
             throw AppError.invalidState("请输入要让模型执行的自然语言指令。")
         }
-        guard !actions.isEmpty else {
-            throw AppError.invalidState("当前没有可暴露给模型的工具。")
-        }
         let reasoningProfile = currentReasoningStrengthProfile()
         let maxIterations = reasoningProfile.maxIterations
         let contextCompactionConfiguration = reasoningProfile.contextCompaction
+        let phaseThoughtEnabled = isExternalReasoningEnabled
 
         do {
             pendingInterruptions = []
@@ -220,7 +244,10 @@ final class AgentLoop {
             session.append(.user(text: trimmedInput))
             let turnStartMessageIndex = max(0, session.messages.count - 1)
 
-            let toolDefinitions = LLMToolDefinitionBuilder.makeToolDefinitions(for: actions) + [phaseThoughtToolDefinition()]
+            var toolDefinitions = LLMToolDefinitionBuilder.makeToolDefinitions(for: actions)
+            if phaseThoughtEnabled {
+                toolDefinitions.append(phaseThoughtToolDefinition())
+            }
             var executedSteps: [LLMToolExecutionStep] = []
             var outputTokens = 0
             var iterations = 0
@@ -239,7 +266,11 @@ final class AgentLoop {
                     )
                 }
 
-                let baseSystemPrompt = promptBuilder.build(actions: actions)
+                let baseSystemPrompt = makeBaseSystemPrompt(
+                    actions: actions,
+                    reasoningProfile: reasoningProfile,
+                    phaseThoughtEnabled: phaseThoughtEnabled
+                )
                 let activeProjectID = try? workspaceManager.currentSelection().projectID
                 let activeSkills = skillRegistry.enabledSkills(for: activeProjectID)
                 _ = await maybeCompactContext(
@@ -255,7 +286,10 @@ final class AgentLoop {
                 let assembledContext = contextAssembler.assemble(
                     baseSystemPrompt: baseSystemPrompt,
                     skills: activeSkills,
-                    session: session
+                    session: session,
+                    actions: actions,
+                    exposesTools: !actions.isEmpty,
+                    exposesPhaseThought: phaseThoughtEnabled
                 )
 
                 state = .thinking
@@ -264,7 +298,8 @@ final class AgentLoop {
                     response = try await apiClient.createChatCompletion(
                         providerID: providerID,
                         apiMessages: assembledContext.apiMessages,
-                        tools: toolDefinitions
+                        tools: toolDefinitions,
+                        preferredReasoning: reasoningProfile.modelReasoningEffort
                     )
                 } catch {
                     if executedSteps.isEmpty {
@@ -303,9 +338,12 @@ final class AgentLoop {
                         candidateReply: assistantText,
                         providerID: providerID,
                         baseSystemPrompt: baseSystemPrompt,
+                        actions: actions,
+                        phaseThoughtEnabled: phaseThoughtEnabled,
                         skills: activeSkills,
                         executedSteps: executedSteps,
-                        currentOutputTokens: outputTokens
+                        currentOutputTokens: outputTokens,
+                        reasoningProfile: reasoningProfile
                     ) {
                         outputTokens += rewrittenFinalReply.response.totalTokens
                         session.cumulativeUsage.add(totalTokens: rewrittenFinalReply.response.totalTokens)
@@ -390,6 +428,19 @@ final class AgentLoop {
                                 isError: execution.step.result.status == .failure
                             )
                         )
+                        if let hiddenArtifacts = await toolArtifactPipeline.ingest(
+                            session: session,
+                            toolResult: AgentToolResultRecord(
+                                toolUseID: toolUse.id,
+                                toolName: execution.step.action.id.rawValue,
+                                output: execution.payload,
+                                isError: execution.step.result.status == .failure
+                            ),
+                            providerID: providerID,
+                            userGoal: trimmedInput
+                        ) {
+                            session.hiddenArtifacts = hiddenArtifacts
+                        }
                         emit(.toolFinished(step: execution.step))
 
                         if execution.shouldStopAfterStep {
@@ -403,7 +454,11 @@ final class AgentLoop {
                     if consumePendingInterruptions() {
                         continue
                     }
-                    let baseSystemPrompt = promptBuilder.build(actions: actions)
+                    let baseSystemPrompt = makeBaseSystemPrompt(
+                        actions: actions,
+                        reasoningProfile: reasoningProfile,
+                        phaseThoughtEnabled: phaseThoughtEnabled
+                    )
                     let activeProjectID = try? workspaceManager.currentSelection().projectID
                     let activeSkills = skillRegistry.enabledSkills(for: activeProjectID)
                     _ = await maybeCompactContext(
@@ -416,7 +471,10 @@ final class AgentLoop {
                     let assembledContext = contextAssembler.assemble(
                         baseSystemPrompt: baseSystemPrompt,
                         skills: activeSkills,
-                        session: session
+                        session: session,
+                        actions: actions,
+                        exposesTools: !actions.isEmpty,
+                        exposesPhaseThought: phaseThoughtEnabled
                     )
                     state = .summarizing
                     let summaryResponse: LLMAPIClientResponse
@@ -430,7 +488,8 @@ final class AgentLoop {
                             },
                             onTokenEstimate: { estimatedRequestTokens in
                                 self.emit(.tokenUpdate(totalTokens: baseSummaryTokens + estimatedRequestTokens))
-                            }
+                            },
+                            preferredReasoning: reasoningProfile.modelReasoningEffort
                         )
                     } catch {
                         state = .completed
@@ -552,22 +611,24 @@ final class AgentLoop {
             return (tokens, count)
 
         case .tool:
-            let results = message.blocks.compactMap { block -> (toolUseID: String, output: String)? in
-                guard case .toolResult(let toolUseID, _, let output, _) = block else {
-                    return nil
-                }
-                let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            let results = message.toolResultRecords.compactMap { result -> AgentToolResultRecord? in
+                let trimmedOutput = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmedOutput.isEmpty else {
                     return nil
                 }
-                return (toolUseID, trimmedOutput)
+                return AgentToolResultRecord(
+                    toolUseID: result.toolUseID,
+                    toolName: result.toolName,
+                    output: trimmedOutput,
+                    isError: result.isError
+                )
             }
 
             let tokens = results.reduce(0) { partialResult, result in
                 partialResult +
                     ApproximateTokenCounter.estimate(result.toolUseID) +
                     ApproximateTokenCounter.estimate(
-                        LLMGuardrails.compactToolPayloadForModel(result.output)
+                        toolContextProjector.projectedToolContent(for: result, session: session)
                     )
             }
             return (tokens, results.count)
@@ -575,7 +636,10 @@ final class AgentLoop {
     }
 
     private func toolDefinitionContextContribution(for actions: [ToolAction]) -> (tokens: Int, count: Int) {
-        let toolDefinitions = LLMToolDefinitionBuilder.makeToolDefinitions(for: actions) + [phaseThoughtToolDefinition()]
+        var toolDefinitions = LLMToolDefinitionBuilder.makeToolDefinitions(for: actions)
+        if isExternalReasoningEnabled {
+            toolDefinitions.append(phaseThoughtToolDefinition())
+        }
         guard !toolDefinitions.isEmpty else {
             return (0, 0)
         }
@@ -641,6 +705,23 @@ final class AgentLoop {
             for: surface,
             userDefaults: configuration.userDefaults
         )
+    }
+
+    private func makeBaseSystemPrompt(
+        actions: [ToolAction],
+        reasoningProfile: ReasoningStrengthProfile,
+        phaseThoughtEnabled: Bool
+    ) -> String {
+        promptBuilder.build(
+            actions: actions,
+            tier: reasoningProfile.professionalTier,
+            exposesTools: !actions.isEmpty,
+            exposesPhaseThought: phaseThoughtEnabled
+        )
+    }
+
+    private var isExternalReasoningEnabled: Bool {
+        configuration.userDefaults.object(forKey: Self.externalReasoningDefaultsKey) as? Bool ?? true
     }
 
     @discardableResult
@@ -759,9 +840,12 @@ final class AgentLoop {
         candidateReply: String,
         providerID: APIProviderID,
         baseSystemPrompt: String,
+        actions: [ToolAction],
+        phaseThoughtEnabled: Bool,
         skills: [SkillPackage],
         executedSteps: [LLMToolExecutionStep],
-        currentOutputTokens: Int
+        currentOutputTokens: Int,
+        reasoningProfile: ReasoningStrengthProfile
     ) async -> (reply: String, response: LLMAPIClientResponse)? {
         guard shouldForceDetailedFinalReply(candidateReply: candidateReply, executedSteps: executedSteps) else {
             return nil
@@ -770,7 +854,10 @@ final class AgentLoop {
         let assembledContext = contextAssembler.assemble(
             baseSystemPrompt: baseSystemPrompt,
             skills: skills,
-            session: session
+            session: session,
+            actions: actions,
+            exposesTools: !actions.isEmpty,
+            exposesPhaseThought: phaseThoughtEnabled
         )
         let forcedSummaryMessages = assembledContext.apiMessages + [
             .system(
@@ -797,7 +884,8 @@ final class AgentLoop {
                 },
                 onTokenEstimate: { estimatedRequestTokens in
                     self.emit(.tokenUpdate(totalTokens: currentOutputTokens + estimatedRequestTokens))
-                }
+                },
+                preferredReasoning: reasoningProfile.modelReasoningEffort
             )
 
             let rewrittenReply = LLMGuardrails.sanitizeUserFacingReply(
@@ -852,7 +940,11 @@ final class AgentLoop {
         protectedRecentMessageCount: Int
     ) async -> AgentTurnResult {
         let contextCompactionConfiguration = currentReasoningStrengthProfile().contextCompaction
-        let baseSystemPrompt = promptBuilder.build(actions: actions)
+        let baseSystemPrompt = makeBaseSystemPrompt(
+            actions: actions,
+            reasoningProfile: currentReasoningStrengthProfile(),
+            phaseThoughtEnabled: isExternalReasoningEnabled
+        )
         let activeProjectID = try? workspaceManager.currentSelection().projectID
         let activeSkills = skillRegistry.enabledSkills(for: activeProjectID)
         _ = await maybeCompactContext(
@@ -866,7 +958,10 @@ final class AgentLoop {
         let assembledContext = contextAssembler.assemble(
             baseSystemPrompt: baseSystemPrompt,
             skills: activeSkills,
-            session: session
+            session: session,
+            actions: actions,
+            exposesTools: !actions.isEmpty,
+            exposesPhaseThought: isExternalReasoningEnabled
         )
 
         let forcedSummaryMessages = assembledContext.apiMessages + [
@@ -897,7 +992,8 @@ final class AgentLoop {
                 },
                 onTokenEstimate: { estimatedRequestTokens in
                     self.emit(.tokenUpdate(totalTokens: baseSummaryTokens + estimatedRequestTokens))
-                }
+                },
+                preferredReasoning: currentReasoningStrengthProfile().modelReasoningEffort
             )
 
             let finalOutputTokens = outputTokens + summaryResponse.totalTokens

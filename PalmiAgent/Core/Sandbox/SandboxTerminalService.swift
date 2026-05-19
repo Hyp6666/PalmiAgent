@@ -36,7 +36,8 @@ final class SandboxTerminalService {
             - 运行内联 Python：可用
             - 运行工作区 .py 文件：可用
             - 计算、统计、CSV/JSON 处理、工作区文本读写：可用
-            - 系统 CPython / pip / 第三方包 / 任意子进程：不可用
+            \(PythonPackageCatalog.capabilitySummary)
+            - pip 动态装包 / 任意子进程：不可用
             """),
             ("terminal", """
             受控终端层：

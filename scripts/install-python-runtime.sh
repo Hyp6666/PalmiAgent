@@ -53,3 +53,28 @@ if [ "${CODE_SIGNING_ALLOWED:-NO}" != "YES" ]; then
 fi
 . "$PYTHON_XCFRAMEWORK_PATH/build/utils.sh"
 install_python "Vendor/PythonSupport/Python.xcframework"
+
+PYTHON_VER=$(find "$CODESIGNING_FOLDER_PATH/python/lib" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | head -n 1)
+if [ -z "$PYTHON_VER" ]; then
+  echo "error: failed to locate bundled Python version directory"
+  exit 1
+fi
+
+PYTHON_STDLIB_DIR="$CODESIGNING_FOLDER_PATH/python/lib/$PYTHON_VER"
+PYTHON_SITE_PACKAGES_DIR="$PYTHON_STDLIB_DIR/site-packages"
+APP_PACKAGES_SOURCE="$PROJECT_DIR/Vendor/PythonSupport/app_packages"
+
+echo "Pruning bulky stdlib directories"
+for name in test idlelib tkinter turtledemo ensurepip; do
+  if [ -e "$PYTHON_STDLIB_DIR/$name" ]; then
+    rm -rf "$PYTHON_STDLIB_DIR/$name"
+  fi
+done
+find "$PYTHON_STDLIB_DIR" -type d -name "__pycache__" -prune -exec rm -rf {} +
+
+if [ -d "$APP_PACKAGES_SOURCE" ]; then
+  echo "Installing curated pure-Python packages"
+  mkdir -p "$PYTHON_SITE_PACKAGES_DIR"
+  rsync -au --delete --exclude "__pycache__/" "$APP_PACKAGES_SOURCE/" "$PYTHON_SITE_PACKAGES_DIR/"
+  process_dylibs "Vendor/PythonSupport/Python.xcframework" "python/lib/$PYTHON_VER/site-packages"
+fi
