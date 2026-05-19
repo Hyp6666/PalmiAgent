@@ -136,6 +136,35 @@ cacheability
 | MiniMax | 没看到官方 `reasoning_effort` | `reasoning_split=true` 把 thinking 拆到 `reasoning_details`；否则可能在 `<think>` 内 | Palmi 只做 split/replay，不做 low/high |
 | LM Studio | 没有统一标准 | OpenAI-compatible chat 支持常规采样参数；tool use 取决于模型 chat template 与 LM Studio parser | Palmi 默认不发送 reasoning 控制；只根据本地模型 metadata/用户高级配置显式启用 |
 
+### 3.3.2 已知必须根治的问题：DeepSeek thinking tool replay 400
+
+已复现用户侧报错：
+
+```text
+请求定位并反查成功；
+补充后续模型请求失败，已停止自动续跑；
+DeepSeek 调用失败：HTTP 400；
+The reasoning content in the thinking mode must be passed back to the API
+```
+
+判断：这不是定位工具错误，而是 DeepSeek thinking 模式下多轮工具调用的消息历史回放错误。
+
+根因方向：
+
+1. DeepSeek thinking 响应会返回 `reasoning_content`。
+2. 如果 assistant 消息里包含 tool calls，下一轮把 tool result 发回模型时，必须把对应 assistant message 的 `reasoning_content` 一并回传。
+3. 当前 Palmi 已有 `supportsReasoningReplay` 和 `AgentNativeReasoningPayload`，但 DeepSeek 的续跑链路仍可能在某处丢失或投影时移除了 native reasoning。
+4. 一旦丢失，DeepSeek 服务端直接拒绝后续请求，返回 400。
+
+后续实现要求：
+
+1. 对 DeepSeek/Kimi/MiniMax/Qwen 这类声明需要 reasoning replay 的模型，assistant tool-call 历史必须保留并回传 native reasoning payload。
+2. `OpenAICompatibleChatAdapter.preparedMessages` 只能在 provider/model 不需要 replay 时移除 native reasoning；不能按 provider 粗暴移除。
+3. `ContextAssembler.convert()`、`LLMAPIClient.convertToAPIMessages()`、`AgentSession` 持久化和 compaction 之后，都必须保证当前 turn 的 assistant tool-call message 不丢 `reasoning_content` / `reasoning_details`。
+4. 如果 compaction 覆盖了旧 assistant tool-call message，必须确保该工具链已经结束；不能压缩仍在本轮续跑所需的 assistant/tool result 对。
+5. 增加单元测试：DeepSeek thinking assistant tool-call response -> tool result -> next request body 必须包含原 assistant `reasoning_content`。
+6. 增加回归测试：定位、网页、文件、系统动作任一工具在 DeepSeek thinking 模式下续跑都不能触发该 400。
+
 ---
 
 ### 3.4 工具顺序执行
@@ -730,6 +759,7 @@ enum RetrievalQualityTier: Codable, Sendable {
 2. DeepSeek thinking 开启时不会误以为 temperature/top_p 生效。
 3. GLM/Kimi/MiniMax/Qwen 的 reasoning replay policy 明确可见。
 4. LM Studio 默认不发送不存在的 reasoning 字段。
+5. DeepSeek thinking + 任意 tool call 续跑时，下一轮 request body 必须回传上一轮 assistant 的 `reasoning_content`，不得再出现 “reasoning content in the thinking mode must be passed back” 400。
 
 ### Phase 2：低风险 Agent runtime 结构拆分，不改变行为
 
