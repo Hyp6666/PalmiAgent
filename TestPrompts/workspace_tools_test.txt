@@ -1,0 +1,161 @@
+请按照下面的步骤，依次完成全部文件操作。每步完成后告诉我结果，不要跳步，不要合并步骤。
+
+———— 第一阶段：创建目录结构 ————
+
+1. 创建目录 project/src
+2. 创建目录 project/src/utils
+3. 创建目录 project/docs
+4. 创建目录 project/data
+5. 创建目录 project/backup
+
+———— 第二阶段：写入文件 ————
+
+6. 在 project/src/main.py 写入以下内容：
+
+import json
+from utils.helpers import format_name
+
+def main():
+    data = {"name": "Palmi", "version": "1.0"}
+    print(json.dumps(data, ensure_ascii=False))
+
+if __name__ == "__main__":
+    main()
+
+7. 在 project/src/utils/helpers.py 写入以下内容：
+
+def format_name(name: str) -> str:
+    return f"[{name.upper()}]"
+
+def calculate_sum(numbers: list) -> int:
+    return sum(numbers)
+
+8. 在 project/docs/README.md 写入以下内容：
+
+# 测试项目
+
+这是一个用于验证 Palmi 文件操作能力的测试项目。
+
+## 功能清单
+- 文件读写
+- 目录管理
+
+9. 在 project/data/records.csv 写入以下内容：
+
+姓名,年龄,城市
+张三,28,北京
+李四,32,上海
+
+10. 在 project/config.json 写入以下内容：
+
+{
+  "app_name": "TestApp",
+  "version": "1.0.0",
+  "debug": true
+}
+
+———— 第三阶段：查看目录结构 ————
+
+11. 查看 project 目录的完整目录树（递归）
+12. 查看 project/src 目录的直接子项（不递归）
+
+———— 第四阶段：读取文件（多种模式）————
+
+13. 正常读取 project/src/main.py 的完整内容
+14. 用 head 模式读取 project/docs/README.md 的开头
+15. 用 tail 模式读取 project/data/records.csv 的结尾
+16. 用 section 模式读取 project/docs/README.md，focus 设为「功能清单」
+
+———— 第五阶段：追加内容 ————
+
+17. 向 project/data/records.csv 追加一行：
+王五,25,深圳
+
+18. 向 project/docs/README.md 追加以下内容：
+
+## 更新日志
+- v1.0：初始版本
+
+19. 向一个不存在的文件 project/logs/build.log 追加以下内容（验证自动创建）：
+[2025-01-01 10:00:00] 构建开始
+
+20. 读取 project/data/records.csv，确认追加的「王五」行存在
+21. 读取 project/logs/build.log，确认文件已自动创建且内容正确
+
+———— 第六阶段：文件信息与存在性检查 ————
+
+22. 查看 project/config.json 的文件信息（大小、类型、修改时间）
+23. 查看 project/src 的文件信息（应显示为目录，含子项数）
+24. 检查 project/src/main.py 是否存在（应为「存在」）
+25. 检查 project/nonexistent.txt 是否存在（应为「不存在」）
+
+———— 第七阶段：复制文件 ————
+
+26. 将 project/config.json 复制到 project/backup/config.json
+27. 将 project/data/records.csv 复制到 project/backup/records_backup.csv
+28. 读取 project/backup/config.json，确认内容与原文件一致
+
+———— 第八阶段：移动与重命名 ————
+
+29. 将 project/src/utils/helpers.py 移动到 project/src/lib.py（相当于重命名+移动到上层）
+30. 检查 project/src/utils/helpers.py 是否还存在（应为「不存在」）
+31. 检查 project/src/lib.py 是否存在（应为「存在」）
+32. 将 project/docs/README.md 重命名为 project/docs/GUIDE.md
+33. 读取 project/docs/GUIDE.md，确认内容包含「功能清单」和「更新日志」
+
+———— 第九阶段：覆盖写入 ————
+
+34. 用 fileWrite 覆盖 project/config.json 的内容为：
+
+{
+  "app_name": "TestApp",
+  "version": "2.0.0",
+  "debug": false,
+  "new_field": "added"
+}
+
+35. 读取 project/config.json，确认 version 已变为 2.0.0 且 new_field 存在
+36. 读取 project/backup/config.json，确认备份仍然是旧版本 1.0.0（验证复制独立性）
+
+———— 第十阶段：Python 脚本执行 ————
+
+37. 用内联 Python 脚本执行以下代码：
+
+import workspace
+content = workspace.read_text("project/data/records.csv")
+lines = content.strip().split("\n")
+print(f"CSV 共 {len(lines)} 行（含表头）")
+for line in lines[1:]:
+    parts = line.split(",")
+    print(f"  {parts[0]} 来自 {parts[2]}")
+
+38. 先写一个 Python 脚本文件 project/src/analyze.py，内容为：
+
+import workspace
+import json
+
+config = json.loads(workspace.read_text("project/config.json"))
+print(f"应用：{config['app_name']}")
+print(f"版本：{config['version']}")
+print(f"调试模式：{'开启' if config['debug'] else '关闭'}")
+
+workspace.write_text("project/data/analysis_result.txt", f"分析完成：{config['app_name']} v{config['version']}")
+
+然后用 script_path 方式运行 project/src/analyze.py
+
+39. 读取 project/data/analysis_result.txt，确认 Python 脚本成功创建了这个文件
+
+———— 第十一阶段：批量读取 ————
+
+40. 用 listDirectory 的 include_content=true 模式批量读取 project/src 目录下所有文件的内容
+
+———— 第十二阶段：清理 ————
+
+41. 删除文件 project/logs/build.log
+42. 删除目录 project/backup（连同里面的文件）
+43. 检查 project/backup 是否还存在（应为「不存在」）
+44. 检查 project/logs/build.log 是否还存在（应为「不存在」）
+
+———— 第十三阶段：最终验证 ————
+
+45. 查看 project 目录的完整目录树，展示最终的文件结构

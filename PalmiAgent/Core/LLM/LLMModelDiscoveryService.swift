@@ -8,48 +8,70 @@ struct LLMDiscoveredModel: Hashable, Sendable {
         APIModelDefinition(
             id: id,
             title: id,
-            summary: ownedBy.map { "由 \($0) 返回的远程模型。" } ?? "由远程模型列表返回。",
+            summary: "",
             traits: inferredTraits
         )
     }
 
     private var inferredTraits: Set<APIModelTrait> {
         var traits: Set<APIModelTrait> = []
-        let lowercased = id.lowercased()
-        if lowercased.contains("flash") ||
-            lowercased.contains("mini") ||
-            lowercased.contains("turbo") ||
-            lowercased.contains("lite") ||
-            lowercased.contains("air") {
-            traits.insert(.lightweight)
-        }
-        if lowercased.contains("vision") ||
-            lowercased.contains("-vl") ||
-            lowercased.contains("_vl") ||
-            lowercased.contains("/vl") ||
-            lowercased.contains("qwen-vl") ||
-            lowercased.contains("qwen2-vl") ||
-            lowercased.contains("qwen2.5-vl") ||
-            lowercased.contains("qwen3-vl") ||
-            lowercased.contains("qvq") ||
-            lowercased.contains("omni") ||
-            lowercased.contains("llava") ||
-            lowercased.contains("minicpm-v") ||
-            lowercased.contains("5v") ||
-            lowercased.contains("4.6v") ||
-            lowercased.contains("4.5v") ||
-            lowercased.contains("4o") ||
-            lowercased.contains("gpt-4.1") ||
-            lowercased.contains("gpt-5") {
+        let lowercasedID = id.lowercased()
+
+        let visionSignals = [
+            "vision",
+            "visual",
+            "qwen3.6-plus",
+            "qwen3.6-flash",
+            "qwen3.5-plus",
+            "qwen3.5-flash",
+            "-vl",
+            "_vl",
+            "/vl",
+            "vl-",
+            "v-",
+            "omni",
+            "multimodal"
+        ]
+        if visionSignals.contains(where: lowercasedID.contains) {
             traits.insert(.multimodal)
         }
-        if lowercased.contains("reason") ||
-            lowercased.contains("thinking") ||
-            lowercased.contains("r1") ||
-            lowercased.hasPrefix("o") ||
-            lowercased.contains("gpt-5") {
+
+        let reasoningSignals = [
+            "reasoner",
+            "reasoning",
+            "thinking",
+            "think",
+            "r1",
+            "o1",
+            "o3",
+            "o4",
+            "qwen3",
+            "qwq",
+            "glm-5",
+            "deepseek-v4-pro",
+            "kimi-k2",
+            "minimax-m2",
+            "hunyuan-t1",
+            "ernie-x1"
+        ]
+        if reasoningSignals.contains(where: lowercasedID.contains) {
             traits.insert(.reasoningPreferred)
         }
+
+        let lightweightSignals = [
+            "flash",
+            "turbo",
+            "lite",
+            "mini",
+            "air",
+            "speed",
+            "highspeed",
+            "fast"
+        ]
+        if lightweightSignals.contains(where: lowercasedID.contains) {
+            traits.insert(.lightweight)
+        }
+
         return traits
     }
 }

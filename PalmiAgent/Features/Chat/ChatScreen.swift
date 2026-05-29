@@ -16,13 +16,19 @@ struct ChatScreen: View {
     @FocusState private var isFocused: Bool
     @State private var expandedToolMessageIDs: Set<UUID> = []
     @State private var collapsedTurnIDs: Set<UUID> = []
+    @State private var pendingAutoCollapseTurnID: UUID?
     @State private var activeComposerMenu: ComposerMenu?
     @State private var isShowingContextInfo = false
+    @State private var isShowingEvidencePanel = false
     @State private var previewedWorkspaceFile: WorkspacePreviewFile?
+    @State private var isShowingAttachmentMenu = false
+    @State private var attachmentPresentation: PalmiAttachmentImportPresentation?
+    @State private var attachmentButtonFrame: CGRect = .zero
     // 缓存模型选择快照。原计算路径要 UserDefaults + JSON decode，
     // 在 body 里每次访问都会触发，正好卡在弹窗动画收尾那帧。
     // 仅在 onAppear / 打开菜单 / override 变化时刷新。
     @State private var cachedModelSelectionState: ModelSelectionState?
+    @State private var modelReasoningRevision = 0
 
     @AppStorage(APIConfigurationStore.activeProviderStorageKey) private var activeProviderRaw = APIProviderID.glm.rawValue
     @AppStorage(ProfessionalReasoningTier.storageKey) private var professionalReasoningTierRaw = ProfessionalReasoningTier.balanced.rawValue
@@ -115,9 +121,9 @@ struct ChatScreen: View {
 
     private var selectedReasoningTitle: String {
         if isChatSurface {
-            return ChatReasoningTier(rawValue: chatReasoningTierRaw)?.title ?? ChatReasoningTier.normal.title
+            return ChatReasoningTier.resolved(rawValue: chatReasoningTierRaw).title
         }
-        return ProfessionalReasoningTier(rawValue: professionalReasoningTierRaw)?.title ?? ProfessionalReasoningTier.balanced.title
+        return ProfessionalReasoningTier.resolved(rawValue: professionalReasoningTierRaw).title
     }
 
     private var modelSelectionRowCount: Int {
@@ -134,15 +140,42 @@ struct ChatScreen: View {
         let reasoningCount = isChatSurface
             ? ChatReasoningTier.allCases.count
             : ProfessionalReasoningTier.allCases.count
-        return min(420, max(320, 108 + CGFloat(reasoningCount + 2) * 52))
+        let authorizationRows = ToolAuthorizationMode.allCases.count
+        let modelReasoningRows = selectedModelReasoningRowCount
+        let modelReasoningChrome = modelReasoningRows > 0 ? 42 : 0
+        return min(560, max(320, 108 + CGFloat(reasoningCount + 2 + authorizationRows + modelReasoningRows) * 52 + CGFloat(modelReasoningChrome)))
+    }
+
+    private var selectedModelReasoningRowCount: Int {
+        selectedModelReasoningOptions.count
+    }
+
+    private var selectedModelReasoningOptions: [ModelReasoningControlOption] {
+        let _ = modelReasoningRevision
+        let state = modelSelectionState
+        let nativeReasoning = LLMModelIntegrationCatalog
+            .spec(for: state.provider.id, model: state.selectedModel)
+            .capabilities
+            .nativeReasoning
+
+        return ModelReasoningControlCatalog.options(for: nativeReasoning) { defaultEnabled in
+            isModelThinkingEnabled(defaultEnabled: defaultEnabled)
+        }
     }
 
     private var topChromeReservedHeight: CGFloat {
         76
     }
 
+    private var topChromeScrimHeight: CGFloat {
+        168
+    }
+
     private var topChromeOverlayHeight: CGFloat {
-        topChromeReservedHeight + (activeComposerMenu == .controlCenter ? topChromePanelHeight : 0)
+        max(
+            topChromeScrimHeight,
+            topChromeReservedHeight + (activeComposerMenu == .controlCenter ? topChromePanelHeight : 0)
+        )
     }
 
     private var floatingBubbleAnimation: Animation {
@@ -169,16 +202,29 @@ struct ChatScreen: View {
                 composerSection
             }
         }
+        .coordinateSpace(name: "chat-root")
         .safeAreaInset(edge: .top, spacing: 0) {
             Color.clear
                 .frame(height: topChromeReservedHeight)
         }
         .overlay(alignment: .top) {
             GeometryReader { proxy in
-                topChrome(width: proxy.size.width)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                ZStack(alignment: .top) {
+                    let chromeMaskHeight = proxy.safeAreaInsets.top + 56
+                    ChatTopChromeScrim()
+                        .frame(height: chromeMaskHeight)
+                        .allowsHitTesting(false)
+                        .zIndex(0)
+
+                    topChrome(width: proxy.size.width)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .zIndex(1)
+                }
             }
             .frame(height: topChromeOverlayHeight)
+        }
+        .overlay(alignment: .bottomLeading) {
+            chatAttachmentMenuOverlay
         }
         .onAppear {
             cachedModelSelectionState = computedModelSelectionState
@@ -186,12 +232,45 @@ struct ChatScreen: View {
         .onChange(of: activeProviderRaw) { _, _ in
             cachedModelSelectionState = computedModelSelectionState
         }
+        .onPreferenceChange(ChatAttachmentButtonFramePreferenceKey.self) { frame in
+            attachmentButtonFrame = frame
+        }
+        .onChange(of: isFocused) { _, newValue in
+            if newValue, isShowingAttachmentMenu {
+                withAnimation(floatingBubbleAnimation) {
+                    isShowingAttachmentMenu = false
+                }
+            }
+        }
         .environment(\.openURL, OpenURLAction { url in
             handleOpenURL(url)
         })
         .sheet(item: $previewedWorkspaceFile) { file in
             WorkspaceFilePreviewSheet(file: file)
         }
+        .sheet(isPresented: $isShowingEvidencePanel) {
+            AgentEvidencePanel(snapshot: store.evidenceSnapshot)
+        }
+        .sheet(item: $store.pendingApprovalRequest) { request in
+            ToolApprovalSheet(
+                request: request,
+                onApprove: {
+                    store.resolveApproval(request, approved: true)
+                },
+                onApproveForSession: {
+                    store.resolveApproval(request, resolution: .approvedForSession)
+                },
+                onReject: {
+                    store.resolveApproval(request, approved: false)
+                }
+            )
+        }
+        .palmiAttachmentImporter(
+            presentation: $attachmentPresentation,
+            workspaceStore: workspaceStore,
+            onComplete: handleAttachmentImportCompletion,
+            onError: { store.errorMessage = $0 }
+        )
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -227,9 +306,19 @@ struct ChatScreen: View {
                 scrollToBottom(proxy, animated: false)
             }
             .onChange(of: store.messages.count) {
+                if store.isLoading {
+                    pendingAutoCollapseTurnID = store.activeTurnHeaderID ?? pendingAutoCollapseTurnID
+                } else {
+                    collapsePendingCompletedTurn()
+                }
                 scrollToBottom(proxy)
             }
             .onChange(of: store.isLoading) {
+                if store.isLoading {
+                    pendingAutoCollapseTurnID = store.activeTurnHeaderID ?? turns.last?.id
+                } else {
+                    collapsePendingCompletedTurn()
+                }
                 scrollToBottom(proxy)
             }
             .onChange(of: store.messages.last?.content.count ?? 0) {
@@ -247,6 +336,12 @@ struct ChatScreen: View {
         let visibleAfterFinalMessages = turn.messagesAfterFinal.filter {
             !isCollapsed || $0.foldBehavior == .alwaysVisible
         }
+        let finalThoughtMessages = turn.finalMessage == nil
+            ? []
+            : Self.trailingThoughtMessages(in: visibleBeforeFinalMessages)
+        let visibleBeforeFinalPhaseMessages = Array(
+            visibleBeforeFinalMessages.dropLast(finalThoughtMessages.count)
+        )
 
         VStack(alignment: .leading, spacing: 16) {
             if let userMessage = turn.userMessage {
@@ -264,13 +359,13 @@ struct ChatScreen: View {
                 }
             }
 
-            // 折叠仅隐藏中间处理步骤（工具调用 / 模型思考 / phaseThought 等），
+            // 折叠仅隐藏中间处理步骤（工具调用 / 思考等），
             // 最终答复始终保留。否则“直答一句话”的场景，折叠会把唯一的回答也藏掉。
-            // 展开时在每次迭代之间 + 最终答复之前，插入灰色虚线分隔。
-            ForEach(Array(visibleBeforeFinalMessages.enumerated()), id: \.element.id) { index, message in
+            // 思考绑定到所属 phase，虚线只分隔 phase，不分隔思考和 phase 正文。
+            ForEach(Array(visibleBeforeFinalPhaseMessages.enumerated()), id: \.element.id) { index, message in
                 if index > 0,
                    Self.needsIterationDivider(
-                       previous: visibleBeforeFinalMessages[index - 1],
+                       previous: visibleBeforeFinalPhaseMessages[index - 1],
                        current: message
                    ) {
                     ChatIterationDivider()
@@ -279,8 +374,11 @@ struct ChatScreen: View {
             }
 
             if let finalMessage = turn.finalMessage {
-                if !visibleBeforeFinalMessages.isEmpty {
+                if !visibleBeforeFinalPhaseMessages.isEmpty {
                     ChatIterationDivider()
+                }
+                ForEach(finalThoughtMessages) { message in
+                    turnMessageView(message)
                 }
                 assistantMarkdown(for: finalMessage)
             }
@@ -312,18 +410,12 @@ struct ChatScreen: View {
                 assistantMarkdown(for: message)
             case .toolCall:
                 if let toolCall = message.toolCall {
-                    if toolCall.cardKind == .phaseThought {
-                        // 外部阶段思考：按正常字体渲染 details，不套工具卡。
-                        assistantBody(for: toolCall.details)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        ToolCallCard(
-                            messageID: message.id,
-                            toolCall: toolCall,
-                            isExpanded: expandedToolMessageIDs.contains(message.id)
-                        ) {
-                            toggleToolExpansion(message.id)
-                        }
+                    ToolCallCard(
+                        messageID: message.id,
+                        toolCall: toolCall,
+                        isExpanded: expandedToolMessageIDs.contains(message.id)
+                    ) {
+                        toggleToolExpansion(message.id)
                     }
                 }
             case .contextCompaction:
@@ -336,13 +428,20 @@ struct ChatScreen: View {
         }
     }
 
-    private static func isPhaseThoughtMessage(_ message: PalmiChatMessage) -> Bool {
-        message.kind == .toolCall && message.toolCall?.cardKind == .phaseThought
+    private static func trailingThoughtMessages(in messages: [PalmiChatMessage]) -> [PalmiChatMessage] {
+        var suffix: [PalmiChatMessage] = []
+        for message in messages.reversed() {
+            guard message.isThoughtMessage else {
+                break
+            }
+            suffix.insert(message, at: 0)
+        }
+        return suffix
     }
 
     // loop 迭代边界判断：
-    // - phaseThought 是一次独立迭代 → 它的前后都需要分隔；
-    // - .normal 文本（progressNote）是新一轮迭代的开头；
+    // - 思考不单独构成迭代，它绑定到相邻 phase；
+    // - .normal 文本（progressNote）通常是新一轮迭代的开头；
     // - 其他情形（text → tool、tool → tool）视为同一次迭代内的延续，不加分隔。
     private static func needsIterationDivider(
         previous: PalmiChatMessage,
@@ -357,8 +456,11 @@ struct ChatScreen: View {
         if previous.kind == .contextCompaction || current.kind == .contextCompaction {
             return true
         }
-        if isPhaseThoughtMessage(previous) || isPhaseThoughtMessage(current) {
-            return true
+        if current.isThoughtMessage {
+            return previous.isToolExecutionMessage
+        }
+        if previous.isThoughtMessage {
+            return false
         }
         if current.kind == .normal {
             return true
@@ -401,11 +503,65 @@ struct ChatScreen: View {
     private var composerSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             composerAccessoryRow
+            if !store.pendingAttachments.isEmpty {
+                pendingAttachmentStrip
+            }
             composerInputBar
         }
         .padding(.horizontal, 16)
         .padding(.top, 10)
         .padding(.bottom, 8)
+        .zIndex(isShowingAttachmentMenu ? 4 : 1)
+    }
+
+    @ViewBuilder
+    private var chatAttachmentMenuOverlay: some View {
+        if isShowingAttachmentMenu {
+            GeometryReader { proxy in
+                let menuWidth = min(max(proxy.size.width - 32, 280), 386)
+                let leading = attachmentMenuLeading(in: proxy.size.width, menuWidth: menuWidth)
+                let bottom = attachmentMenuBottomOffset(in: proxy.size.height)
+
+                PalmiAttachmentMenu(
+                    showsPlanningRows: true,
+                    onCamera: {
+                        presentAttachmentImport(
+                            PalmiAttachmentActions.camera(
+                                destination: .hiddenFilesBatch,
+                                allowsMultipleSelection: false
+                            )
+                        )
+                    },
+                    onPhotos: {
+                        presentAttachmentImport(
+                            PalmiAttachmentActions.photos(
+                                destination: .hiddenFilesBatch,
+                                allowsMultipleSelection: true
+                            )
+                        )
+                    },
+                    onFiles: {
+                        presentAttachmentImport(
+                            PalmiAttachmentActions.files(
+                                destination: .hiddenFilesBatch,
+                                allowsMultipleSelection: true
+                            )
+                        )
+                    }
+                )
+                .frame(width: menuWidth)
+                .padding(.leading, leading)
+                .padding(.bottom, bottom)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                .transition(
+                    .opacity.combined(
+                        with: .scale(scale: 0.94, anchor: .bottomLeading)
+                    )
+                )
+                .zIndex(5)
+            }
+            .allowsHitTesting(true)
+        }
     }
 
     private var composerAccessoryRow: some View {
@@ -413,6 +569,10 @@ struct ChatScreen: View {
             quickSettingsHost
 
             Spacer(minLength: 0)
+
+            if showsContextWheel || store.hasEvidenceSnapshotContent {
+                evidencePanelButton
+            }
 
             if showsContextWheel {
                 contextInspectorHost
@@ -424,12 +584,50 @@ struct ChatScreen: View {
 
     private var composerInputBar: some View {
         HStack(alignment: .center, spacing: 10) {
+            Button {
+                toggleAttachmentMenu()
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(isShowingAttachmentMenu ? Color.accentColor : Color.black.opacity(0.82))
+                    .rotationEffect(.degrees(isShowingAttachmentMenu ? 45 : 0))
+                    .frame(width: 38, height: 38)
+                    .background {
+                        Circle()
+                            .fill(Color.white.opacity(isShowingAttachmentMenu ? 0.18 : 0.08))
+                            .glassEffect(
+                                .regular.tint(Color.white.opacity(isShowingAttachmentMenu ? 0.34 : 0.18)).interactive(),
+                                in: .circle
+                            )
+                            .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
+                    }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("添加")
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: ChatAttachmentButtonFramePreferenceKey.self,
+                        value: proxy.frame(in: .named("chat-root"))
+                    )
+                }
+            )
+
             TextField("输入消息…", text: $store.inputText, axis: .vertical)
                 .lineLimit(1...6)
                 .textFieldStyle(.plain)
                 .focused($isFocused)
                 .font(.body)
                 .frame(minHeight: 22)
+                .simultaneousGesture(
+                    TapGesture().onEnded {
+                        if isShowingAttachmentMenu {
+                            withAnimation(floatingBubbleAnimation) {
+                                isShowingAttachmentMenu = false
+                            }
+                        }
+                    }
+                )
 
             Button {
                 sendMessage()
@@ -459,9 +657,23 @@ struct ChatScreen: View {
         )
     }
 
+    private var pendingAttachmentStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(store.pendingAttachments) { attachment in
+                    PendingAttachmentChip(attachment: attachment) {
+                        store.removePendingAttachment(attachment)
+                    }
+                }
+            }
+            .padding(.horizontal, 2)
+        }
+        .frame(height: 38)
+    }
+
     @ViewBuilder
     private var overlayBackdrop: some View {
-        if activeComposerMenu != nil || isShowingContextInfo {
+        if activeComposerMenu != nil || isShowingContextInfo || isShowingAttachmentMenu {
             Color.black.opacity(0.001)
                 .contentShape(Rectangle())
                 .onTapGesture {
@@ -484,11 +696,20 @@ struct ChatScreen: View {
                 areToolsEnabled.toggle()
             }
 
+            ForEach(ToolAuthorizationMode.allCases) { mode in
+                TopChromeMenuRow(
+                    title: mode.title,
+                    isSelected: store.toolAuthorizationStore.mode == mode
+                ) {
+                    store.toolAuthorizationStore.setMode(mode)
+                }
+            }
+
             topChromeDivider
                 .padding(.vertical, 6)
 
             TopChromeMenuRow(
-                title: "外部推理",
+                title: "阶段进度",
                 isSelected: isExternalReasoningEnabled
             ) {
                 isExternalReasoningEnabled.toggle()
@@ -497,23 +718,39 @@ struct ChatScreen: View {
             topChromeDivider
                 .padding(.vertical, 6)
 
-            Text("推理强度")
+            Text("任务倾向")
                 .font(.system(size: 13, weight: .medium, design: .rounded))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 8)
                 .padding(.bottom, 4)
 
             quickSettingsReasoningContent
+
+            if selectedModelReasoningRowCount > 0 {
+                topChromeDivider
+                    .padding(.vertical, 6)
+
+                Text("模型参数")
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 4)
+
+                modelNativeReasoningSettingsContent
+            }
         }
     }
 
     private var quickSettingsReasoningContent: some View {
-        VStack(spacing: 0) {
+        let selectedChatTier = ChatReasoningTier.resolved(rawValue: chatReasoningTierRaw)
+        let selectedProfessionalTier = ProfessionalReasoningTier.resolved(rawValue: professionalReasoningTierRaw)
+
+        return VStack(spacing: 0) {
             if isChatSurface {
                 ForEach(Array(ChatReasoningTier.allCases.reversed())) { tier in
                     TopChromeMenuRow(
                         title: tier.title,
-                        isSelected: tier.rawValue == chatReasoningTierRaw
+                        isSelected: tier == selectedChatTier
                     ) {
                         chatReasoningTierRaw = tier.rawValue
                     }
@@ -522,7 +759,7 @@ struct ChatScreen: View {
                 ForEach(Array(ProfessionalReasoningTier.allCases.reversed())) { tier in
                     TopChromeMenuRow(
                         title: tier.title,
-                        isSelected: tier.rawValue == professionalReasoningTierRaw
+                        isSelected: tier == selectedProfessionalTier
                     ) {
                         professionalReasoningTierRaw = tier.rawValue
                     }
@@ -530,6 +767,18 @@ struct ChatScreen: View {
             }
         }
         .disabled(store.isLoading)
+    }
+
+    @ViewBuilder
+    private var modelNativeReasoningSettingsContent: some View {
+        ForEach(selectedModelReasoningOptions) { option in
+            TopChromeMenuRow(
+                title: option.title,
+                isSelected: isSelectedModelReasoningOption(option)
+            ) {
+                applyModelReasoningOption(option)
+            }
+        }
     }
 
     private var quickSettingsHost: some View {
@@ -601,38 +850,56 @@ struct ChatScreen: View {
         }
     }
 
+    private var evidencePanelButton: some View {
+        Button {
+            dismissTransientUI()
+            isShowingEvidencePanel = true
+        } label: {
+            Image(systemName: "doc.text.magnifyingglass")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 44, height: 44)
+                .chatGlassSurface(
+                    cornerRadius: 16,
+                    interactive: true,
+                    backgroundOpacity: 0.02,
+                    tintOpacity: 0.08
+                )
+                .overlay(alignment: .topTrailing) {
+                    if let badge = store.taskProgressBadgeText {
+                        Text(badge)
+                            .font(.system(size: 9, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.accentColor, in: Capsule())
+                            .offset(x: 5, y: -5)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("过程")
+    }
+
     private func topChrome(width: CGFloat) -> some View {
         let buttonSize: CGFloat = 48
         let expandedWidth = min(max(width * 0.56, 216), 228)
         let collapsedWidth = min(max(width * 0.32, 118), 126)
 
-        return ZStack(alignment: .top) {
-            HStack(spacing: 0) {
-                if let configuration = leadingTopChromeButton {
-                    TopChromeIconButton(
-                        systemImage: configuration.systemImage,
-                        accessibilityLabel: configuration.accessibilityLabel,
-                        action: configuration.action
-                    )
-                } else {
-                    Color.clear
-                        .frame(width: buttonSize, height: buttonSize)
-                }
-
-                Spacer(minLength: 0)
-
-                if let configuration = trailingTopChromeButton {
-                    TopChromeIconButton(
-                        systemImage: configuration.systemImage,
-                        accessibilityLabel: configuration.accessibilityLabel,
-                        action: configuration.action
-                    )
-                } else {
-                    Color.clear
-                        .frame(width: buttonSize, height: buttonSize)
-                }
+        return HStack(alignment: .top, spacing: 12) {
+            if let configuration = leadingTopChromeButton {
+                TopChromeIconButton(
+                    systemImage: configuration.systemImage,
+                    accessibilityLabel: configuration.accessibilityLabel,
+                    action: configuration.action
+                )
+            } else {
+                Color.clear
+                    .frame(width: buttonSize, height: buttonSize)
             }
-            .zIndex(1)
+
+            Spacer(minLength: 0)
 
             ExpandingTopPillHost(
                 title: topOrbTitle,
@@ -645,6 +912,20 @@ struct ChatScreen: View {
                 toggleComposerMenu(.controlCenter)
             } content: {
                 controlCenterContent
+            }
+            .layoutPriority(1)
+
+            Spacer(minLength: 0)
+
+            if let configuration = trailingTopChromeButton {
+                TopChromeIconButton(
+                    systemImage: configuration.systemImage,
+                    accessibilityLabel: configuration.accessibilityLabel,
+                    action: configuration.action
+                )
+            } else {
+                Color.clear
+                    .frame(width: buttonSize, height: buttonSize)
             }
         }
         .padding(.top, 6)
@@ -776,8 +1057,11 @@ struct ChatScreen: View {
     }
 
     private var reasoningSelectionPanel: some View {
-        FloatingGlassPanel(
-            title: "推理强度",
+        let selectedChatTier = ChatReasoningTier.resolved(rawValue: chatReasoningTierRaw)
+        let selectedProfessionalTier = ProfessionalReasoningTier.resolved(rawValue: professionalReasoningTierRaw)
+
+        return FloatingGlassPanel(
+            title: "任务倾向",
             subtitle: isChatSurface ? "聊天模式" : "专业模式"
         ) {
             if isChatSurface {
@@ -786,7 +1070,7 @@ struct ChatScreen: View {
                         title: tier.title,
                         subtitle: tier.description,
                         badge: nil,
-                        isSelected: tier.rawValue == chatReasoningTierRaw
+                        isSelected: tier == selectedChatTier
                     ) {
                         chatReasoningTierRaw = tier.rawValue
                     }
@@ -797,7 +1081,7 @@ struct ChatScreen: View {
                         title: tier.title,
                         subtitle: tier.description,
                         badge: nil,
-                        isSelected: tier.rawValue == professionalReasoningTierRaw
+                        isSelected: tier == selectedProfessionalTier
                     ) {
                         professionalReasoningTierRaw = tier.rawValue
                     }
@@ -808,13 +1092,16 @@ struct ChatScreen: View {
     }
 
     private var compactReasoningSelectionContent: some View {
-        CompactGlassList {
+        let selectedChatTier = ChatReasoningTier.resolved(rawValue: chatReasoningTierRaw)
+        let selectedProfessionalTier = ProfessionalReasoningTier.resolved(rawValue: professionalReasoningTierRaw)
+
+        return CompactGlassList {
             if isChatSurface {
                 ForEach(Array(ChatReasoningTier.allCases.reversed())) { tier in
                     CompactSelectionRow(
                         title: tier.title,
                         trailingText: nil,
-                        isSelected: tier.rawValue == chatReasoningTierRaw
+                        isSelected: tier == selectedChatTier
                     ) {
                         chatReasoningTierRaw = tier.rawValue
                     }
@@ -824,7 +1111,7 @@ struct ChatScreen: View {
                     CompactSelectionRow(
                         title: tier.title,
                         trailingText: nil,
-                        isSelected: tier.rawValue == professionalReasoningTierRaw
+                        isSelected: tier == selectedProfessionalTier
                     ) {
                         professionalReasoningTierRaw = tier.rawValue
                     }
@@ -868,20 +1155,133 @@ struct ChatScreen: View {
         store.send()
     }
 
+    private func handleAttachmentImportCompletion(_ completion: PalmiAttachmentImportCompletion) {
+        switch completion {
+        case .hiddenFilesBatch(let batch):
+            store.addPendingAttachments(batch.attachments)
+        case .directory:
+            break
+        }
+    }
+
+    private func presentAttachmentImport(_ presentation: PalmiAttachmentImportPresentation) {
+        withAnimation(floatingBubbleAnimation) {
+            isShowingAttachmentMenu = false
+        }
+        attachmentPresentation = presentation
+    }
+
+    private func attachmentMenuLeading(in containerWidth: CGFloat, menuWidth: CGFloat) -> CGFloat {
+        guard !attachmentButtonFrame.isEmpty else { return 16 }
+        let preferred = attachmentButtonFrame.minX - 4
+        return min(max(preferred, 16), max(16, containerWidth - menuWidth - 16))
+    }
+
+    private func attachmentMenuBottomOffset(in containerHeight: CGFloat) -> CGFloat {
+        guard !attachmentButtonFrame.isEmpty else { return 120 }
+        return max(72, containerHeight - attachmentButtonFrame.minY + 10)
+    }
+
     private func selectConfiguredModel() {
         store.apiConfigurationStore.setChatOverrideReasoningModelID("", for: activeProviderID)
         cachedModelSelectionState = computedModelSelectionState
+        modelReasoningRevision &+= 1
     }
 
     private func selectModel(_ model: APIModelDefinition) {
         store.apiConfigurationStore.setChatOverrideReasoningModelID(model.id, for: activeProviderID)
         cachedModelSelectionState = computedModelSelectionState
+        modelReasoningRevision &+= 1
+    }
+
+    private func isModelThinkingEnabled(defaultEnabled: Bool) -> Bool {
+        let state = modelSelectionState
+        return ModelNativeReasoningPreferenceStore.isThinkingEnabled(
+            providerID: state.provider.id,
+            modelID: state.selectedModel.id,
+            defaultEnabled: defaultEnabled
+        )
+    }
+
+    private func setModelThinkingEnabled(_ isEnabled: Bool) {
+        let state = modelSelectionState
+        ModelNativeReasoningPreferenceStore.setThinkingEnabled(
+            isEnabled,
+            providerID: state.provider.id,
+            modelID: state.selectedModel.id
+        )
+        modelReasoningRevision &+= 1
+    }
+
+    private func selectedModelEffort(defaultEffort: String) -> String {
+        let state = modelSelectionState
+        return ModelNativeReasoningPreferenceStore.effort(
+            providerID: state.provider.id,
+            modelID: state.selectedModel.id,
+            defaultEffort: defaultEffort
+        )
+    }
+
+    private func setSelectedModelEffort(_ effort: String) {
+        let state = modelSelectionState
+        ModelNativeReasoningPreferenceStore.setEffort(
+            effort,
+            providerID: state.provider.id,
+            modelID: state.selectedModel.id
+        )
+        modelReasoningRevision &+= 1
+    }
+
+    private func selectedQwenThinkingBudget(defaultBudget: Int?) -> Int {
+        let state = modelSelectionState
+        return ModelNativeReasoningPreferenceStore.qwenThinkingBudget(
+            providerID: state.provider.id,
+            modelID: state.selectedModel.id
+        ) ?? ModelReasoningControlCatalog.defaultQwenBudget(defaultBudget)
+    }
+
+    private func setSelectedQwenThinkingBudget(_ budget: Int) {
+        let state = modelSelectionState
+        ModelNativeReasoningPreferenceStore.setQwenThinkingBudget(
+            budget,
+            providerID: state.provider.id,
+            modelID: state.selectedModel.id
+        )
+        modelReasoningRevision &+= 1
+    }
+
+    private func isSelectedModelReasoningOption(_ option: ModelReasoningControlOption) -> Bool {
+        switch option.action {
+        case .thinkingToggle(let defaultEnabled):
+            return isModelThinkingEnabled(defaultEnabled: defaultEnabled)
+        case .effort(let effort, let defaultEffort):
+            return selectedModelEffort(defaultEffort: defaultEffort.rawValue) == effort.rawValue
+        case .rawEffort(let rawValue, let defaultRawValue):
+            return selectedModelEffort(defaultEffort: defaultRawValue) == rawValue
+        case .qwenBudget(let budget, let defaultBudget):
+            return selectedQwenThinkingBudget(defaultBudget: defaultBudget) == budget
+        }
+    }
+
+    private func applyModelReasoningOption(_ option: ModelReasoningControlOption) {
+        switch option.action {
+        case .thinkingToggle(let defaultEnabled):
+            setModelThinkingEnabled(!isModelThinkingEnabled(defaultEnabled: defaultEnabled))
+        case .effort(let effort, _):
+            setSelectedModelEffort(effort.rawValue)
+        case .rawEffort(let rawValue, _):
+            setSelectedModelEffort(rawValue)
+        case .qwenBudget(let budget, _):
+            setSelectedQwenThinkingBudget(budget)
+        }
     }
 
     private func toggleComposerMenu(_ menu: ComposerMenu) {
         if isFocused { isFocused = false }
         cachedModelSelectionState = computedModelSelectionState
+        modelReasoningRevision &+= 1
         withAnimation(floatingBubbleAnimation) {
+            isShowingAttachmentMenu = false
             isShowingContextInfo = false
             activeComposerMenu = activeComposerMenu == menu ? nil : menu
         }
@@ -891,6 +1291,7 @@ struct ChatScreen: View {
         withAnimation(floatingBubbleAnimation) {
             activeComposerMenu = nil
             isShowingContextInfo = false
+            isShowingAttachmentMenu = false
         }
     }
 
@@ -898,7 +1299,17 @@ struct ChatScreen: View {
         if isFocused { isFocused = false }
         withAnimation(floatingBubbleAnimation) {
             activeComposerMenu = nil
+            isShowingAttachmentMenu = false
             isShowingContextInfo.toggle()
+        }
+    }
+
+    private func toggleAttachmentMenu() {
+        if isFocused { isFocused = false }
+        withAnimation(floatingBubbleAnimation) {
+            activeComposerMenu = nil
+            isShowingContextInfo = false
+            isShowingAttachmentMenu.toggle()
         }
     }
 
@@ -919,6 +1330,24 @@ struct ChatScreen: View {
             } else {
                 collapsedTurnIDs.insert(turnID)
             }
+        }
+    }
+
+    private func collapsePendingCompletedTurn() {
+        guard let turnID = pendingAutoCollapseTurnID else {
+            return
+        }
+        guard turns.contains(where: { turn in
+            turn.id == turnID
+                && turn.headerMessage?.sessionHeader?.finishedAt != nil
+                && turn.finalMessage != nil
+        }) else {
+            return
+        }
+
+        pendingAutoCollapseTurnID = nil
+        withAnimation(.easeInOut(duration: 0.16)) {
+            _ = collapsedTurnIDs.insert(turnID)
         }
     }
 
@@ -956,13 +1385,13 @@ struct ChatScreen: View {
                 return .discarded
             }
 
-            let url = try workspaceStore.workspaceManager.url(for: trimmedPath)
+            let url = try workspaceStore.workspaceURL(for: trimmedPath)
             let kind = previewKind(for: url)
             let preview: String?
 
             switch kind {
             case .markdown, .text:
-                preview = try workspaceStore.workspaceManager.previewText(at: trimmedPath)
+                preview = try workspaceStore.previewText(at: trimmedPath)
                     ?? "该文件暂无可预览内容。"
             case .quickLook:
                 preview = nil
@@ -1121,6 +1550,21 @@ private struct ChatCanvasBackground: View {
             startPoint: .top,
             endPoint: .bottom
         )
+    }
+}
+
+private struct ChatTopChromeScrim: View {
+    var body: some View {
+        LinearGradient(
+            stops: [
+                .init(color: Color(red: 0.998, green: 0.996, blue: 0.991).opacity(0.98), location: 0),
+                .init(color: Color(red: 0.998, green: 0.996, blue: 0.991).opacity(0.90), location: 0.70),
+                .init(color: Color(red: 0.972, green: 0.969, blue: 0.958).opacity(0), location: 1)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .ignoresSafeArea(edges: .top)
     }
 }
 
@@ -1328,23 +1772,22 @@ private struct ToolCallCard: View {
     let isExpanded: Bool
     let onToggle: () -> Void
 
-    // 仅模型原生 <think> 标签走小字灰字样式；
-    // .phaseThought 是我们外部注入的阶段思考（强干预推理），属于另一种展示类别，沿用工具卡样式。
-    private var isModelThinkCard: Bool {
-        toolCall.cardKind == .modelThink
+    // 所有思考来源（reasoning_content / <think> / phase_thought）走同一套小字灰字样式。
+    private var isThoughtCard: Bool {
+        toolCall.cardKind == .modelThink || toolCall.cardKind == .phaseThought
     }
 
     var body: some View {
-        if isModelThinkCard {
-            modelThinkBody
+        if isThoughtCard {
+            thoughtBody
         } else {
             toolBody
         }
     }
 
-    // 原生 <think> 标签：小字灰字的单行触发，可独立展开/收起显示完整思考内容。
+    // 思考：小字灰字的单行触发，可独立展开/收起显示完整内容。
     @ViewBuilder
-    private var modelThinkBody: some View {
+    private var thoughtBody: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button(action: onToggle) {
                 HStack(spacing: 6) {
@@ -1352,7 +1795,7 @@ private struct ToolCallCard: View {
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.secondary)
 
-                    Text(toolCall.toolTitle)
+                    Text("思考")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -1362,7 +1805,12 @@ private struct ToolCallCard: View {
                         .foregroundStyle(.secondary.opacity(0.8))
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
 
-                    Spacer(minLength: 0)
+                    Text(toolCall.summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary.opacity(0.85))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .contentShape(Rectangle())
             }
@@ -1487,7 +1935,7 @@ private struct ToolCallCard: View {
 
         switch toolCall.cardKind {
         case .phaseThought:
-            return "text.bubble"
+            return "sparkles"
         case .modelThink:
             return "sparkles"
         case .tool:
@@ -1629,6 +2077,17 @@ private struct TopChromeButtonConfiguration {
     let action: () -> Void
 }
 
+private struct ChatAttachmentButtonFramePreferenceKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if !next.isEmpty {
+            value = next
+        }
+    }
+}
+
 private struct TopChromeIconButton: View {
     let systemImage: String
     let accessibilityLabel: String
@@ -1638,13 +2097,13 @@ private struct TopChromeIconButton: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 19, weight: .semibold))
-                .foregroundStyle(.primary)
+                .foregroundStyle(Color.black.opacity(0.88))
                 .frame(width: 48, height: 48)
                 .chatGlassSurface(
                     cornerRadius: 24,
                     interactive: true,
-                    backgroundOpacity: 0.16,
-                    tintOpacity: 0.24
+                    backgroundOpacity: 0.26,
+                    tintOpacity: 0.32
                 )
         }
         .buttonStyle(.plain)
@@ -1670,12 +2129,12 @@ private struct ExpandingTopPillHost<Content: View>: View {
                 HStack(spacing: 8) {
                     Text(title)
                         .font(.system(size: 17, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(Color.black.opacity(0.88))
                         .lineLimit(1)
 
                     Image(systemName: "chevron.down")
                         .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.black.opacity(0.48))
                         .rotationEffect(.degrees(isExpanded ? 180 : 0))
                 }
                 .frame(maxWidth: .infinity)
@@ -1710,8 +2169,8 @@ private struct ExpandingTopPillHost<Content: View>: View {
         .chatGlassSurface(
             cornerRadius: isExpanded ? 36 : 24,
             interactive: true,
-            backgroundOpacity: 0.08,
-            tintOpacity: isExpanded ? 0.24 : 0.18
+            backgroundOpacity: isExpanded ? 0.12 : 0.20,
+            tintOpacity: isExpanded ? 0.28 : 0.30
         )
         .animation(animation, value: isExpanded)
     }
@@ -1807,6 +2266,55 @@ private struct QueuedGuidanceButton: View {
         .buttonStyle(.plain)
         .accessibilityLabel("待发送队列")
         .accessibilityValue("\(count) 条")
+    }
+}
+
+private struct PendingAttachmentChip: View {
+    let attachment: ChatStore.PendingAttachment
+    let onRemove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: iconName)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+
+            Text(attachment.name)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: 154)
+
+            Button(action: onRemove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 18)
+                    .background(Color.black.opacity(0.06), in: Circle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 6)
+        .frame(height: 32)
+        .chatGlassSurface(
+            cornerRadius: 16,
+            interactive: false,
+            backgroundOpacity: 0.08,
+            tintOpacity: 0.18
+        )
+    }
+
+    private var iconName: String {
+        switch attachment.source {
+        case .camera:
+            return "camera.fill"
+        case .photoLibrary:
+            return "photo.fill"
+        case .filePicker:
+            return "doc.fill"
+        }
     }
 }
 
@@ -2293,6 +2801,19 @@ private extension View {
     }
 }
 
+private extension PalmiChatMessage {
+    var isThoughtMessage: Bool {
+        guard kind == .toolCall else {
+            return false
+        }
+        return toolCall?.cardKind == .phaseThought || toolCall?.cardKind == .modelThink
+    }
+
+    var isToolExecutionMessage: Bool {
+        kind == .toolCall && toolCall?.cardKind == .tool
+    }
+}
+
 private struct ChatTurn: Identifiable {
     let id: UUID
     let userMessage: PalmiChatMessage?
@@ -2348,7 +2869,9 @@ private struct ChatTurn: Identifiable {
         }
 
         func appendInTurnMessage(_ message: PalmiChatMessage) {
-            if currentFinal == nil {
+            if message.isThoughtMessage {
+                currentMessagesBeforeFinal.append(message)
+            } else if currentFinal == nil {
                 currentMessagesBeforeFinal.append(message)
             } else {
                 currentMessagesAfterFinal.append(message)

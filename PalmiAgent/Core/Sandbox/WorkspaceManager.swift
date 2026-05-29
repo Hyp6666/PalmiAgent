@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 struct WorkspaceSnapshot: Sendable {
     let rootURL: URL
@@ -70,44 +71,6 @@ final class WorkspaceManager {
         return try writeText(content, to: relativePath)
     }
 
-    func writePythonStub() throws -> URL {
-        let content = """
-        \"\"\"
-        PalmiAgent CPython smoke test.
-        这段脚本会验证 docstring、random、列表推导和标准库都能正常工作。
-        \"\"\"
-
-        import json
-        import random
-        import statistics
-
-        random.seed(42)
-        scores = [random.randint(1, 20) for _ in range(6)]
-        payload = {
-            "message": "PalmiAgent CPython runtime online",
-            "count": len(scores),
-            "mean": statistics.mean(scores),
-            "max": max(scores),
-            "scores": scores
-        }
-
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
-        """
-        return try writeText(content, to: "demo.py")
-    }
-
-    func writeJavaScriptDemoScript() throws -> URL {
-        let content = """
-        console.log("PalmiAgent JS runtime online");
-        console.log("workspace =", workspace.pwd());
-        workspace.makeDirectory("notes");
-        workspace.writeText("notes/runtime.txt", "JS runtime generated this file.");
-        console.log("notes =", JSON.stringify(workspace.listFiles("notes"), null, 2));
-        console.log(workspace.readText("notes/runtime.txt"));
-        """
-        return try writeText(content, to: "sandbox-demo.js")
-    }
-
     func listFiles() throws -> WorkspaceSnapshot {
         let root = try ensureWorkspace()
         let entries = try listEntries(at: ".")
@@ -132,7 +95,7 @@ final class WorkspaceManager {
         return fileManager.fileExists(atPath: url.path)
     }
 
-    func listEntries(at relativePath: String = ".") throws -> [WorkspaceEntry] {
+    func listEntries(at relativePath: String = ".", showHiddenFiles: Bool = false) throws -> [WorkspaceEntry] {
         let directoryURL = try resolvePath(relativePath)
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: directoryURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
@@ -142,10 +105,11 @@ final class WorkspaceManager {
         let urls = try fileManager.contentsOfDirectory(
             at: directoryURL,
             includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
+            options: directoryListingOptions(showHiddenFiles: showHiddenFiles)
         )
 
         return try urls
+            .filter { shouldDisplayWorkspaceEntry($0, showHiddenFiles: showHiddenFiles) }
             .map { url in
                 let values = try url.resourceValues(forKeys: [.isDirectoryKey])
                 return WorkspaceEntry(url: url, isDirectory: values.isDirectory == true)
@@ -189,10 +153,10 @@ final class WorkspaceManager {
         return lines.joined(separator: "\n")
     }
 
-    func listFileTree(at relativePath: String = ".") throws -> [WorkspaceFileNode] {
+    func listFileTree(at relativePath: String = ".", showHiddenFiles: Bool = false) throws -> [WorkspaceFileNode] {
         let directoryURL = try resolvePath(relativePath)
         let workspaceRoot = try ensureWorkspace()
-        return try buildFileNodes(in: directoryURL, workspaceRoot: workspaceRoot)
+        return try buildFileNodes(in: directoryURL, workspaceRoot: workspaceRoot, showHiddenFiles: showHiddenFiles)
     }
 
     func previewText(at relativePath: String, maxCharacters: Int = 4_000) throws -> String? {
@@ -273,7 +237,21 @@ final class WorkspaceManager {
 
         let handle = try FileHandle(forWritingTo: url)
         defer { try? handle.close() }
-        try handle.seekToEnd()
+
+        // 检查文件末尾是否以换行符结尾，如果不是则先补一个换行
+        let endOffset = try handle.seekToEnd()
+        if endOffset > 0 {
+            try handle.seek(toOffset: endOffset - 1)
+            if let lastByteData = try handle.read(upToCount: 1),
+               let lastByte = lastByteData.first,
+               lastByte != UInt8(ascii: "\n") {
+                try handle.seekToEnd()
+                try handle.write(contentsOf: Data([UInt8(ascii: "\n")]))
+            } else {
+                try handle.seekToEnd()
+            }
+        }
+
         if let data = text.data(using: .utf8) {
             try handle.write(contentsOf: data)
         }
@@ -293,6 +271,152 @@ final class WorkspaceManager {
         }
         try fileManager.removeItem(at: url)
         try touchActiveThread()
+    }
+
+    func moveItem(from sourcePath: String, to destinationPath: String) throws -> URL {
+        let sourceURL = try resolvePath(sourcePath)
+        guard fileManager.fileExists(atPath: sourceURL.path) else {
+            throw AppError.invalidState("源路径不存在：\(sourcePath)")
+        }
+        let destinationURL = try resolvePath(destinationPath)
+        let parent = destinationURL.deletingLastPathComponent()
+        try fileManager.createDirectory(at: parent, withIntermediateDirectories: true, attributes: nil)
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            throw AppError.invalidState("目标路径已存在：\(destinationPath)")
+        }
+        try fileManager.moveItem(at: sourceURL, to: destinationURL)
+        try touchActiveThread()
+        return destinationURL
+    }
+
+    func copyItem(from sourcePath: String, to destinationPath: String) throws -> URL {
+        let sourceURL = try resolvePath(sourcePath)
+        guard fileManager.fileExists(atPath: sourceURL.path) else {
+            throw AppError.invalidState("源路径不存在：\(sourcePath)")
+        }
+        let destinationURL = try resolvePath(destinationPath)
+        let parent = destinationURL.deletingLastPathComponent()
+        try fileManager.createDirectory(at: parent, withIntermediateDirectories: true, attributes: nil)
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            throw AppError.invalidState("目标路径已存在：\(destinationPath)")
+        }
+        try fileManager.copyItem(at: sourceURL, to: destinationURL)
+        try touchActiveThread()
+        return destinationURL
+    }
+
+    func importAttachmentsToHiddenFiles(_ attachments: [WorkspaceImportedAttachment]) throws -> WorkspaceAttachmentBatch {
+        guard !attachments.isEmpty else {
+            throw AppError.invalidState("没有可导入的附件。")
+        }
+
+        let workspaceURL = try ensureWorkspace()
+        _ = try ensureHiddenFilesRoot(in: workspaceURL)
+        let createdAt = Date()
+        let datePath = Self.attachmentDateFormatter.string(from: createdAt)
+        let batchID = "\(Self.attachmentTimeFormatter.string(from: createdAt))-\(UUID().uuidString.prefix(4).lowercased())"
+        let batchRelativePath = ".files/uploads/\(datePath)/\(batchID)"
+        let originalRelativePath = "\(batchRelativePath)/original"
+        let previewRelativePath = "\(batchRelativePath)/preview"
+        let extractedRelativePath = "\(batchRelativePath)/extracted"
+
+        let batchURL = try resolvePath(batchRelativePath)
+        let originalURL = try resolvePath(originalRelativePath)
+        let previewURL = try resolvePath(previewRelativePath)
+        let extractedURL = try resolvePath(extractedRelativePath)
+        try fileManager.createDirectory(at: originalURL, withIntermediateDirectories: true, attributes: nil)
+        try fileManager.createDirectory(at: previewURL, withIntermediateDirectories: true, attributes: nil)
+        try fileManager.createDirectory(at: extractedURL, withIntermediateDirectories: true, attributes: nil)
+
+        let storedAttachments = try attachments.map { attachment in
+            try storeImportedAttachment(
+                attachment,
+                in: originalURL,
+                workspaceRoot: workspaceURL,
+                createdAt: createdAt
+            )
+        }
+
+        let batch = WorkspaceAttachmentBatch(
+            id: batchID,
+            createdAt: createdAt,
+            relativePath: batchRelativePath,
+            originalRelativePath: originalRelativePath,
+            previewRelativePath: previewRelativePath,
+            extractedRelativePath: extractedRelativePath,
+            attachments: storedAttachments
+        )
+        try writeJSON(
+            WorkspaceAttachmentBatchMetadata(batch: batch),
+            to: batchURL.appendingPathComponent("metadata.json")
+        )
+        try touchActiveThread()
+        return batch
+    }
+
+    func importAttachments(
+        _ attachments: [WorkspaceImportedAttachment],
+        toDirectory relativePath: String
+    ) throws -> [WorkspaceStoredAttachment] {
+        guard !attachments.isEmpty else {
+            throw AppError.invalidState("没有可导入的附件。")
+        }
+
+        let workspaceURL = try ensureWorkspace()
+        let normalizedPath = normalizedRelativeDirectoryPath(relativePath)
+        let directoryURL = try resolvePath(normalizedPath)
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: directoryURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw AppError.invalidState("目标路径不是目录：\(relativePath)")
+        }
+
+        let createdAt = Date()
+        let stored = try attachments.map { attachment in
+            try storeImportedAttachment(
+                attachment,
+                in: directoryURL,
+                workspaceRoot: workspaceURL,
+                createdAt: createdAt
+            )
+        }
+        try touchActiveThread()
+        return stored
+    }
+
+    struct FileItemInfo: Sendable {
+        let exists: Bool
+        let isDirectory: Bool
+        let fileSize: Int?
+        let modifiedAt: Date?
+        let childCount: Int?
+    }
+
+    func fileInfo(at relativePath: String) throws -> FileItemInfo {
+        let url = try resolvePath(relativePath)
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            return FileItemInfo(exists: false, isDirectory: false, fileSize: nil, modifiedAt: nil, childCount: nil)
+        }
+
+        let values = try url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        let childCount: Int?
+        if isDirectory.boolValue {
+            childCount = try fileManager.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ).count
+        } else {
+            childCount = nil
+        }
+
+        return FileItemInfo(
+            exists: true,
+            isDirectory: isDirectory.boolValue,
+            fileSize: isDirectory.boolValue ? nil : values.fileSize,
+            modifiedAt: values.contentModificationDate,
+            childCount: childCount
+        )
     }
 
     func listProjects() throws -> [WorkspaceProjectRecord] {
@@ -332,9 +456,11 @@ final class WorkspaceManager {
             surface: surface
         )
         let directoryURL = projectDirectoryURL(for: project.id)
+        let workspaceURL = projectWorkspaceDirectoryURL(for: project.id)
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
         try fileManager.createDirectory(at: threadsDirectoryURL(for: project.id), withIntermediateDirectories: true, attributes: nil)
-        try fileManager.createDirectory(at: projectWorkspaceDirectoryURL(for: project.id), withIntermediateDirectories: true, attributes: nil)
+        try fileManager.createDirectory(at: workspaceURL, withIntermediateDirectories: true, attributes: nil)
+        _ = try ensureHiddenFilesRoot(in: workspaceURL)
         try writeJSON(project, to: projectManifestURL(for: project.id))
 
         let initialThread = try createThread(named: initialThreadName, in: project.id)
@@ -622,11 +748,17 @@ final class WorkspaceManager {
         }
     }
 
-    private func buildFileNodes(in directoryURL: URL, workspaceRoot: URL) throws -> [WorkspaceFileNode] {
-        let entries = try listEntries(atURL: directoryURL)
+    private func buildFileNodes(
+        in directoryURL: URL,
+        workspaceRoot: URL,
+        showHiddenFiles: Bool
+    ) throws -> [WorkspaceFileNode] {
+        let entries = try listEntries(atURL: directoryURL, showHiddenFiles: showHiddenFiles)
         return try entries.map { entry in
             let relativePath = relativePath(for: entry.url, root: workspaceRoot)
-            let children = entry.isDirectory ? try buildFileNodes(in: entry.url, workspaceRoot: workspaceRoot) : []
+            let children = entry.isDirectory
+                ? try buildFileNodes(in: entry.url, workspaceRoot: workspaceRoot, showHiddenFiles: showHiddenFiles)
+                : []
             return WorkspaceFileNode(
                 id: relativePath.isEmpty ? entry.url.lastPathComponent : relativePath,
                 name: entry.url.lastPathComponent,
@@ -638,14 +770,15 @@ final class WorkspaceManager {
         }
     }
 
-    private func listEntries(atURL directoryURL: URL) throws -> [WorkspaceEntry] {
+    private func listEntries(atURL directoryURL: URL, showHiddenFiles: Bool) throws -> [WorkspaceEntry] {
         let urls = try fileManager.contentsOfDirectory(
             at: directoryURL,
             includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
+            options: directoryListingOptions(showHiddenFiles: showHiddenFiles)
         )
 
         return try urls
+            .filter { shouldDisplayWorkspaceEntry($0, showHiddenFiles: showHiddenFiles) }
             .map { url in
                 let values = try url.resourceValues(forKeys: [.isDirectoryKey])
                 return WorkspaceEntry(url: url, isDirectory: values.isDirectory == true)
@@ -740,7 +873,17 @@ final class WorkspaceManager {
         }
 
         try migrateLegacyThreadWorkspacesIfNeeded(for: projectID, into: workspaceURL)
+        _ = try ensureHiddenFilesRoot(in: workspaceURL)
         return workspaceURL
+    }
+
+    private func ensureHiddenFilesRoot(in workspaceURL: URL) throws -> URL {
+        let filesURL = workspaceURL.appendingPathComponent(".files", isDirectory: true)
+        let uploadsURL = filesURL.appendingPathComponent("uploads", isDirectory: true)
+        if !fileManager.fileExists(atPath: uploadsURL.path) {
+            try fileManager.createDirectory(at: uploadsURL, withIntermediateDirectories: true, attributes: nil)
+        }
+        return filesURL
     }
 
     private func migrateLegacyThreadWorkspacesIfNeeded(
@@ -926,6 +1069,135 @@ final class WorkspaceManager {
 
         let rawName = ([projectName] + pathComponents).joined(separator: "-")
         return sanitizedArchiveBaseName(rawName, fallback: "workspace-item")
+    }
+
+    private static let attachmentDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    private static let attachmentTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HHmmss"
+        return formatter
+    }()
+
+    private func directoryListingOptions(showHiddenFiles: Bool) -> FileManager.DirectoryEnumerationOptions {
+        showHiddenFiles ? [] : [.skipsHiddenFiles]
+    }
+
+    private func shouldDisplayWorkspaceEntry(_ url: URL, showHiddenFiles: Bool) -> Bool {
+        let name = url.lastPathComponent
+        guard name.hasPrefix(".") else { return true }
+        return showHiddenFiles && name == ".files"
+    }
+
+    private func normalizedRelativeDirectoryPath(_ relativePath: String) -> String {
+        let trimmed = relativePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return normalized.isEmpty ? "." : normalized
+    }
+
+    private func storeImportedAttachment(
+        _ attachment: WorkspaceImportedAttachment,
+        in directoryURL: URL,
+        workspaceRoot: URL,
+        createdAt: Date
+    ) throws -> WorkspaceStoredAttachment {
+        let filename = sanitizedAttachmentFilename(
+            attachment.preferredFilename,
+            typeIdentifier: attachment.typeIdentifier,
+            source: attachment.source
+        )
+        let destinationURL = uniqueDestinationURL(for: filename, in: directoryURL)
+
+        if let data = attachment.data {
+            try data.write(to: destinationURL, options: .atomic)
+        } else if let sourceURL = attachment.fileURL {
+            let didAccess = sourceURL.startAccessingSecurityScopedResource()
+            defer {
+                if didAccess {
+                    sourceURL.stopAccessingSecurityScopedResource()
+                }
+            }
+            try fileManager.copyItem(at: sourceURL, to: destinationURL)
+        } else {
+            throw AppError.invalidState("附件数据不可用。")
+        }
+
+        let values = try destinationURL.resourceValues(forKeys: [.fileSizeKey])
+        return WorkspaceStoredAttachment(
+            id: UUID(),
+            originalFilename: attachment.preferredFilename,
+            storedFilename: destinationURL.lastPathComponent,
+            relativePath: relativePath(for: destinationURL, root: workspaceRoot),
+            source: attachment.source,
+            typeIdentifier: attachment.typeIdentifier,
+            byteCount: Int64(values.fileSize ?? 0),
+            createdAt: createdAt
+        )
+    }
+
+    private func sanitizedAttachmentFilename(
+        _ rawFilename: String,
+        typeIdentifier: String?,
+        source: WorkspaceAttachmentSource
+    ) -> String {
+        let fallbackBase: String
+        switch source {
+        case .camera:
+            fallbackBase = "camera-\(Self.attachmentTimeFormatter.string(from: .now))"
+        case .photoLibrary:
+            fallbackBase = "photo-\(Self.attachmentTimeFormatter.string(from: .now))"
+        case .filePicker:
+            fallbackBase = "file-\(Self.attachmentTimeFormatter.string(from: .now))"
+        }
+
+        let trimmed = rawFilename.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackExtension = typeIdentifier.flatMap { UTType($0)?.preferredFilenameExtension }
+        var candidate = trimmed.isEmpty ? fallbackBase : trimmed
+        candidate = candidate
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+            .replacingOccurrences(of: "\0", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if candidate.isEmpty || candidate == "." || candidate == ".." {
+            candidate = fallbackBase
+        }
+        if candidate.hasPrefix(".") {
+            candidate = "file\(candidate)"
+        }
+        if URL(fileURLWithPath: candidate).pathExtension.isEmpty,
+           let fallbackExtension,
+           !fallbackExtension.isEmpty {
+            candidate += ".\(fallbackExtension)"
+        }
+        return candidate
+    }
+
+    private func uniqueDestinationURL(for filename: String, in directoryURL: URL) -> URL {
+        let cleanURL = URL(fileURLWithPath: filename)
+        let baseName = cleanURL.deletingPathExtension().lastPathComponent
+        let ext = cleanURL.pathExtension
+        var attempt = 0
+
+        while true {
+            let candidateName: String
+            if attempt == 0 {
+                candidateName = ext.isEmpty ? baseName : "\(baseName).\(ext)"
+            } else {
+                candidateName = ext.isEmpty ? "\(baseName)-\(attempt + 1)" : "\(baseName)-\(attempt + 1).\(ext)"
+            }
+            let candidateURL = directoryURL.appendingPathComponent(candidateName, isDirectory: false)
+            if !fileManager.fileExists(atPath: candidateURL.path) {
+                return candidateURL
+            }
+            attempt += 1
+        }
     }
 
     private func writeJSON<Value: Encodable>(_ value: Value, to url: URL) throws {

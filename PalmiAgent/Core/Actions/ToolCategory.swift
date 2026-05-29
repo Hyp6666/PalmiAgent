@@ -35,7 +35,7 @@ enum ToolCategory: String, CaseIterable, Identifiable, Codable, Sendable {
         case .workspace:
             "临时项目目录、文件生成、脚本容器"
         case .web:
-            "网页抓取、静态分析、研究落盘"
+            "网页搜索、正文浏览、静态分析"
         case .personalData:
             "日历、提醒事项、联系人、位置、地图"
         case .media:

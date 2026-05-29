@@ -5,7 +5,7 @@ struct OpenAIChatCompletionRequest: Encodable {
     let messages: [OpenAIChatMessage]
     let tools: [OpenAIChatToolDefinition]?
     let toolChoice: String?
-    let temperature: Double
+    let temperature: Double?
     let stream: Bool?
     let reasoningEffort: String?
     let thinking: OpenAIChatThinkingConfig?
@@ -13,20 +13,22 @@ struct OpenAIChatCompletionRequest: Encodable {
     let thinkingBudget: Int?
     let reasoningSplit: Bool?
     let reasoningFormat: String?
+    let reasoning: OpenAIChatReasoningConfig?
 
     init(
         model: String,
         messages: [OpenAIChatMessage],
         tools: [OpenAIChatToolDefinition]?,
         toolChoice: String?,
-        temperature: Double,
+        temperature: Double?,
         stream: Bool?,
         reasoningEffort: String? = nil,
         thinking: OpenAIChatThinkingConfig? = nil,
         enableThinking: Bool? = nil,
         thinkingBudget: Int? = nil,
         reasoningSplit: Bool? = nil,
-        reasoningFormat: String? = nil
+        reasoningFormat: String? = nil,
+        reasoning: OpenAIChatReasoningConfig? = nil
     ) {
         self.model = model
         self.messages = messages
@@ -40,6 +42,7 @@ struct OpenAIChatCompletionRequest: Encodable {
         self.thinkingBudget = thinkingBudget
         self.reasoningSplit = reasoningSplit
         self.reasoningFormat = reasoningFormat
+        self.reasoning = reasoning
     }
 
     enum CodingKeys: String, CodingKey {
@@ -55,11 +58,38 @@ struct OpenAIChatCompletionRequest: Encodable {
         case thinkingBudget = "thinking_budget"
         case reasoningSplit = "reasoning_split"
         case reasoningFormat = "reasoning_format"
+        case reasoning
     }
 }
 
 struct OpenAIChatThinkingConfig: Codable, Sendable {
     let type: String
+    let clearThinking: Bool?
+    let budgetTokens: Int?
+
+    init(type: String, clearThinking: Bool? = nil, budgetTokens: Int? = nil) {
+        self.type = type
+        self.clearThinking = clearThinking
+        self.budgetTokens = budgetTokens
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case clearThinking = "clear_thinking"
+        case budgetTokens
+    }
+}
+
+struct OpenAIChatReasoningConfig: Codable, Sendable {
+    let effort: String?
+    let maxTokens: Int?
+    let exclude: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case effort
+        case maxTokens = "max_tokens"
+        case exclude
+    }
 }
 
 struct OpenAIChatCompletionResponse: Decodable {
@@ -88,6 +118,8 @@ struct OpenAIChatResponseMessage: Decodable {
     let content: String?
     let toolCalls: [OpenAIChatToolCall]?
     let reasoningContent: String?
+    let reasoning: String?
+    let thinking: String?
     let reasoningDetails: JSONRuntimeValue?
 
     enum CodingKeys: String, CodingKey {
@@ -95,6 +127,8 @@ struct OpenAIChatResponseMessage: Decodable {
         case content
         case toolCalls = "tool_calls"
         case reasoningContent = "reasoning_content"
+        case reasoning
+        case thinking
         case reasoningDetails = "reasoning_details"
     }
 }

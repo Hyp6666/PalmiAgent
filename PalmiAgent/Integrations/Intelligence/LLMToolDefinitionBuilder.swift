@@ -2,13 +2,13 @@ import Foundation
 
 @MainActor
 enum LLMToolDefinitionBuilder {
-    static func makeToolDefinitions(for actions: [ToolAction]) -> [OpenAIChatToolDefinition] {
+    static func makeToolDefinitions(for actions: [ToolAction]) -> [AgentModelToolDefinition] {
         actions.map(makeToolDefinition(for:))
     }
 
-    static func makeToolDefinition(for action: ToolAction) -> OpenAIChatToolDefinition {
-        OpenAIChatToolDefinition(
-            function: OpenAIChatFunctionDefinition(
+    static func makeToolDefinition(for action: ToolAction) -> AgentModelToolDefinition {
+        AgentModelToolDefinition(
+            function: AgentModelFunctionDefinition(
                 name: action.id.rawValue,
                 description: toolDescription(for: action),
                 parameters: toolParametersSchema(for: action)
@@ -16,11 +16,19 @@ enum LLMToolDefinitionBuilder {
         )
     }
 
+    private static func enabledWebSearchProviderEnumValues() -> [String] {
+        WebSearchProviderSettings.enabledProviderIDs().map(\.rawValue)
+    }
+
     private static func toolDescription(for action: ToolAction) -> String {
         var lines = [
             "[\(action.category.title)] \(action.title)：\(action.effect)",
             action.details
         ]
+
+        if action.id == .detectWebSearchProviders || action.id == .searchWeb {
+            lines.append("当前设置开启的搜索源：\(WebSearchProviderSettings.enabledProviderIDsDescription())")
+        }
 
         if let routingHint = routingHint(for: action.id) {
             lines.append("选择规则：\(routingHint)")
@@ -35,20 +43,28 @@ enum LLMToolDefinitionBuilder {
 
     private static func routingHint(for actionID: ToolActionID) -> String? {
         switch actionID {
-        case .pythonSandbox:
-            return "只在用户明确需要编写/运行 Python，或你已经拿到了完整输入数据且需要计算/转换时使用。不要用它替代闹钟、地图、通知、短信、日历、联系人或网页搜索，也不要用它编造现实世界数据。"
-        case .runJavaScriptSandbox, .runSandboxTerminal, .writeFile:
+        case .runPython:
+            return "只在用户明确需要编写/运行 Python，或你已经拿到了完整输入数据且需要计算/转换时使用。不要用它替代闹钟、地图、通知、短信、日历、联系人或网页搜索，也不要用它编造现实世界数据。文件操作请优先使用 fileRead/fileWrite/fileManage 等专用工具。"
+        case .fileWrite, .fileAppend:
             return "这是通用工作区工具，不是系统能力替身。不要用它模拟通知、闹钟、地图、短信、电话、邮件或在线搜索。"
+        case .fileRead:
+            return "读取工作区内单个文件的可读文本。长文档优先围绕当前目标抽取关键事实；需要定点阅读时，使用 mode、focus、offset、chunk_size 控制读取范围。读取目录或批量浏览文件请使用 listDirectory 工具。"
+        case .listDirectory:
+            return "查看目录结构和文件列表。设置 include_content=true 可批量读取目录下所有可读文本文件的内容。"
+        case .fileManage:
+            return "文件管理操作（创建目录、删除、移动/重命名、复制、查看信息、检查存在）。通过 operation 参数选择具体操作。"
         case .getCurrentDateTime:
             return "凡是涉及今天、明天、下周、几点、哪一天、创建日程、提醒、通知、闹钟、倒计时或任何相对时间表达时，都应优先先调用它确认当前本地时间。"
         case .requestAlarmPermission, .listAlarms, .createAlarm, .createClockTimer, .manageAlarm:
             return "这是系统时钟/闹钟能力。需要真正的系统闹钟时优先使用它，不要退回到本地通知或 Python 模拟。"
         case .requestLocation:
             return "仅当任务真的依赖当前位置时再调用，不要把定位当默认第一步；但如果用户说这里、附近、我这、离我最近、本地等明显依赖当前位置的表达，就应优先先定位。"
+        case .detectWebSearchProviders:
+            return "只在用户明确要求检测网络/搜索源，或上一次搜索失败后使用。它不返回搜索结果，只返回环境探测。"
         case .searchWeb:
-            return "涉及当前事实、票价、时刻表、在线信息时优先考虑它，而不是 Python。它负责找候选来源；拿到候选后，请显式调用网页浏览工具精读关键网页。只需要给出查询词，搜索结果数会按当前推理强度固定生效。"
-        case .read:
-            return "适合读取工作区内文件或目录里的可读文本。长文档和多文件目录优先围绕当前目标抽取关键事实，不要把整批长文一次性当作最终证据；需要定点阅读时，使用 mode、focus、offset、chunk_size 控制读取范围。"
+            return "涉及当前事实、票价、时刻表、在线信息时优先考虑它，而不是 Python。它只找候选标题、URL 和摘要，不读取正文；需要更多信息时可以换关键词多次搜索，拿到候选后再自行选择少量 URL 调用网页浏览。"
+        case .fetchStaticWebPage:
+            return "用于读取已知 URL 的正文片段。可传单个 url 或 urls 数组；单次调用技术上限 10 个 URL，时间到后返回已完成结果。"
         case .openMapsRoute:
             return "它只负责打开 Apple 地图展示地点或路线，不提供跨城交通方案优化、实时票价或时刻表计算。"
         case .sendLocalNotification:
@@ -60,106 +76,88 @@ enum LLMToolDefinitionBuilder {
 
     static func toolParametersSchema(for action: ToolAction) -> JSONValue {
         switch action.id {
-        case .bootstrapWorkspace:
+        case .fileRead:
             return ToolJSONSchema.object(
                 properties: [
-                    "path": ToolJSONSchema.string(description: "可选。要在工作区内创建的相对目录，默认是工作区根目录。")
-                ]
+                    "path": ToolJSONSchema.string(description: "必填。要读取的文件相对路径。"),
+                    "mode": ToolJSONSchema.string(description: "可选。读取模式。`auto` 默认；`head` 读开头；`tail` 读结尾；`chunk` 从 offset 开始读一段；`section` 围绕 focus 读相关片段；`abstract` 优先提取摘要/概要段。", enumValues: WorkspaceReadMode.allCases.map(\.rawValue)),
+                    "offset": ToolJSONSchema.integer(description: "可选。`chunk` 模式下从第几个字符开始读取，默认 0。"),
+                    "chunk_size": ToolJSONSchema.integer(description: "可选。单次返回的目标字符数。未传时使用 max_chars。"),
+                    "focus": ToolJSONSchema.string(description: "可选。`section` 或 `auto` 模式下围绕该关键词/主题提取相关片段。"),
+                    "query": ToolJSONSchema.string(description: "可选。`focus` 的同义参数。"),
+                    "max_chars": ToolJSONSchema.integer(description: "可选。总输出最大字符数，默认 20000。")
+                ],
+                required: ["path"]
             )
-        case .writeFile:
+        case .fileWrite:
             return ToolJSONSchema.object(
                 properties: [
-                    "path": ToolJSONSchema.string(description: "必填。要写入的文件相对路径，例如 README.md、script.py、app.js、data.json。"),
+                    "path": ToolJSONSchema.string(description: "必填。要写入的文件相对路径，例如 README.md、script.py、data.json。"),
                     "content": ToolJSONSchema.string(description: "必填。文件内容。")
                 ],
                 required: ["path", "content"]
             )
-        case .read:
+        case .fileAppend:
             return ToolJSONSchema.object(
                 properties: [
-                    "path": ToolJSONSchema.string(description: "必填。要读取的文件或目录相对路径。"),
-                    "recursive": ToolJSONSchema.bool(description: "可选。读取目录时是否递归展开，默认 true。"),
-                    "mode": ToolJSONSchema.string(description: "可选。读取模式。`auto` 默认；`head` 读开头；`tail` 读结尾；`chunk` 从 offset 开始读一段；`section` 围绕 focus 读相关片段；`abstract` 优先提取摘要/概要段。", enumValues: WorkspaceReadMode.allCases.map(\.rawValue)),
-                    "offset": ToolJSONSchema.integer(description: "可选。`chunk` 模式下从第几个字符开始读取，默认 0。"),
-                    "chunk_size": ToolJSONSchema.integer(description: "可选。单次返回的目标字符数。未传时使用 max_chars 或当前剩余额度。"),
-                    "focus": ToolJSONSchema.string(description: "可选。`section` 或 `auto` 模式下围绕该关键词/主题提取相关片段。"),
-                    "query": ToolJSONSchema.string(description: "可选。`focus` 的同义参数，便于按当前研究问题抽取相关片段。"),
-                    "max_chars": ToolJSONSchema.integer(description: "可选。总输出最大字符数，默认 20000。"),
-                    "max_files": ToolJSONSchema.integer(description: "可选。读取目录时最多展开多少个文件，默认 64。")
+                    "path": ToolJSONSchema.string(description: "必填。要追加内容的文件相对路径。"),
+                    "content": ToolJSONSchema.string(description: "必填。要追加的文本内容。")
                 ],
-                required: ["path"]
+                required: ["path", "content"]
             )
-        case .listWorkspaceFiles:
+        case .listDirectory:
             return ToolJSONSchema.object(
                 properties: [
                     "path": ToolJSONSchema.string(description: "可选。要查看的目录相对路径，默认是工作区根目录。"),
-                    "recursive": ToolJSONSchema.bool(description: "可选。是否递归输出目录树。默认 true。")
+                    "recursive": ToolJSONSchema.bool(description: "可选。是否递归输出目录树。默认 true。"),
+                    "include_content": ToolJSONSchema.bool(description: "可选。是否同时读取目录下所有可读文本文件的内容。默认 false。"),
+                    "max_chars": ToolJSONSchema.integer(description: "可选。include_content=true 时总输出最大字符数，默认 20000。"),
+                    "max_files": ToolJSONSchema.integer(description: "可选。include_content=true 时最多展开多少个文件，默认 64。"),
+                    "mode": ToolJSONSchema.string(description: "可选。include_content=true 时的读取模式。", enumValues: WorkspaceReadMode.allCases.map(\.rawValue)),
+                    "focus": ToolJSONSchema.string(description: "可选。include_content=true 时围绕该关键词抽取相关片段。")
                 ]
             )
-        case .inspectSandboxCapabilities:
+        case .fileManage:
             return ToolJSONSchema.object(
                 properties: [
-                    "focus": ToolJSONSchema.string(description: "可选。聚焦某一类能力，例如 filesystem、javascript、terminal、network、ios。")
-                ]
-            )
-        case .runSandboxTerminal:
-            return ToolJSONSchema.object(
-                properties: [
-                    "script": ToolJSONSchema.string(description: "必填。要在受控终端中执行的多行脚本。支持 help、pwd、ls、tree、mkdir、write、append、cat、rm、js。")
+                    "operation": ToolJSONSchema.string(description: "必填。要执行的操作。", enumValues: ["mkdir", "delete", "move", "rename", "copy", "info", "exists"]),
+                    "path": ToolJSONSchema.string(description: "必填。目标路径（所有操作都需要）。"),
+                    "destination": ToolJSONSchema.string(description: "move/rename/copy 操作必填。目标位置的相对路径。")
                 ],
-                required: ["script"]
+                required: ["operation", "path"]
             )
-        case .exportWorkspace:
-            return ToolJSONSchema.object(
-                properties: [
-                    "path": ToolJSONSchema.string(description: "可选。要导出的工作区相对路径，默认导出整个工作区。")
-                ]
-            )
-        case .runJavaScriptSandbox:
-            return ToolJSONSchema.object(
-                properties: [
-                    "script_path": ToolJSONSchema.string(description: "可选。工作区内已有脚本的相对路径。"),
-                    "script": ToolJSONSchema.string(description: "可选。直接执行的内联 JavaScript 源码。二选一。")
-                ]
-            )
-        case .pythonSandbox:
+        case .runPython:
             return ToolJSONSchema.object(
                 properties: [
                     "script_path": ToolJSONSchema.string(description: "可选。工作区内已有的 .py 相对路径。"),
                     "script": ToolJSONSchema.string(description: "可选。直接执行的内联 Python 源码。和 script_path 二选一。"),
                     "save_to": ToolJSONSchema.string(description: "可选。执行内联 Python 时，先保存到工作区的相对路径。")
                 ],
-                description: "执行真实 CPython 3.14 脚本。优先使用标准库、内置 workspace 模块和以下预装纯 Python 包：\(PythonPackageCatalog.supportedImportsSentence)。\(PythonPackageCatalog.toolingSummary) 不要依赖 pip 动态装包、系统进程、GUI、长期阻塞任务或任何未列出的第三方库。"
+                description: "执行真实 CPython 3.14 脚本。优先使用标准库、内置 workspace 模块和以下预装纯 Python 包：\(PythonPackageCatalog.supportedImportsSentence)。\(PythonPackageCatalog.toolingSummary) 不要依赖 pip 动态装包、系统进程、GUI、长期阻塞任务或任何未列出的第三方库。文件操作请优先使用 fileRead/fileWrite/fileManage 等专用工具。"
+            )
+        case .detectWebSearchProviders:
+            return ToolJSONSchema.object(
+                properties: [
+                    "source": ToolJSONSchema.string(description: "可选。只探测某一个搜索源；不填则探测当前设置中开启的全部搜索源。", enumValues: enabledWebSearchProviderEnumValues())
+                ]
             )
         case .searchWeb:
             return ToolJSONSchema.object(
                 properties: [
-                    "query": ToolJSONSchema.string(description: "必填。要搜索的关键词或自然语言查询。搜索结果数与自动预读范围会按当前推理强度固定生效。")
+                    "query": ToolJSONSchema.string(description: "必填。要搜索的关键词或自然语言查询。只返回候选标题、URL 和摘要，不读取正文。结果数和搜索超时按当前档位生效。"),
+                    "source": ToolJSONSchema.string(description: "可选。搜索源；只能填写当前设置中开启的值。不填时 app 使用开启列表中的默认源。", enumValues: enabledWebSearchProviderEnumValues())
                 ],
                 required: ["query"]
             )
         case .fetchStaticWebPage:
             return ToolJSONSchema.object(
                 properties: [
-                    "url": ToolJSONSchema.string(description: "必填。要抓取的网页 URL。正文片段最大字符数按当前推理强度固定生效。", format: "uri")
-                ],
-                required: ["url"]
+                    "url": ToolJSONSchema.string(description: "可选。要浏览的单个网页 URL。和 urls 二选一。", format: "uri"),
+                    "urls": ToolJSONSchema.stringArray(description: "可选。要浏览的多个网页 URL。单次调用最多 10 个 URL，执行层会并行抓取并在总时间上限内返回已完成结果。")
+                ]
             )
-        case .fetchWebBatch:
-            return ToolJSONSchema.object(
-                properties: [
-                    "urls": ToolJSONSchema.stringArray(description: "必填。要并发抓取的网页 URL 数组。每个网页正文片段最大字符数按当前推理强度固定生效。")
-                ],
-                required: ["urls"]
-            )
-        case .saveWebPageToWorkspace:
-            return ToolJSONSchema.object(
-                properties: [
-                    "url": ToolJSONSchema.string(description: "必填。要抓取并保存的网页 URL。", format: "uri"),
-                    "path": ToolJSONSchema.string(description: "可选。保存的相对路径。未提供时按网页标题生成。")
-                ],
-                required: ["url"]
-            )
+        case .fetchWebBatch, .saveWebPageToWorkspace:
+            return ToolJSONSchema.object(properties: [:])
         case .openInAppBrowser:
             return ToolJSONSchema.object(
                 properties: [

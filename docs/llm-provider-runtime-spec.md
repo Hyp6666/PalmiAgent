@@ -203,22 +203,35 @@ Palmi 后续需要：
 
 ---
 
-## 4.7 官方文档核对结论
+## 4.7 官方文档核对结论与当前缺口
 
-| Provider | 官方结论 | Palmi 当前实现 |
+这里记录的是 provider/model adapter 的设计要求和当前状态，不等于所有路径都已经完整验收。DeepSeek/Kimi/MiniMax/GLM 等 thinking + tool call 续跑必须保存并回放上游返回的 native reasoning 字段，不能把它当普通正文丢弃。
+
+| Provider | 官方结论 | Palmi 设计要求 / 当前状态 |
 |---|---|---|
 | OpenAI | Chat Completions 支持 `reasoning_effort`；不同 reasoning model 支持值不同。 | 对 OpenAI/Azure reasoning model 写入 `reasoning_effort`；不支持值会降级。 |
-| GLM / Z.AI | GLM-4.5 起支持 `thinking.type = enabled/disabled`。 | 对 GLM-4.5/4.6/4.7/5 系列写入 `thinking.type`。 |
-| DeepSeek | Chat Completion 响应包含 `reasoning_content`；thinking 历史需要保留。 | 标记 `supportsReasoningReplay = true`，并保留 reasoning 字段历史。 |
+| GLM / Z.AI | GLM-4.5 起支持 `thinking.type = enabled/disabled`，preserved thinking 需要 `clear_thinking:false` 并回放完整 `reasoning_content`。 | 对 GLM-4.5/4.6/4.7/5 系列写入 `thinking.type`；开启 thinking 时写入 `clear_thinking:false`。 |
+| DeepSeek | Chat Completion 响应包含 `reasoning_content`；thinking + tool call 历史必须保留。 | 标记 `supportsReasoningReplay = true`；assistant tool-call message -> tool result -> next request 全链路回放 `reasoning_content`，否则会触发 400。 |
 | Qwen / DashScope | OpenAI-compatible Chat Completion 可用 `enable_thinking`，可配 `thinking_budget`。 | 对 Qwen3/QwQ 写入 `enable_thinking` / `thinking_budget`。 |
 | Kimi / Moonshot | Kimi thinking 模型通过 `reasoning_content` 承载推理；Kimi K2.5 固定 `temperature = 1.0`。 | Kimi thinking 模型启用 reasoning replay，并强制 temperature 为 1。 |
 | MiniMax | OpenAI-compatible 格式支持 `reasoning_split=True`，推理内容在 `reasoning_details`。 | M2 系列写入 `reasoning_split`。 |
-| 腾讯混元 | 官方 OpenAI 兼容接口 base URL 为 `https://api.hunyuan.cloud.tencent.com/v1`。 | 使用 catalog-managed endpoint。 |
+| 腾讯混元 / TokenHub | 混元官方 OpenAI 兼容接口 base URL 为 `https://api.hunyuan.cloud.tencent.com/v1`；TokenHub base URL 为 `https://tokenhub.tencentmaas.com`，深度思考用 `thinking.type`，Hy3/DeepSeek 支持 `reasoning_effort=low/medium/high`。 | 混元官方 endpoint 使用 catalog-managed endpoint；TokenHub 远程模型按具体 model id 推断：Hy3/DeepSeek 用 `thinking.type + reasoning_effort`，GLM/Kimi 用 `thinking.type`，MiniMax/HY 2.0 Think 走固定 reasoning。 |
 | 百度千帆 | V2 模型服务兼容 OpenAI，base URL 为 `https://qianfan.baidubce.com/v2`。 | 使用 catalog-managed endpoint。 |
-| StepFun | OpenAI 兼容 base URL 为 `https://api.stepfun.ai/v1` / 国内站 `https://api.stepfun.com/v1`；支持 `reasoning_format`。 | 使用国内站 `https://api.stepfun.com/v1`；请求体编码 `reasoning_format = deepseek-style`。 |
+| StepFun | OpenAI 兼容 base URL 为 `https://api.stepfun.ai/v1` / 国内站 `https://api.stepfun.com/v1`；支持 `reasoning_format`，默认 `general` 返回 `reasoning` 字段。 | 使用国内站 `https://api.stepfun.com/v1`；请求体编码 `reasoning_format = general` 并解析 `reasoning`。 |
 | SiliconFlow | `/v1/models` 返回 OpenAI-compatible model list。 | 模型检测按 `/v1/models` 获取。 |
 
-当前没有 API Key，无法做真实 paid endpoint live test；已完成的是官方文档和本地请求构造层验证。
+当前没有 API Key，无法做真实 paid endpoint live test；已完成的是官方文档和本地请求构造层验证。下一阶段必须用本地 request snapshot 和少量真实 key 手工验收补齐关键 provider。
+
+## 4.8 未知模型与聚合平台兜底
+
+与 `docs/agent-runtime-codex-style-refactor-spec.md` 的 7.6 保持一致：
+
+1. 未知 provider/model 默认不发送 native reasoning 字段。
+2. OpenAI-compatible 只代表协议形状，不代表支持 OpenAI `reasoning.effort`。
+3. 聚合平台不能只根据 model id 推断并开启能力；必须命中显式 `LLMModelIntegrationSpec` 或 `ModelFamilyIntegrationSpec`。
+4. `/models` 检测失败不覆盖用户手填 model id，不写入历史默认 `chat/think` 名称。
+5. 多模态 slot 必须有稳定值：支持则为 vision model，不支持则为 `none`。
+6. provider-specific UI 字段只在 capability 明确支持时出现。
 
 ---
 
@@ -356,6 +369,83 @@ case geminiNative
 | 本地 | Ollama | `http://host:11434/v1` | 只支持其 OpenAI-compatible `/v1` |
 | 自定义 | Custom OpenAI-compatible | 用户填 baseURL | 兜底 |
 
+### 6.1.1 硬约束：取消前端模型映射，改成 1 模 1 方案
+
+取消“前端界面映射”的规划。前端不能根据 provider 名称、model id 字符串、traits 或运行时猜测去拼出一套看似通用的 controls。
+
+新约束是：**1 模 1 方案**。
+
+含义：
+
+1. 每一个内置 `APIModelDefinition.id` 都必须对应一个 `LLMModelIntegrationSpec`。
+2. `LLMModelIntegrationSpec` 是单模型事实源，至少包含：官方文档 URL、模型族、baseURL/path、request encoder、native reasoning 编码、response reasoning 字段、tool calling policy、vision policy、JSON mode policy、streaming policy、replay policy、UI controls。
+3. 前端只渲染当前选中模型的 `LLMModelIntegrationSpec.uiControls`，不做二次推断。
+4. 主模型、轻量模型、多模态模型这些 slot 如果保留，也只是“用户选择了哪个具体模型方案”；slot 本身不能带 capability 规则。
+5. 多模态 slot 必须是一个具体 vision model spec；如果该 provider 没有 vision model，就只能选择内置 `none` spec，不能前端自动猜一个 vision model。
+6. `/models` 拉回来的远程模型如果不在 curated spec 表里，默认进入 `unknownOpenAICompatible` 方案：只允许文本 chat、streaming best-effort，不显示 thinking/vision/tool replay 控件。
+7. 聚合平台的模型即使 model id 看起来像 `qwen3`、`deepseek`、`glm`，也必须命中显式 `ModelFamilyIntegrationSpec` 才能开启对应能力；命中结果要记录来源文档和测试结果。
+8. Custom OpenAI-compatible 永远默认 `unknownOpenAICompatible`，除非用户在高级设置中显式选择一个已内置的模型方案模板。
+9. 如果某个内置 model id 无法在官方模型页、官方 `/models`、官方控制台文档或官方发布说明中确认，不能进入 built-in catalog；只能作为用户手填 custom model id。
+
+建议数据结构：
+
+```swift
+struct LLMModelIntegrationSpec: Codable, Sendable {
+    let providerID: APIProviderID
+    let modelID: String
+    let modelFamily: String
+    let officialDocs: [URL]
+    let endpoint: LLMEndpointSpec
+    let requestEncoding: LLMRequestEncodingSpec
+    let responseDecoding: LLMResponseDecodingSpec
+    let capabilities: LLMModelCapabilities
+    let reasoningReplayPolicy: ReasoningReplayPolicy
+    let uiControls: LLMModelUIControls
+    let validationPlan: LLMModelValidationPlan
+}
+```
+
+这条是阻断项：任何模型进入内置列表前，必须先补 `LLMModelIntegrationSpec` 和 golden request/response snapshot。
+
+### 6.1.2 首批内置模型适配矩阵
+
+下面这个矩阵覆盖当前代码里的所有内置 provider 和 known model。实现时不能只按 provider 适配，必须把每个 model id 落到对应方案。
+
+| Provider | 当前内置 model id | 官方文档必须读 | 单模型方案要求 |
+|---|---|---|---|
+| OpenAI | `gpt-5.4`, `gpt-5.4-mini`, `gpt-4.1`, `gpt-4.1-mini`, `o4-mini`, `o3` | Chat Completions: https://platform.openai.com/docs/api-reference/chat/create-chat-completion；Reasoning: https://platform.openai.com/docs/guides/reasoning；Models: https://platform.openai.com/docs/models | GPT-5/o 系用 OpenAI reasoning capability 裁剪 `reasoning_effort`；GPT-4.1 系不默认显示 reasoning 控件；vision 只按模型页能力打开；不保存 raw chain-of-thought。 |
+| Azure OpenAI | `gpt-5.4`, `gpt-4.1` 占位，真实是 deployment | REST reference: https://learn.microsoft.com/en-us/azure/ai-services/openai/reference；Reasoning: https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/reasoning | Azure 的 model id 实际是 deployment，必须要求用户绑定 deployment -> upstream model family；不能前端按 deployment 名猜能力。 |
+| GLM / Z.AI 标准 API | `glm-5.1`, `glm-5-turbo`, `glm-5`, `glm-5v-turbo`, `glm-4.7`, `glm-4.7-flash`, `glm-4.7-flashx`, `glm-4.6`, `glm-4.5`, `glm-4.5-air`, `glm-4.5-airx`, `glm-4.5-flash` | Thinking Mode: https://docs.z.ai/guides/capabilities/thinking-mode；Deep Thinking: https://docs.z.ai/guides/capabilities/thinking；Chat Completion: https://docs.z.ai/api-reference/llm/chat-completion | 每个 GLM 模型只显示 thinking on/off/auto，不显示 low/medium/high；`glm-*v*` 才能进入多模态 slot；preserved thinking 需要 `clear_thinking:false` 和完整 `reasoning_content` replay。 |
+| GLM / Z.AI Coding Plan | `glm-5.1`, `glm-5-turbo`, `glm-5`, `glm-5v-turbo`, `glm-4.7`, `glm-4.6`, `glm-4.5`, `glm-4.5-air` | 同 GLM/Z.AI 文档；另读当前 GLM Coding Plan FAQ/控制台说明 | Coding Plan 不是普通标准 API 的同义词，必须单独 endpoint spec；自建 app 内默认不推荐启用，能力以联通验证为准。 |
+| DeepSeek | `deepseek-v4-flash`, `deepseek-v4-pro` | Thinking Mode: https://api-docs.deepseek.com/guides/thinking_mode；API docs index: https://api-docs.deepseek.com | `deepseek-v4-flash` 优先 Agent/tool；`deepseek-v4-pro` thinking 必须 replay `reasoning_content`；无 vision；thinking 下 temperature/top_p/presence/frequency 无效；不再回退历史 `deepseek-chat/deepseek-reasoner`。 |
+| Qwen / 阿里百炼 | `qwen-max`, `qwen-plus`, `qwen-turbo`, `qwen3-max`, `qwen3-coder-plus`, `qwen3.6-plus`, `qwen3-vl-plus`, `qwen3-vl-max` | OpenAI compatibility: https://docs.qwencloud.com/api-reference/toolkitframework/openai-compatible/overview；Deep thinking: https://www.alibabacloud.com/help/en/model-studio/deep-thinking；Qwen quickstart: https://qwen.readthedocs.io/en/stable/getting_started/quickstart.html | Qwen3/QwQ/Qwen thinking 模型用 `enable_thinking` + `thinking_budget`；VL/Omni 模型能力单独看模型页，不能只因名字含 `qwen3` 开 thinking；vision 仅 `vl/omni` spec。 |
+| Kimi / Moonshot | `kimi-k2.5`, `kimi-k2-thinking`, `kimi-k2.6`, `kimi-k2-turbo-preview`, `moonshot-v1-128k`, `moonshot-v1-128k-vision-preview` | Kimi overview: https://platform.moonshot.ai/docs/overview；Thinking models: https://platform.moonshot.ai/docs/guide/use-kimi-k2-thinking-model.en-US | K2 thinking/K2.5 使用 `reasoning_content`，多轮工具调用必须回传；Kimi thinking 不映射 low/high；K2.5 按文档处理 temperature；vision 只给 vision-preview 或 Kimi 文档确认的视觉模型。 |
+| MiniMax | `MiniMax-M2.7`, `MiniMax-M2.7-highspeed`, `MiniMax-M2.5`, `MiniMax-M2.5-highspeed`, `MiniMax-Text-01` | Tool Use & Interleaved Thinking: https://platform.minimax.io/docs/api-reference/text-m2-function-call-refer | M2 系列用 `reasoning_split=true` 获取 `reasoning_details`；Text-01 不默认开 reasoning；response decoder 必须支持 `reasoning_details`；UI 不显示 low/high。 |
+| 火山方舟 / Doubao | `doubao-seed-1-6`, `doubao-seed-1-6-thinking`, `doubao-seed-1-6-flash`, `doubao-seed-1-6-vision-250815` | Chat API: https://www.volcengine.com/docs/82379/1298454；OpenAI SDK 兼容入口以同文档侧栏“兼容 OpenAI SDK”为准 | 方舟 endpoint/path 按官方 `api/v3` 处理；thinking/vision 必须看 Doubao 模型页，不按名称硬开；vision 只给 vision model；暂不发送非官方 reasoning 字段。 |
+| 腾讯混元 | `hunyuan-turbos-latest`, `hunyuan-large`, `hunyuan-t1-vision-20250916`, `hunyuan-vision-1.5-instruct`；TokenHub remote: `hy3-preview`, `hunyuan-2.0-thinking-*`, `deepseek-v4-*`, `deepseek-v3.2`, `glm-5*`, `kimi-k2.*`, `minimax-m2.*` | Hunyuan OpenAI-compatible example: https://cloud.tencent.com/document/product/1729/111007；TokenHub API: https://cloud.tencent.com/document/product/1823/130078；TokenHub thinking: https://cloud.tencent.com/document/product/1823/131208 | 混元官方 endpoint 非明确 thinking API 不显示 reasoning 控件；TokenHub 按具体 model id：Hy3/DeepSeek 为 `thinking.type + reasoning_effort(low/medium/high)`，GLM/Kimi 为 `thinking.type`，MiniMax/HY 2.0 Think 为不可关闭固定 reasoning；vision 只给 vision/T1 vision。 |
+| 百度千帆 | `ernie-4.5-turbo-128k`, `ernie-x1-turbo-32k`, `ernie-4.5-turbo-vl`, `ernie-4.5-turbo-vl-preview`, `ernie-4.5-vl-28b-a3b`, `qwen3-vl-32b-instruct` | OpenAI SDK 兼容 Chat: https://cloud.baidu.com/doc/qianfan-docs/s/Fm9l6ocai；模型列表按该页引用的支持模型列表 | 千帆 v2 baseURL 为 `https://qianfan.baidubce.com/v2`；DeepSeek-R1/Qwen 托管模型的 `reasoning_content` 只按具体模型 spec 开；VL 才进多模态 slot。 |
+| StepFun | `step-3.5-flash-2603`, `step-3.5-flash`, `step-1o-turbo-vision`, `step-1v-8k` | Chat Completion: https://platform.stepfun.ai/docs/en/api-reference/chat/chat-completion-create；Reasoning API: https://platform.stepfun.ai/docs/en/step-plan/integrations/reasoning-api；Reasoning guide: https://platform.stepfun.ai/docs/en/guides/developer/reasoning；Model overview: https://platform.stepfun.ai/docs/en/llm/modeloverview | Reasoning 模型返回 `reasoning` 或可用 `reasoning_format=deepseek-style`；Step Plan 是独立 path，不能和普通 `/v1` 混用；vision 模型按模型概览进多模态 slot。 |
+| ModelScope | `Qwen/Qwen3-Coder-Plus`, `Qwen/Qwen2.5-VL-72B-Instruct`, `Qwen/Qwen2.5-VL-32B-Instruct` | API Inference intro: https://modelscope.cn/docs/model-service/API-Inference/intro；OpenAI-compatible baseURL 可按官方 API Inference 与模型页确认 | ModelScope 是平台，不是模型厂商；每个 `namespace/model` 必须再套对应模型族 spec，例如 Qwen/Qwen-VL；未知 namespace/model 默认 basic text。 |
+| SiliconFlow | `deepseek-ai/DeepSeek-V3.2`, `Qwen/Qwen3-Coder-480B-A35B-Instruct`, `moonshotai/Kimi-K2-Instruct`, `Qwen/Qwen2.5-VL-72B-Instruct`, `Qwen/Qwen2-VL-72B-Instruct` | Chat Completions: https://docs.siliconflow.com/en/api-reference/chat-completions/chat-completions_copy；docs index: https://docs.siliconflow.com/llms.txt | SiliconFlow response schema含 `reasoning_content`；但具体参数必须按模型族 spec 和 SiliconFlow 文档双重允许；聚合模型不自动继承官方 provider endpoint 细节。 |
+| OpenRouter | `openai/gpt-5.4`, `openai/gpt-4.1`, `anthropic/claude-sonnet-4.5`, `google/gemini-2.5-flash`, `deepseek/deepseek-v3.2` | Chat Completions: https://openrouter.ai/docs/api-reference/chat-completion；API overview: https://openrouter.ai/docs/api-reference/overview；Reasoning tokens: https://openrouter.ai/docs/guides/best-practices/reasoning-tokens | OpenRouter 是统一路由层；只按 OpenRouter `reasoning` 对象做控制，不发送上游私有字段；Anthropic/Gemini 只走 OpenRouter OpenAI-compatible，不启用 Palmi native Anthropic/Gemini adapter。 |
+| LM Studio | `lmstudio-auto` | REST API: https://lmstudio.ai/docs/developer/rest；Tool Use: https://lmstudio.ai/docs/app/api/tools；OpenAI-compatible docs: https://lmstudio.ai/docs/developer/openai-compat/chat-completions | 本地模型能力取决于 server/model parser；默认无 native reasoning，无稳定 tool calling；检测到 tool parser 才打开 tool capability；UI 不显示厂商 thinking 控件。 |
+| Ollama | `llama3.3`, `qwen3`, `deepseek-r1`, `qwen2.5vl`, `llava` | OpenAI compatibility: https://docs.ollama.com/openai；Native API: https://docs.ollama.com/api；Chat API: https://docs.ollama.com/api/chat | 只接 `/v1` OpenAI-compatible；thinking/vision/tool 能力取决于本地模型和模板；`qwen2.5vl/llava` 才进多模态 slot；默认不发送 native reasoning。 |
+| Custom OpenAI-compatible | `gpt-4.1`, `gpt-5.4` 只是占位 | 用户填写的服务官方文档；无文档时只按 OpenAI Chat Completions 基础协议 | 默认 `unknownOpenAICompatible`；占位模型不能自动获得 OpenAI capability；用户必须手动选择已知模型方案模板才能打开 reasoning/vision/tool replay。 |
+
+### 6.1.3 适配完成定义
+
+“全部适配”在本项目里的定义：
+
+1. 当前代码内置的所有 provider 和 known model 都有 `LLMModelIntegrationSpec`。
+2. 每个 spec 都有至少一个官方文档 URL。
+3. 每个 spec 的 model id 都能追溯到官方模型页、官方 `/models`、官方控制台文档或官方发布说明。
+4. 每个 spec 都有 request body golden snapshot。
+5. 每个支持 stream 的 spec 都有 stream chunk decoder snapshot。
+6. 每个支持 tool calling 的 spec 都有 assistant tool-call -> tool result -> next request 回放测试。
+7. 每个支持 native reasoning/reasoning replay 的 spec 都有字段保存和字段过滤测试。
+8. 每个支持 vision 的 spec 都有 image content part 编码测试。
+9. 每个不支持某项能力的 spec 都有“不会显示 UI 控件、不会发字段”的 negative test。
+
 ### 6.2 明确暂缓
 
 从 CCSwitch 里看到的 PackyCode、AIGoCode、RightCode、RunAPI、Micu、CrazyRouter、SSSAiCode、E-FlowCode、Pipellm、各种 Codex/Coding Plan 专站，不放首批内置 preset。
@@ -392,6 +482,8 @@ Agent Run Profile
 
 ### 7.2 UI 层命名
 
+先写死一条边界：这里不是“前端模型映射器”。UI 不能自己把模型映射成 controls。UI 只读取当前 slot 所选模型的 `LLMModelIntegrationSpec.uiControls`。
+
 普通用户只看：
 
 ```text
@@ -405,6 +497,14 @@ Agent Run Profile
 ```
 
 实际展示要由当前模型 capability 决定。比如 GLM 只有 thinking on/off，就不要显示低/中/高；OpenAI GPT-5/o 系模型支持 low/medium/high/xhigh 才显示完整档。
+
+实现规则：
+
+1. `ModelReasoningControl` 的数据源是 `LLMModelIntegrationSpec`，不是 `providerID switch`。
+2. `ModelVisionControl` 的数据源是当前模型 spec，不能只靠 model id 包含 `vl/vision`。
+3. `ModelToolCallingControl` 的数据源是当前模型 spec 的 tool validation 结果。
+4. 远程发现的新模型如果没有 spec，只能显示基础文本能力和“未验证”状态。
+5. 不存在“前端统一映射表兜底打开高级功能”。
 
 ### 7.3 Agent Run Profile
 
@@ -465,6 +565,8 @@ enum LLMReasoningEffort: String, Codable, CaseIterable, Sendable {
 | Qwen/DashScope | on/off/budget | `enable_thinking`、`thinking_budget` 或官方兼容字段 | 需要保存 `reasoning_content` 时按 capability 开启 |
 | Kimi/Moonshot | on/off/model dependent | 取决于模型族；K 系列可能需要 thinking/reasoning_content 兼容 | 只对 Kimi capability 开 replay |
 | MiniMax | split/details | `reasoning_split = true` 获取 `reasoning_details` | decoder 解析 `reasoning_details`，默认 UI 隐藏 |
+| Tencent TokenHub Hy3/DeepSeek | on/off + low/medium/high | `thinking.type = enabled/disabled` + `reasoning_effort` | replay `reasoning_content` |
+| Tencent TokenHub GLM/Kimi | on/off | `thinking.type = enabled/disabled` | replay `reasoning_content` |
 | SiliconFlow/OpenRouter | pass-through/unknown | 默认不发送 provider-specific 字段；仅对已知模型族启用 | 不乱发 `reasoning_content` |
 | LM Studio/Ollama/custom | unknown/manual | 默认不发送 native reasoning；高级配置允许用户加 extra params | 明确标注“实验参数” |
 
@@ -595,18 +697,36 @@ struct ModelDiscoveryService {
 
 ## 10. UI 方案
 
+### 10.0 取消前端映射层
+
+模型配置 UI 不做“品牌 -> 角色 -> 能力”的泛化映射。UI 只做三件事：
+
+1. 让用户选择 provider profile。
+2. 让用户为每个需要的 slot 选择一个具体 `LLMModelIntegrationSpec`，或者选择 `none`。
+3. 按该 spec 渲染字段、校验、检测和保存。
+
+禁止：
+
+1. 前端按 model id 字符串自动打开 thinking/vision/tool replay。
+2. 前端按 provider 自动塞一套默认控件。
+3. 前端把 `/models` 返回的新模型自动升级成已适配模型。
+4. 前端把主模型自动映射成多模态模型或轻量模型。
+5. 前端用解释性小字掩盖能力不确定。
+
 ### 10.1 设置入口
 
 从“品牌配置列表”改成“模型来源”：
 
 ```text
 模型来源
-  当前：DeepSeek Official / deepseek-chat
+  当前：DeepSeek Official / deepseek-v4-flash
   连接状态：已验证 / 未验证 / 失败
   主模型：...
   轻量模型：...
   多模态模型：...
 ```
+
+这些展示项必须来自已保存 profile 的具体模型 spec。未创建 profile 的 provider 不出现在管理列表。
 
 ### 10.2 新建来源流程
 
@@ -620,11 +740,16 @@ struct ModelDiscoveryService {
 3. 检测连接
    fetch models -> smoke test -> tool test
 
-4. 选择模型角色
-   主模型 / 轻量模型 / 多模态模型 / 摘要模型
+4. 选择具体模型方案
+   主模型 slot：选择一个具体 model spec
+   轻量模型 slot：选择一个具体 model spec 或不启用
+   多模态模型 slot：选择一个具体 vision model spec 或 `none`
+   摘要模型 slot：选择一个具体 model spec 或不启用
 
 5. 保存
 ```
+
+这里的 slot 不是映射规则，只是引用具体模型方案。一个 slot 不能保存 `自动猜测`。
 
 ### 10.3 高级配置
 
@@ -637,6 +762,8 @@ struct ModelDiscoveryService {
 5. extra body params。
 6. capability override。
 7. 是否允许发送 native reasoning replay。
+
+高级配置也不能绕过 `LLMModelIntegrationSpec` 直接向 provider 发送未知字段。用户自定义 extra body 只能在 Custom/OpenAI-compatible 或显式实验开关下发送，并且必须在请求预览/日志中标记为 user override。
 
 默认不要让普通用户看到一堆 baseURL 和 JSON。
 
@@ -742,7 +869,7 @@ model reasoning -> hidden native metadata / provider parameter
 
 ### 13.1 Adapter 编码测试
 
-每个 provider family 至少一组 golden JSON：
+每个内置 `LLMModelIntegrationSpec` 至少一组 golden JSON。provider family 级测试只能作为补充，不能替代单模型测试：
 
 1. 普通 chat。
 2. tool calling。
@@ -802,6 +929,9 @@ model reasoning -> hidden native metadata / provider parameter
 6. `LLMProviderAdapter`
 7. `OpenAICompatibleChatAdapter`
 8. `ProviderPresetCatalog`
+9. `LLMModelIntegrationSpec`
+10. `LLMModelIntegrationCatalog`
+11. `ModelFamilyIntegrationSpec`
 
 不改 UI，不删旧配置。先让新层可以单测。
 
@@ -811,6 +941,8 @@ model reasoning -> hidden native metadata / provider parameter
 2. `ProviderValidationService`
 3. mock tests
 4. 把 LM Studio discovery 接进统一模型发现接口
+5. 为 6.1.2 中所有内置 model id 补齐 golden request/response snapshot
+6. 对远程发现但未命中 spec 的模型统一标记为 `unknownOpenAICompatible`
 
 ### Phase 3 - Store 与迁移
 
@@ -824,8 +956,9 @@ model reasoning -> hidden native metadata / provider parameter
 1. “模型来源”新设置页。
 2. 新建来源流程。
 3. 检测模型。
-4. 角色模型选择。
+4. 具体模型方案选择。
 5. 高级配置折叠。
+6. 删除前端泛化模型映射层，UI 只读 `LLMModelIntegrationSpec.uiControls`。
 
 ### Phase 5 - Reasoning 拆分
 
@@ -833,6 +966,7 @@ model reasoning -> hidden native metadata / provider parameter
 2. `ModelReasoningControl` 接入 UI。
 3. adapter 写 provider-specific reasoning 参数。
 4. `AgentMessage` 支持 hidden native reasoning metadata。
+5. `ModelReasoningControl` 的可见选项必须来自具体模型 spec，不允许 provider switch 或 model id 字符串猜测。
 
 ### Phase 6 - 清理旧层
 
@@ -907,9 +1041,12 @@ PalmiAgent/Core/Configuration/APIConfigurationStore.swift
 第一轮实现完成的判断标准：
 
 1. 旧 GLM、DeepSeek、LM Studio 用户配置不丢。
-2. 新建 DeepSeek/GLM/SiliconFlow/OpenRouter/Custom profile 能填 key、检测 models、发一次普通 chat。
-3. 主模型和轻量模型可以从检测列表选择。
-4. OpenAI-compatible 请求仍能正常 tool calling。
-5. DeepSeek/Kimi/MiniMax 类响应中的 native reasoning 字段能被 decoder 安全保存，但默认不展示。
-6. 未声明支持的 provider 不会收到 provider-specific reasoning 字段。
-7. `快速/标准/深入/长任务` 不再映射成 `maxIterations=1000` 这种无上限语义。
+2. 6.1.2 中所有内置 provider 和 known model 都有 `LLMModelIntegrationSpec`。
+3. 每个内置 model spec 都记录官方文档 URL、request encoder、response decoder、UI controls 和 validation plan。
+4. 新建任一内置 provider profile 能填 key、检测 models、选择具体 model spec、发一次普通 chat。
+5. 主模型、轻量模型、多模态模型 slot 只保存具体 model spec 或 `none`，不保存自动猜测映射。
+6. OpenAI-compatible 请求仍能正常 tool calling。
+7. DeepSeek/Kimi/MiniMax/Qwen/GLM/StepFun/千帆托管 DeepSeek 类响应中的 native reasoning 字段能被 decoder 安全保存，但默认不展示。
+8. 未声明支持的 provider/model 不会收到 provider-specific reasoning 字段。
+9. 前端不会根据 provider 名称或 model id 字符串自动打开 thinking/vision/tool replay 控件。
+10. `快速/标准/深入/长任务` 不再映射成 `maxIterations=1000` 这种无上限语义。

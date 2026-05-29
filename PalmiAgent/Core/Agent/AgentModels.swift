@@ -154,19 +154,81 @@ struct AgentSession: Codable, Sendable {
     var cumulativeUsage: AgentTokenUsage
     var hiddenContextSummary: AgentHiddenContextSummary?
     var hiddenArtifacts: AgentHiddenArtifacts?
+    var toolAuditRecords: [ToolAuditRecord]
+    var evidenceReferences: [EvidenceReference]
+    var userConfirmationRecords: [UserConfirmationRecord]
+    var fileDeltas: [FileDelta]
+    var eventLogEntries: [AgentEventLogEntry]
+    var taskStateSnapshot: AgentTaskStateSnapshot?
 
     init(
         id: UUID = UUID(),
         messages: [AgentMessage] = [],
         cumulativeUsage: AgentTokenUsage = AgentTokenUsage(),
         hiddenContextSummary: AgentHiddenContextSummary? = nil,
-        hiddenArtifacts: AgentHiddenArtifacts? = nil
+        hiddenArtifacts: AgentHiddenArtifacts? = nil,
+        toolAuditRecords: [ToolAuditRecord] = [],
+        evidenceReferences: [EvidenceReference] = [],
+        userConfirmationRecords: [UserConfirmationRecord] = [],
+        fileDeltas: [FileDelta] = [],
+        eventLogEntries: [AgentEventLogEntry] = [],
+        taskStateSnapshot: AgentTaskStateSnapshot? = nil
     ) {
         self.id = id
         self.messages = messages
         self.cumulativeUsage = cumulativeUsage
         self.hiddenContextSummary = hiddenContextSummary
         self.hiddenArtifacts = hiddenArtifacts
+        self.toolAuditRecords = toolAuditRecords
+        self.evidenceReferences = evidenceReferences
+        self.userConfirmationRecords = userConfirmationRecords
+        self.fileDeltas = fileDeltas
+        self.eventLogEntries = eventLogEntries
+        self.taskStateSnapshot = taskStateSnapshot
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case messages
+        case cumulativeUsage
+        case hiddenContextSummary
+        case hiddenArtifacts
+        case toolAuditRecords
+        case evidenceReferences
+        case userConfirmationRecords
+        case fileDeltas
+        case eventLogEntries
+        case taskStateSnapshot
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        messages = try container.decodeIfPresent([AgentMessage].self, forKey: .messages) ?? []
+        cumulativeUsage = try container.decodeIfPresent(AgentTokenUsage.self, forKey: .cumulativeUsage) ?? AgentTokenUsage()
+        hiddenContextSummary = try container.decodeIfPresent(AgentHiddenContextSummary.self, forKey: .hiddenContextSummary)
+        hiddenArtifacts = try container.decodeIfPresent(AgentHiddenArtifacts.self, forKey: .hiddenArtifacts)
+        toolAuditRecords = try container.decodeIfPresent([ToolAuditRecord].self, forKey: .toolAuditRecords) ?? []
+        evidenceReferences = try container.decodeIfPresent([EvidenceReference].self, forKey: .evidenceReferences) ?? []
+        userConfirmationRecords = try container.decodeIfPresent([UserConfirmationRecord].self, forKey: .userConfirmationRecords) ?? []
+        fileDeltas = try container.decodeIfPresent([FileDelta].self, forKey: .fileDeltas) ?? []
+        eventLogEntries = try container.decodeIfPresent([AgentEventLogEntry].self, forKey: .eventLogEntries) ?? []
+        taskStateSnapshot = try container.decodeIfPresent(AgentTaskStateSnapshot.self, forKey: .taskStateSnapshot)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(messages, forKey: .messages)
+        try container.encode(cumulativeUsage, forKey: .cumulativeUsage)
+        try container.encodeIfPresent(hiddenContextSummary, forKey: .hiddenContextSummary)
+        try container.encodeIfPresent(hiddenArtifacts, forKey: .hiddenArtifacts)
+        try container.encode(toolAuditRecords, forKey: .toolAuditRecords)
+        try container.encode(evidenceReferences, forKey: .evidenceReferences)
+        try container.encode(userConfirmationRecords, forKey: .userConfirmationRecords)
+        try container.encode(fileDeltas, forKey: .fileDeltas)
+        try container.encode(eventLogEntries, forKey: .eventLogEntries)
+        try container.encodeIfPresent(taskStateSnapshot, forKey: .taskStateSnapshot)
     }
 
     mutating func append(_ message: AgentMessage) {
@@ -208,6 +270,49 @@ struct AgentThoughtCard: Sendable {
     let details: String
 }
 
+struct AgentApprovalRequest: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let sessionID: UUID
+    let toolUseID: String
+    let toolName: String
+    let toolActionID: ToolActionID
+    let toolTitle: String
+    let riskLevel: ToolRiskLevel
+    let sideEffect: ToolSideEffect
+    let confirmationPolicy: ToolConfirmationPolicy
+    let systemPermissions: [ToolSystemPermissionRequirement]
+    let argumentsJSON: String
+    let createdAt: Date
+
+    init(
+        id: UUID = UUID(),
+        sessionID: UUID,
+        toolUseID: String,
+        toolName: String,
+        toolActionID: ToolActionID,
+        toolTitle: String,
+        riskLevel: ToolRiskLevel,
+        sideEffect: ToolSideEffect,
+        confirmationPolicy: ToolConfirmationPolicy,
+        systemPermissions: [ToolSystemPermissionRequirement],
+        argumentsJSON: String,
+        createdAt: Date = .now
+    ) {
+        self.id = id
+        self.sessionID = sessionID
+        self.toolUseID = toolUseID
+        self.toolName = toolName
+        self.toolActionID = toolActionID
+        self.toolTitle = toolTitle
+        self.riskLevel = riskLevel
+        self.sideEffect = sideEffect
+        self.confirmationPolicy = confirmationPolicy
+        self.systemPermissions = systemPermissions
+        self.argumentsJSON = argumentsJSON
+        self.createdAt = createdAt
+    }
+}
+
 enum AgentEvent: Sendable {
     case assistantText(String)
     case thoughtCard(AgentThoughtCard)
@@ -221,6 +326,10 @@ enum AgentEvent: Sendable {
         compactedMessageCount: Int,
         retainedMessageCount: Int
     )
+    case approvalRequested(AgentApprovalRequest)
+    case approvalResolved(id: UUID, approved: Bool)
+    case eventLogged(AgentEventLogEntry)
+    case taskStateChanged(AgentTaskStateSnapshot)
     case toolStarted(stepID: UUID, action: ToolAction, argumentsJSON: String)
     case toolFinished(step: LLMToolExecutionStep)
 }

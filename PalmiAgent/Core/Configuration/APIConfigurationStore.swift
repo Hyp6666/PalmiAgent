@@ -209,10 +209,9 @@ struct APIAccessModeDefinition: Identifiable, Sendable {
     }
 
     func availableModels(for role: APIModelRole) -> [APIModelDefinition] {
-        let automatic = APIModelDefinition.automatic(for: role)
         switch role {
         case .defaultModel, .reasoningModel, .lightweightModel:
-            return [automatic] + models
+            return models
         case .multimodalModel:
             return [.noMultimodal] + models.filter { isMultimodal($0) }
         }
@@ -230,41 +229,14 @@ struct APIAccessModeDefinition: Identifiable, Sendable {
     }
 
     private func isLightweight(_ model: APIModelDefinition) -> Bool {
-        if model.traits.contains(.lightweight) {
-            return true
-        }
-        let lowercasedID = model.id.lowercased()
-        return lowercasedID.contains("air") ||
-            lowercasedID.contains("turbo") ||
-            lowercasedID.contains("flash")
+        model.traits.contains(.lightweight)
     }
 
     private func isMultimodal(_ model: APIModelDefinition) -> Bool {
         guard model.id != APIModelSelection.noneMultimodalID else {
             return false
         }
-        if model.traits.contains(.multimodal) {
-            return true
-        }
-        let lowercasedID = model.id.lowercased()
-        return lowercasedID.contains("vision") ||
-            lowercasedID.contains("-vl") ||
-            lowercasedID.contains("_vl") ||
-            lowercasedID.contains("/vl") ||
-            lowercasedID.contains("qwen-vl") ||
-            lowercasedID.contains("qwen2-vl") ||
-            lowercasedID.contains("qwen2.5-vl") ||
-            lowercasedID.contains("qwen3-vl") ||
-            lowercasedID.contains("qvq") ||
-            lowercasedID.contains("omni") ||
-            lowercasedID.contains("llava") ||
-            lowercasedID.contains("minicpm-v") ||
-            lowercasedID.contains("5v") ||
-            lowercasedID.contains("4.6v") ||
-            lowercasedID.contains("4.5v") ||
-            lowercasedID.contains("gpt-4o") ||
-            lowercasedID.contains("gpt-4.1") ||
-            lowercasedID.contains("gpt-5")
+        return model.traits.contains(.multimodal)
     }
 }
 
@@ -314,12 +286,7 @@ struct APIProviderDefinition: Identifiable, Sendable {
     }
 
     var supportsRemoteModelDiscovery: Bool {
-        switch id {
-        case .azureOpenAI, .lmstudio, .ollama, .customOpenAI, .modelscope, .siliconflow, .openrouter:
-            return true
-        default:
-            return endpointStrategy == .profileManaged
-        }
+        transport == .openAICompatibleChatCompletions
     }
 
     func accessMode(withID accessModeID: APIAccessModeID) -> APIAccessModeDefinition? {
@@ -576,8 +543,8 @@ enum APIProviderCatalog {
                         APIModelDefinition(
                             id: "deepseek-v4-pro",
                             title: "DeepSeek V4 Pro",
-                            summary: "支持 `reasoning_content` 输出；官方 Reasoning 指南当前把 Function Calling 标为不支持，因此不作为默认 Agent 工具链模型。",
-                            traits: []
+                            summary: "支持 thinking、reasoning_content 回传与工具调用；复杂任务默认使用该模型。",
+                            traits: [.reasoningPreferred]
                         )
                     ],
                     note: "官方 `/models` 文档当前示例只返回 `deepseek-v4-flash` 与 `deepseek-v4-pro`。如后续官方新增模型，建议再同步目录。"
@@ -775,7 +742,7 @@ final class APIConfigurationStore {
 
     func chatOverrideReasoningModelID(for providerID: APIProviderID) -> String {
         let rawValue = metadataDefaults.string(forKey: Self.reasoningOverrideStorageKey(for: providerID)) ?? ""
-        let canonicalValue = canonicalLegacyModelID(rawValue, providerID: providerID)
+        let canonicalValue = LLMModelIntegrationCatalog.canonicalModelID(for: providerID, modelID: rawValue)
         if canonicalValue != rawValue {
             setChatOverrideReasoningModelID(canonicalValue, for: providerID)
         }
@@ -783,7 +750,9 @@ final class APIConfigurationStore {
     }
 
     func setChatOverrideReasoningModelID(_ modelID: String, for providerID: APIProviderID) {
-        let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = LLMModelIntegrationCatalog
+            .canonicalModelID(for: providerID, modelID: modelID)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             metadataDefaults.removeObject(forKey: Self.reasoningOverrideStorageKey(for: providerID))
         } else {
@@ -831,9 +800,9 @@ final class APIConfigurationStore {
             isUserCreated: true,
             selectedAccessModeID: accessMode.id,
             defaultModelID: defaultModelSelectionID(for: definition, accessMode: accessMode),
-            reasoningModelID: APIModelSelection.automaticID,
+            reasoningModelID: defaultModelSelectionID(for: definition, accessMode: accessMode, role: .reasoningModel),
             multimodalModelID: defaultModelSelectionID(for: definition, accessMode: accessMode, role: .multimodalModel),
-            lightweightModelID: APIModelSelection.automaticID,
+            lightweightModelID: defaultModelSelectionID(for: definition, accessMode: accessMode, role: .lightweightModel),
             customBaseURLString: nil,
             selectedServer: nil,
             remoteModelDefinitions: nil,
@@ -1104,6 +1073,9 @@ final class APIConfigurationStore {
         provider: APIProviderDefinition
     ) throws {
         if modelID == APIModelSelection.automaticID {
+            guard provider.modelSelectionStyle == .automaticRemote else {
+                throw AppError.invalidState("\(role.title) 不能使用自动模型。")
+            }
             return
         }
         guard availableModels(for: provider, accessMode: accessMode, role: role).contains(where: { $0.id == modelID }) else {
@@ -1182,7 +1154,7 @@ final class APIConfigurationStore {
             defaultModel: resolvedDefaultModel
         )
         let staticMultimodalModel = resolveSelectedModel(
-            profile.multimodalModelID ?? APIModelSelection.automaticID,
+            profile.multimodalModelID ?? accessMode.defaultModel(for: .multimodalModel).id,
             role: .multimodalModel,
             provider: definition,
             accessMode: accessMode,
@@ -1210,7 +1182,7 @@ final class APIConfigurationStore {
             selectedAccessMode: accessMode,
             defaultModelSelectionID: profile.defaultModelID,
             reasoningModelSelectionID: profile.reasoningModelID,
-            multimodalModelSelectionID: profile.multimodalModelID ?? APIModelSelection.automaticID,
+            multimodalModelSelectionID: profile.multimodalModelID ?? accessMode.defaultModel(for: .multimodalModel).id,
             lightweightModelSelectionID: profile.lightweightModelID,
             defaultModel: displayModel ?? resolvedDefaultModel,
             reasoningModel: resolvedReasoningModel,
@@ -1247,9 +1219,9 @@ final class APIConfigurationStore {
                 isUserCreated: false,
                 selectedAccessModeID: definition.preferredAccessMode.id,
                 defaultModelID: defaultModelSelectionID(for: definition, accessMode: definition.preferredAccessMode),
-                reasoningModelID: APIModelSelection.automaticID,
+                reasoningModelID: defaultModelSelectionID(for: definition, accessMode: definition.preferredAccessMode, role: .reasoningModel),
                 multimodalModelID: defaultModelSelectionID(for: definition, accessMode: definition.preferredAccessMode, role: .multimodalModel),
-                lightweightModelID: APIModelSelection.automaticID,
+                lightweightModelID: defaultModelSelectionID(for: definition, accessMode: definition.preferredAccessMode, role: .lightweightModel),
                 customBaseURLString: nil,
                 selectedServer: nil,
                 remoteModelDefinitions: nil,
@@ -1308,9 +1280,9 @@ final class APIConfigurationStore {
             isUserCreated: true,
             selectedAccessModeID: selectedAccessMode.id,
             defaultModelID: selectedModelID,
-            reasoningModelID: APIModelSelection.automaticID,
+            reasoningModelID: defaultModelSelectionID(for: definition, accessMode: selectedAccessMode, role: .reasoningModel),
             multimodalModelID: defaultModelSelectionID(for: definition, accessMode: selectedAccessMode, role: .multimodalModel),
-            lightweightModelID: APIModelSelection.automaticID,
+            lightweightModelID: defaultModelSelectionID(for: definition, accessMode: selectedAccessMode, role: .lightweightModel),
             customBaseURLString: nil,
             selectedServer: nil,
             remoteModelDefinitions: nil,
@@ -1456,7 +1428,7 @@ final class APIConfigurationStore {
         var normalizedModels: [APIModelDefinition] = []
 
         for model in models {
-            let canonicalID = canonicalLegacyModelID(model.id, providerID: providerID)
+            let canonicalID = LLMModelIntegrationCatalog.canonicalModelID(for: providerID, modelID: model.id)
             guard canonicalID == model.id else {
                 continue
             }
@@ -1480,7 +1452,7 @@ final class APIConfigurationStore {
         }
 
         let rawID = modelID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let canonicalID = canonicalLegacyModelID(rawID, providerID: providerID)
+        let canonicalID = LLMModelIntegrationCatalog.canonicalModelID(for: providerID, modelID: rawID)
         let availableModels = accessMode.availableModels(for: role)
 
         if role == .defaultModel {
@@ -1492,37 +1464,14 @@ final class APIConfigurationStore {
         }
 
         if canonicalID == APIModelSelection.automaticID || canonicalID.isEmpty {
-            return role == .multimodalModel
-                ? accessMode.defaultModel(for: .multimodalModel).id
-                : APIModelSelection.automaticID
+            return accessMode.defaultModel(for: role).id
         }
 
         if availableModels.contains(where: { $0.id == canonicalID }) {
             return canonicalID
         }
 
-        return role == .multimodalModel
-            ? accessMode.defaultModel(for: .multimodalModel).id
-            : APIModelSelection.automaticID
-    }
-
-    private func canonicalLegacyModelID(_ modelID: String, providerID: APIProviderID) -> String {
-        let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lowercased = trimmed.lowercased()
-
-        switch providerID {
-        case .deepseek:
-            switch lowercased {
-            case "deepseek-chat", "deepseek-v3", "deepseek-v3.1", "deepseek-v3.2":
-                return "deepseek-v4-flash"
-            case "deepseek-reasoner", "deepseek-r1":
-                return "deepseek-v4-pro"
-            default:
-                return trimmed
-            }
-        default:
-            return trimmed
-        }
+        return accessMode.defaultModel(for: role).id
     }
 
     private func shouldKeepPersistedProfile(

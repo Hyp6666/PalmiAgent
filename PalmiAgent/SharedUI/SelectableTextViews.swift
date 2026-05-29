@@ -3,6 +3,7 @@ import UIKit
 import Foundation
 import Darwin
 import cmark_gfm
+import cmark_gfm_extensions
 
 enum SelectableTextWidthBehavior {
     case fillWidth
@@ -198,14 +199,41 @@ private enum MarkdownAttributedTextRenderer {
     }
 
     private static func markdownToHTML(_ markdown: String) -> String {
-        let byteCount = markdown.lengthOfBytes(using: .utf8)
-        return markdown.withCString { source in
-            guard let renderedPointer = cmark_markdown_to_html(source, byteCount, 0) else {
-                return escapedFallbackHTML(for: markdown)
-            }
-            defer { free(renderedPointer) }
-            return String(cString: renderedPointer)
+        cmark_gfm_core_extensions_ensure_registered()
+
+        guard let parser = cmark_parser_new(CMARK_OPT_DEFAULT) else {
+            return escapedFallbackHTML(for: markdown)
         }
+        defer { cmark_parser_free(parser) }
+
+        let extensionNames = ["table", "strikethrough", "autolink", "tasklist", "tagfilter"]
+        let mem = cmark_get_default_mem_allocator()
+        var extensionsList: UnsafeMutablePointer<cmark_llist>? = nil
+
+        for name in extensionNames {
+            if let ext = cmark_find_syntax_extension(name) {
+                cmark_parser_attach_syntax_extension(parser, ext)
+                extensionsList = cmark_llist_append(mem, extensionsList, UnsafeMutableRawPointer(ext))
+            }
+        }
+        defer { cmark_llist_free(mem, extensionsList) }
+
+        let byteCount = markdown.lengthOfBytes(using: .utf8)
+        markdown.withCString { source in
+            cmark_parser_feed(parser, source, byteCount)
+        }
+
+        guard let doc = cmark_parser_finish(parser) else {
+            return escapedFallbackHTML(for: markdown)
+        }
+        defer { cmark_node_free(doc) }
+
+        guard let htmlPointer = cmark_render_html(doc, CMARK_OPT_DEFAULT, extensionsList) else {
+            return escapedFallbackHTML(for: markdown)
+        }
+        defer { free(htmlPointer) }
+
+        return String(cString: htmlPointer)
     }
 
     private static func makeHTMLDocument(

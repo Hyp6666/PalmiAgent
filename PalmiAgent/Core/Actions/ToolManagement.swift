@@ -34,7 +34,6 @@ enum ToolManagementGroupID: String, CaseIterable, Identifiable, Codable, Sendabl
     case communication
     case systemEntrypoints
     case workspaceFiles
-    case scriptSandboxes
     case webResearch
 
     var id: String { rawValue }
@@ -129,22 +128,15 @@ enum ToolManagementCatalog {
             id: .workspaceFiles,
             sectionID: .nonApp,
             title: "工作区文件",
-            subtitle: "目录、文件读写、导出",
-            actionIDs: [.bootstrapWorkspace, .writeFile, .read, .listWorkspaceFiles, .exportWorkspace]
-        ),
-        .init(
-            id: .scriptSandboxes,
-            sectionID: .nonApp,
-            title: "脚本与沙盒",
-            subtitle: "能力边界、终端、JS、Python",
-            actionIDs: [.inspectSandboxCapabilities, .runSandboxTerminal, .runJavaScriptSandbox, .pythonSandbox]
+            subtitle: "文件读写、目录、管理、Python",
+            actionIDs: [.fileRead, .fileWrite, .fileAppend, .listDirectory, .fileManage, .runPython]
         ),
         .init(
             id: .webResearch,
             sectionID: .nonApp,
             title: "网页研究",
-            subtitle: "搜索、抓取、浏览、落盘",
-            actionIDs: [.searchWeb, .fetchStaticWebPage, .fetchWebBatch, .saveWebPageToWorkspace, .openInAppBrowser]
+            subtitle: "搜索候选、网页浏览",
+            actionIDs: [.detectWebSearchProviders, .searchWeb, .fetchStaticWebPage, .openInAppBrowser]
         )
     ]
 
@@ -188,7 +180,7 @@ final class ToolPermissionStore {
 
     func isEnabled(_ groupID: ToolManagementGroupID) -> Bool {
         let group = ToolManagementCatalog.group(for: groupID)
-        return group.actionIDs.allSatisfy(isEnabled(_:))
+        return group.actionIDs.contains(where: isEnabled(_:))
     }
 
     func isPartiallyEnabled(_ groupID: ToolManagementGroupID) -> Bool {

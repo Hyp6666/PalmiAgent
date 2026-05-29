@@ -56,12 +56,12 @@ enum PythonPackageCatalog {
 
     static let supportedImportsSentence = supportedImports.joined(separator: "、")
     static let unsupportedExamplesSentence = unsupportedExamples.joined(separator: "、")
-    static let toolingSummary = "Python 运行时资源包预算上限 \(bundleBudgetMB)MB；当前预装第三方包约 \(curatedThirdPartyApproximateMB)MB，仅支持以下 import 名称：\(supportedImportsSentence)。未列出的第三方库一律不可用。"
+    static let toolingSummary = "Python 运行时资源包体积上限 \(bundleBudgetMB)MB；当前预装第三方包约 \(curatedThirdPartyApproximateMB)MB，仅支持以下 import 名称：\(supportedImportsSentence)。未列出的第三方库一律不可用。"
     static let promptSummary = "只允许使用标准库、内置 `workspace` 模块，以及以下第三方包：\(supportedImportsSentence)。不要假设 \(unsupportedExamplesSentence) 可用，凡是未列出的第三方库都视为不可用。"
     static let capabilitySummary = """
     - 预装第三方包：\(supportedImportsSentence)
     - 未列出的第三方库：不可用（例如 \(unsupportedExamplesSentence)）
-    - Python 运行时资源包预算上限：\(bundleBudgetMB)MB；当前第三方包约 \(curatedThirdPartyApproximateMB)MB；构建时会额外裁掉约 \(stdlibPruneSavingsApproximateMB)MB 的 stdlib 测试/IDLE/Tk 目录
+    - Python 运行时资源包体积上限：\(bundleBudgetMB)MB；当前第三方包约 \(curatedThirdPartyApproximateMB)MB；构建时会额外裁掉约 \(stdlibPruneSavingsApproximateMB)MB 的 stdlib 测试/IDLE/Tk 目录
     """
     static let runtimeDescription = "CPython 3.14 + curated pure-Python bundle"
 }

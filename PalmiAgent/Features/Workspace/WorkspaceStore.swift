@@ -23,6 +23,7 @@ final class WorkspaceStore {
     var selectedNodePreview: String?
     var sharePayload: SharePayload?
     var statusMessage: String?
+    var showsHiddenFiles = false
 
     private var threadCounts: [UUID: Int] = [:]
     private var threadsByProject: [UUID: [WorkspaceThreadRecord]] = [:]
@@ -48,8 +49,18 @@ final class WorkspaceStore {
         threads.first { $0.id == selectedThreadID }
     }
 
+    var selectedSelection: WorkspaceSelection? {
+        guard let selectedProjectID, let selectedThreadID else {
+            return nil
+        }
+        return WorkspaceSelection(projectID: selectedProjectID, threadID: selectedThreadID)
+    }
+
     var currentWorkspaceURL: URL? {
-        try? workspaceManager.ensureWorkspace()
+        guard let selection = selectedSelection else { return nil }
+        return try? workspaceManager.withSelection(selection) {
+            try workspaceManager.ensureWorkspace()
+        }
     }
 
     func threadCount(for projectID: UUID) -> Int {
@@ -357,13 +368,15 @@ final class WorkspaceStore {
     }
 
     func createFolder(at relativePath: String) {
-        guard selectedThread != nil else {
+        guard let selection = selectedSelection else {
             statusMessage = "请先选择一个会话。"
             return
         }
 
         do {
-            _ = try workspaceManager.createDirectory(at: relativePath)
+            _ = try workspaceManager.withSelection(selection) {
+                try workspaceManager.createDirectory(at: relativePath)
+            }
             refreshCurrentThreadContents()
             statusMessage = "已创建文件夹：\(relativePath)"
         } catch {
@@ -371,8 +384,42 @@ final class WorkspaceStore {
         }
     }
 
+    func importAttachmentsToHiddenFiles(_ attachments: [WorkspaceImportedAttachment]) throws -> WorkspaceAttachmentBatch {
+        guard let selection = selectedSelection else {
+            throw AppError.invalidState("请先选择一个会话。")
+        }
+
+        let batch = try workspaceManager.withSelection(selection) {
+            try workspaceManager.importAttachmentsToHiddenFiles(attachments)
+        }
+        refreshCurrentThreadContents()
+        statusMessage = "已添加 \(batch.attachments.count) 个附件。"
+        return batch
+    }
+
+    func importAttachments(
+        _ attachments: [WorkspaceImportedAttachment],
+        toDirectory relativePath: String
+    ) throws -> [WorkspaceStoredAttachment] {
+        guard let selection = selectedSelection else {
+            throw AppError.invalidState("请先选择一个会话。")
+        }
+
+        let stored = try workspaceManager.withSelection(selection) {
+            try workspaceManager.importAttachments(attachments, toDirectory: relativePath)
+        }
+        refreshCurrentThreadContents()
+        statusMessage = "已添加 \(stored.count) 个文件。"
+        return stored
+    }
+
+    func toggleHiddenFilesVisibility() {
+        showsHiddenFiles.toggle()
+        refreshCurrentThreadContents()
+    }
+
     func refreshCurrentThreadContents() {
-        guard selectedThreadID != nil else {
+        guard let selection = selectedSelection else {
             fileTree = []
             selectedNode = nil
             selectedNodePreview = nil
@@ -380,11 +427,15 @@ final class WorkspaceStore {
         }
 
         do {
-            fileTree = try workspaceManager.listFileTree()
+            fileTree = try workspaceManager.withSelection(selection) {
+                try workspaceManager.listFileTree(showHiddenFiles: showsHiddenFiles)
+            }
             if let currentNode = selectedNode {
                 self.selectedNode = findNode(withID: currentNode.id, in: fileTree)
                 if let refreshedNode = self.selectedNode {
-                    try loadPreview(for: refreshedNode)
+                    try workspaceManager.withSelection(selection) {
+                        try loadPreview(for: refreshedNode)
+                    }
                 } else {
                     selectedNodePreview = nil
                 }
@@ -399,9 +450,17 @@ final class WorkspaceStore {
     }
 
     func selectNode(_ node: WorkspaceFileNode) {
+        guard let selection = selectedSelection else {
+            statusMessage = "请先选择一个会话。"
+            selectedNodePreview = nil
+            return
+        }
+
         do {
             selectedNode = node
-            try loadPreview(for: node)
+            try workspaceManager.withSelection(selection) {
+                try loadPreview(for: node)
+            }
             statusMessage = nil
         } catch {
             statusMessage = error.localizedDescription
@@ -410,8 +469,15 @@ final class WorkspaceStore {
     }
 
     func exportCurrentThread() {
+        guard let selection = selectedSelection else {
+            statusMessage = "请先选择一个会话。"
+            return
+        }
+
         do {
-            sharePayload = SharePayload(url: try workspaceManager.exportArchiveForCurrentThread())
+            sharePayload = try workspaceManager.withSelection(selection) {
+                SharePayload(url: try workspaceManager.exportArchiveForCurrentThread())
+            }
             statusMessage = nil
         } catch {
             statusMessage = error.localizedDescription
@@ -419,11 +485,36 @@ final class WorkspaceStore {
     }
 
     func exportNode(_ node: WorkspaceFileNode) {
+        guard let selection = selectedSelection else {
+            statusMessage = "请先选择一个会话。"
+            return
+        }
+
         do {
-            sharePayload = SharePayload(url: try workspaceManager.exportableURL(at: node.relativePath))
+            sharePayload = try workspaceManager.withSelection(selection) {
+                SharePayload(url: try workspaceManager.exportableURL(at: node.relativePath))
+            }
             statusMessage = nil
         } catch {
             statusMessage = error.localizedDescription
+        }
+    }
+
+    func workspaceURL(for relativePath: String) throws -> URL {
+        guard let selection = selectedSelection else {
+            throw AppError.invalidState("请先选择一个会话。")
+        }
+        return try workspaceManager.withSelection(selection) {
+            try workspaceManager.url(for: relativePath)
+        }
+    }
+
+    func previewText(at relativePath: String) throws -> String? {
+        guard let selection = selectedSelection else {
+            throw AppError.invalidState("请先选择一个会话。")
+        }
+        return try workspaceManager.withSelection(selection) {
+            try workspaceManager.previewText(at: relativePath)
         }
     }
 

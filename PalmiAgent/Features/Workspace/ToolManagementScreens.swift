@@ -2,12 +2,15 @@ import SwiftUI
 
 struct ToolManagementOverviewScreen: View {
     @Bindable var permissionStore: ToolPermissionStore
+    @Bindable var authorizationStore: ToolAuthorizationStore
     let actions: [ToolAction]
     @State private var selectedGroup: ToolManagementGroupDefinition?
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 24) {
+                ToolAuthorizationModeCard(authorizationStore: authorizationStore)
+
                 ForEach(ToolManagementCatalog.sections) { section in
                     ToolManagementSectionBlock(
                         section: section,
@@ -32,6 +35,38 @@ struct ToolManagementOverviewScreen: View {
                 group: group
             )
         }
+    }
+}
+
+private struct ToolAuthorizationModeCard: View {
+    @Bindable var authorizationStore: ToolAuthorizationStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("工具授权")
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(.primary)
+
+            Picker("工具授权", selection: Binding(
+                get: { authorizationStore.mode },
+                set: { authorizationStore.setMode($0) }
+            )) {
+                ForEach(ToolAuthorizationMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 15)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.black.opacity(0.05), lineWidth: 1)
+        )
     }
 }
 
@@ -299,8 +334,6 @@ private struct ToolManagementGroupAppearance {
             .init(symbolName: "square.grid.2x2", tint: .gray)
         case .workspaceFiles:
             .init(symbolName: "folder", tint: .blue)
-        case .scriptSandboxes:
-            .init(symbolName: "terminal", tint: .brown)
         case .webResearch:
             .init(symbolName: "globe", tint: .cyan)
         }

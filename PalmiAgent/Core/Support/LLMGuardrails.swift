@@ -71,8 +71,8 @@ enum LLMGuardrails {
         let extendedContextActionIDs: Set<ToolActionID> = [
             .searchWeb,
             .fetchStaticWebPage,
-            .fetchWebBatch,
-            .read
+            .fileRead,
+            .listDirectory
         ]
         if extendedContextActionIDs.contains(actionID) {
             return ReasoningStrengthProfile.extendedToolPayloadMaxCharacters
@@ -105,4 +105,5 @@ enum LLMGuardrails {
         }
         return sanitized
     }
+
 }

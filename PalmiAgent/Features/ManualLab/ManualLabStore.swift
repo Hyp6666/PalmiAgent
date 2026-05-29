@@ -51,6 +51,7 @@ final class ManualLabStore {
     let lmStudioDiscoveryService: LMStudioDiscoveryService
     let workspaceStore: WorkspaceStore
     let toolPermissionStore: ToolPermissionStore
+    let toolAuthorizationStore: ToolAuthorizationStore
 
     var lastResult: ToolResult?
     var executionLog: [ToolExecutionRecord] = []
@@ -81,7 +82,8 @@ final class ManualLabStore {
         apiConnectionValidationService: APIConnectionValidationService,
         lmStudioDiscoveryService: LMStudioDiscoveryService,
         workspaceStore: WorkspaceStore,
-        toolPermissionStore: ToolPermissionStore
+        toolPermissionStore: ToolPermissionStore,
+        toolAuthorizationStore: ToolAuthorizationStore
     ) {
         self.actions = actions
         self.executor = executor
@@ -91,6 +93,7 @@ final class ManualLabStore {
         self.lmStudioDiscoveryService = lmStudioDiscoveryService
         self.workspaceStore = workspaceStore
         self.toolPermissionStore = toolPermissionStore
+        self.toolAuthorizationStore = toolAuthorizationStore
         refreshAPIConfiguration()
     }
 
@@ -295,7 +298,6 @@ final class ManualLabStore {
         profiles(for: providerID).contains { profile in
             profile.id == profileID &&
             (
-                profile.isUserCreated ||
                 profile.isConfigured ||
                 profile.hasAPIKey ||
                 !profile.customBaseURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||

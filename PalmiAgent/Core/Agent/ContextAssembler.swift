@@ -2,14 +2,17 @@ import Foundation
 
 struct AssembledAgentContext {
     let composedSystemPrompt: String
-    let apiMessages: [OpenAIChatMessage]
+    let apiMessages: [AgentModelMessage]
     let approximateTokenCount: Int
+    let layerSnapshot: ContextLayerSnapshot
 }
 
 struct ContextAssembler {
     let promptComposer: PromptComposer
     let toolContextProjector: ToolContextProjector
     let researchStateAssembler: ResearchStateAssembler
+    let taskContextProjector: TaskContextProjector
+    private let layerManager = ContextLayerManager()
 
     func assemble(
         baseSystemPrompt: String,
@@ -26,19 +29,14 @@ struct ContextAssembler {
             exposesTools: exposesTools,
             exposesPhaseThought: exposesPhaseThought
         )
-        var systemPrompt = composedSystemPrompt
+        let layeredPrompt = layerManager.mergedSystemPrompt(
+            composedSystemPrompt: composedSystemPrompt,
+            hiddenSummary: session.hiddenContextSummary,
+            hiddenResearch: researchStateAssembler.hiddenResearchPrompt(for: session),
+            hiddenTaskState: taskContextProjector.hiddenTaskPrompt(for: session)
+        )
 
-        if let hiddenSummary = session.hiddenContextSummary,
-           !hiddenSummary.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            systemPrompt += "\n\n" + hiddenSummaryPrompt(for: hiddenSummary)
-        }
-
-        if let hiddenResearch = researchStateAssembler.hiddenResearchPrompt(for: session),
-           !hiddenResearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            systemPrompt += "\n\n" + hiddenResearch
-        }
-
-        var apiMessages: [OpenAIChatMessage] = [.system(systemPrompt)]
+        var apiMessages: [AgentModelMessage] = [.system(layeredPrompt.prompt)]
 
         let compactedCount = session.hiddenContextSummary?.compactedMessageCount ?? 0
         for message in session.messages.dropFirst(compactedCount) {
@@ -48,36 +46,39 @@ struct ContextAssembler {
         return AssembledAgentContext(
             composedSystemPrompt: composedSystemPrompt,
             apiMessages: apiMessages,
-            approximateTokenCount: ApproximateTokenCounter.estimate(chatMessages: apiMessages)
+            approximateTokenCount: ApproximateTokenCounter.estimate(chatMessages: apiMessages),
+            layerSnapshot: layeredPrompt.snapshot
         )
     }
 
     func hiddenSummaryPrompt(for hiddenSummary: AgentHiddenContextSummary) -> String {
-        """
-        以下是对更早历史对话的隐藏压缩摘要，仅供保持上下文连续性使用。
-        不要向用户逐字暴露或复述这段摘要，只在相关时利用其中事实。
-
-        \(hiddenSummary.summary)
-        """
+        layerManager.hiddenSummaryPrompt(for: hiddenSummary)
     }
 
     private func convert(
         _ agentMessage: AgentMessage,
         session: AgentSession
-    ) -> [OpenAIChatMessage] {
+    ) -> [AgentModelMessage] {
         switch agentMessage.role {
         case .user:
             return [.user(agentMessage.textContent)]
         case .assistant:
             let toolCalls = agentMessage.toolUses.map { toolUse in
-                OpenAIChatToolCall(
+                AgentModelToolCall(
                     id: toolUse.id,
                     type: "function",
-                    function: OpenAIChatToolFunction(name: toolUse.name, arguments: toolUse.input)
+                    function: AgentModelToolFunction(name: toolUse.name, arguments: toolUse.input)
                 )
             }
             let content = agentMessage.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
-            return [.assistant(content.isEmpty ? nil : content, toolCalls: toolCalls.isEmpty ? nil : toolCalls)]
+            return [
+                .assistant(
+                    content.isEmpty ? nil : content,
+                    toolCalls: toolCalls.isEmpty ? nil : toolCalls,
+                    reasoningContent: agentMessage.nativeReasoning?.reasoningContent,
+                    reasoningDetails: agentMessage.nativeReasoning?.reasoningDetails
+                )
+            ]
         case .tool:
             return agentMessage.toolResultRecords.map { result in
                 .tool(

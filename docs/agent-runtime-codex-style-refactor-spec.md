@@ -1,8 +1,8 @@
 # PalmiAgent Codex-style Agent Runtime 重构 Spec
 
-> 日期：2026-05-19  
-> 状态：设计锁定，待分阶段实现  
-> 本轮目标：把 PalmiAgent 的 Agent 框架从“单个巨大 AgentLoop”重构成 Codex-style 的单 Agent runtime。  
+> 日期：2026-05-19
+> 状态：设计锁定，待分阶段实现
+> 本轮目标：把 PalmiAgent 的 Agent 框架从“单个巨大 AgentLoop”重构成 Codex-style 的单 Agent runtime。
 > 关键约束：不引入复杂 multi-agent；不改成 Rust；不把 iOS app 塞进外部服务；先重构运行时边界，再做 UI/权限/并发。
 
 ---
@@ -730,6 +730,155 @@ enum RetrievalQualityTier: Codable, Sendable {
 
 ---
 
+## 7.6 未覆盖模型与聚合平台的默认策略
+
+除了第一批明确适配的 OpenAI、DeepSeek、GLM/Z.AI、Qwen/百炼、Kimi/Moonshot、MiniMax、LM Studio，后续一定会遇到 OpenRouter、SiliconFlow、火山方舟、ModelScope、腾讯云、百度、Kimi proxy、自定义 OpenAI-compatible endpoint 以及用户手填的未知模型。
+
+这些模型不能靠猜，默认策略必须保守：
+
+1. 未知模型默认 `nativeReasoning = unsupported`，不发送 `reasoning`、`thinking`、`enable_thinking`、`thinking_budget`、`reasoning_effort` 等任何厂商字段。
+2. 未知模型默认 `reasoningReplayPolicy = none`；只有官方文档、preset metadata 或检测结果明确说明需要回传时才启用。
+3. 未知模型默认 `supportsVision = false`、`supportsToolCalls = unknown`、`supportsParallelToolCalls = false`，UI 不能承诺多模态或稳定工具调用。
+4. 聚合平台不能只根据 model id 做前端能力映射。只有命中 `LLMModelIntegrationSpec` 或 `ModelFamilyIntegrationSpec` 时，才能开启对应 request 字段和 UI 控件。
+5. 如果 provider 是 OpenAI-compatible，但模型不是 OpenAI，不得继承 OpenAI 的 `reasoning.effort` 语义。
+6. 如果 capability 缺失，前端只显示可用的基础字段：API key、base URL、model id、主模型/多模态模型/轻量模型选择；不显示不可用的 thinking knob。
+7. 如果检测模型列表失败，不能把旧默认值当成事实；保留用户已填 model id，并显示检测失败状态，不能自动改成历史遗留 `chat/think` 模型名。
+8. 如果多模态模型列表为空，必须有显式 `无` 选项；每个配置仍必须持有一个有效的 multimodal slot value，避免 UI 和请求构造出现 nil/旧值错配。
+
+这条规则的目的不是少适配，而是防止把“不知道”伪装成“支持”。后续新增 provider 时，必须先补 metadata，再开放对应 UI。
+
+---
+
+## 7.7 前端兼容与交互变化边界
+
+这次 Agent runtime 重构不应该打碎当前 ChatScreen 的主体体验。第一阶段的原则是“内部事件变清楚，外部界面渐进变化”。
+
+保持不变：
+
+1. 聊天主输入、发送、停止、loading 状态保留。
+2. 现有工具卡继续可用，先由 `AgentEvent.toolBatchStarted/Finished` 映射到当前 tool card。
+3. queued guidance 继续支持运行中插话。
+4. workspace 文件入口、技能入口、模型状态入口不因 runtime 拆分而消失。
+5. ActionCatalog/ActionExecutor 的具体工具先不大改，先加 metadata 和 audit 外壳。
+
+需要变化：
+
+1. 当前“推理强度”不再同时控制模型 thinking、Agent loop 和网页抓取；UI 拆成“模型思考”和“任务预算/研究深度”两个概念。
+2. 普通 chat mode 默认隐藏 provider-specific thinking 细节，只显示“快速/标准/深入”一类任务语义。
+3. 工作区/power user 才显示当前 `LLMModelIntegrationSpec` 允许的模型原生参数，例如 OpenAI `reasoning.effort`、Qwen `thinking_budget`、DeepSeek `high/max`。
+4. 模型管理 UI 只展示当前模型方案实际支持的字段；不支持就不出现，不用解释性小字补丁。
+5. 长任务面板从 `RunBudgetSnapshot` 读取数据，展示已调用模型、已调用工具、是否等待确认、为何停止。
+6. 依据面板从 `EvidenceStore` 读取，不把 hidden research 直接塞进聊天流。
+7. 取消前端模型映射层；所有模型控件和请求编码由“1 模 1 方案”的 LLM spec 驱动。
+
+验收要求：
+
+1. 改 runtime 后，普通用户仍能只通过输入框完成聊天。
+2. 原有工具卡不会因为新增 batch/event 协议而消失。
+3. 不会出现所有 provider 配置页面长得一样、只是 baseURL 不同的情况。
+4. 不会出现未创建配置却默认列出一堆配置的回归。
+5. 不会出现删除按钮灰掉、历史默认模型名残留、检测模型失败后污染当前配置的回归。
+6. 不会出现前端靠字符串猜测开启 thinking/vision/tool replay 的回归。
+
+---
+
+## 7.8 `phase_thought` / 阶段性思考的处理原则
+
+阶段性思考是 Palmi 的一个有效产品功能，但它现在的实现方式不够稳。结论是：保留功能价值，改变协议位置。
+
+需要区分三件事：
+
+1. provider native reasoning：例如 `reasoning_content`、`reasoning_details`，这是模型返回给 API 的结构化推理元数据，通常不应直接展示给用户。
+2. Palmi progress event：例如“正在读取文件”“下一步准备搜索来源”，这是用户可见的执行进度。
+3. final answer reasoning summary：最终回答中对依据和不确定性的解释，不是思维链。
+
+当前 `phase_thought` 的问题：
+
+1. 它是伪装成工具的内部事件。
+2. 它会进入 tool definitions，影响模型选择工具。
+3. 它会写入 tool result 历史，占用上下文。
+4. 它容易被用户误解成模型真实思维链。
+5. 它和 DeepSeek/Kimi/MiniMax/Qwen 的 native reasoning replay 语义可能混淆。
+
+短期兼容做法：
+
+1. 仍可保留 `phase_thought` tool definition 作为迁移层。
+2. 每 turn 最多 2 次，连续出现超过 1 次后 runtime 应提示模型执行真实动作或回答。
+3. tool result 回传给模型时只保留 `status=recorded` 和极短摘要，不回灌完整正文。
+4. 完整内容进入 `AgentProgressEvent` 和 UI，不作为证据源。
+5. 它不能参与 `ToolExecutionPlanner` 的并发/串行工具 batch。
+
+中期目标：
+
+1. 删除 model-visible `phase_thought` 工具。
+2. 新增 progress protocol，由 AgentLoop、ToolRouter、RunVerifier、ToolExecutionRuntime 主动发 `progressUpdated`。
+3. UI 名称改为“进度”或“计划”，不叫“思考链”。
+4. 如果模型想告诉用户阶段计划，应作为 assistant visible text 或 structured progress event，不再伪装成 tool call。
+
+验收要求：
+
+1. `phase_thought` 不能导致无限 loop。
+2. `phase_thought` 不能污染工具审计。
+3. `phase_thought` 不能替代真实工具执行。
+4. DeepSeek/Kimi/MiniMax/Qwen 的 `reasoning_content` replay 不被 `phase_thought` 投影逻辑影响。
+
+---
+
+## 7.9 系统提示词重构原则
+
+当前 Palmi prompt 已经有几层：`CorePromptBuilder`、`CapabilityPromptBuilder`、`ToolRoutingPromptBuilder`、`ContextPromptBuilder`、`AgentPromptStrengthDirectives`、`PromptComposer`。问题不是没有 prompt，而是职责边界不够清楚，尤其强度档位 prompt 混入了模型 thinking、任务预算、搜索策略和回答风格。
+
+Codex 的可借鉴点不是照抄 wording，而是结构：
+
+1. 先定义 agent 身份和工作方式。
+2. 再定义环境、workspace、sandbox、审批和权限。
+3. 再定义计划、执行、验证、汇报的行为规范。
+4. 再定义工具使用原则。
+5. 最后定义项目级/用户级附加指令。
+
+Palmi 新 prompt hierarchy：
+
+```text
+PalmiCorePrompt
+ProviderCapabilityPrompt
+WorkspaceAndIOSBoundaryPrompt
+ToolPolicyPrompt
+ProgressProtocolPrompt
+ContextLayerPrompt
+SkillPrompt
+UserPreferencePrompt
+CurrentTurnPrompt
+```
+
+各层职责：
+
+1. `PalmiCorePrompt`：保留 Palmi 定位，明确它是 iOS 执行型工作区 Agent，不是普通闲聊壳。
+2. `ProviderCapabilityPrompt`：告诉模型当前 provider 支持什么，不支持什么；例如是否支持 tool call、是否需要 reasoning replay、是否禁用采样参数。
+3. `WorkspaceAndIOSBoundaryPrompt`：解释 workspace、沙盒、iOS 系统动作和用户确认边界。
+4. `ToolPolicyPrompt`：声明工具路由、风险等级、何时必须等待确认；但真正硬约束在 `ToolPolicyMetadata` 和 `RunVerifier`。
+5. `ProgressProtocolPrompt`：要求输出用户可理解的计划/进度，不输出隐藏思维链。
+6. `ContextLayerPrompt`：说明 hidden summary、research state、current turn、recent messages 的优先级。
+7. `SkillPrompt`：只注入当前启用技能，不把 SkillRegistry 全量塞进提示词。
+8. `UserPreferencePrompt`：处理语言、风格、长期偏好；不要硬编码“默认中文”，应优先跟随用户语言或用户设置。
+9. `CurrentTurnPrompt`：本轮任务、预算、确认状态、排队用户补充指令。
+
+必须删除或改造：
+
+1. `AgentPromptStrengthDirectives` 不再描述“极速/极致”等模型 thinking 效果。
+2. prompt 不能承诺工具一定可用；只能引用 `ProviderCapabilities` 和 `ToolPolicyMetadata` 生成的当前事实。
+3. “先说一句再调工具”这种规则应按 UI 需要变成 progress event，不强制模型在每次 tool call 前写正文。
+4. provider-specific API 约束不能只写 prompt；必须在 request builder 里过滤字段。
+5. 用户可见 UI 不能堆解释性文案；model-facing prompt 可以详细，user-facing copy 必须克制。
+
+prompt 回归测试：
+
+1. snapshot 测试：无工具、只读工具、写入工具、个人数据工具、系统动作工具分别生成 prompt。
+2. provider 测试：DeepSeek thinking、Qwen budget、GLM thinking、Kimi reasoning replay、LM Studio unknown 分别生成 prompt。
+3. 语言测试：中文用户、英文用户、系统设置中文但用户英文三种场景。
+4. 安全测试：高风险工具必须在 prompt 和 policy 中同时出现确认要求。
+
+---
+
 ## 8. 实现路线
 
 ### Phase 0：本 spec
@@ -745,6 +894,8 @@ enum RetrievalQualityTier: Codable, Sendable {
 3. `ModelReasoningResolution.swift`
 4. `RetrievalQualityProfile.swift`
 5. `ModelReasoningBudgetCatalog.swift`
+6. `ProviderCapabilitySource.swift`
+7. `ReasoningReplayPolicy.swift`
 
 改造：
 
@@ -752,6 +903,8 @@ enum RetrievalQualityTier: Codable, Sendable {
 2. `AgentLoop` 不再读取 `reasoningProfile.modelReasoningEffort` 直接传给 `LLMAPIClient`。
 3. `LLMAPIClient` 接收 `ModelReasoningRequest`，由 provider/model adapter 解析为实际 request fields。
 4. 搜索、抓取、context compaction 默认值改读 `RetrievalQualityProfile`。
+5. 未知 provider/model 默认不发送任何 native reasoning 字段。
+6. provider/model 检测失败不能写入历史默认模型名。
 
 验收：
 
@@ -760,6 +913,9 @@ enum RetrievalQualityTier: Codable, Sendable {
 3. GLM/Kimi/MiniMax/Qwen 的 reasoning replay policy 明确可见。
 4. LM Studio 默认不发送不存在的 reasoning 字段。
 5. DeepSeek thinking + 任意 tool call 续跑时，下一轮 request body 必须回传上一轮 assistant 的 `reasoning_content`，不得再出现 “reasoning content in the thinking mode must be passed back” 400。
+6. 自定义 OpenAI-compatible 未知模型不会继承 OpenAI `reasoning.effort`。
+7. DeepSeek/GLM/Qwen/Kimi/MiniMax/OpenAI 配置页只出现各自支持的字段。
+8. 多模态模型槽位始终有效：支持则选择模型，不支持则选择 `无`。
 
 ### Phase 2：低风险 Agent runtime 结构拆分，不改变行为
 
@@ -778,12 +934,16 @@ enum RetrievalQualityTier: Codable, Sendable {
 2. 工具仍按原顺序执行。
 3. 先只记录 budget/tool policy，不改变用户可见行为。
 4. phase thought 加硬限制，每 turn 最多 2 次。
+5. `phase_thought` tool result 降低为 recorded/short summary，完整内容改走 `AgentProgressEvent`。
+6. `AgentEvent` 先映射到现有 ChatStore/ToolCallCard，不要求 UI 一次性重写。
 
 验收：
 
 1. 编译通过。
 2. 现有聊天、工具调用、context compaction 行为不回退。
 3. 日志或 debug 能看到 budget snapshot。
+4. 现有工具卡、queued guidance、workspace 入口继续可用。
+5. `phase_thought` 不进入工具 batch，也不能连续驱动 loop。
 
 ### Phase 3：工具 policy 和停止条件
 
@@ -843,6 +1003,24 @@ enum RetrievalQualityTier: Codable, Sendable {
 1. 当前 turn 不被 compaction 破坏。
 2. 长对话中项目事实和近期任务保留更稳定。
 3. LM Studio 等弱 tool-history provider 有明确降级路径。
+
+### Phase 7：系统提示词分层重写
+
+改造：
+
+1. 将 `CorePromptBuilder`、`CapabilityPromptBuilder`、`ToolRoutingPromptBuilder`、`ContextPromptBuilder` 重组为 7.9 中定义的层。
+2. 删除 `AgentPromptStrengthDirectives` 对模型 thinking 的描述，替换为 run budget/retrieval 指令。
+3. `ProviderCapabilityPrompt` 从 runtime capability 生成，不手写 provider 传说。
+4. `ProgressProtocolPrompt` 替代“工具前先说一句”的 prompt 习惯。
+5. `PromptComposer` 只组合启用技能和当前任务需要的事实，不全量灌入无关能力。
+
+验收：
+
+1. 中文用户仍默认获得中文回复，英文用户不会被硬拉回中文。
+2. 高风险工具 prompt 与 `ToolPolicyMetadata` 都要求确认。
+3. DeepSeek/Kimi/MiniMax/Qwen 的 reasoning replay 要求出现在 provider capability prompt，而不是散在工具说明里。
+4. prompt snapshot 能稳定覆盖无工具、只读工具、写入工具、系统动作和研究任务。
+5. 用户可见 UI 不新增解释性长文案；详细规则只存在 model-facing prompt 和设置高级页。
 
 ---
 
@@ -948,28 +1126,30 @@ runtime 会在工具批次之间、系统动作之前、下一轮模型请求之
 
 ## 12. 参考来源
 
-1. OpenAI Codex CLI 官方文档：Codex CLI 是本地运行、可读写并运行代码、开源且 Rust 实现的 coding agent。  
+1. OpenAI Codex CLI 官方文档：Codex CLI 是本地运行、可读写并运行代码、开源且 Rust 实现的 coding agent。
    https://developers.openai.com/codex/cli
-2. OpenAI Agents SDK 文档：model settings 中包括 reasoning、verbosity、parallel tool calls、truncation 等 runtime 参数。  
+2. Codex local reference：`reference/codex-main/codex-rs/protocol/src/prompts/base_instructions/default.md`。用于对照身份、工作方式、计划、工具、验证、汇报的系统提示词分层。
+3. Codex local reference：`reference/codex-main/codex-rs/core/src/context/prompts/permissions/approval_policy/on_request.md`。用于对照 sandbox/approval policy 不只靠 prompt 的运行约束。
+4. OpenAI Agents SDK 文档：model settings 中包括 reasoning、verbosity、parallel tool calls、truncation 等 runtime 参数。
    https://openai.github.io/openai-agents-python/ref/model_settings/
-3. OpenAI Agents JS 文档：GPT-5.x 模型可通过 `modelSettings.reasoning.effort` 调整 reasoning effort。  
+5. OpenAI Agents JS 文档：GPT-5.x 模型可通过 `modelSettings.reasoning.effort` 调整 reasoning effort。
    https://openai.github.io/openai-agents-js/guides/models/
-4. OpenAI Responses API：`parallel_tool_calls`、`reasoning`、tools、conversation/input token count/compact 都是 API 层一等参数。  
+6. OpenAI Responses API：`parallel_tool_calls`、`reasoning`、tools、conversation/input token count/compact 都是 API 层一等参数。
    https://platform.openai.com/docs/api-reference/responses
-5. OpenAI Reasoning models：`reasoning.effort` 是模型能力参数，支持值按模型变化。  
+7. OpenAI Reasoning models：`reasoning.effort` 是模型能力参数，支持值按模型变化。
    https://platform.openai.com/docs/guides/reasoning
-6. DeepSeek Thinking Mode：thinking 开关、`reasoning_effort=high/max`、low/medium/xhigh 映射和 thinking 模式采样参数说明。  
+8. DeepSeek Thinking Mode：thinking 开关、`reasoning_effort=high/max`、low/medium/xhigh 映射和 thinking 模式采样参数说明。
    https://api-docs.deepseek.com/guides/thinking_mode
-7. Z.AI Thinking Mode / Chat Completion：GLM thinking 默认行为、interleaved thinking、`clear_thinking:false` preserved thinking、`reasoning_content`。  
-   https://docs.z.ai/guides/capabilities/thinking-mode  
+9. Z.AI Thinking Mode / Chat Completion：GLM thinking 默认行为、interleaved thinking、`clear_thinking:false` preserved thinking、`reasoning_content`。
+   https://docs.z.ai/guides/capabilities/thinking-mode
    https://docs.z.ai/api-reference/llm/chat-completion
-8. Qwen Cloud Thinking / Alibaba Cloud Deep thinking：`enable_thinking`、`thinking_budget`、function calling reasoning replay。  
-   https://docs.qwencloud.com/developer-guides/text-generation/thinking  
+10. Qwen Cloud Thinking / Alibaba Cloud Deep thinking：`enable_thinking`、`thinking_budget`、function calling reasoning replay。
+   https://docs.qwencloud.com/developer-guides/text-generation/thinking
    https://www.alibabacloud.com/help/en/model-studio/deep-thinking
-9. Moonshot Kimi Thinking Models：`reasoning_content`、Kimi K2/K2.5 thinking、tool-call replay、temperature 1.0。  
+11. Moonshot Kimi Thinking Models：`reasoning_content`、Kimi K2/K2.5 thinking、tool-call replay、temperature 1.0。
    https://platform.moonshot.ai/docs/guide/use-kimi-k2-thinking-model.en-US
-10. MiniMax Tool Use & Interleaved Thinking：`reasoning_split=True`、`reasoning_details`、完整 assistant message replay。  
+12. MiniMax Tool Use & Interleaved Thinking：`reasoning_split=True`、`reasoning_details`、完整 assistant message replay。
     https://platform.minimax.io/docs/guides/text-m2-function-call
-11. LM Studio OpenAI-compatible docs：Chat Completions 支持常规采样参数；tool use 支持按模型和 parser 分 native/default。  
-    https://lmstudio.ai/docs/developer/openai-compat/chat-completions  
+13. LM Studio OpenAI-compatible docs：Chat Completions 支持常规采样参数；tool use 支持按模型和 parser 分 native/default。
+    https://lmstudio.ai/docs/developer/openai-compat/chat-completions
     https://lmstudio.ai/docs/developer/openai-compat/tools

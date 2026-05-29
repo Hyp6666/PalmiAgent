@@ -1,0 +1,95 @@
+核验标准
+========
+
+测试完成后逐项对照。全部通过才算合格。
+
+
+A. 最终目录树（步骤 45）
+------------------------
+
+project/
+├── config.json
+├── data/
+│   ├── analysis_result.txt
+│   └── records.csv
+├── docs/
+│   └── GUIDE.md
+├── logs/                       （空目录，或已不存在——都算通过）
+└── src/
+    ├── analyze.py
+    ├── lib.py
+    ├── main.py
+    └── utils/                  （空目录，或已不存在——都算通过）
+
+backup/ 必须已不存在。
+
+
+B. 工具覆盖
+------------
+
+工具                      最少调用次数    涉及步骤
+fileManage(mkdir)         5              1-5
+fileManage(delete)        2              41, 42
+fileManage(move)          1              29
+fileManage(rename)        1              32
+fileManage(copy)          2              26, 27
+fileManage(info)          2              22, 23
+fileManage(exists)        4              24, 25, 30, 31, 43, 44
+fileWrite                 5              6, 7, 8, 9, 10, 34, 38
+fileAppend                3              17, 18, 19
+fileRead                  8              13, 14, 15, 16, 20, 21, 28, 33, 35, 36, 39
+listDirectory             3              11, 12, 40, 45
+runPython                 2              37, 38
+
+
+C. 关键行为（24 条，逐条打勾）
+-------------------------------
+
+C1  mkdir 嵌套：步骤 2 创建 project/src/utils，父目录已存在，不报错
+C2  fileWrite 正常写入：步骤 6 写入 main.py 成功
+C3  fileAppend 自动创建：步骤 19 向不存在的 project/logs/build.log 追加，自动创建目录和文件
+C4  fileAppend 内容正确：步骤 20 读 records.csv 应有 4 行（表头+张三+李四+王五）
+C5  fileRead head 模式：步骤 14 只返回 README.md 开头部分
+C6  fileRead tail 模式：步骤 15 只返回 records.csv 结尾部分
+C7  fileRead section+focus：步骤 16 围绕「功能清单」返回相关片段
+C8  info 文件元数据：步骤 22 返回 config.json 的大小（字节）、类型（文件）、修改时间
+C9  info 目录元数据：步骤 23 返回 project/src 类型为目录，含子项数
+C10 exists 存在：步骤 24 返回「存在」
+C11 exists 不存在：步骤 25 返回「不存在」
+C12 copy 独立性：步骤 36 读取备份 config.json，version 仍为 1.0.0
+C13 move 源消失：步骤 30 确认 helpers.py 已不存在
+C14 move 目标出现：步骤 31 确认 lib.py 存在
+C15 rename 内容保留：步骤 33 确认 GUIDE.md 包含「功能清单」和「更新日志」
+C16 覆盖写入生效：步骤 35 确认 config.json 的 version=2.0.0 且 new_field 存在
+C17 Python inline：步骤 37 输出 CSV 行数和各人城市
+C18 Python script_path：步骤 38 用 script_path 运行 analyze.py，输出应用名和版本
+C19 Python 写文件：步骤 39 确认 analysis_result.txt 含「TestApp v2.0.0」
+C20 listDirectory include_content：步骤 40 返回 src/ 下所有文件的文本内容
+C21 delete 文件：步骤 44 确认 build.log 不存在
+C22 delete 目录递归：步骤 43 确认 backup/ 不存在
+C23 最终目录树：步骤 45 目录树与上方 A 节匹配
+C24 每步有响应：45 个步骤全部有执行结果，无跳步无静默
+
+
+D. 错误处理（可选加分，单独输入以下内容测试）
+----------------------------------------------
+
+额外测试：
+A. 尝试读取一个不存在的文件 project/ghost.txt，应返回错误而非空内容
+B. 尝试将 project/config.json 复制到 project/data/records.csv（已存在的路径），看是否报错
+C. 运行一段会报错的 Python 脚本：print(1/0)，看是否返回 ZeroDivisionError
+D. 尝试用 fileManage 执行 operation=compress，应返回不支持的 operation 错误
+
+测试    期望行为
+A       返回明确错误信息，不是空白
+B       返回错误或冲突提示（目标已存在）
+C       返回 ZeroDivisionError 错误信息
+D       返回「不支持的 operation」错误
+
+
+评分
+----
+
+C1-C24 全部通过 + B 表覆盖达标 + A 目录树正确 = 合格
+D 项 4/4 通过 = 优秀
+任一 C 项未通过 = 对应工具或行为存在 bug，需修复

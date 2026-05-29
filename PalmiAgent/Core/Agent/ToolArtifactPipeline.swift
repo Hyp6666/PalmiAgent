@@ -3,16 +3,16 @@ import Foundation
 
 @MainActor
 final class ToolArtifactPipeline {
-    private let apiClient: LLMAPIClient
+    private let modelRuntime: AgentModelRuntime
     private let policy: AgentResearchPolicy
     private let promptCatalog: HiddenWorkerPromptCatalog
 
     init(
-        apiClient: LLMAPIClient,
+        modelRuntime: AgentModelRuntime,
         policy: AgentResearchPolicy = .default,
         promptCatalog: HiddenWorkerPromptCatalog? = nil
     ) {
-        self.apiClient = apiClient
+        self.modelRuntime = modelRuntime
         self.policy = policy
         self.promptCatalog = promptCatalog ?? HiddenWorkerPromptCatalog(policy: policy)
     }
@@ -34,17 +34,9 @@ final class ToolArtifactPipeline {
 
         switch actionID {
         case .searchWeb:
-            if let artifact = await makeSearchSelection(
-                payload: payload,
-                toolUseID: toolResult.toolUseID,
-                providerID: providerID,
-                queryGoal: goal,
-                existingArtifacts: updatedArtifacts
-            ) {
-                updatedArtifacts.upsert(artifact)
-            }
+            break
 
-        case .fetchStaticWebPage, .fetchWebBatch:
+        case .fetchStaticWebPage:
             if let artifact = await makeSourceDigest(
                 actionID: actionID,
                 payload: payload,
@@ -56,7 +48,7 @@ final class ToolArtifactPipeline {
                 updatedArtifacts.upsert(artifact)
             }
 
-        case .read:
+        case .fileRead, .listDirectory:
             if shouldDigestRead(payload: payload) {
                 if let artifact = await makeSourceDigest(
                     actionID: actionID,
@@ -322,9 +314,9 @@ final class ToolArtifactPipeline {
 
     private func sourceType(for actionID: ToolActionID) -> String {
         switch actionID {
-        case .fetchStaticWebPage, .fetchWebBatch:
+        case .fetchStaticWebPage:
             return "web_page"
-        case .read:
+        case .fileRead, .listDirectory:
             return "local_file"
         default:
             return "tool_output"
@@ -348,15 +340,21 @@ final class ToolArtifactPipeline {
         providerID: APIProviderID,
         responseType: Response.Type
     ) async throws -> Response {
-        let response = try await apiClient.createChatCompletion(
-            providerID: providerID,
-            apiMessages: [
-                .system(systemPrompt),
-                .user(userPrompt)
-            ],
-            tools: [],
-            modelRole: providerID == .lmstudio ? .reasoningModel : .lightweightModel,
-            temperatureOverride: 0
+        let response = try await modelRuntime.complete(
+            AgentModelRequest(
+                selection: AgentModelSelection(
+                    providerID: providerID,
+                    modelRole: providerID == .lmstudio ? .reasoningModel : .lightweightModel,
+                    reasoning: .disabled
+                ),
+                apiMessages: [
+                    .system(systemPrompt),
+                    .user(userPrompt)
+                ],
+                tools: [],
+                toolIntent: .none,
+                temperatureOverride: 0
+            )
         )
 
         let raw = response.message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)

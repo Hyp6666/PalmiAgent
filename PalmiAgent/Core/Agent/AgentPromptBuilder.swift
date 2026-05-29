@@ -5,6 +5,7 @@ struct AgentPromptBuilder {
     private let capabilityBuilder = CapabilityPromptBuilder()
     private let strengthBuilder = StrengthPromptBuilder()
     private let routingBuilder = ToolRoutingPromptBuilder()
+    private let policyBuilder = ToolPolicyPromptBuilder()
 
     func build(
         actions: [ToolAction],
@@ -28,7 +29,8 @@ struct AgentPromptBuilder {
                 exposesTools: exposesTools,
                 exposesPhaseThought: exposesPhaseThought
             ),
-            routingBuilder.build(actions: actions, exposesTools: exposesTools)
+            policyBuilder.build(actions: actions, exposesTools: exposesTools),
+            routingBuilder.build(actions: actions, tier: tier, exposesTools: exposesTools)
         ]
         .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         .joined(separator: "\n\n")

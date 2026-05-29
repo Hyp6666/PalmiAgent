@@ -7,10 +7,8 @@ enum TierToolingIndicator: Sendable {
 }
 
 enum ProfessionalReasoningTier: String, CaseIterable, Identifiable, Sendable {
-    case speed = "极速"
-    case efficiency = "效率"
-    case balanced = "均衡"
-    case quality = "质量"
+    case speed = "效率"
+    case balanced = "质量"
     case infinite = "极致"
 
     static let storageKey = "palmi.prof.reasoning-tier"
@@ -21,15 +19,24 @@ enum ProfessionalReasoningTier: String, CaseIterable, Identifiable, Sendable {
     var description: String {
         switch self {
         case .speed:
-            return "优先更快出结果。"
-        case .efficiency:
-            return "更偏响应速度与成本平衡。"
+            return "倾向短路径与快速收口。"
         case .balanced:
-            return "默认综合权衡。"
-        case .quality:
-            return "优先更完整的推理和表达。"
+            return "倾向更稳妥的完成质量。"
         case .infinite:
-            return "尽量拉满思考深度。"
+            return "分阶段推进更长任务。"
+        }
+    }
+
+    static func resolved(rawValue: String?) -> ProfessionalReasoningTier {
+        switch rawValue {
+        case speed.rawValue, "极速", "快速":
+            return .speed
+        case balanced.rawValue, "均衡", "正常", "质量":
+            return .balanced
+        case infinite.rawValue, "专家":
+            return .infinite
+        default:
+            return .balanced
         }
     }
 
@@ -45,9 +52,9 @@ enum ProfessionalReasoningTier: String, CaseIterable, Identifiable, Sendable {
 }
 
 enum ChatReasoningTier: String, CaseIterable, Identifiable, Sendable {
-    case fast = "快速"
-    case normal = "正常"
-    case expert = "专家"
+    case fast = "效率"
+    case normal = "质量"
+    case expert = "极致"
 
     static let storageKey = "palmi.chat.reasoning-tier"
 
@@ -57,11 +64,24 @@ enum ChatReasoningTier: String, CaseIterable, Identifiable, Sendable {
     var description: String {
         switch self {
         case .fast:
-            return "更快地给出回复。"
+            return "倾向短路径与快速收口。"
         case .normal:
-            return "速度和质量更均衡。"
+            return "倾向更稳妥的完成质量。"
         case .expert:
-            return "优先更深入的思考。"
+            return "优先更完整地完成任务。"
+        }
+    }
+
+    static func resolved(rawValue: String?) -> ChatReasoningTier {
+        switch rawValue {
+        case fast.rawValue, "极速", "快速":
+            return .fast
+        case normal.rawValue, "均衡", "正常", "质量":
+            return .normal
+        case expert.rawValue, "专家":
+            return .expert
+        default:
+            return .normal
         }
     }
 
@@ -87,53 +107,22 @@ enum ChatReasoningTier: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-struct WebSearchAutoBrowseConfiguration: Sendable {
-    let isEnabled: Bool
-    let ratio: Double
-    let minimumCount: Int
-    let maximumCount: Int
-    let fetchMaxCharacters: Int
-    let snippetMaxCharacters: Int
-
-    func browseCount(for resultCount: Int) -> Int {
-        guard isEnabled, resultCount > 0 else {
-            return 0
-        }
-
-        let rawCount = Int(ceil(Double(resultCount) * ratio))
-        let clamped = min(max(rawCount, minimumCount), maximumCount)
-        return min(clamped, resultCount)
-    }
-}
-
 struct WebSearchStrengthConfiguration: Sendable {
     let maxResults: Int
-    let autoBrowse: WebSearchAutoBrowseConfiguration
+    let timeoutSeconds: TimeInterval
 }
 
 struct WebContentStrengthConfiguration: Sendable {
     let fetchStaticWebPageMaxCharacters: Int
-    let fetchWebBatchMaxCharacters: Int
-    let saveWebPageToWorkspaceMaxCharacters: Int
+    let fetchStaticWebPageRecommendedURLCount: Int
+    let fetchStaticWebPageMaxURLs: Int
+    let fetchStaticWebPageMaxConcurrentRequests: Int
+    let fetchStaticWebPageRequestTimeoutSeconds: TimeInterval
+    let fetchStaticWebPageTotalTimeoutSeconds: TimeInterval
 }
 
-struct ReasoningStrengthProfile: Sendable {
+enum ReasoningStrengthProfile {
     static let extendedToolPayloadMaxCharacters = 20_000
-
-    let professionalTier: ProfessionalReasoningTier
-    let maxIterations: Int
-    let modelReasoningEffort: LLMReasoningEffort
-    let contextCompaction: ContextCompactionConfiguration
-    let webSearch: WebSearchStrengthConfiguration
-    let webContent: WebContentStrengthConfiguration
-
-    static func current(
-        for surface: WorkspaceProjectSurface,
-        userDefaults: UserDefaults = .standard
-    ) -> ReasoningStrengthProfile {
-        let professionalTier = resolvedProfessionalTier(for: surface, userDefaults: userDefaults)
-        return profile(for: professionalTier)
-    }
 
     static func resolvedProfessionalTier(
         for surface: WorkspaceProjectSurface,
@@ -142,83 +131,11 @@ struct ReasoningStrengthProfile: Sendable {
         switch surface {
         case .professional:
             let rawValue = userDefaults.string(forKey: ProfessionalReasoningTier.storageKey)
-            return ProfessionalReasoningTier(rawValue: rawValue ?? "") ?? .balanced
+            return ProfessionalReasoningTier.resolved(rawValue: rawValue)
         case .chat:
             let rawValue = userDefaults.string(forKey: ChatReasoningTier.storageKey)
-            let chatTier = ChatReasoningTier(rawValue: rawValue ?? "") ?? .normal
+            let chatTier = ChatReasoningTier.resolved(rawValue: rawValue)
             return chatTier.mappedProfessionalTier
         }
-    }
-
-    private static func profile(for tier: ProfessionalReasoningTier) -> ReasoningStrengthProfile {
-        let searchMaxResults: Int
-        let webPageCharacters: Int
-        let maxIterations: Int
-        let modelReasoningEffort: LLMReasoningEffort
-        let targetSummaryTokenCount: Int
-
-        switch tier {
-        case .speed:
-            searchMaxResults = 10
-            webPageCharacters = 750
-            maxIterations = 30
-            modelReasoningEffort = .low
-            targetSummaryTokenCount = 10_000
-        case .efficiency:
-            searchMaxResults = 20
-            webPageCharacters = 750
-            maxIterations = 50
-            modelReasoningEffort = .low
-            targetSummaryTokenCount = 10_000
-        case .balanced:
-            searchMaxResults = 30
-            webPageCharacters = 1_000
-            maxIterations = 50
-            modelReasoningEffort = .medium
-            targetSummaryTokenCount = 15_000
-        case .quality:
-            searchMaxResults = 40
-            webPageCharacters = 1_250
-            maxIterations = 75
-            modelReasoningEffort = .high
-            targetSummaryTokenCount = 20_000
-        case .infinite:
-            searchMaxResults = 50
-            webPageCharacters = 1_500
-            maxIterations = 1_000
-            modelReasoningEffort = .xhigh
-            targetSummaryTokenCount = 30_000
-        }
-
-        return ReasoningStrengthProfile(
-            professionalTier: tier,
-            maxIterations: maxIterations,
-            modelReasoningEffort: modelReasoningEffort,
-            contextCompaction: ContextCompactionConfiguration(
-                maximumContextTokenCount: 200_000,
-                triggerRatio: 0.9,
-                targetSummaryTokenCount: targetSummaryTokenCount,
-                preferredRecentTokenCount: 10_000,
-                preferredRecentMessages: 2,
-                minimumRecentMessages: 1,
-                minimumMessagesToCompact: 1
-            ),
-            webSearch: WebSearchStrengthConfiguration(
-                maxResults: searchMaxResults,
-                autoBrowse: WebSearchAutoBrowseConfiguration(
-                    isEnabled: true,
-                    ratio: 0.5,
-                    minimumCount: 1,
-                    maximumCount: 25,
-                    fetchMaxCharacters: webPageCharacters,
-                    snippetMaxCharacters: 160
-                )
-            ),
-            webContent: WebContentStrengthConfiguration(
-                fetchStaticWebPageMaxCharacters: webPageCharacters,
-                fetchWebBatchMaxCharacters: webPageCharacters,
-                saveWebPageToWorkspaceMaxCharacters: webPageCharacters
-            )
-        )
     }
 }

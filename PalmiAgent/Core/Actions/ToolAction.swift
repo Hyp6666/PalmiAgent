@@ -18,15 +18,13 @@ enum ToolPresentationKind: String, Codable, Sendable {
 }
 
 enum ToolActionID: String, CaseIterable, Codable, Sendable {
-    case bootstrapWorkspace
-    case writeFile
-    case read
-    case listWorkspaceFiles
-    case inspectSandboxCapabilities
-    case runSandboxTerminal
-    case exportWorkspace
-    case runJavaScriptSandbox
-    case pythonSandbox
+    case fileRead
+    case fileWrite
+    case fileAppend
+    case listDirectory
+    case fileManage
+    case runPython
+    case detectWebSearchProviders
     case searchWeb
     case fetchStaticWebPage
     case fetchWebBatch

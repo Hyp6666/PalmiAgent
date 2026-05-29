@@ -5,8 +5,9 @@ final class AgentLoop {
     private static let phaseThoughtToolName = "phase_thought"
     private static let externalReasoningDefaultsKey = "palmi.chat.external-reasoning-enabled"
 
-    private let apiClient: LLMAPIClient
+    private let modelRuntime: AgentModelRuntime
     private let toolExecutor: AgentToolExecutor
+    private let toolAuthorizationStore: ToolAuthorizationStore
     private let promptBuilder: AgentPromptBuilder
     private let skillRegistry: SkillRegistry
     private let workspaceManager: WorkspaceManager
@@ -15,17 +16,22 @@ final class AgentLoop {
     private let toolArtifactPipeline: ToolArtifactPipeline
     private let toolContextProjector: ToolContextProjector
     private let configuration: AgentConfiguration
+    private let taskStateRuntime: TaskStateRuntime
+    private let taskToolExposurePolicy = TaskToolExposurePolicy()
 
     private(set) var session = AgentSession()
     private(set) var state: AgentState = .idle
     private var pendingInterruptions: [String] = []
+    private var pendingApprovalContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
+    private var pendingApprovalRequests: [UUID: AgentApprovalRequest] = [:]
 
     let events: AsyncStream<AgentEvent>
     private let eventContinuation: AsyncStream<AgentEvent>.Continuation
 
     init(
-        apiClient: LLMAPIClient,
+        modelRuntime: AgentModelRuntime,
         toolExecutor: AgentToolExecutor,
+        toolAuthorizationStore: ToolAuthorizationStore,
         promptBuilder: AgentPromptBuilder,
         skillRegistry: SkillRegistry,
         workspaceManager: WorkspaceManager,
@@ -35,8 +41,9 @@ final class AgentLoop {
         toolContextProjector: ToolContextProjector,
         configuration: AgentConfiguration
     ) {
-        self.apiClient = apiClient
+        self.modelRuntime = modelRuntime
         self.toolExecutor = toolExecutor
+        self.toolAuthorizationStore = toolAuthorizationStore
         self.promptBuilder = promptBuilder
         self.skillRegistry = skillRegistry
         self.workspaceManager = workspaceManager
@@ -45,6 +52,9 @@ final class AgentLoop {
         self.toolArtifactPipeline = toolArtifactPipeline
         self.toolContextProjector = toolContextProjector
         self.configuration = configuration
+        self.taskStateRuntime = TaskStateRuntime(
+            fileStore: TaskStateFileStore(workspaceManager: workspaceManager)
+        )
 
         var continuation: AsyncStream<AgentEvent>.Continuation?
         self.events = AsyncStream { streamContinuation in
@@ -54,19 +64,38 @@ final class AgentLoop {
     }
 
     func resetConversation() {
+        resolvePendingApprovals(approved: false)
         session = AgentSession()
         state = .idle
         pendingInterruptions = []
     }
 
     func replaceSession(_ session: AgentSession) {
+        resolvePendingApprovals(approved: false)
         self.session = session
+        refreshTaskSnapshotFromDiskIfAvailable()
         state = .idle
         pendingInterruptions = []
     }
 
     func currentSessionSnapshot() -> AgentSession {
         session
+    }
+
+    private func refreshTaskSnapshotFromDiskIfAvailable() {
+        guard let selection = try? workspaceManager.currentSelection() else {
+            return
+        }
+        let identity = AgentTaskStateIdentity(
+            projectID: selection.projectID,
+            threadID: selection.threadID,
+            sessionID: session.id,
+            taskRunID: nil
+        )
+        session.taskStateSnapshot = taskStateRuntime.loadSnapshot(
+            identity: identity,
+            fallback: session.taskStateSnapshot
+        )
     }
 
     var acceptsQueuedUserGuidance: Bool {
@@ -84,11 +113,27 @@ final class AgentLoop {
         pendingInterruptions.append(trimmed)
     }
 
+    func resolveApprovalRequest(_ id: UUID, approved: Bool) {
+        resolveApprovalRequest(id, resolution: approved ? .approved : .rejected)
+    }
+
+    func resolveApprovalRequest(_ id: UUID, resolution: ToolApprovalResolution) {
+        let request = pendingApprovalRequests.removeValue(forKey: id)
+        if case .approvedForSession = resolution, let request {
+            toolAuthorizationStore.approve(actionID: request.toolActionID, in: request.sessionID)
+        }
+
+        guard let continuation = pendingApprovalContinuations.removeValue(forKey: id) else {
+            return
+        }
+        continuation.resume(returning: resolution.isApproved)
+    }
+
     func currentContextCompositionSnapshot(actions: [ToolAction]) -> ContextCompositionSnapshot {
-        let reasoningProfile = currentReasoningStrengthProfile()
+        let runProfile = currentAgentRunProfile()
         let baseSystemPrompt = makeBaseSystemPrompt(
             actions: actions,
-            reasoningProfile: reasoningProfile,
+            runProfile: runProfile,
             phaseThoughtEnabled: isExternalReasoningEnabled
         )
         let activeProjectID = try? workspaceManager.currentSelection().projectID
@@ -115,10 +160,13 @@ final class AgentLoop {
         let hiddenResearchTokens = contextAssembler.researchStateAssembler.hiddenResearchPrompt(for: session).map {
             ApproximateTokenCounter.estimate($0)
         } ?? 0
+        let hiddenTaskTokens = contextAssembler.taskContextProjector.hiddenTaskPrompt(for: session).map {
+            ApproximateTokenCounter.estimate($0)
+        } ?? 0
         let toolDefinitionContribution = toolDefinitionContextContribution(for: actions)
 
-        var messageTokens = hiddenSummaryTokens + hiddenResearchTokens
-        var messageCount = hiddenSummaryCount + (hiddenResearchTokens > 0 ? 1 : 0)
+        var messageTokens = hiddenSummaryTokens + hiddenResearchTokens + hiddenTaskTokens
+        var messageCount = hiddenSummaryCount + (hiddenResearchTokens > 0 ? 1 : 0) + (hiddenTaskTokens > 0 ? 1 : 0)
 
         for message in rawMessages {
             let messageContribution = messageContextContribution(for: message)
@@ -130,7 +178,7 @@ final class AgentLoop {
 
         return ContextCompositionSnapshot(
             totalTokens: totalTokens,
-            maxTokens: reasoningProfile.contextCompaction.maximumContextTokenCount,
+            maxTokens: runProfile.contextCompaction.maximumContextTokenCount,
             systemPromptTokens: systemPromptTokens,
             skillTokens: skillTokens,
             messageTokens: messageTokens,
@@ -147,10 +195,10 @@ final class AgentLoop {
         providerID: APIProviderID,
         actions: [ToolAction]
     ) async throws -> Bool {
-        let reasoningProfile = currentReasoningStrengthProfile()
+        let runProfile = currentAgentRunProfile()
         let baseSystemPrompt = makeBaseSystemPrompt(
             actions: actions,
-            reasoningProfile: reasoningProfile,
+            runProfile: runProfile,
             phaseThoughtEnabled: isExternalReasoningEnabled
         )
         let activeProjectID = try? workspaceManager.currentSelection().projectID
@@ -158,18 +206,19 @@ final class AgentLoop {
         let shouldCompact = contextCompactor.shouldCompact(
             session: session,
             force: true,
-            configuration: reasoningProfile.contextCompaction
-        )
-        if shouldCompact {
-            emit(.contextCompactionStarted(source: .manual))
-        }
+            configuration: runProfile.contextCompaction
+            )
+            if shouldCompact {
+                appendEventLog(.contextCompactionStarted, summary: "手动压缩上下文")
+                emit(.contextCompactionStarted(source: .manual))
+            }
         do {
             let compaction = try await contextCompactor.forceCompact(
                 session: session,
                 providerID: providerID,
                 baseSystemPrompt: baseSystemPrompt,
                 skills: activeSkills,
-                configuration: reasoningProfile.contextCompaction
+                configuration: runProfile.contextCompaction
             )
             return apply(compaction: compaction, source: .manual, emitCompletionEvent: shouldCompact)
         } catch {
@@ -192,10 +241,10 @@ final class AgentLoop {
         actions: [ToolAction],
         protectedRecentMessageCount: Int = 0
     ) async throws -> Bool {
-        let reasoningProfile = currentReasoningStrengthProfile()
+        let runProfile = currentAgentRunProfile()
         let baseSystemPrompt = makeBaseSystemPrompt(
             actions: actions,
-            reasoningProfile: reasoningProfile,
+            runProfile: runProfile,
             phaseThoughtEnabled: isExternalReasoningEnabled
         )
         let activeProjectID = try? workspaceManager.currentSelection().projectID
@@ -205,14 +254,14 @@ final class AgentLoop {
             baseSystemPrompt: baseSystemPrompt,
             skills: activeSkills,
             protectedRecentMessageCount: protectedRecentMessageCount,
-            configuration: reasoningProfile.contextCompaction
+            configuration: runProfile.contextCompaction
         )
     }
 
     func currentContextUsageSnapshot() -> ContextUsageSnapshot {
         ContextUsageEstimator.snapshot(
             for: session,
-            configuration: currentReasoningStrengthProfile().contextCompaction,
+            configuration: currentAgentRunProfile().contextCompaction,
             toolContextProjector: toolContextProjector
         )
     }
@@ -226,12 +275,30 @@ final class AgentLoop {
         guard !trimmedInput.isEmpty else {
             throw AppError.invalidState("请输入要让模型执行的自然语言指令。")
         }
-        let reasoningProfile = currentReasoningStrengthProfile()
-        let maxIterations = reasoningProfile.maxIterations
-        let contextCompactionConfiguration = reasoningProfile.contextCompaction
+        let runProfile = currentAgentRunProfile()
+        let toolRouter = ToolRouter(
+            phaseThoughtToolName: Self.phaseThoughtToolName,
+            taskStateToolName: TaskStateToolDefinitionFactory.toolName
+        )
+        let toolPlanner = ToolExecutionPlanner()
+        let runVerifier = RunVerifier()
+        let contextCompactionConfiguration = runProfile.contextCompaction
         let phaseThoughtEnabled = isExternalReasoningEnabled
+        let selection = try workspaceManager.currentSelection()
+        let surface = (try? workspaceManager.currentProject().surface) ?? .professional
+        let taskIdentity = AgentTaskStateIdentity(
+            projectID: selection.projectID,
+            threadID: selection.threadID,
+            sessionID: session.id,
+            taskRunID: nil
+        )
 
         do {
+            taskStateRuntime.beginTurn()
+            session.taskStateSnapshot = taskStateRuntime.loadSnapshot(
+                identity: taskIdentity,
+                fallback: session.taskStateSnapshot
+            )
             pendingInterruptions = []
             defer {
                 switch state {
@@ -242,33 +309,41 @@ final class AgentLoop {
                 }
             }
             session.append(.user(text: trimmedInput))
-            let turnStartMessageIndex = max(0, session.messages.count - 1)
+            appendEventLog(.turnStarted, summary: "开始新一轮任务")
+            let turnContext = AgentTurnContext(
+                userInput: trimmedInput,
+                providerID: providerID,
+                actions: actions,
+                runProfile: runProfile,
+                phaseThoughtEnabled: phaseThoughtEnabled,
+                turnStartMessageIndex: max(0, session.messages.count - 1)
+            )
 
-            var toolDefinitions = LLMToolDefinitionBuilder.makeToolDefinitions(for: actions)
-            if phaseThoughtEnabled {
-                toolDefinitions.append(phaseThoughtToolDefinition())
-            }
+            let actionToolDefinitions = LLMToolDefinitionBuilder.makeToolDefinitions(for: actions)
+            var exposesTaskStateTool = taskToolExposurePolicy.shouldExpose(
+                userInput: trimmedInput,
+                session: session,
+                surface: surface
+            )
             var executedSteps: [LLMToolExecutionStep] = []
+            var toolAuditStore = ToolAuditStore(records: session.toolAuditRecords)
+            var evidenceStore = EvidenceStore(references: session.evidenceReferences)
             var outputTokens = 0
             var iterations = 0
 
             while true {
                 _ = consumePendingInterruptions()
-                iterations += 1
-                if iterations > maxIterations {
-                    return await finalizeOnIterationCap(
-                        providerID: providerID,
-                        actions: actions,
-                        executedSteps: executedSteps,
-                        outputTokens: outputTokens,
-                        iterations: maxIterations,
-                        protectedRecentMessageCount: session.messages.count - turnStartMessageIndex
-                    )
+                var toolDefinitions = actionToolDefinitions
+                if phaseThoughtEnabled {
+                    toolDefinitions.append(phaseThoughtToolDefinition())
                 }
-
+                if exposesTaskStateTool {
+                    toolDefinitions.append(TaskStateToolDefinitionFactory.makeToolDefinition())
+                }
+                let exposesAnyTools = !toolDefinitions.isEmpty
                 let baseSystemPrompt = makeBaseSystemPrompt(
                     actions: actions,
-                    reasoningProfile: reasoningProfile,
+                    runProfile: runProfile,
                     phaseThoughtEnabled: phaseThoughtEnabled
                 )
                 let activeProjectID = try? workspaceManager.currentSelection().projectID
@@ -277,7 +352,7 @@ final class AgentLoop {
                     providerID: providerID,
                     baseSystemPrompt: baseSystemPrompt,
                     skills: activeSkills,
-                    protectedRecentMessageCount: session.messages.count - turnStartMessageIndex,
+                    protectedRecentMessageCount: session.messages.count - turnContext.turnStartMessageIndex,
                     configuration: contextCompactionConfiguration
                 )
                 if consumePendingInterruptions() {
@@ -288,29 +363,42 @@ final class AgentLoop {
                     skills: activeSkills,
                     session: session,
                     actions: actions,
-                    exposesTools: !actions.isEmpty,
+                    exposesTools: exposesAnyTools,
                     exposesPhaseThought: phaseThoughtEnabled
                 )
 
                 state = .thinking
-                let response: LLMAPIClientResponse
+                let response: AgentModelResponse
                 do {
-                    response = try await apiClient.createChatCompletion(
-                        providerID: providerID,
-                        apiMessages: assembledContext.apiMessages,
-                        tools: toolDefinitions,
-                        preferredReasoning: reasoningProfile.modelReasoningEffort
+                    iterations += 1
+                    appendEventLog(.modelRequest, summary: "请求模型第 \(iterations) 次")
+                    response = try await modelRuntime.complete(
+                        AgentModelRequest(
+                            selection: AgentModelSelection(
+                                providerID: providerID,
+                                reasoning: runProfile.modelReasoningRequest
+                            ),
+                            apiMessages: assembledContext.apiMessages,
+                            tools: toolDefinitions,
+                            toolIntent: .auto
+                        )
                     )
                 } catch {
+                    appendEventLog(
+                        .modelFailure,
+                        summary: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    )
                     if executedSteps.isEmpty {
                         throw error
                     }
                     state = .completed
+                    let finalReply = fallbackReply(
+                        for: executedSteps,
+                        trailingError: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    )
+                    appendEventLog(.finalReply, summary: "模型失败后基于已有工具结果停止")
                     return AgentTurnResult(
-                        finalReply: fallbackReply(
-                            for: executedSteps,
-                            trailingError: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                        ),
+                        finalReply: finalReply,
                         outputTokens: outputTokens,
                         iterations: iterations
                     )
@@ -320,11 +408,16 @@ final class AgentLoop {
                 outputTokens += response.totalTokens
                 session.cumulativeUsage.add(totalTokens: response.totalTokens)
                 session.append(response.message)
+                appendEventLog(
+                    .modelResponse,
+                    summary: "模型返回 \(response.totalTokens) tokens，工具调用 \(response.message.toolUses.count) 个"
+                )
 
                 if consumePendingInterruptions(discardLastAssistantMessage: true) {
                     continue
                 }
 
+                let displayableReasoningMessage = response.message
                 let assistantText = LLMGuardrails.sanitizeUserFacingReply(
                     response.message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
                 )
@@ -334,28 +427,8 @@ final class AgentLoop {
                     if consumePendingInterruptions() {
                         continue
                     }
-                    if let rewrittenFinalReply = await forceDetailedFinalReplyIfNeeded(
-                        candidateReply: assistantText,
-                        providerID: providerID,
-                        baseSystemPrompt: baseSystemPrompt,
-                        actions: actions,
-                        phaseThoughtEnabled: phaseThoughtEnabled,
-                        skills: activeSkills,
-                        executedSteps: executedSteps,
-                        currentOutputTokens: outputTokens,
-                        reasoningProfile: reasoningProfile
-                    ) {
-                        outputTokens += rewrittenFinalReply.response.totalTokens
-                        session.cumulativeUsage.add(totalTokens: rewrittenFinalReply.response.totalTokens)
-                        session.append(rewrittenFinalReply.response.message)
-                        emit(.tokenUpdate(totalTokens: outputTokens))
-                        state = .completed
-                        return AgentTurnResult(
-                            finalReply: rewrittenFinalReply.reply,
-                            outputTokens: outputTokens,
-                            iterations: iterations
-                        )
-                    }
+
+                    emitNativeReasoningCardIfPresent(from: displayableReasoningMessage)
 
                     if executedSteps.isEmpty {
                         emit(.tokenUpdate(totalTokens: outputTokens))
@@ -371,82 +444,375 @@ final class AgentLoop {
                     }
 
                     state = .completed
+                    let finalReply = assistantText.isEmpty
+                        ? LLMGuardrails.sanitizeUserFacingReply(fallbackReply(for: executedSteps))
+                        : assistantText
+                    appendEventLog(.finalReply, summary: executedSteps.isEmpty ? "已直接答复" : "已基于工具结果答复")
                     return AgentTurnResult(
-                        finalReply: assistantText.isEmpty
-                            ? LLMGuardrails.sanitizeUserFacingReply(fallbackReply(for: executedSteps))
-                            : assistantText,
+                        finalReply: finalReply,
                         outputTokens: outputTokens,
                         iterations: iterations
                     )
                 }
 
+                emitNativeReasoningCardIfPresent(from: displayableReasoningMessage)
+
                 if let progressNote = toolBatchProgressNote(assistantText: assistantText) {
+                    taskStateRuntime.recordNonTaskProgress()
                     emit(.assistantText(progressNote))
                 }
 
                 emit(.tokenUpdate(totalTokens: outputTokens))
                 state = .executing
                 var shouldStopAfterBatch = false
+                let routedCalls = toolUses.map { toolRouter.route($0, actions: actions) }
+                let batches = toolPlanner.plan(routedCalls)
 
-                for toolUse in toolUses {
-                    if toolUse.name == Self.phaseThoughtToolName {
-                        let thoughtOutput = handlePhaseThoughtTool(toolUse)
-                        session.append(
-                            .toolResult(
-                                toolUseID: toolUse.id,
-                                toolName: toolUse.name,
-                                output: thoughtOutput,
-                                isError: false
+                batchLoop: for batch in batches {
+                    if case .parallelReadOnly = batch.kind {
+                        var parallelCalls: [AgentParallelToolCall] = []
+
+                        for (index, routedCall) in batch.calls.enumerated() {
+                            let toolUse = routedCall.toolUse
+
+                            if let routingError = routedCall.routingError {
+                                session.append(
+                                    .toolResult(
+                                        toolUseID: toolUse.id,
+                                        toolName: toolUse.name,
+                                        output: routingError,
+                                        isError: true
+                                    )
+                                )
+                                continue
+                            }
+
+                            guard let routedPrepared = routedCall.prepared else {
+                                session.append(
+                                    .toolResult(
+                                        toolUseID: toolUse.id,
+                                        toolName: toolUse.name,
+                                        output: "工具路由失败：没有生成可执行调用。",
+                                        isError: true
+                                    )
+                                )
+                                continue
+                            }
+
+                            let prepared: AgentPreparedToolExecution
+                            switch toolExecutor.prepare(toolUse, actions: [routedPrepared.action]) {
+                            case .failure(let errorOutput):
+                                session.append(
+                                    .toolResult(
+                                        toolUseID: toolUse.id,
+                                        toolName: toolUse.name,
+                                        output: errorOutput,
+                                        isError: true
+                                    )
+                                )
+                                continue
+                            case .ready(let preparedExecution):
+                                prepared = preparedExecution
+                            }
+
+                            let stepID = UUID()
+                            let startedAt = Date()
+                            taskStateRuntime.recordNonTaskProgress()
+                            appendEventLog(
+                                .toolStarted,
+                                summary: "并发执行 \(prepared.action.title)",
+                                payloadJSON: prepared.argumentsJSON
                             )
-                        )
-                        continue
-                    }
-
-                    switch toolExecutor.prepare(toolUse, actions: actions) {
-                    case .failure(let errorOutput):
-                        session.append(
-                            .toolResult(
-                                toolUseID: toolUse.id,
-                                toolName: toolUse.name,
-                                output: errorOutput,
-                                isError: true
+                            emit(.toolStarted(stepID: stepID, action: prepared.action, argumentsJSON: prepared.argumentsJSON))
+                            parallelCalls.append(
+                                AgentParallelToolCall(
+                                    index: index,
+                                    toolUse: toolUse,
+                                    prepared: prepared,
+                                    stepID: stepID,
+                                    startedAt: startedAt
+                                )
                             )
-                        )
+                        }
 
-                    case .ready(let prepared):
+                        let completedParallelCalls = await executeParallelReadOnlyCalls(parallelCalls)
+                        for completed in completedParallelCalls {
+                            let fileDeltas = attachToolUseID(
+                                completed.execution.step.fileDeltas,
+                                toolUseID: completed.toolUse.id
+                            )
+                            let executionStep = LLMToolExecutionStep(
+                                id: completed.execution.step.id,
+                                action: completed.execution.step.action,
+                                argumentsJSON: completed.execution.step.argumentsJSON,
+                                result: completed.execution.step.result,
+                                requiresUserInteraction: completed.execution.step.requiresUserInteraction,
+                                fileDeltas: fileDeltas
+                            )
+                            executedSteps.append(executionStep)
+                            toolAuditStore.append(
+                                ToolAuditRecord(
+                                    id: UUID(),
+                                    toolUseID: completed.toolUse.id,
+                                    toolName: executionStep.action.id.rawValue,
+                                    riskLevel: executionStep.action.id.policyMetadata.riskLevel,
+                                    argumentsJSON: completed.prepared.argumentsJSON,
+                                    status: executionStep.result.status,
+                                    summary: executionStep.result.summary,
+                                    startedAt: completed.startedAt,
+                                    finishedAt: .now,
+                                    requiresUserInteraction: executionStep.requiresUserInteraction
+                                )
+                            )
+                            session.toolAuditRecords = toolAuditStore.records
+                            if !fileDeltas.isEmpty {
+                                session.fileDeltas.append(contentsOf: fileDeltas)
+                                evidenceStore.ingest(fileDeltas: fileDeltas)
+                                session.evidenceReferences = evidenceStore.references
+                            }
+                            session.append(
+                                .toolResult(
+                                    toolUseID: completed.toolUse.id,
+                                    toolName: executionStep.action.id.rawValue,
+                                    output: completed.execution.payload,
+                                    isError: executionStep.result.status == .failure
+                                )
+                            )
+                            if let hiddenArtifacts = await toolArtifactPipeline.ingest(
+                                session: session,
+                                toolResult: AgentToolResultRecord(
+                                    toolUseID: completed.toolUse.id,
+                                    toolName: executionStep.action.id.rawValue,
+                                    output: completed.execution.payload,
+                                    isError: executionStep.result.status == .failure
+                                ),
+                                providerID: providerID,
+                                userGoal: trimmedInput
+                            ) {
+                                session.hiddenArtifacts = hiddenArtifacts
+                                evidenceStore.ingest(hiddenArtifacts: hiddenArtifacts)
+                                session.evidenceReferences = evidenceStore.references
+                            }
+                            appendEventLog(
+                                .toolFinished,
+                                summary: "\(executionStep.action.title)：\(executionStep.result.summary)",
+                                payloadJSON: executionStep.result.details
+                            )
+                            emit(.toolFinished(step: executionStep))
+                        }
+                    } else {
+                    for routedCall in batch.calls {
+                        let toolUse = routedCall.toolUse
+                        if case .progress = routedCall.kind {
+                            let thoughtOutput = handlePhaseThoughtTool(toolUse)
+                            taskStateRuntime.recordNonTaskProgress()
+                            session.append(
+                                .toolResult(
+                                    toolUseID: toolUse.id,
+                                    toolName: toolUse.name,
+                                    output: thoughtOutput,
+                                    isError: false
+                                )
+                            )
+                            continue
+                        }
+
+                        if case .taskState = routedCall.kind {
+                            let update = taskStateRuntime.handleUpdateTool(
+                                input: toolUse.input,
+                                identity: taskIdentity,
+                                snapshot: session.taskStateSnapshot
+                            )
+                            session.taskStateSnapshot = update.snapshot
+                            if update.isError {
+                                exposesTaskStateTool = false
+                            }
+                            session.append(
+                                .toolResult(
+                                    toolUseID: toolUse.id,
+                                    toolName: toolUse.name,
+                                    output: update.payload,
+                                    isError: update.isError
+                                )
+                            )
+                            appendEventLog(
+                                .taskStateUpdated,
+                                summary: update.summary,
+                                payloadJSON: update.payload
+                            )
+                            emit(.taskStateChanged(update.snapshot))
+                            continue
+                        }
+
+                        if let routingError = routedCall.routingError {
+                            session.append(
+                                .toolResult(
+                                    toolUseID: toolUse.id,
+                                    toolName: toolUse.name,
+                                    output: routingError,
+                                    isError: true
+                                )
+                            )
+                            continue
+                        }
+
+                        guard let routedPrepared = routedCall.prepared else {
+                            session.append(
+                                .toolResult(
+                                    toolUseID: toolUse.id,
+                                    toolName: toolUse.name,
+                                    output: "工具路由失败：没有生成可执行调用。",
+                                    isError: true
+                                )
+                            )
+                            continue
+                        }
+
+                        let prepared: AgentPreparedToolExecution
+                        switch toolExecutor.prepare(toolUse, actions: [routedPrepared.action]) {
+                        case .failure(let errorOutput):
+                            session.append(
+                                .toolResult(
+                                    toolUseID: toolUse.id,
+                                    toolName: toolUse.name,
+                                    output: errorOutput,
+                                    isError: true
+                                )
+                            )
+                            continue
+                        case .ready(let preparedExecution):
+                            prepared = preparedExecution
+                        }
+
+                        if let policy = routedCall.policy {
+                            let approved = await requestApprovalIfNeeded(
+                                toolUse: toolUse,
+                                prepared: prepared,
+                                policy: policy,
+                                providerID: providerID,
+                                userGoal: trimmedInput
+                            )
+                            if !approved {
+                                taskStateRuntime.recordNonTaskProgress()
+                                let stepID = UUID()
+                                let execution = toolExecutor.skippedByUser(prepared, stepID: stepID)
+                                executedSteps.append(execution.step)
+                                toolAuditStore.append(
+                                    ToolAuditRecord(
+                                        id: UUID(),
+                                        toolUseID: toolUse.id,
+                                        toolName: execution.step.action.id.rawValue,
+                                        riskLevel: execution.step.action.id.policyMetadata.riskLevel,
+                                        argumentsJSON: prepared.argumentsJSON,
+                                        status: execution.step.result.status,
+                                        summary: execution.step.result.summary,
+                                        startedAt: .now,
+                                        finishedAt: .now,
+                                        requiresUserInteraction: false
+                                    )
+                                )
+                                session.toolAuditRecords = toolAuditStore.records
+                                session.append(
+                                    .toolResult(
+                                        toolUseID: toolUse.id,
+                                        toolName: execution.step.action.id.rawValue,
+                                        output: execution.payload,
+                                        isError: false
+                                    )
+                                )
+                                emit(.toolFinished(step: execution.step))
+                                shouldStopAfterBatch = true
+                                continue
+                            }
+                        }
+
                         let stepID = UUID()
+                        let toolStartedAt = Date()
+                        taskStateRuntime.recordNonTaskProgress()
+                        appendEventLog(
+                            .toolStarted,
+                            summary: "开始执行 \(prepared.action.title)",
+                            payloadJSON: prepared.argumentsJSON
+                        )
                         emit(.toolStarted(stepID: stepID, action: prepared.action, argumentsJSON: prepared.argumentsJSON))
 
                         let execution = await toolExecutor.execute(prepared, stepID: stepID)
-                        executedSteps.append(execution.step)
+                        let fileDeltas = attachToolUseID(
+                            execution.step.fileDeltas,
+                            toolUseID: toolUse.id
+                        )
+                        let executionStep = LLMToolExecutionStep(
+                            id: execution.step.id,
+                            action: execution.step.action,
+                            argumentsJSON: execution.step.argumentsJSON,
+                            result: execution.step.result,
+                            requiresUserInteraction: execution.step.requiresUserInteraction,
+                            fileDeltas: fileDeltas
+                        )
+                        executedSteps.append(executionStep)
+                        toolAuditStore.append(
+                            ToolAuditRecord(
+                                id: UUID(),
+                                toolUseID: toolUse.id,
+                                toolName: executionStep.action.id.rawValue,
+                                riskLevel: executionStep.action.id.policyMetadata.riskLevel,
+                                argumentsJSON: prepared.argumentsJSON,
+                                status: executionStep.result.status,
+                                summary: executionStep.result.summary,
+                                startedAt: toolStartedAt,
+                                finishedAt: .now,
+                                requiresUserInteraction: executionStep.requiresUserInteraction
+                            )
+                        )
+                        session.toolAuditRecords = toolAuditStore.records
+                        if !fileDeltas.isEmpty {
+                            session.fileDeltas.append(contentsOf: fileDeltas)
+                            evidenceStore.ingest(fileDeltas: fileDeltas)
+                            session.evidenceReferences = evidenceStore.references
+                        }
 
                         session.append(
                             .toolResult(
                                 toolUseID: toolUse.id,
-                                toolName: execution.step.action.id.rawValue,
+                                toolName: executionStep.action.id.rawValue,
                                 output: execution.payload,
-                                isError: execution.step.result.status == .failure
+                                isError: executionStep.result.status == .failure
                             )
                         )
                         if let hiddenArtifacts = await toolArtifactPipeline.ingest(
                             session: session,
                             toolResult: AgentToolResultRecord(
                                 toolUseID: toolUse.id,
-                                toolName: execution.step.action.id.rawValue,
+                                toolName: executionStep.action.id.rawValue,
                                 output: execution.payload,
-                                isError: execution.step.result.status == .failure
+                                isError: executionStep.result.status == .failure
                             ),
                             providerID: providerID,
                             userGoal: trimmedInput
                         ) {
                             session.hiddenArtifacts = hiddenArtifacts
+                            evidenceStore.ingest(hiddenArtifacts: hiddenArtifacts)
+                            session.evidenceReferences = evidenceStore.references
                         }
-                        emit(.toolFinished(step: execution.step))
+                        appendEventLog(
+                            .toolFinished,
+                            summary: "\(executionStep.action.title)：\(executionStep.result.summary)",
+                            payloadJSON: executionStep.result.details
+                        )
+                        emit(.toolFinished(step: executionStep))
+                    }
+                    }
 
-                        if execution.shouldStopAfterStep {
-                            shouldStopAfterBatch = true
-                            break
-                        }
+                    switch runVerifier.decisionAfterToolBatch(
+                        batch: batch,
+                        executedSteps: executedSteps,
+                        hasQueuedGuidance: !pendingInterruptions.isEmpty
+                    ) {
+                    case .continueLoop:
+                        break
+                    case .summarize:
+                        shouldStopAfterBatch = true
+                        break batchLoop
                     }
                 }
 
@@ -456,7 +822,7 @@ final class AgentLoop {
                     }
                     let baseSystemPrompt = makeBaseSystemPrompt(
                         actions: actions,
-                        reasoningProfile: reasoningProfile,
+                        runProfile: runProfile,
                         phaseThoughtEnabled: phaseThoughtEnabled
                     )
                     let activeProjectID = try? workspaceManager.currentSelection().projectID
@@ -465,7 +831,7 @@ final class AgentLoop {
                             providerID: providerID,
                             baseSystemPrompt: baseSystemPrompt,
                             skills: activeSkills,
-                            protectedRecentMessageCount: session.messages.count - turnStartMessageIndex,
+                            protectedRecentMessageCount: session.messages.count - turnContext.turnStartMessageIndex,
                             configuration: contextCompactionConfiguration
                         )
                     let assembledContext = contextAssembler.assemble(
@@ -473,31 +839,37 @@ final class AgentLoop {
                         skills: activeSkills,
                         session: session,
                         actions: actions,
-                        exposesTools: !actions.isEmpty,
+                        exposesTools: false,
                         exposesPhaseThought: phaseThoughtEnabled
                     )
                     state = .summarizing
-                    let summaryResponse: LLMAPIClientResponse
+                    let summaryResponse: AgentModelResponse
                     let baseSummaryTokens = outputTokens
                     do {
-                        summaryResponse = try await apiClient.createStreamingChatCompletion(
-                            providerID: providerID,
-                            apiMessages: assembledContext.apiMessages,
-                            onDelta: { text in
-                                self.emit(.streamingDelta(text: text))
-                            },
-                            onTokenEstimate: { estimatedRequestTokens in
-                                self.emit(.tokenUpdate(totalTokens: baseSummaryTokens + estimatedRequestTokens))
-                            },
-                            preferredReasoning: reasoningProfile.modelReasoningEffort
+                        summaryResponse = try await modelRuntime.stream(
+                            AgentModelStreamingRequest(
+                                selection: AgentModelSelection(
+                                    providerID: providerID,
+                                    reasoning: runProfile.modelReasoningRequest
+                                ),
+                                apiMessages: assembledContext.apiMessages,
+                                onDelta: { text in
+                                    self.emit(.streamingDelta(text: text))
+                                },
+                                onTokenEstimate: { estimatedRequestTokens in
+                                    self.emit(.tokenUpdate(totalTokens: baseSummaryTokens + estimatedRequestTokens))
+                                }
+                            )
                         )
                     } catch {
                         state = .completed
+                        let finalReply = fallbackReply(
+                            for: executedSteps,
+                            trailingError: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                        )
+                        appendEventLog(.finalReply, summary: "总结失败后基于已有工具结果停止")
                         return AgentTurnResult(
-                            finalReply: fallbackReply(
-                                for: executedSteps,
-                                trailingError: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                            ),
+                            finalReply: finalReply,
                             outputTokens: outputTokens,
                             iterations: iterations
                         )
@@ -506,16 +878,19 @@ final class AgentLoop {
                     outputTokens += summaryResponse.totalTokens
                     session.cumulativeUsage.add(totalTokens: summaryResponse.totalTokens)
                     session.append(summaryResponse.message)
+                    emitNativeReasoningCardIfPresent(from: summaryResponse.message)
                     emit(.tokenUpdate(totalTokens: outputTokens))
                     state = .completed
 
                     let finalReply = LLMGuardrails.sanitizeUserFacingReply(
                         summaryResponse.message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
                     )
+                    let resolvedFinalReply = finalReply.isEmpty
+                        ? LLMGuardrails.sanitizeUserFacingReply(fallbackReply(for: executedSteps))
+                        : finalReply
+                    appendEventLog(.finalReply, summary: "已完成阶段性总结")
                     return AgentTurnResult(
-                        finalReply: finalReply.isEmpty
-                            ? LLMGuardrails.sanitizeUserFacingReply(fallbackReply(for: executedSteps))
-                            : finalReply,
+                        finalReply: resolvedFinalReply,
                         outputTokens: outputTokens,
                         iterations: iterations
                     )
@@ -580,6 +955,288 @@ final class AgentLoop {
 
     private func emit(_ event: AgentEvent) {
         eventContinuation.yield(event)
+    }
+
+    private func appendEventLog(
+        _ kind: AgentEventLogKind,
+        summary: String,
+        payloadJSON: String? = nil
+    ) {
+        let entry = AgentEventLogEntry(kind: kind, summary: summary, payloadJSON: payloadJSON)
+        session.eventLogEntries.append(entry)
+        emit(.eventLogged(entry))
+    }
+
+    private func executeParallelReadOnlyCalls(
+        _ calls: [AgentParallelToolCall]
+    ) async -> [AgentParallelToolCompletion] {
+        guard !calls.isEmpty else { return [] }
+
+        return await withTaskGroup(of: AgentParallelToolCompletion.self) { group in
+            for call in calls {
+                group.addTask { @MainActor in
+                    let execution = await self.toolExecutor.execute(call.prepared, stepID: call.stepID)
+                    return AgentParallelToolCompletion(call: call, execution: execution)
+                }
+            }
+
+            var completions: [AgentParallelToolCompletion] = []
+            for await completion in group {
+                completions.append(completion)
+            }
+            return completions.sorted { $0.index < $1.index }
+        }
+    }
+
+    private func requestApprovalIfNeeded(
+        toolUse: AgentToolUse,
+        prepared: AgentPreparedToolExecution,
+        policy: ToolPolicyMetadata,
+        providerID: APIProviderID,
+        userGoal: String
+    ) async -> Bool {
+        if policy.confirmationPolicy == .allow {
+            return true
+        }
+
+        let request = AgentApprovalRequest(
+            sessionID: session.id,
+            toolUseID: toolUse.id,
+            toolName: prepared.action.id.rawValue,
+            toolActionID: prepared.action.id,
+            toolTitle: prepared.action.title,
+            riskLevel: policy.riskLevel,
+            sideEffect: policy.sideEffect,
+            confirmationPolicy: policy.confirmationPolicy,
+            systemPermissions: toolAuthorizationStore.systemPermissionRequirements(for: prepared.action.id),
+            argumentsJSON: prepared.argumentsJSON
+        )
+
+        if toolAuthorizationStore.isApproved(actionID: prepared.action.id, in: session.id) {
+            recordApprovalResolution(
+                request: request,
+                policy: policy,
+                approved: true,
+                summary: "\(prepared.action.title)：会话内已批准"
+            )
+            return true
+        }
+
+        switch toolAuthorizationStore.mode {
+        case .allowAll:
+            recordApprovalResolution(
+                request: request,
+                policy: policy,
+                approved: true,
+                summary: "\(prepared.action.title)：全部同意"
+            )
+            return true
+
+        case .autoReview:
+            switch await autoReviewApproval(
+                request: request,
+                policy: policy,
+                providerID: providerID,
+                userGoal: userGoal
+            ) {
+            case .approved:
+                recordApprovalResolution(
+                    request: request,
+                    policy: policy,
+                    approved: true,
+                    summary: "\(prepared.action.title)：自动审查通过"
+                )
+                return true
+            case .rejected:
+                recordApprovalResolution(
+                    request: request,
+                    policy: policy,
+                    approved: false,
+                    summary: "\(prepared.action.title)：自动审查拒绝"
+                )
+                return false
+            case .needsUser:
+                break
+            }
+
+        case .askEveryTime:
+            break
+        }
+
+        appendEventLog(
+            .toolApprovalRequested,
+            summary: "请求审批 \(prepared.action.title)",
+            payloadJSON: prepared.argumentsJSON
+        )
+        emit(.approvalRequested(request))
+
+        let approved = await withCheckedContinuation { continuation in
+            pendingApprovalContinuations[request.id] = continuation
+            pendingApprovalRequests[request.id] = request
+        }
+        pendingApprovalRequests.removeValue(forKey: request.id)
+        recordApprovalResolution(
+            request: request,
+            policy: policy,
+            approved: approved,
+            summary: "\(prepared.action.title)：\(approved ? "已批准" : "已拒绝")"
+        )
+        return approved
+    }
+
+    private func recordApprovalResolution(
+        request: AgentApprovalRequest,
+        policy: ToolPolicyMetadata,
+        approved: Bool,
+        summary: String
+    ) {
+        session.userConfirmationRecords.append(
+            UserConfirmationRecord(
+                id: UUID(),
+                approvalRequestID: request.id,
+                toolName: request.toolName,
+                policy: policy.confirmationPolicy,
+                riskLevel: policy.riskLevel,
+                approved: approved,
+                argumentsJSON: request.argumentsJSON,
+                createdAt: .now
+            )
+        )
+        appendEventLog(
+            .toolApprovalResolved,
+            summary: summary,
+            payloadJSON: request.argumentsJSON
+        )
+        emit(.approvalResolved(id: request.id, approved: approved))
+    }
+
+    private enum ToolAutoReviewOutcome {
+        case approved
+        case rejected
+        case needsUser
+    }
+
+    private func autoReviewApproval(
+        request: AgentApprovalRequest,
+        policy: ToolPolicyMetadata,
+        providerID: APIProviderID,
+        userGoal: String
+    ) async -> ToolAutoReviewOutcome {
+        let permissions = request.systemPermissions.map(\.title).joined(separator: "、")
+        let reviewPrompt = """
+        用户目标：
+        \(userGoal)
+
+        待执行工具：
+        名称：\(request.toolTitle)
+        标识：\(request.toolName)
+        风险：\(request.riskLevel.title)
+        动作：\(request.sideEffect.title)
+        系统权限：\(permissions.isEmpty ? "无" : permissions)
+        参数：
+        \(request.argumentsJSON)
+
+        只判断这个工具调用是否与用户目标直接相关、参数是否合理、风险是否可以接受。返回严格 JSON：
+        {"approved":true}
+        或
+        {"approved":false}
+        不要输出其他文字。
+        """
+
+        do {
+            let response = try await modelRuntime.complete(
+                AgentModelRequest(
+                    selection: AgentModelSelection(
+                        providerID: providerID,
+                        modelRole: .lightweightModel,
+                        reasoning: .disabled
+                    ),
+                    apiMessages: [
+                        .system("你是工具调用审批器。只能返回严格 JSON，不解释，不展开推理。"),
+                        .user(reviewPrompt)
+                    ],
+                    tools: [],
+                    toolIntent: .none,
+                    temperatureOverride: 0
+                )
+            )
+
+            guard let approved = parseAutoReviewApproval(response.message.textContent) else {
+                appendEventLog(
+                    .toolApprovalRequested,
+                    summary: "\(request.toolTitle)：自动审查未决，转人工审批",
+                    payloadJSON: request.argumentsJSON
+                )
+                return .needsUser
+            }
+
+            return approved ? .approved : .rejected
+        } catch {
+            appendEventLog(
+                .toolApprovalRequested,
+                summary: "\(request.toolTitle)：自动审查失败，转人工审批",
+                payloadJSON: request.argumentsJSON
+            )
+            return .needsUser
+        }
+    }
+
+    private func parseAutoReviewApproval(_ content: String) -> Bool? {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let jsonText: String
+        if let start = trimmed.firstIndex(of: "{"),
+           let end = trimmed.lastIndex(of: "}"),
+           start <= end {
+            jsonText = String(trimmed[start...end])
+        } else {
+            jsonText = trimmed
+        }
+
+        guard let data = jsonText.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+
+        if let approved = object["approved"] as? Bool {
+            return approved
+        }
+
+        if let decision = object["decision"] as? String {
+            let normalized = decision.lowercased()
+            if ["approve", "approved", "allow", "allowed", "true"].contains(normalized) {
+                return true
+            }
+            if ["reject", "rejected", "deny", "denied", "false"].contains(normalized) {
+                return false
+            }
+        }
+
+        return nil
+    }
+
+    private func resolvePendingApprovals(approved: Bool) {
+        let continuations = pendingApprovalContinuations
+        pendingApprovalContinuations.removeAll()
+        pendingApprovalRequests.removeAll()
+        for (_, continuation) in continuations {
+            continuation.resume(returning: approved)
+        }
+    }
+
+    private func attachToolUseID(_ deltas: [FileDelta], toolUseID: String) -> [FileDelta] {
+        deltas.map { delta in
+            FileDelta(
+                id: delta.id,
+                toolUseID: toolUseID,
+                toolName: delta.toolName,
+                path: delta.path,
+                kind: delta.kind,
+                beforeByteCount: delta.beforeByteCount,
+                afterByteCount: delta.afterByteCount,
+                summary: delta.summary,
+                createdAt: delta.createdAt
+            )
+        }
     }
 
     private func messageContextContribution(for message: AgentMessage) -> (tokens: Int, count: Int) {
@@ -675,6 +1332,7 @@ final class AgentLoop {
                 configuration: configuration
             )
             if shouldCompact {
+                appendEventLog(.contextCompactionStarted, summary: "自动压缩上下文")
                 emit(.contextCompactionStarted(source: .automatic))
             }
             let compaction = try await contextCompactor.maybeCompact(
@@ -699,9 +1357,9 @@ final class AgentLoop {
         }
     }
 
-    private func currentReasoningStrengthProfile() -> ReasoningStrengthProfile {
+    private func currentAgentRunProfile() -> AgentRunProfile {
         let surface = (try? workspaceManager.currentProject().surface) ?? .professional
-        return ReasoningStrengthProfile.current(
+        return AgentRunProfile.current(
             for: surface,
             userDefaults: configuration.userDefaults
         )
@@ -709,12 +1367,12 @@ final class AgentLoop {
 
     private func makeBaseSystemPrompt(
         actions: [ToolAction],
-        reasoningProfile: ReasoningStrengthProfile,
+        runProfile: AgentRunProfile,
         phaseThoughtEnabled: Bool
     ) -> String {
         promptBuilder.build(
             actions: actions,
-            tier: reasoningProfile.professionalTier,
+            tier: runProfile.professionalTier,
             exposesTools: !actions.isEmpty,
             exposesPhaseThought: phaseThoughtEnabled
         )
@@ -734,6 +1392,7 @@ final class AgentLoop {
 
         guard let notice = compaction.notice else {
             if emitCompletionEvent {
+                appendEventLog(.contextCompactionFinished, summary: "上下文无需压缩")
                 emit(
                     .contextCompactionFinished(
                         source: source,
@@ -747,6 +1406,10 @@ final class AgentLoop {
         }
 
         if emitCompletionEvent {
+            appendEventLog(
+                .contextCompactionFinished,
+                summary: "已压缩 \(notice.compactedMessageCount) 条，保留 \(notice.retainedMessageCount) 条"
+            )
             emit(
                 .contextCompactionFinished(
                     source: source,
@@ -759,9 +1422,9 @@ final class AgentLoop {
         return true
     }
 
-    private func phaseThoughtToolDefinition() -> OpenAIChatToolDefinition {
-        OpenAIChatToolDefinition(
-            function: OpenAIChatFunctionDefinition(
+    private func phaseThoughtToolDefinition() -> AgentModelToolDefinition {
+        AgentModelToolDefinition(
+            function: AgentModelFunctionDefinition(
                 name: Self.phaseThoughtToolName,
                 description: """
                 [Agent 内部动作] 阶段思考：把当前一步的判断、取舍或下一步决策显式展示给用户，然后继续后续循环。
@@ -836,203 +1499,6 @@ final class AgentLoop {
         return trimmedAssistantText.isEmpty ? nil : trimmedAssistantText
     }
 
-    private func forceDetailedFinalReplyIfNeeded(
-        candidateReply: String,
-        providerID: APIProviderID,
-        baseSystemPrompt: String,
-        actions: [ToolAction],
-        phaseThoughtEnabled: Bool,
-        skills: [SkillPackage],
-        executedSteps: [LLMToolExecutionStep],
-        currentOutputTokens: Int,
-        reasoningProfile: ReasoningStrengthProfile
-    ) async -> (reply: String, response: LLMAPIClientResponse)? {
-        guard shouldForceDetailedFinalReply(candidateReply: candidateReply, executedSteps: executedSteps) else {
-            return nil
-        }
-
-        let assembledContext = contextAssembler.assemble(
-            baseSystemPrompt: baseSystemPrompt,
-            skills: skills,
-            session: session,
-            actions: actions,
-            exposesTools: !actions.isEmpty,
-            exposesPhaseThought: phaseThoughtEnabled
-        )
-        let forcedSummaryMessages = assembledContext.apiMessages + [
-            .system(
-                """
-                你刚才给用户的收尾回复过于简短，没有把工具结果真正交代清楚。
-                现在禁止再调用工具。
-
-                请重新给出最终答复：
-                - 直接写出关键结果，不要让用户自己去看工具卡
-                - 如果有计算、搜索、分析或表格结果，先给结论，再补 2 到 5 条关键依据
-                - 不要重复内部工具名，不要说“已调用某工具”
-                - 不要再只给一句过短的模糊短句
-                """
-            )
-        ]
-
-        do {
-            state = .summarizing
-            let response = try await apiClient.createStreamingChatCompletion(
-                providerID: providerID,
-                apiMessages: forcedSummaryMessages,
-                onDelta: { text in
-                    self.emit(.streamingDelta(text: text))
-                },
-                onTokenEstimate: { estimatedRequestTokens in
-                    self.emit(.tokenUpdate(totalTokens: currentOutputTokens + estimatedRequestTokens))
-                },
-                preferredReasoning: reasoningProfile.modelReasoningEffort
-            )
-
-            let rewrittenReply = LLMGuardrails.sanitizeUserFacingReply(
-                response.message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-            guard !rewrittenReply.isEmpty else {
-                return nil
-            }
-            return (rewrittenReply, response)
-        } catch {
-            return nil
-        }
-    }
-
-    private func shouldForceDetailedFinalReply(
-        candidateReply: String,
-        executedSteps: [LLMToolExecutionStep]
-    ) -> Bool {
-        let trimmedReply = candidateReply.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedReply.isEmpty, !executedSteps.isEmpty else {
-            return false
-        }
-
-        let detailHeavyActions: Set<ToolActionID> = [
-            .pythonSandbox,
-            .runJavaScriptSandbox,
-            .runSandboxTerminal,
-            .searchWeb,
-            .fetchStaticWebPage,
-            .fetchWebBatch,
-            .read
-        ]
-        let recentHeavySteps = executedSteps.suffix(6).filter { step in
-            guard detailHeavyActions.contains(step.action.id) else { return false }
-            let detailText = step.result.details.trimmingCharacters(in: .whitespacesAndNewlines)
-            return detailText.count >= 220 || detailText.contains("\n\n") || detailText.contains("|")
-        }
-        guard !recentHeavySteps.isEmpty else {
-            return false
-        }
-
-        let lineCount = trimmedReply.split(whereSeparator: \.isNewline).count
-        return trimmedReply.count < 96 || lineCount <= 1
-    }
-
-    private func finalizeOnIterationCap(
-        providerID: APIProviderID,
-        actions: [ToolAction],
-        executedSteps: [LLMToolExecutionStep],
-        outputTokens: Int,
-        iterations: Int,
-        protectedRecentMessageCount: Int
-    ) async -> AgentTurnResult {
-        let contextCompactionConfiguration = currentReasoningStrengthProfile().contextCompaction
-        let baseSystemPrompt = makeBaseSystemPrompt(
-            actions: actions,
-            reasoningProfile: currentReasoningStrengthProfile(),
-            phaseThoughtEnabled: isExternalReasoningEnabled
-        )
-        let activeProjectID = try? workspaceManager.currentSelection().projectID
-        let activeSkills = skillRegistry.enabledSkills(for: activeProjectID)
-        _ = await maybeCompactContext(
-            providerID: providerID,
-            baseSystemPrompt: baseSystemPrompt,
-            skills: activeSkills,
-            protectedRecentMessageCount: protectedRecentMessageCount,
-            configuration: contextCompactionConfiguration
-        )
-
-        let assembledContext = contextAssembler.assemble(
-            baseSystemPrompt: baseSystemPrompt,
-            skills: activeSkills,
-            session: session,
-            actions: actions,
-            exposesTools: !actions.isEmpty,
-            exposesPhaseThought: isExternalReasoningEnabled
-        )
-
-        let forcedSummaryMessages = assembledContext.apiMessages + [
-            .system(
-                """
-                你已经达到内部工具续跑上限。
-                从现在开始，禁止再调用工具，也不要继续规划。
-
-                请直接基于当前已有信息给用户一个收口答复：
-                - 先给出已经确认的结果
-                - 如果还不能完全完成，就明确卡点
-                - 最后只给出一个最有效的下一步建议
-
-                不要展示内部推理过程，不要输出“方案一/方案二”之类的内部编号。
-                """
-            )
-        ]
-
-        state = .summarizing
-        let baseSummaryTokens = outputTokens
-
-        do {
-            let summaryResponse = try await apiClient.createStreamingChatCompletion(
-                providerID: providerID,
-                apiMessages: forcedSummaryMessages,
-                onDelta: { text in
-                    self.emit(.streamingDelta(text: text))
-                },
-                onTokenEstimate: { estimatedRequestTokens in
-                    self.emit(.tokenUpdate(totalTokens: baseSummaryTokens + estimatedRequestTokens))
-                },
-                preferredReasoning: currentReasoningStrengthProfile().modelReasoningEffort
-            )
-
-            let finalOutputTokens = outputTokens + summaryResponse.totalTokens
-            session.cumulativeUsage.add(totalTokens: summaryResponse.totalTokens)
-            session.append(summaryResponse.message)
-            emit(.tokenUpdate(totalTokens: finalOutputTokens))
-            state = .completed
-
-            let finalReply = LLMGuardrails.sanitizeUserFacingReply(
-                summaryResponse.message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-
-            return AgentTurnResult(
-                finalReply: finalReply.isEmpty
-                    ? LLMGuardrails.sanitizeUserFacingReply(
-                        fallbackReply(
-                            for: executedSteps,
-                            trailingError: "本轮已达到内部续跑上限，已基于现有结果停止继续搜索。"
-                        )
-                    )
-                    : finalReply,
-                outputTokens: finalOutputTokens,
-                iterations: iterations
-            )
-        } catch {
-            state = .completed
-            return AgentTurnResult(
-                finalReply: LLMGuardrails.sanitizeUserFacingReply(
-                    fallbackReply(
-                        for: executedSteps,
-                        trailingError: "本轮已达到内部续跑上限，且收口总结失败，已基于现有结果停止继续搜索。"
-                    )
-                ),
-                outputTokens: outputTokens,
-                iterations: iterations
-            )
-        }
-    }
-
     private func fallbackReply(for steps: [LLMToolExecutionStep], trailingError: String? = nil) -> String {
         guard let last = steps.last else {
             let suffix = if let trailingError, !trailingError.isEmpty {
@@ -1054,6 +1520,94 @@ final class AgentLoop {
             return "已调用 \(last.action.title)。系统动作已经成功发起。\n\(suffix)".trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return "已调用 \(last.action.title)。结果：\(last.result.summary)\n\(suffix)".trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func emitNativeReasoningCardIfPresent(from message: AgentMessage) {
+        guard let nativeReasoning = message.nativeReasoning,
+              let details = nativeReasoningDisplayText(from: nativeReasoning) else {
+            return
+        }
+
+        emit(
+            .thoughtCard(
+                AgentThoughtCard(
+                    kind: .modelThink,
+                    title: "思考",
+                    summary: nativeReasoningSummary(from: details),
+                    details: details
+                )
+            )
+        )
+    }
+
+    private func nativeReasoningDisplayText(from payload: AgentNativeReasoningPayload) -> String? {
+        if let rawReasoningContent = payload.reasoningContent {
+            let reasoningContent = rawReasoningContent.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !reasoningContent.isEmpty {
+                return reasoningContent
+            }
+        }
+
+        guard let reasoningDetails = payload.reasoningDetails else {
+            return nil
+        }
+
+        switch reasoningDetails {
+        case .string(let value):
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        case .null:
+            return nil
+        case .number, .bool, .array, .object:
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            guard let data = try? encoder.encode(reasoningDetails),
+                  let text = String(data: data, encoding: .utf8) else {
+                return nil
+            }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
+    private func nativeReasoningSummary(from details: String) -> String {
+        let firstLine = details
+            .split(whereSeparator: \.isNewline)
+            .first
+            .map(String.init)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        if firstLine.isEmpty || firstLine == "{" || firstLine == "[" {
+            return "思考详情"
+        }
+
+        return firstLine
+    }
+}
+
+private struct AgentParallelToolCall: Sendable {
+    let index: Int
+    let toolUse: AgentToolUse
+    let prepared: AgentPreparedToolExecution
+    let stepID: UUID
+    let startedAt: Date
+}
+
+private struct AgentParallelToolCompletion: Sendable {
+    let index: Int
+    let toolUse: AgentToolUse
+    let prepared: AgentPreparedToolExecution
+    let stepID: UUID
+    let startedAt: Date
+    let execution: AgentToolExecutionResult
+
+    init(call: AgentParallelToolCall, execution: AgentToolExecutionResult) {
+        index = call.index
+        toolUse = call.toolUse
+        prepared = call.prepared
+        stepID = call.stepID
+        startedAt = call.startedAt
+        self.execution = execution
     }
 }
 

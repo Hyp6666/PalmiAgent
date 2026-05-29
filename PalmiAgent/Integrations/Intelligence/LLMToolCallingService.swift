@@ -6,19 +6,22 @@ struct LLMToolExecutionStep: Identifiable, Sendable {
     let argumentsJSON: String
     let result: ToolResult
     let requiresUserInteraction: Bool
+    let fileDeltas: [FileDelta]
 
     init(
         id: UUID = UUID(),
         action: ToolAction,
         argumentsJSON: String,
         result: ToolResult,
-        requiresUserInteraction: Bool
+        requiresUserInteraction: Bool,
+        fileDeltas: [FileDelta] = []
     ) {
         self.id = id
         self.action = action
         self.argumentsJSON = argumentsJSON
         self.result = result
         self.requiresUserInteraction = requiresUserInteraction
+        self.fileDeltas = fileDeltas
     }
 }
 
@@ -81,6 +84,12 @@ final class LLMToolCallingService {
     private let userDefaults: UserDefaults
     private let lmStudioDiscoveryService: LMStudioDiscoveryService
 
+    private struct RuntimeModelSelection {
+        let model: APIModelDefinition
+        let runtimeProfile: LLMProviderRuntimeProfile
+        let shouldAttemptUnverifiedToolCalls: Bool
+    }
+
     init(
         apiConfigurationStore: APIConfigurationStore,
         session: URLSession = .palmiLLM,
@@ -115,7 +124,7 @@ final class LLMToolCallingService {
         )
         let toolDefinitions = actions.map(makeToolDefinition(for:))
         var messages: [OpenAIChatMessage] = [
-            .system(systemPrompt(toolCount: actions.count, includesPythonSandbox: actions.contains(where: { $0.id == .pythonSandbox }))),
+            .system(systemPrompt(toolCount: actions.count, includesPythonSandbox: actions.contains(where: { $0.id == .runPython }))),
             .user(trimmedPrompt)
         ]
         var steps: [LLMToolExecutionStep] = []
@@ -132,7 +141,9 @@ final class LLMToolCallingService {
         messages.append(
             .assistant(
                 assistantMessage.content,
-                toolCalls: assistantMessage.toolCalls
+                toolCalls: assistantMessage.toolCalls,
+                reasoningContent: assistantMessage.reasoningContent ?? assistantMessage.reasoning ?? assistantMessage.thinking,
+                reasoningDetails: assistantMessage.reasoningDetails
             )
         )
 
@@ -160,7 +171,8 @@ final class LLMToolCallingService {
                 action: action,
                 argumentsJSON: argumentsJSON,
                 result: outcome.result,
-                requiresUserInteraction: outcome.presentation != nil
+                requiresUserInteraction: outcome.presentation != nil,
+                fileDeltas: outcome.fileDeltas
             )
             steps.append(step)
             onEvent?(.toolFinished(step: step))
@@ -233,25 +245,39 @@ final class LLMToolCallingService {
             throw AppError.unsupported("当前 provider 的传输协议还没有接入。")
         }
 
-        let resolvedModel = try await resolvedRequestModel(
+        let preferredModel = try await resolvedRequestModel(
             for: configuration,
             role: .reasoningModel
         )
+        let runtimeSelection = resolvedRuntimeProfile(
+            for: configuration,
+            preferredModel: preferredModel,
+            requestedTools: tools,
+            preferredReasoning: .auto
+        )
+        let runtimeProfile = runtimeSelection.runtimeProfile
+        let resolvedModel = runtimeProfile.model
         let requestMessages = normalizedRequestMessages(
             from: messages,
             for: configuration.provider.id
         )
-        let runtimeProfile = LLMProviderRuntimeResolver.runtimeProfile(
-            for: configuration,
-            model: resolvedModel,
-            preferredReasoning: .auto
+        let requestTools = selectedToolDefinitions(
+            requestedTools: tools,
+            runtimeSelection: runtimeSelection
         )
+        try ensureToolsAreAvailableIfRequested(
+            requestedTools: tools,
+            selectedTools: requestTools,
+            runtimeSelection: runtimeSelection,
+            providerTitle: configuration.provider.title
+        )
+        let toolChoice = runtimeProfile.capabilities.supportsRequiredToolChoice ? "required" : "auto"
 
         let requestBody = OpenAICompatibleChatAdapter.makeRequestBody(
             model: resolvedModel.id,
             messages: requestMessages,
-            tools: tools.isEmpty ? nil : tools,
-            toolChoice: tools.isEmpty ? nil : "auto",
+            tools: requestTools.isEmpty ? nil : requestTools,
+            toolChoice: requestTools.isEmpty ? nil : toolChoice,
             temperature: resolvedInteractiveTemperature(),
             stream: nil,
             runtimeProfile: runtimeProfile
@@ -319,9 +345,15 @@ final class LLMToolCallingService {
             throw AppError.unsupported("当前 provider 的传输协议还没有接入。")
         }
 
-        let resolvedModel = try await resolvedRequestModel(
+        let requestedModel = try await resolvedRequestModel(
             for: configuration,
             role: .reasoningModel
+        )
+        let effectiveReasoning = ModelNativeReasoningPreferenceStore.request(
+            providerID: configuration.provider.id,
+            model: requestedModel,
+            fallback: .auto,
+            userDefaults: userDefaults
         )
         let requestMessages = normalizedRequestMessages(
             from: messages,
@@ -329,9 +361,10 @@ final class LLMToolCallingService {
         )
         let runtimeProfile = LLMProviderRuntimeResolver.runtimeProfile(
             for: configuration,
-            model: resolvedModel,
-            preferredReasoning: .auto
+            model: requestedModel,
+            preferredReasoning: effectiveReasoning
         )
+        let resolvedModel = runtimeProfile.model
 
         let requestBody = OpenAICompatibleChatAdapter.makeRequestBody(
             model: resolvedModel.id,
@@ -525,6 +558,79 @@ final class LLMToolCallingService {
             .requestTemperature(from: userDefaults)
     }
 
+    private func resolvedRuntimeProfile(
+        for configuration: APIResolvedConfiguration,
+        preferredModel: APIModelDefinition,
+        requestedTools: [OpenAIChatToolDefinition],
+        preferredReasoning: ModelReasoningRequest
+    ) -> RuntimeModelSelection {
+        let effectivePreferredReasoning = ModelNativeReasoningPreferenceStore.request(
+            providerID: configuration.provider.id,
+            model: preferredModel,
+            fallback: preferredReasoning,
+            userDefaults: userDefaults
+        )
+        let preferredProfile = LLMProviderRuntimeResolver.runtimeProfile(
+            for: configuration,
+            model: preferredModel,
+            preferredReasoning: effectivePreferredReasoning
+        )
+
+        guard !requestedTools.isEmpty,
+              !preferredProfile.capabilities.supportsToolCalls else {
+            return RuntimeModelSelection(
+                model: preferredProfile.model,
+                runtimeProfile: preferredProfile,
+                shouldAttemptUnverifiedToolCalls: false
+            )
+        }
+
+        return RuntimeModelSelection(
+            model: preferredProfile.model,
+            runtimeProfile: preferredProfile,
+            shouldAttemptUnverifiedToolCalls: shouldAttemptToolsOnUnverifiedModel(preferredProfile)
+        )
+    }
+
+    private func selectedToolDefinitions(
+        requestedTools: [OpenAIChatToolDefinition],
+        runtimeSelection: RuntimeModelSelection
+    ) -> [OpenAIChatToolDefinition] {
+        guard !requestedTools.isEmpty else {
+            return []
+        }
+        if runtimeSelection.runtimeProfile.capabilities.supportsToolCalls {
+            return requestedTools
+        }
+        return runtimeSelection.shouldAttemptUnverifiedToolCalls ? requestedTools : []
+    }
+
+    private func ensureToolsAreAvailableIfRequested(
+        requestedTools: [OpenAIChatToolDefinition],
+        selectedTools: [OpenAIChatToolDefinition],
+        runtimeSelection: RuntimeModelSelection,
+        providerTitle: String
+    ) throws {
+        guard !requestedTools.isEmpty, selectedTools.isEmpty else {
+            return
+        }
+        throw AppError.operationFailed(
+            "\(providerTitle) 当前模型 \(runtimeSelection.model.title) 不支持 Palmi 工具调用。请切换到同一配置里支持 Function Calling 的模型，或关闭工具后再发送。"
+        )
+    }
+
+    private func shouldAttemptToolsOnUnverifiedModel(_ runtimeProfile: LLMProviderRuntimeProfile) -> Bool {
+        guard runtimeProfile.providerID != .deepseek else {
+            return false
+        }
+        switch runtimeProfile.integrationSpec.capabilitySource {
+        case .remoteModelList, .localRuntime, .customUserInput, .conservativeUnknown:
+            return true
+        case .curatedOfficialDocs:
+            return false
+        }
+    }
+
     private func resolvedRequestModel(
         for configuration: APIResolvedConfiguration,
         role: APIModelRole
@@ -533,9 +639,10 @@ final class LLMToolCallingService {
             return configuration.model(for: role)
         }
 
-        return try await lmStudioDiscoveryService
+        let resolved = try await lmStudioDiscoveryService
             .resolvePreferredModel(for: role, configuration: configuration)
             .model
+        return resolved
     }
 
     private func makeToolDefinition(for action: ToolAction) -> OpenAIChatToolDefinition {
@@ -611,7 +718,7 @@ final class LLMToolCallingService {
         1. 只允许调用工具列表里明确提供的工具，不要编造能力。
         2. 优先使用最贴近任务的专用工具，不要为了“总得调用一个工具”而硬选 Python、JavaScript、终端或写文件。
         3. Python、JavaScript、终端、写文件这类通用工具，只用于代码生成、已知数据的计算/转换、工作区文件处理。不要用它们模拟闹钟、地图、通知、短信、日历、联系人、网页搜索等系统或在线能力。
-        4. 涉及当前事实、时刻表、票价、最佳路线、天气等现实世界数据时，必须先依赖现有数据工具；如果当前单工具模式拿不到关键数据，就直接说明做不到，不要编造。
+        4. 涉及当前事实、时刻表、票价、最佳路线、天气等现实世界数据时，必须先依赖现有数据工具；网页搜索默认直接使用搜索工具，只有用户明确要求检测或上一次搜索失败时才调用网络环境检测；如果当前单工具模式拿不到关键数据，就直接说明做不到，不要编造。
         5. 本次只允许调用一个工具。如果任务本质上需要多个工具才能可靠完成，不要勉强选择错误工具，直接说明当前模式或工具边界不足。
         6. 只有当任务真的依赖当前位置时才请求定位，不要把定位当默认第一步。
         7. 如果用户要的是“系统时钟闹钟”，而工具里只有本地通知，就明确说明当前只能创建本地通知，不能创建系统闹钟。
@@ -742,9 +849,10 @@ final class APIConnectionValidationService {
             model: model,
             preferredReasoning: .off
         )
+        let resolvedModel = runtimeProfile.model
 
         let requestBody = OpenAICompatibleChatAdapter.makeRequestBody(
-            model: model.id,
+            model: resolvedModel.id,
             messages: [.user("你好")],
             tools: nil,
             toolChoice: nil,
@@ -886,9 +994,10 @@ final class APIConnectionValidationService {
             return configuration.model(for: role)
         }
 
-        return try await lmStudioDiscoveryService
+        let resolved = try await lmStudioDiscoveryService
             .resolvePreferredModel(for: role, configuration: configuration)
             .model
+        return resolved
     }
 
     private func applyHeaders(_ headers: [String: String], to request: inout URLRequest) {

@@ -137,7 +137,7 @@ enum ContextUsageEstimator {
 
 @MainActor
 final class ContextCompactor {
-    private let apiClient: LLMAPIClient
+    private let modelRuntime: AgentModelRuntime
     private let defaultConfiguration: ContextCompactionConfiguration
     private let toolContextProjector: ToolContextProjector
     private let promptCatalog: HiddenWorkerPromptCatalog
@@ -151,12 +151,12 @@ final class ContextCompactor {
     }
 
     init(
-        apiClient: LLMAPIClient,
+        modelRuntime: AgentModelRuntime,
         configuration: ContextCompactionConfiguration = .default(),
         toolContextProjector: ToolContextProjector = ToolContextProjector(),
         promptCatalog: HiddenWorkerPromptCatalog = HiddenWorkerPromptCatalog()
     ) {
-        self.apiClient = apiClient
+        self.modelRuntime = modelRuntime
         self.defaultConfiguration = configuration
         self.toolContextProjector = toolContextProjector
         self.promptCatalog = promptCatalog
@@ -254,7 +254,7 @@ final class ContextCompactor {
             return ContextCompactionResult(session: session, notice: nil)
         }
 
-        let compactionMessages: [OpenAIChatMessage] = [
+        let compactionMessages: [AgentModelMessage] = [
             .system(
                 promptCatalog.contextCompactionPrompt(targetTokenCount: summaryTargetTokenCount)
             ),
@@ -272,11 +272,17 @@ final class ContextCompactor {
             )
         ]
 
-        let summaryResponse = try await apiClient.createChatCompletion(
-            providerID: providerID,
+        let summaryResponse = try await modelRuntime.complete(
+            AgentModelRequest(
+                selection: AgentModelSelection(
+                    providerID: providerID,
+                    reasoning: .disabled
+                ),
             apiMessages: compactionMessages,
             tools: [],
-            temperatureOverride: 0
+                toolIntent: .none,
+                temperatureOverride: 0
+            )
         )
         let compactedSummary = summaryResponse.message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !compactedSummary.isEmpty else {

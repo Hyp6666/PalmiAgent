@@ -831,12 +831,17 @@ private struct WorkspaceBrowserRoute: Hashable {
     let relativePath: String
 }
 
+private struct WorkspaceFolderCreationContext: Identifiable, Equatable {
+    let id = UUID()
+    let basePath: String
+}
+
 private struct WorkspaceBrowser: View {
     @Bindable var store: WorkspaceStore
     let onClose: (() -> Void)?
-    @State private var isPresentingFolderAlert = false
-    @State private var newFolderPath = ""
-    @State private var createFolderBasePath = ""
+    @State private var folderCreation: WorkspaceFolderCreationContext?
+    @State private var attachmentMenuBasePath: String?
+    @State private var attachmentPresentation: PalmiAttachmentImportPresentation?
     @State private var navigationPath: [WorkspaceBrowserRoute] = []
     @State private var previewedFile: WorkspacePreviewFile?
 
@@ -866,15 +871,29 @@ private struct WorkspaceBrowser: View {
                 .sheet(item: $previewedFile) { file in
                     WorkspaceFilePreviewSheet(file: file)
                 }
-                .alert("新建文件夹", isPresented: $isPresentingFolderAlert) {
-                    TextField("文件夹名称或相对路径", text: $newFolderPath)
-                    Button("取消", role: .cancel) {}
-                    Button("创建") {
-                        createFolder()
-                    }
-                } message: {
-                    Text("支持多级路径，会创建在当前浏览目录下。")
+                .palmiAttachmentImporter(
+                    presentation: $attachmentPresentation,
+                    workspaceStore: store,
+                    onComplete: { _ in },
+                    onError: { store.statusMessage = $0 }
+                )
+                .overlay {
+                    attachmentMenuOverlay
                 }
+                .overlay {
+                    if let folderCreation {
+                        WorkspaceFolderCreationDialog(
+                            basePath: folderCreation.basePath,
+                            onDismiss: { self.folderCreation = nil },
+                            onSubmit: { name in
+                                createFolder(named: name, basePath: folderCreation.basePath)
+                            }
+                        )
+                        .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                    }
+                }
+                .animation(.snappy(duration: 0.22), value: attachmentMenuBasePath)
+                .animation(.snappy(duration: 0.22), value: folderCreation != nil)
         }
     }
 
@@ -892,7 +911,7 @@ private struct WorkspaceBrowser: View {
                     .padding(.bottom, 8)
             }
 
-            if store.selectedThread == nil {
+            if store.selectedSelection == nil {
                 ContentUnavailableView("请选择一个会话", systemImage: "tray")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -910,35 +929,98 @@ private struct WorkspaceBrowser: View {
                 accessibilityLabel: "新建文件夹",
                 iconColor: .blue
             ) {
-                createFolderBasePath = route?.relativePath ?? ""
-                newFolderPath = ""
-                isPresentingFolderAlert = true
+                folderCreation = WorkspaceFolderCreationContext(basePath: route?.relativePath ?? "")
             }
-            .disabled(store.selectedThread == nil)
+            .disabled(store.selectedSelection == nil)
+
+            workspaceBrowserActionButton(
+                systemName: "plus",
+                accessibilityLabel: "添加文件",
+                iconColor: .blue
+            ) {
+                attachmentMenuBasePath = route?.relativePath ?? ""
+            }
+            .disabled(store.selectedSelection == nil)
 
             workspaceBrowserActionButton(
                 systemName: "arrow.clockwise",
                 accessibilityLabel: "刷新",
-                iconColor: Color(uiColor: .secondaryLabel)
+                iconColor: .blue
             ) {
                 store.refreshCurrentThreadContents()
             }
-            .disabled(store.selectedThread == nil)
+            .disabled(store.selectedSelection == nil)
 
             workspaceBrowserActionButton(
                 systemName: "square.and.arrow.up",
                 accessibilityLabel: "导出项目文件",
-                iconColor: Color(uiColor: .secondaryLabel)
+                iconColor: .blue
             ) {
                 store.exportCurrentThread()
             }
-            .disabled(store.selectedThread == nil)
+            .disabled(store.selectedSelection == nil)
 
             Spacer(minLength: 0)
+
+            workspaceBrowserActionButton(
+                systemName: store.showsHiddenFiles ? "eye" : "eye.slash",
+                accessibilityLabel: store.showsHiddenFiles ? "隐藏 .files" : "显示 .files",
+                iconColor: .blue
+            ) {
+                store.toggleHiddenFilesVisibility()
+            }
+            .disabled(store.selectedSelection == nil)
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
         .padding(.bottom, 10)
+    }
+
+    @ViewBuilder
+    private var attachmentMenuOverlay: some View {
+        if let attachmentMenuBasePath {
+            GeometryReader { proxy in
+                ZStack(alignment: .topLeading) {
+                    Color.black.opacity(0.001)
+                        .ignoresSafeArea()
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            self.attachmentMenuBasePath = nil
+                        }
+
+                    PalmiAttachmentMenu(
+                        showsPlanningRows: false,
+                        onCamera: {
+                            presentAttachmentImport(
+                                PalmiAttachmentActions.camera(
+                                    destination: .directory(relativePath: attachmentMenuBasePath),
+                                    allowsMultipleSelection: false
+                                )
+                            )
+                        },
+                        onPhotos: {
+                            presentAttachmentImport(
+                                PalmiAttachmentActions.photos(
+                                    destination: .directory(relativePath: attachmentMenuBasePath),
+                                    allowsMultipleSelection: false
+                                )
+                            )
+                        },
+                        onFiles: {
+                            presentAttachmentImport(
+                                PalmiAttachmentActions.files(
+                                    destination: .directory(relativePath: attachmentMenuBasePath),
+                                    allowsMultipleSelection: false
+                                )
+                            )
+                        }
+                    )
+                    .frame(width: min(proxy.size.width - 32, 360))
+                    .padding(.top, 74)
+                    .padding(.leading, 16)
+                }
+            }
+        }
     }
 
     private func fileList(for route: WorkspaceBrowserRoute?) -> some View {
@@ -983,7 +1065,7 @@ private struct WorkspaceBrowser: View {
             let preview: String?
             switch kind {
             case .markdown, .text:
-                preview = try store.workspaceManager.previewText(at: node.relativePath)
+                preview = try store.previewText(at: node.relativePath)
                     ?? "该文件暂无可预览内容。"
             case .quickLook:
                 preview = nil
@@ -1002,13 +1084,18 @@ private struct WorkspaceBrowser: View {
         }
     }
 
-    private func createFolder() {
-        let rawInput = newFolderPath.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func createFolder(named rawName: String, basePath: String) {
+        let rawInput = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !rawInput.isEmpty else { return }
 
-        let basePath = createFolderBasePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let relativePath = basePath.isEmpty ? rawInput : "\(basePath)/\(rawInput)"
+        let normalizedBasePath = basePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let relativePath = normalizedBasePath.isEmpty ? rawInput : "\(normalizedBasePath)/\(rawInput)"
         store.createFolder(at: relativePath)
+    }
+
+    private func presentAttachmentImport(_ presentation: PalmiAttachmentImportPresentation) {
+        attachmentMenuBasePath = nil
+        attachmentPresentation = presentation
     }
 
     private func findNode(at relativePath: String, in nodes: [WorkspaceFileNode]) -> WorkspaceFileNode? {
@@ -1056,6 +1143,118 @@ private struct WorkspaceNodeRow: View {
             .buttonStyle(.plain)
         }
         .padding(.vertical, 8)
+    }
+}
+
+private struct WorkspaceFolderCreationDialog: View {
+    let basePath: String
+    let onDismiss: () -> Void
+    let onSubmit: (String) -> Void
+    @State private var folderName = ""
+    @FocusState private var isFocused: Bool
+
+    private var trimmedName: String {
+        folderName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var locationTitle: String {
+        let trimmedBase = basePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return trimmedBase.isEmpty ? "项目文件" : trimmedBase
+    }
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(.black.opacity(0.12))
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    onDismiss()
+                }
+
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("新建文件夹")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.primary)
+
+                        Text(locationTitle)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer()
+
+                    Button(action: onDismiss) {
+                        Image(systemName: "xmark")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 32, height: 32)
+                            .background(.white.opacity(0.10), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                TextField("文件夹名称", text: $folderName)
+                    .focused($isFocused)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.done)
+                    .onSubmit {
+                        submit()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(.white.opacity(0.20), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .stroke(.white.opacity(0.28), lineWidth: 1)
+                    )
+
+                HStack(spacing: 12) {
+                    Button(action: onDismiss) {
+                        Text("取消")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(Color(uiColor: .secondaryLabel))
+                            .padding(.vertical, 13)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.plain)
+                    .background(.white.opacity(0.14), in: Capsule())
+                    .overlay(
+                        Capsule()
+                            .stroke(.white.opacity(0.22), lineWidth: 1)
+                    )
+
+                    Button("创建") {
+                        submit()
+                    }
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13)
+                    .background(.cyan.opacity(0.18), in: Capsule())
+                    .disabled(trimmedName.isEmpty)
+                }
+            }
+            .padding(22)
+            .frame(maxWidth: 360)
+            .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 28))
+            .padding(.horizontal, 20)
+        }
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                isFocused = true
+            }
+        }
+    }
+
+    private func submit() {
+        guard !trimmedName.isEmpty else { return }
+        onSubmit(trimmedName)
+        onDismiss()
     }
 }
 
@@ -1113,10 +1312,17 @@ private struct AppSettingsScreen: View {
                 NavigationLink {
                     ToolManagementOverviewScreen(
                         permissionStore: store.toolPermissionStore,
+                        authorizationStore: store.toolAuthorizationStore,
                         actions: store.actions
                     )
                 } label: {
                     Label("工具管理", systemImage: "switch.2")
+                }
+
+                NavigationLink {
+                    WebSearchProviderSettingsScreen()
+                } label: {
+                    Label("搜索源", systemImage: "magnifyingglass.circle")
                 }
 
                 NavigationLink {
@@ -1309,6 +1515,7 @@ private struct ModelConfigurationManagerScreen: View {
     @State private var presentedSheet: ModelConfigurationSheetRoute?
     @State private var pendingDeletion: APIConfigurationProfileSnapshot?
     @State private var deletionErrorMessage: String?
+    @State private var transientProfileIDs: Set<UUID> = []
 
     private var profiles: [APIConfigurationProfileSnapshot] {
         APIProviderID.allCases
@@ -1372,7 +1579,6 @@ private struct ModelConfigurationManagerScreen: View {
     }
 
     private func isVisibleProfile(_ profile: APIConfigurationProfileSnapshot) -> Bool {
-        profile.isUserCreated ||
         profile.isConfigured ||
         profile.hasAPIKey ||
         !profile.customBaseURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
@@ -1399,6 +1605,7 @@ private struct ModelConfigurationManagerScreen: View {
         case .create:
             ModelConfigurationCreationScreen(initialProviderID: store.activeProviderID) { providerID in
                 let profileID = store.createProfile(for: providerID)
+                transientProfileIDs.insert(profileID)
                 store.setActiveProviderID(providerID)
                 presentedSheet = .edit(providerID: providerID, profileID: profileID)
             }
@@ -1418,7 +1625,7 @@ private struct ModelConfigurationManagerScreen: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("关闭") {
-                        presentedSheet = nil
+                        dismissEditor(providerID: providerID, profileID: profileID)
                     }
                 }
             }
@@ -1437,6 +1644,7 @@ private struct ModelConfigurationManagerScreen: View {
     private func confirmDeleteProfile(_ profile: APIConfigurationProfileSnapshot) {
         do {
             try store.deleteProfile(profile.id, for: profile.provider.id)
+            transientProfileIDs.remove(profile.id)
             if case let .edit(providerID, profileID) = presentedSheet,
                providerID == profile.provider.id,
                profileID == profile.id {
@@ -1445,6 +1653,30 @@ private struct ModelConfigurationManagerScreen: View {
         } catch {
             deletionErrorMessage = error.localizedDescription
         }
+    }
+
+    private func dismissEditor(providerID: APIProviderID, profileID: UUID) {
+        defer {
+            presentedSheet = nil
+        }
+
+        guard transientProfileIDs.contains(profileID),
+              let profile = store.profiles(for: providerID).first(where: { $0.id == profileID }) else {
+            transientProfileIDs.remove(profileID)
+            return
+        }
+
+        if shouldDiscardTransientProfile(profile) {
+            try? store.deleteProfile(profileID, for: providerID)
+        }
+        transientProfileIDs.remove(profileID)
+    }
+
+    private func shouldDiscardTransientProfile(_ profile: APIConfigurationProfileSnapshot) -> Bool {
+        !profile.isConfigured &&
+        !profile.hasAPIKey &&
+        profile.customBaseURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        profile.selectedServer == nil
     }
 
     private func profileRow(_ profile: APIConfigurationProfileSnapshot) -> some View {
@@ -1868,7 +2100,7 @@ private struct ModelConfigurationProfileEditorScreen: View {
     private var modelCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center) {
-                Text("模型映射")
+                Text("模型方案")
                     .font(.headline)
 
                 Spacer(minLength: 12)

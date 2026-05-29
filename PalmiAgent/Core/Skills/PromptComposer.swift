@@ -149,14 +149,12 @@ private enum FoundationPromptRule: CaseIterable {
             let toolIDs = Set(actions.map(\.id))
             guard exposesTools,
                   !toolIDs.isDisjoint(with: [
-                    .bootstrapWorkspace,
-                    .writeFile,
-                    .read,
-                    .listWorkspaceFiles,
-                    .runSandboxTerminal,
-                    .runJavaScriptSandbox,
-                    .pythonSandbox,
-                    .exportWorkspace
+                    .fileWrite,
+                    .fileAppend,
+                    .fileRead,
+                    .listDirectory,
+                    .fileManage,
+                    .runPython
                   ]) else {
                 return nil
             }

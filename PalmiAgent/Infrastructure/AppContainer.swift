@@ -6,6 +6,7 @@ final class AppContainer {
     lazy var workspaceStore = WorkspaceStore(workspaceManager: workspaceManager)
     let apiConfigurationStore = APIConfigurationStore()
     let toolPermissionStore = ToolPermissionStore()
+    let toolAuthorizationStore = ToolAuthorizationStore()
     lazy var skillRegistry = SkillRegistry(workspaceManager: workspaceManager)
     let llmSession = URLSession.palmiLLM
     lazy var lmStudioDiscoveryService = LMStudioDiscoveryService(session: llmSession)
@@ -24,14 +25,9 @@ final class AppContainer {
         session: llmSession,
         lmStudioDiscoveryService: lmStudioDiscoveryService
     )
-    lazy var javaScriptSandboxService = JavaScriptSandboxService(workspaceManager: workspaceManager)
     lazy var workspaceReadService = WorkspaceReadService(workspaceManager: workspaceManager)
     lazy var pythonNotebookSandboxService = PythonNotebookSandboxService(
         workspaceManager: workspaceManager
-    )
-    lazy var sandboxTerminalService = SandboxTerminalService(
-        workspaceManager: workspaceManager,
-        javaScriptSandboxService: javaScriptSandboxService
     )
     let calendarService = CalendarService()
     let remindersService = RemindersService()
@@ -49,10 +45,8 @@ final class AppContainer {
 
     lazy var executor = ActionExecutor(
         workspaceManager: workspaceManager,
-        javaScriptSandboxService: javaScriptSandboxService,
         workspaceReadService: workspaceReadService,
         pythonNotebookSandboxService: pythonNotebookSandboxService,
-        sandboxTerminalService: sandboxTerminalService,
         calendarService: calendarService,
         remindersService: remindersService,
         contactsService: contactsService,
@@ -71,20 +65,23 @@ final class AppContainer {
     lazy var agentToolExecutor = AgentToolExecutor(actionExecutor: executor)
     lazy var promptComposer = PromptComposer()
     let toolContextProjector = ToolContextProjector()
+    let taskContextProjector = TaskContextProjector()
     let researchStateAssembler = ResearchStateAssembler()
     lazy var contextAssembler = ContextAssembler(
         promptComposer: promptComposer,
         toolContextProjector: toolContextProjector,
-        researchStateAssembler: researchStateAssembler
+        researchStateAssembler: researchStateAssembler,
+        taskContextProjector: taskContextProjector
     )
-    lazy var toolArtifactPipeline = ToolArtifactPipeline(apiClient: llmAPIClient)
+    lazy var toolArtifactPipeline = ToolArtifactPipeline(modelRuntime: llmAPIClient)
     lazy var contextCompactor = ContextCompactor(
-        apiClient: llmAPIClient,
+        modelRuntime: llmAPIClient,
         toolContextProjector: toolContextProjector
     )
     lazy var agentLoop = AgentLoop(
-        apiClient: llmAPIClient,
+        modelRuntime: llmAPIClient,
         toolExecutor: agentToolExecutor,
+        toolAuthorizationStore: toolAuthorizationStore,
         promptBuilder: AgentPromptBuilder(),
         skillRegistry: skillRegistry,
         workspaceManager: workspaceManager,
@@ -94,7 +91,7 @@ final class AppContainer {
         toolContextProjector: toolContextProjector,
         configuration: .default
     )
-    lazy var conversationTitleService = ConversationTitleService(apiClient: llmAPIClient)
+    lazy var conversationTitleService = ConversationTitleService(modelRuntime: llmAPIClient)
 
     lazy var store = ManualLabStore(
         actions: ActionCatalog.all,
@@ -104,7 +101,8 @@ final class AppContainer {
         apiConnectionValidationService: apiConnectionValidationService,
         lmStudioDiscoveryService: lmStudioDiscoveryService,
         workspaceStore: workspaceStore,
-        toolPermissionStore: toolPermissionStore
+        toolPermissionStore: toolPermissionStore,
+        toolAuthorizationStore: toolAuthorizationStore
     )
 
     lazy var chatStore = ChatStore(
@@ -115,6 +113,7 @@ final class AppContainer {
         skillRegistry: skillRegistry,
         workspaceManager: workspaceManager,
         workspaceStore: workspaceStore,
-        toolPermissionStore: toolPermissionStore
+        toolPermissionStore: toolPermissionStore,
+        toolAuthorizationStore: toolAuthorizationStore
     )
 }

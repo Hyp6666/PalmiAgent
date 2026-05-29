@@ -21,6 +21,13 @@ final class ChatStore {
         }
     }
 
+    struct PendingAttachment: Identifiable, Equatable {
+        let id: UUID
+        let name: String
+        let relativePath: String
+        let source: WorkspaceAttachmentSource
+    }
+
     let actions: [ToolAction]
     let apiConfigurationStore: APIConfigurationStore
     let agentLoop: AgentLoop
@@ -29,17 +36,21 @@ final class ChatStore {
     let workspaceManager: WorkspaceManager
     let workspaceStore: WorkspaceStore
     let toolPermissionStore: ToolPermissionStore
+    let toolAuthorizationStore: ToolAuthorizationStore
 
     var messages: [PalmiChatMessage] = []
     var queuedUserGuidance: [QueuedUserGuidance] = []
+    var pendingAttachments: [PendingAttachment] = []
     var inputText = ""
     var isLoading = false
     var isCompactingContext = false
     var errorMessage: String?
+    var pendingApprovalRequest: AgentApprovalRequest?
     private var activeSessionHeaderID: UUID?
     private var activeToolMessageIDs: [UUID: UUID] = [:]
     private var activeStreamingMessageID: UUID?
     private var activeContextCompactionMessageID: UUID?
+    private var activeRunSelection: WorkspaceSelection?
     private var agentEventTask: Task<Void, Never>?
 
     var activeTurnHeaderID: UUID? {
@@ -72,7 +83,7 @@ final class ChatStore {
 
     var canSend: Bool {
         let trimmedInput = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedInput.isEmpty else { return false }
+        guard !trimmedInput.isEmpty || !pendingAttachments.isEmpty else { return false }
         return !isLoading || agentLoop.acceptsQueuedUserGuidance
     }
 
@@ -86,6 +97,21 @@ final class ChatStore {
         )
     }
 
+    var evidenceSnapshot: AgentEvidenceSnapshot {
+        AgentEvidenceSnapshot(session: agentLoop.currentSessionSnapshot())
+    }
+
+    var hasEvidenceSnapshotContent: Bool {
+        evidenceSnapshot.hasContent
+    }
+
+    var taskProgressBadgeText: String? {
+        guard let state = agentLoop.currentSessionSnapshot().taskStateSnapshot?.activeState else {
+            return nil
+        }
+        return "\(state.completedCount)/\(state.totalCount)"
+    }
+
     init(
         actions: [ToolAction],
         apiConfigurationStore: APIConfigurationStore,
@@ -94,7 +120,8 @@ final class ChatStore {
         skillRegistry: SkillRegistry,
         workspaceManager: WorkspaceManager,
         workspaceStore: WorkspaceStore,
-        toolPermissionStore: ToolPermissionStore
+        toolPermissionStore: ToolPermissionStore,
+        toolAuthorizationStore: ToolAuthorizationStore
     ) {
         self.actions = actions
         self.apiConfigurationStore = apiConfigurationStore
@@ -104,24 +131,32 @@ final class ChatStore {
         self.workspaceManager = workspaceManager
         self.workspaceStore = workspaceStore
         self.toolPermissionStore = toolPermissionStore
+        self.toolAuthorizationStore = toolAuthorizationStore
         observeAgentEvents()
     }
 
     func send() {
-        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = composedInputText()
         guard !text.isEmpty else { return }
 
         if isLoading && agentLoop.acceptsQueuedUserGuidance {
             enqueueQueuedUserGuidance(text)
             agentLoop.enqueueUserGuidance(text)
             inputText = ""
+            pendingAttachments = []
             errorMessage = nil
+            return
+        }
+
+        guard let turnSelection = workspaceStore.selectedSelection ?? (try? workspaceManager.currentSelection()) else {
+            errorMessage = "请先选择一个会话。"
             return
         }
 
         let pendingAutoTitleTarget = autoTitleTargetIfNeeded()
 
         let startedAt = Date()
+        activeRunSelection = turnSelection
         closeDanglingSessions(finishedAt: startedAt)
         let userMessage = PalmiChatMessage(role: .user, content: text)
         let headerMessage = PalmiChatMessage(
@@ -139,6 +174,7 @@ final class ChatStore {
         activeContextCompactionMessageID = nil
         persistMessages()
         inputText = ""
+        pendingAttachments = []
         isLoading = true
         errorMessage = nil
         if let pendingAutoTitleTarget {
@@ -146,31 +182,36 @@ final class ChatStore {
         }
 
         Task {
-            do {
-                let result = try await agentLoop.runTurn(
-                    userInput: text,
-                    providerID: activeProviderID,
-                    actions: composerActions
-                )
+            await workspaceManager.withSelection(turnSelection) {
+                do {
+                    let result = try await agentLoop.runTurn(
+                        userInput: text,
+                        providerID: activeProviderID,
+                        actions: composerActions
+                    )
 
-                if !result.finalReply.isEmpty {
-                    if !finalizeStreamingMessage(with: result.finalReply) {
-                        appendParsedAssistantContent(result.finalReply, preferSummaryForTrailingText: true)
+                    if !result.finalReply.isEmpty {
+                        if !finalizeStreamingMessage(with: result.finalReply) {
+                            appendParsedAssistantContent(result.finalReply, preferSummaryForTrailingText: true)
+                        }
                     }
+                    finalizeActiveSession(outputTokens: result.outputTokens)
+                    persistAgentSession()
+                    await autoCompactIfNeeded()
+                    refreshWorkspaceContentsIfStillActive(turnSelection)
+                } catch {
+                    errorMessage = (error as? AppError)?.localizedDescription ?? error.localizedDescription
+                    finalizeActiveSession()
+                    appendAgentMessage(kind: .summary, content: "调用失败：\(errorMessage ?? "未知错误")")
+                    persistAgentSession()
                 }
-                finalizeActiveSession(outputTokens: result.outputTokens)
-                persistAgentSession()
-                await autoCompactIfNeeded()
-                self.workspaceStore.refreshCurrentThreadContents()
-            } catch {
-                errorMessage = (error as? AppError)?.localizedDescription ?? error.localizedDescription
-                finalizeActiveSession()
-                appendAgentMessage(kind: .summary, content: "调用失败：\(errorMessage ?? "未知错误")")
-                persistAgentSession()
             }
             queuedUserGuidance.removeAll()
             isLoading = false
             clearActiveSessionState()
+            if activeRunSelection == turnSelection {
+                activeRunSelection = nil
+            }
         }
     }
 
@@ -196,6 +237,35 @@ final class ChatStore {
                 errorMessage = (error as? AppError)?.localizedDescription ?? error.localizedDescription
             }
         }
+    }
+
+    func addPendingAttachments(_ attachments: [WorkspaceStoredAttachment]) {
+        pendingAttachments.append(
+            contentsOf: attachments.map { attachment in
+                PendingAttachment(
+                    id: attachment.id,
+                    name: attachment.storedFilename,
+                    relativePath: attachment.relativePath,
+                    source: attachment.source
+                )
+            }
+        )
+        errorMessage = nil
+    }
+
+    func removePendingAttachment(_ attachment: PendingAttachment) {
+        pendingAttachments.removeAll { $0.id == attachment.id }
+    }
+
+    func resolveApproval(_ request: AgentApprovalRequest, approved: Bool) {
+        resolveApproval(request, resolution: approved ? .approved : .rejected)
+    }
+
+    func resolveApproval(_ request: AgentApprovalRequest, resolution: ToolApprovalResolution) {
+        if pendingApprovalRequest?.id == request.id {
+            pendingApprovalRequest = nil
+        }
+        agentLoop.resolveApprovalRequest(request.id, resolution: resolution)
     }
 
     private func autoCompactIfNeeded() async {
@@ -262,9 +332,10 @@ final class ChatStore {
     }
 
     func loadMessagesForActiveThread() {
-        guard workspaceStore.selectedThreadID != nil else {
+        guard let selection = workspaceStore.selectedSelection else {
             messages = []
             queuedUserGuidance = []
+            pendingAttachments = []
             errorMessage = nil
             agentLoop.resetConversation()
             isLoading = false
@@ -274,7 +345,9 @@ final class ChatStore {
 
         do {
             messages = normalizeMessages(
-                try workspaceManager.loadChatMessagesForCurrentThread()
+                try workspaceManager.withSelection(selection) {
+                    try workspaceManager.loadChatMessagesForCurrentThread()
+                }
             )
             errorMessage = nil
             closeDanglingSessions(finishedAt: .now)
@@ -284,7 +357,9 @@ final class ChatStore {
         }
 
         do {
-            let persistedSession = try workspaceManager.loadAgentSessionForCurrentThread() ?? AgentSession()
+            let persistedSession = try workspaceManager.withSelection(selection) {
+                try workspaceManager.loadAgentSessionForCurrentThread() ?? AgentSession()
+            }
             agentLoop.replaceSession(persistedSession)
         } catch {
             agentLoop.resetConversation()
@@ -292,7 +367,24 @@ final class ChatStore {
 
         isLoading = false
         queuedUserGuidance = []
+        pendingAttachments = []
         clearActiveSessionState()
+    }
+
+    private func composedInputText() -> String {
+        let trimmedInput = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !pendingAttachments.isEmpty else {
+            return trimmedInput
+        }
+
+        let attachmentLines = pendingAttachments.map { attachment in
+            "- \(attachment.source.title)：`\(attachment.relativePath)`"
+        }
+        let attachmentBlock = "附件：\n" + attachmentLines.joined(separator: "\n")
+        guard !trimmedInput.isEmpty else {
+            return attachmentBlock
+        }
+        return "\(trimmedInput)\n\n\(attachmentBlock)"
     }
 
     private func handleAgentEvent(_ event: AgentEvent) {
@@ -326,6 +418,18 @@ final class ChatStore {
                 retainedMessageCount: retainedMessageCount
             )
             persistMessages()
+        case .approvalRequested(let request):
+            pendingApprovalRequest = request
+            persistAgentSession()
+        case let .approvalResolved(id, _):
+            if pendingApprovalRequest?.id == id {
+                pendingApprovalRequest = nil
+            }
+            persistAgentSession()
+        case .eventLogged:
+            persistAgentSession()
+        case .taskStateChanged:
+            persistAgentSession()
         case let .toolStarted(stepID, action, argumentsJSON):
             appendRunningToolCard(stepID: stepID, action: action, argumentsJSON: argumentsJSON)
             persistMessages()
@@ -452,11 +556,11 @@ final class ChatStore {
     private func makeThoughtCard(from card: AgentThoughtCard) -> PalmiToolCallCard {
         PalmiToolCallCard(
             cardKind: card.kind == .phaseThought ? .phaseThought : .modelThink,
-            toolTitle: card.title,
+            toolTitle: "思考",
             toolName: card.kind.rawValue,
             presentationKind: .data,
             status: .success,
-            summary: card.summary,
+            summary: card.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "思考" : card.summary,
             details: card.details,
             argumentsJSON: "",
             requiresUserInteraction: false,
@@ -484,7 +588,22 @@ final class ChatStore {
         }
         let finalTextIndex = nonEmptyTextIndices.last
 
-        for (index, chunk) in chunks.enumerated() {
+        let displayChunks: [(offset: Int, element: ParsedAssistantChunk)]
+        if preferSummaryForTrailingText {
+            let modelThinkChunks = chunks.enumerated().filter {
+                if case .modelThink = $0.element { return true }
+                return false
+            }
+            let textChunks = chunks.enumerated().filter {
+                if case .text = $0.element { return true }
+                return false
+            }
+            displayChunks = modelThinkChunks + textChunks
+        } else {
+            displayChunks = Array(chunks.enumerated())
+        }
+
+        for (index, chunk) in displayChunks {
             switch chunk {
             case .text(let text):
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -508,12 +627,12 @@ final class ChatStore {
                     .first
                     .map(String.init)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                    ?? "模型思考"
+                    ?? "思考"
                 appendThoughtCard(
                     AgentThoughtCard(
                         kind: .modelThink,
-                        title: "模型思考",
-                        summary: summary.isEmpty ? "模型思考" : summary,
+                        title: "思考",
+                        summary: summary.isEmpty ? "思考" : summary,
                         details: trimmed
                     )
                 )
@@ -744,7 +863,9 @@ final class ChatStore {
         do {
             let normalized = normalizeMessages(messages)
             messages = normalized
-            try workspaceManager.saveChatMessagesForCurrentThread(normalized)
+            try withPersistenceSelection {
+                try workspaceManager.saveChatMessagesForCurrentThread(normalized)
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -752,10 +873,24 @@ final class ChatStore {
 
     private func persistAgentSession() {
         do {
-            try workspaceManager.saveAgentSessionForCurrentThread(agentLoop.currentSessionSnapshot())
+            try withPersistenceSelection {
+                try workspaceManager.saveAgentSessionForCurrentThread(agentLoop.currentSessionSnapshot())
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func withPersistenceSelection<T>(_ operation: () throws -> T) rethrows -> T {
+        if let activeRunSelection {
+            return try workspaceManager.withSelection(activeRunSelection, operation: operation)
+        }
+        return try operation()
+    }
+
+    private func refreshWorkspaceContentsIfStillActive(_ selection: WorkspaceSelection) {
+        guard workspaceStore.selectedSelection == selection else { return }
+        workspaceStore.refreshCurrentThreadContents()
     }
 
     private func observeAgentEvents() {

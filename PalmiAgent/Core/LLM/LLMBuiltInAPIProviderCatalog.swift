@@ -185,8 +185,8 @@ enum LLMBuiltInAPIProviderCatalog {
             secretRequirement: .optional,
             categoryNote: "",
             models: [
-                model("gpt-4.1", "gpt-4.1", "通用占位候选。", [.multimodal]),
-                model("gpt-5.4", "gpt-5.4", "推理占位候选。", [.reasoningPreferred, .multimodal])
+                model("gpt-4.1", "gpt-4.1", ""),
+                model("gpt-5.4", "gpt-5.4", "")
             ]
         )
     ]

@@ -23,11 +23,15 @@ enum LLMNativeReasoningEncoding: Codable, Hashable, Sendable {
     case unsupported
     case openAIReasoningEffort(levels: Set<LLMReasoningEffort>, defaultLevel: LLMReasoningEffort)
     case thinkingSwitch(defaultEnabled: Bool)
+    case thinkingSwitchWithEffort(defaultEnabled: Bool, levels: Set<LLMReasoningEffort>, defaultLevel: LLMReasoningEffort)
+    case glmThinking(defaultEnabled: Bool)
+    case enableThinking(defaultEnabled: Bool)
     case deepSeekThinkingEffort(defaultEnabled: Bool)
     case kimiThinking(defaultEnabled: Bool)
-    case qwenThinkingBudget(defaultBudget: Int?)
+    case qwenThinkingBudget(defaultEnabled: Bool, defaultBudget: Int?)
     case minimaxReasoningSplit
     case stepfunReasoningFormat(defaultFormat: String)
+    case openRouterReasoning(defaultLevel: LLMReasoningEffort)
 
     var isSupported: Bool {
         if case .unsupported = self {
@@ -39,6 +43,7 @@ enum LLMNativeReasoningEncoding: Codable, Hashable, Sendable {
 
 struct LLMModelCapabilities: Codable, Hashable, Sendable {
     var supportsToolCalls: Bool
+    var supportsRequiredToolChoice: Bool
     var supportsVision: Bool
     var supportsJSONMode: Bool
     var supportsStreaming: Bool
@@ -47,6 +52,7 @@ struct LLMModelCapabilities: Codable, Hashable, Sendable {
 
     static let standardText = LLMModelCapabilities(
         supportsToolCalls: true,
+        supportsRequiredToolChoice: true,
         supportsVision: false,
         supportsJSONMode: true,
         supportsStreaming: true,
@@ -54,8 +60,19 @@ struct LLMModelCapabilities: Codable, Hashable, Sendable {
         nativeReasoning: .unsupported
     )
 
+    static let basicText = LLMModelCapabilities(
+        supportsToolCalls: false,
+        supportsRequiredToolChoice: false,
+        supportsVision: false,
+        supportsJSONMode: false,
+        supportsStreaming: true,
+        supportsReasoningReplay: false,
+        nativeReasoning: .unsupported
+    )
+
     static let localUnknown = LLMModelCapabilities(
         supportsToolCalls: false,
+        supportsRequiredToolChoice: false,
         supportsVision: false,
         supportsJSONMode: false,
         supportsStreaming: true,
@@ -71,8 +88,9 @@ struct LLMProviderRuntimeProfile: Sendable {
     let baseURL: URL
     let apiKey: String?
     let model: APIModelDefinition
+    let integrationSpec: LLMModelIntegrationSpec
     let capabilities: LLMModelCapabilities
-    let preferredReasoning: LLMReasoningEffort
+    let preferredReasoning: ModelReasoningRequest
     let preservesReasoningContentInToolHistory: Bool
     let defaultHeaders: [String: String]
 }
@@ -81,10 +99,14 @@ enum LLMProviderRuntimeResolver {
     static func runtimeProfile(
         for configuration: APIResolvedConfiguration,
         model: APIModelDefinition,
-        preferredReasoning: LLMReasoningEffort = .auto
+        preferredReasoning: ModelReasoningRequest = .automatic
     ) -> LLMProviderRuntimeProfile {
         let category = category(for: configuration.provider.id)
-        let capabilities = capabilities(for: configuration.provider.id, modelID: model.id)
+        let integrationSpec = LLMModelIntegrationCatalog.spec(
+            for: configuration.provider.id,
+            model: model
+        )
+        let capabilities = integrationSpec.capabilities
         return LLMProviderRuntimeProfile(
             providerID: configuration.provider.id,
             providerName: configuration.provider.title,
@@ -92,6 +114,7 @@ enum LLMProviderRuntimeResolver {
             baseURL: configuration.baseURL,
             apiKey: configuration.apiKey,
             model: model,
+            integrationSpec: integrationSpec,
             capabilities: capabilities,
             preferredReasoning: preferredReasoning,
             preservesReasoningContentInToolHistory: capabilities.supportsReasoningReplay,
@@ -119,66 +142,7 @@ enum LLMProviderRuntimeResolver {
     }
 
     static func capabilities(for providerID: APIProviderID, modelID: String) -> LLMModelCapabilities {
-        let lowercased = modelID.lowercased()
-        var capabilities = LLMModelCapabilities.standardText
-
-        switch providerID {
-        case .openai, .azureOpenAI:
-            if supportsOpenAIReasoningEffort(modelID: lowercased) {
-                capabilities.nativeReasoning = .openAIReasoningEffort(
-                    levels: [.minimal, .low, .medium, .high],
-                    defaultLevel: .medium
-                )
-            }
-            capabilities.supportsVision = lowercased.contains("4o") || lowercased.contains("gpt-5")
-
-        case .glm:
-            if lowercased.contains("glm-4.5") || lowercased.contains("glm-4.6") || lowercased.contains("glm-4.7") || lowercased.contains("glm-5") {
-                capabilities.nativeReasoning = .thinkingSwitch(defaultEnabled: true)
-            }
-            capabilities.supportsVision = lowercased.contains("v")
-
-        case .deepseek:
-            capabilities.nativeReasoning = .deepSeekThinkingEffort(
-                defaultEnabled: lowercased.contains("pro") || lowercased.contains("reasoner") || lowercased.contains("r1")
-            )
-            capabilities.supportsReasoningReplay = true
-
-        case .qwen:
-            if lowercased.contains("qwen3") || lowercased.contains("qwq") {
-                capabilities.nativeReasoning = .qwenThinkingBudget(defaultBudget: nil)
-                capabilities.supportsReasoningReplay = true
-            }
-
-        case .kimi:
-            if lowercased.contains("k2.5") || lowercased.contains("k2-thinking") || lowercased.contains("thinking") {
-                capabilities.nativeReasoning = .kimiThinking(defaultEnabled: true)
-                capabilities.supportsReasoningReplay = true
-            }
-            capabilities.supportsVision = lowercased.contains("vision")
-
-        case .minimax:
-            if lowercased.contains("m2") || lowercased.contains("reason") {
-                capabilities.nativeReasoning = .minimaxReasoningSplit
-                capabilities.supportsReasoningReplay = true
-            }
-
-        case .stepfun:
-            capabilities.nativeReasoning = .stepfunReasoningFormat(defaultFormat: "deepseek-style")
-            capabilities.supportsReasoningReplay = true
-
-        case .siliconflow, .openrouter:
-            capabilities = inferredAggregatorCapabilities(modelID: lowercased, defaultCapabilities: capabilities)
-
-        case .lmstudio, .ollama, .customOpenAI:
-            capabilities = .localUnknown
-            capabilities.supportsToolCalls = providerID == .customOpenAI
-
-        case .volcengine, .hunyuan, .qianfan, .modelscope:
-            break
-        }
-
-        return capabilities
+        LLMModelIntegrationCatalog.spec(for: providerID, modelID: modelID).capabilities
     }
 
     private static func defaultHeaders(for providerID: APIProviderID) -> [String: String] {
@@ -193,46 +157,6 @@ enum LLMProviderRuntimeResolver {
         }
     }
 
-    private static func supportsOpenAIReasoningEffort(modelID: String) -> Bool {
-        if modelID.hasPrefix("o"), modelID.dropFirst().first?.isNumber == true {
-            return true
-        }
-        if let rest = modelID.stripPrefix("gpt-"),
-           let first = rest.first,
-           first.isNumber,
-           first >= "5" {
-            return true
-        }
-        return false
-    }
-
-    private static func inferredAggregatorCapabilities(
-        modelID: String,
-        defaultCapabilities: LLMModelCapabilities
-    ) -> LLMModelCapabilities {
-        if modelID.contains("deepseek") || modelID.contains("kimi") || modelID.contains("qwen3") {
-            var capabilities = defaultCapabilities
-            capabilities.supportsReasoningReplay = true
-            capabilities.nativeReasoning = .thinkingSwitch(defaultEnabled: true)
-            return capabilities
-        }
-        if supportsOpenAIReasoningEffort(modelID: modelID) {
-            var capabilities = defaultCapabilities
-            capabilities.nativeReasoning = .openAIReasoningEffort(
-                levels: [.minimal, .low, .medium, .high],
-                defaultLevel: .medium
-            )
-            return capabilities
-        }
-        return defaultCapabilities
-    }
-}
-
-private extension String {
-    func stripPrefix(_ prefix: String) -> Substring? {
-        guard hasPrefix(prefix) else { return nil }
-        return dropFirst(prefix.count)
-    }
 }
 
 enum OpenAICompatibleChatAdapter {
@@ -286,87 +210,326 @@ enum OpenAICompatibleChatAdapter {
         stream: Bool?,
         runtimeProfile: LLMProviderRuntimeProfile
     ) -> OpenAIChatCompletionRequest {
-        let reasoningPayload = reasoningPayload(for: runtimeProfile)
+        let reasoningResolution = reasoningResolution(for: runtimeProfile)
+        let resolvedModelID = runtimeProfile.model.id.isEmpty ? model : runtimeProfile.model.id
         return OpenAIChatCompletionRequest(
-            model: model,
+            model: resolvedModelID,
             messages: preparedMessages(messages, runtimeProfile: runtimeProfile),
             tools: tools,
-            toolChoice: toolChoice,
-            temperature: adjustedTemperature(temperature, for: runtimeProfile),
+            toolChoice: tools == nil ? nil : toolChoice,
+            temperature: adjustedTemperature(temperature, for: runtimeProfile, reasoningResolution: reasoningResolution),
             stream: stream,
-            reasoningEffort: reasoningPayload.reasoningEffort,
-            thinking: reasoningPayload.thinking,
-            enableThinking: reasoningPayload.enableThinking,
-            thinkingBudget: reasoningPayload.thinkingBudget,
-            reasoningSplit: reasoningPayload.reasoningSplit,
-            reasoningFormat: reasoningPayload.reasoningFormat
+            reasoningEffort: reasoningResolution.reasoningEffort,
+            thinking: reasoningResolution.thinking,
+            enableThinking: reasoningResolution.enableThinking,
+            thinkingBudget: reasoningResolution.thinkingBudget,
+            reasoningSplit: reasoningResolution.reasoningSplit,
+            reasoningFormat: reasoningResolution.reasoningFormat,
+            reasoning: reasoningResolution.reasoning
         )
     }
 
-    private static func reasoningPayload(
+    static func reasoningResolution(
         for runtimeProfile: LLMProviderRuntimeProfile
-    ) -> (
-        reasoningEffort: String?,
-        thinking: OpenAIChatThinkingConfig?,
-        enableThinking: Bool?,
-        thinkingBudget: Int?,
-        reasoningSplit: Bool?,
-        reasoningFormat: String?
-    ) {
-        let effort = runtimeProfile.preferredReasoning
-        guard effort != .off else {
-            return (nil, OpenAIChatThinkingConfig(type: "disabled"), false, 0, nil, nil)
-        }
+    ) -> ModelReasoningResolution {
+        let request = runtimeProfile.preferredReasoning
+        let effort = request.canonicalEffort
 
         switch runtimeProfile.capabilities.nativeReasoning {
         case .unsupported:
-            return (nil, nil, nil, nil, nil, nil)
+            return .none(
+                request: request,
+                status: request.intent == .disabled ? .disabled : .unsupported,
+                replayPolicy: runtimeProfile.integrationSpec.reasoningReplayPolicy
+            )
 
         case .openAIReasoningEffort(let levels, let defaultLevel):
-            let requested = effort == .auto ? defaultLevel : effort
-            let resolved = requested == .xhigh && levels.contains(.high) ? .high : requested
-            guard levels.contains(resolved), resolved != .auto, resolved != .off else {
-                return (nil, nil, nil, nil, nil, nil)
+            guard request.intent != .disabled else {
+                return .none(request: request, status: .disabled, replayPolicy: runtimeProfile.integrationSpec.reasoningReplayPolicy)
             }
-            return (resolved.rawValue, nil, nil, nil, nil, nil)
+            let requested = effort == .auto ? defaultLevel : effort
+            let resolved = requested == .xhigh && !levels.contains(.xhigh) && levels.contains(.high) ? .high : requested
+            guard levels.contains(resolved), resolved != .auto, resolved != .off else {
+                return .none(request: request, status: .unsupported, replayPolicy: runtimeProfile.integrationSpec.reasoningReplayPolicy)
+            }
+            return ModelReasoningResolution(
+                status: resolved == requested ? .native : .coerced,
+                request: request,
+                reasoningEffort: resolved.rawValue,
+                thinking: nil,
+                enableThinking: nil,
+                thinkingBudget: nil,
+                reasoningSplit: nil,
+                reasoningFormat: nil,
+                reasoning: nil,
+                omitsSamplingParameters: runtimeProfile.integrationSpec.requestEncoding.omitsSamplingParametersWhenThinking,
+                replayPolicy: runtimeProfile.integrationSpec.reasoningReplayPolicy
+            )
 
         case .thinkingSwitch(let defaultEnabled):
-            let shouldEnable = effort == .auto ? defaultEnabled : effort != .off
-            return (nil, OpenAIChatThinkingConfig(type: shouldEnable ? "enabled" : "disabled"), nil, nil, nil, nil)
+            let shouldEnable = request.intent == .automatic ? defaultEnabled : request.intent != .disabled
+            return ModelReasoningResolution(
+                status: shouldEnable ? .native : .disabled,
+                request: request,
+                reasoningEffort: nil,
+                thinking: OpenAIChatThinkingConfig(type: shouldEnable ? "enabled" : "disabled"),
+                enableThinking: nil,
+                thinkingBudget: nil,
+                reasoningSplit: nil,
+                reasoningFormat: nil,
+                reasoning: nil,
+                omitsSamplingParameters: runtimeProfile.integrationSpec.requestEncoding.omitsSamplingParametersWhenThinking && shouldEnable,
+                replayPolicy: runtimeProfile.integrationSpec.reasoningReplayPolicy
+            )
+
+        case .thinkingSwitchWithEffort(let defaultEnabled, let levels, let defaultLevel):
+            let shouldEnable = request.intent == .automatic ? defaultEnabled : request.intent != .disabled
+            guard shouldEnable else {
+                return ModelReasoningResolution(
+                    status: .disabled,
+                    request: request,
+                    reasoningEffort: nil,
+                    thinking: OpenAIChatThinkingConfig(type: "disabled"),
+                    enableThinking: nil,
+                    thinkingBudget: nil,
+                    reasoningSplit: nil,
+                    reasoningFormat: nil,
+                    reasoning: nil,
+                    omitsSamplingParameters: false,
+                    replayPolicy: runtimeProfile.integrationSpec.reasoningReplayPolicy
+                )
+            }
+            let requested = effort == .auto ? defaultLevel : effort
+            let resolved = requested == .xhigh && !levels.contains(.xhigh) && levels.contains(.high) ? .high : requested
+            guard levels.contains(resolved), resolved != .auto, resolved != .off else {
+                return ModelReasoningResolution(
+                    status: .native,
+                    request: request,
+                    reasoningEffort: defaultLevel.rawValue,
+                    thinking: OpenAIChatThinkingConfig(type: "enabled"),
+                    enableThinking: nil,
+                    thinkingBudget: nil,
+                    reasoningSplit: nil,
+                    reasoningFormat: nil,
+                    reasoning: nil,
+                    omitsSamplingParameters: false,
+                    replayPolicy: runtimeProfile.integrationSpec.reasoningReplayPolicy
+                )
+            }
+            return ModelReasoningResolution(
+                status: resolved == requested ? .native : .coerced,
+                request: request,
+                reasoningEffort: resolved.rawValue,
+                thinking: OpenAIChatThinkingConfig(type: "enabled"),
+                enableThinking: nil,
+                thinkingBudget: nil,
+                reasoningSplit: nil,
+                reasoningFormat: nil,
+                reasoning: nil,
+                omitsSamplingParameters: false,
+                replayPolicy: runtimeProfile.integrationSpec.reasoningReplayPolicy
+            )
+
+        case .glmThinking(let defaultEnabled):
+            let shouldEnable = request.intent == .automatic ? defaultEnabled : request.intent != .disabled
+            return ModelReasoningResolution(
+                status: shouldEnable ? .native : .disabled,
+                request: request,
+                reasoningEffort: nil,
+                thinking: OpenAIChatThinkingConfig(
+                    type: shouldEnable ? "enabled" : "disabled",
+                    clearThinking: shouldEnable ? false : nil
+                ),
+                enableThinking: nil,
+                thinkingBudget: nil,
+                reasoningSplit: nil,
+                reasoningFormat: nil,
+                reasoning: nil,
+                omitsSamplingParameters: runtimeProfile.integrationSpec.requestEncoding.omitsSamplingParametersWhenThinking && shouldEnable,
+                replayPolicy: runtimeProfile.integrationSpec.reasoningReplayPolicy
+            )
+
+        case .enableThinking(let defaultEnabled):
+            let shouldEnable = request.intent == .automatic ? defaultEnabled : request.intent != .disabled
+            return ModelReasoningResolution(
+                status: shouldEnable ? .native : .disabled,
+                request: request,
+                reasoningEffort: nil,
+                thinking: nil,
+                enableThinking: shouldEnable,
+                thinkingBudget: nil,
+                reasoningSplit: nil,
+                reasoningFormat: nil,
+                reasoning: nil,
+                omitsSamplingParameters: false,
+                replayPolicy: runtimeProfile.integrationSpec.reasoningReplayPolicy
+            )
 
         case .deepSeekThinkingEffort(let defaultEnabled):
-            let shouldEnable = effort == .auto ? defaultEnabled : effort != .off
+            let shouldEnable = request.intent == .automatic ? defaultEnabled : request.intent != .disabled
             guard shouldEnable else {
-                return (nil, OpenAIChatThinkingConfig(type: "disabled"), nil, nil, nil, nil)
+                return ModelReasoningResolution(
+                    status: .disabled,
+                    request: request,
+                    reasoningEffort: nil,
+                    thinking: OpenAIChatThinkingConfig(type: "disabled"),
+                    enableThinking: nil,
+                    thinkingBudget: nil,
+                    reasoningSplit: nil,
+                    reasoningFormat: nil,
+                    reasoning: nil,
+                    omitsSamplingParameters: false,
+                    replayPolicy: runtimeProfile.integrationSpec.reasoningReplayPolicy
+                )
             }
-            let effortValue = effort == .xhigh ? "max" : "high"
-            return (effortValue, OpenAIChatThinkingConfig(type: "enabled"), nil, nil, nil, nil)
+            let effortValue = request.intent == .maximum ? "max" : "high"
+            return ModelReasoningResolution(
+                status: request.intent == .maximum ? .native : .coerced,
+                request: request,
+                reasoningEffort: effortValue,
+                thinking: OpenAIChatThinkingConfig(type: "enabled"),
+                enableThinking: nil,
+                thinkingBudget: nil,
+                reasoningSplit: nil,
+                reasoningFormat: nil,
+                reasoning: nil,
+                omitsSamplingParameters: runtimeProfile.integrationSpec.requestEncoding.omitsSamplingParametersWhenThinking,
+                replayPolicy: runtimeProfile.integrationSpec.reasoningReplayPolicy
+            )
 
         case .kimiThinking(let defaultEnabled):
-            let shouldEnable = effort == .auto ? defaultEnabled : effort != .off
-            return (nil, OpenAIChatThinkingConfig(type: shouldEnable ? "enabled" : "disabled"), nil, nil, nil, nil)
+            let shouldEnable = request.intent == .automatic ? defaultEnabled : request.intent != .disabled
+            return ModelReasoningResolution(
+                status: shouldEnable ? .native : .disabled,
+                request: request,
+                reasoningEffort: nil,
+                thinking: OpenAIChatThinkingConfig(type: shouldEnable ? "enabled" : "disabled"),
+                enableThinking: nil,
+                thinkingBudget: nil,
+                reasoningSplit: nil,
+                reasoningFormat: nil,
+                reasoning: nil,
+                omitsSamplingParameters: false,
+                replayPolicy: runtimeProfile.integrationSpec.reasoningReplayPolicy
+            )
 
-        case .qwenThinkingBudget(let defaultBudget):
-            let shouldEnable = effort != .off
-            return (nil, nil, shouldEnable, defaultBudget, nil, nil)
+        case .qwenThinkingBudget(let defaultEnabled, let defaultBudget):
+            let shouldEnable = request.intent == .automatic ? defaultEnabled : request.intent != .disabled
+            let resolvedBudget = ModelReasoningBudgetCatalog.qwenThinkingBudget(
+                for: request,
+                modelDefault: defaultBudget
+            )
+            return ModelReasoningResolution(
+                status: shouldEnable ? .native : .disabled,
+                request: request,
+                reasoningEffort: nil,
+                thinking: nil,
+                enableThinking: shouldEnable,
+                thinkingBudget: shouldEnable ? resolvedBudget : nil,
+                reasoningSplit: nil,
+                reasoningFormat: nil,
+                reasoning: nil,
+                omitsSamplingParameters: false,
+                replayPolicy: runtimeProfile.integrationSpec.reasoningReplayPolicy
+            )
 
         case .minimaxReasoningSplit:
-            return (nil, nil, nil, nil, true, nil)
+            guard request.intent != .disabled else {
+                return .none(request: request, status: .disabled, replayPolicy: runtimeProfile.integrationSpec.reasoningReplayPolicy)
+            }
+            return ModelReasoningResolution(
+                status: .native,
+                request: request,
+                reasoningEffort: nil,
+                thinking: nil,
+                enableThinking: nil,
+                thinkingBudget: nil,
+                reasoningSplit: true,
+                reasoningFormat: nil,
+                reasoning: nil,
+                omitsSamplingParameters: false,
+                replayPolicy: runtimeProfile.integrationSpec.reasoningReplayPolicy
+            )
 
         case .stepfunReasoningFormat(let defaultFormat):
-            return (nil, nil, nil, nil, nil, defaultFormat)
+            guard request.intent != .disabled else {
+                return .none(request: request, status: .disabled, replayPolicy: runtimeProfile.integrationSpec.reasoningReplayPolicy)
+            }
+            return ModelReasoningResolution(
+                status: .native,
+                request: request,
+                reasoningEffort: nil,
+                thinking: nil,
+                enableThinking: nil,
+                thinkingBudget: nil,
+                reasoningSplit: nil,
+                reasoningFormat: defaultFormat,
+                reasoning: nil,
+                omitsSamplingParameters: false,
+                replayPolicy: runtimeProfile.integrationSpec.reasoningReplayPolicy
+            )
+
+        case .openRouterReasoning(let defaultLevel):
+            guard request.intent != .disabled else {
+                return .none(request: request, status: .disabled, replayPolicy: runtimeProfile.integrationSpec.reasoningReplayPolicy)
+            }
+            let requested = effort == .auto ? defaultLevel : effort
+            let resolved = requested
+            guard resolved != .auto, resolved != .off else {
+                return .none(request: request, status: .unsupported, replayPolicy: runtimeProfile.integrationSpec.reasoningReplayPolicy)
+            }
+            return ModelReasoningResolution(
+                status: resolved == requested ? .native : .coerced,
+                request: request,
+                reasoningEffort: nil,
+                thinking: nil,
+                enableThinking: nil,
+                thinkingBudget: nil,
+                reasoningSplit: nil,
+                reasoningFormat: nil,
+                reasoning: OpenAIChatReasoningConfig(effort: resolved.rawValue, maxTokens: nil, exclude: nil),
+                omitsSamplingParameters: false,
+                replayPolicy: runtimeProfile.integrationSpec.reasoningReplayPolicy
+            )
         }
     }
 
     private static func adjustedTemperature(
         _ temperature: Double,
-        for runtimeProfile: LLMProviderRuntimeProfile
-    ) -> Double {
+        for runtimeProfile: LLMProviderRuntimeProfile,
+        reasoningResolution: ModelReasoningResolution
+    ) -> Double? {
         switch runtimeProfile.capabilities.nativeReasoning {
         case .kimiThinking:
-            return 1
+            return isReasoningEnabled(for: runtimeProfile) ? 1 : temperature
         default:
+            if reasoningResolution.omitsSamplingParameters {
+                return nil
+            }
             return temperature
+        }
+    }
+
+    private static func isReasoningEnabled(for runtimeProfile: LLMProviderRuntimeProfile) -> Bool {
+        let request = runtimeProfile.preferredReasoning
+        guard request.intent != .disabled else { return false }
+        switch runtimeProfile.capabilities.nativeReasoning {
+        case .unsupported:
+            return false
+        case .deepSeekThinkingEffort(let defaultEnabled),
+             .glmThinking(let defaultEnabled),
+             .kimiThinking(let defaultEnabled),
+             .thinkingSwitchWithEffort(let defaultEnabled, _, _),
+             .thinkingSwitch(let defaultEnabled):
+            return request.intent == .automatic ? defaultEnabled : true
+        case .enableThinking(let defaultEnabled):
+            return request.intent == .automatic ? defaultEnabled : true
+        case .openAIReasoningEffort,
+             .qwenThinkingBudget,
+             .minimaxReasoningSplit,
+             .stepfunReasoningFormat,
+             .openRouterReasoning:
+            return true
         }
     }
 

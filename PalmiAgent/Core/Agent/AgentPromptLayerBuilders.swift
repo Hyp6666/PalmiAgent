@@ -15,7 +15,7 @@ struct CorePromptBuilder {
             "你是 Palmi。当前这一轮只通过普通文本与用户对话。"
         }
 
-        let pythonNote = if exposesTools, toolIDs.contains(.pythonSandbox) {
+        let pythonNote = if exposesTools, toolIDs.contains(.runPython) {
             """
 
             Python 沙盒特别规则：
@@ -35,14 +35,12 @@ struct CorePromptBuilder {
             rules.append("涉及当前事实、票价、时刻表、最佳路线、天气、日期、相对时间、地理位置等可变化的现实世界信息时，必须依赖当前提供的能力先确认，不能靠印象猜。")
 
             let hasGeneralWorkspaceTool = !toolIDs.isDisjoint(with: [
-                .pythonSandbox,
-                .runJavaScriptSandbox,
-                .runSandboxTerminal,
-                .writeFile,
-                .read,
-                .bootstrapWorkspace,
-                .listWorkspaceFiles,
-                .exportWorkspace
+                .runPython,
+                .fileWrite,
+                .fileAppend,
+                .fileRead,
+                .listDirectory,
+                .fileManage
             ])
             if hasGeneralWorkspaceTool {
                 rules.append("Python、JavaScript、终端、写文件这类通用能力，只用于代码、已知数据处理和工作区操作；不要拿它们模拟地图、通知、短信、闹钟、联系人或在线搜索。")
@@ -90,8 +88,8 @@ struct CapabilityPromptBuilder {
         if exposesTools {
             lines.append("- 当前这一轮向你暴露了 \(toolCount) 个外部工具。只有这些工具可用。")
             lines.append("- 只要准备调用工具，都必须先给用户一句新的、可见的、精确且简短的说明，告诉用户下一步要确认什么。")
-            lines.append("- 默认每个 assistant 回合最多只发起 1 个 tool call。只有多个调用彼此独立、并行明显缩短等待时，才一次发起多个。")
-            lines.append("- 不要一口气静默跑很多工具；工具与工具之间重新根据最新结果判断下一步。")
+            lines.append("- 当多个工具调用之间互不依赖时，可以在同一轮一次性发起以提高效率。")
+            lines.append("- 当后续调用依赖前一轮工具的返回结果时，先执行、确认结果后再继续。")
             lines.append("- 如果某个工具会发起系统动作或需要用户在系统界面继续交互，调用它之后不要继续发起新的工具调用，直接给出文字说明。")
         }
 
@@ -126,12 +124,13 @@ struct StrengthPromptBuilder {
 }
 
 struct ToolRoutingPromptBuilder {
-    func build(actions: [ToolAction], exposesTools: Bool) -> String {
+    func build(actions: [ToolAction], tier: ProfessionalReasoningTier, exposesTools: Bool) -> String {
         guard exposesTools, !actions.isEmpty else {
             return ""
         }
 
         let toolIDs = Set(actions.map(\.id))
+        let webContentProfile = AgentRunProfile.profile(for: tier).retrieval.webContent
         var sections: [String] = [
             """
             工具路由规则：
@@ -140,35 +139,81 @@ struct ToolRoutingPromptBuilder {
             """
         ]
 
+        if toolIDs.contains(.detectWebSearchProviders), toolIDs.contains(.searchWeb) {
+            sections.append(
+                """
+                - 只有在用户明确要求检测网络/搜索源，或上一次搜索源失败时，才调用 `detectWebSearchProviders`；一般搜索直接使用 `searchWeb` 的默认搜索源。
+                - 用户在设置中关闭的搜索源不应被使用；探测结果不可代替搜索结果。
+                """
+            )
+        }
+
         if toolIDs.contains(.searchWeb) {
             sections.append(
                 """
                 - `searchWeb` 负责找候选来源，不负责替你完成精读。
-                - 做网页调研时，先搜索拿到候选，再根据结果质量和相关性，显式调用 `fetchStaticWebPage` 或 `fetchWebBatch` 精读关键网页。
+                - 做网页调研时，通常先搜索拿到候选，再根据结果质量和相关性，显式调用 `fetchStaticWebPage` 精读关键网页；如果用户已经给了 URL，可以直接浏览。
+                - 快速档搜索最多 10 条候选，均衡档最多 20 条，专家档最多 30 条；需要更多信息时，可以换关键词多次搜索。
                 - 不要把“搜索”和“阅读网页正文”混成一步；先挑源，再精读。
                 """
             )
         }
 
-        if toolIDs.contains(.read) {
+        if toolIDs.contains(.fileRead) {
             sections.append(
                 """
-                - `read` 既可用于定位文件，也可用于精读长文档。
-                - 目录场景先用它发现可读文件，不要把整个目录的所有长文一次性当成最终证据。
-                - 面对长论文、长报告、长代码文件时，先围绕当前目标抽取关键事实，再决定是否继续读下一份来源。
+                - `fileRead` 用于读取单个文件，`listDirectory` 用于浏览目录结构。
+                - 面对长文档时，先围绕当前目标抽取关键事实，再决定是否继续读下一份来源。
+                - 文件管理操作（创建目录、移动、复制、删除等）请使用 `fileManage` 工具。
                 """
             )
         }
 
-        if toolIDs.contains(.fetchStaticWebPage) || toolIDs.contains(.fetchWebBatch) {
+        if toolIDs.contains(.fetchStaticWebPage) {
             sections.append(
                 """
-                - `fetchStaticWebPage` / `fetchWebBatch` 用于已知 URL 的显式精读。
-                - 当搜索结果很多时，优先精读少量高价值来源，而不是盲目扩张样本。
+                - `fetchStaticWebPage` 用于已知 URL 的显式精读，支持单个 URL 或少量 URL 数组。
+                - 当前档位建议一次浏览 \(webContentProfile.fetchStaticWebPageRecommendedURLCount) 个 URL；工具硬上限是 \(webContentProfile.fetchStaticWebPageMaxURLs) 个 URL，并行技术上限是 \(webContentProfile.fetchStaticWebPageMaxConcurrentRequests) 个。
+                - 快速档建议 3 个 URL，均衡档建议 6 个，专家档建议 10 个；不要为了凑满数量而读取低价值来源。
+                - 本工具有整次调用的总时间上限（当前 \(Int(webContentProfile.fetchStaticWebPageTotalTimeoutSeconds)) 秒），时间到了就返回已完成的网页结果。
                 """
             )
         }
 
         return sections.joined(separator: "\n\n")
+    }
+}
+
+struct ToolPolicyPromptBuilder {
+    func build(actions: [ToolAction], exposesTools: Bool) -> String {
+        guard exposesTools, !actions.isEmpty else { return "" }
+
+        let isolatedNames = actions
+            .filter { $0.id.policyMetadata.parallelPolicy == .isolated }
+            .map(\.id.rawValue)
+        let personalNames = actions
+            .filter { $0.id.policyMetadata.touchesPersonalData }
+            .map(\.id.rawValue)
+        let mutatingNames = actions
+            .filter { $0.id.policyMetadata.mutatesWorkspace }
+            .map(\.id.rawValue)
+
+        var lines: [String] = [
+            "运行时硬约束：",
+            "- 工具是否可并发、是否要单独收口、是否涉及个人数据或系统动作，由 Palmi runtime 的 ToolPolicy 决定；你不能通过文字绕过。",
+            "- 如果 runtime 要求某类工具调用后单独收口，你必须基于已有结果直接总结。"
+        ]
+
+        if !isolatedNames.isEmpty {
+            lines.append("- 这些工具调用后会单独收口，不要假设还能继续静默调用下一批工具：\(isolatedNames.joined(separator: ", "))。")
+        }
+        if !personalNames.isEmpty {
+            lines.append("- 这些工具涉及个人数据或系统 UI，调用前普通文本必须说明目的和将访问的对象：\(personalNames.joined(separator: ", "))。")
+        }
+        if !mutatingNames.isEmpty {
+            lines.append("- 这些工具会改变工作区文件，最终回复必须说明写入或修改了什么：\(mutatingNames.joined(separator: ", "))。")
+        }
+
+        return lines.joined(separator: "\n")
     }
 }

@@ -1,12 +1,12 @@
 import Foundation
 
-struct AgentPreparedToolExecution {
+struct AgentPreparedToolExecution: @unchecked Sendable {
     let action: ToolAction
     let arguments: ToolArguments
     let argumentsJSON: String
 }
 
-struct AgentToolExecutionResult {
+struct AgentToolExecutionResult: Sendable {
     let step: LLMToolExecutionStep
     let payload: String
     let shouldStopAfterStep: Bool
@@ -59,12 +59,40 @@ final class AgentToolExecutor {
             action: prepared.action,
             argumentsJSON: prepared.argumentsJSON,
             result: outcome.result,
-            requiresUserInteraction: outcome.presentation != nil
+            requiresUserInteraction: outcome.presentation != nil,
+            fileDeltas: outcome.fileDeltas
         )
         return AgentToolExecutionResult(
             step: step,
             payload: makeToolResultPayload(for: prepared.action, outcome: outcome, argumentsJSON: prepared.argumentsJSON),
-            shouldStopAfterStep: prepared.action.id.presentationKind != .data || outcome.presentation != nil
+            shouldStopAfterStep: prepared.action.id.policyMetadata.parallelPolicy == .isolated || outcome.presentation != nil
+        )
+    }
+
+    func skippedByUser(
+        _ prepared: AgentPreparedToolExecution,
+        stepID: UUID
+    ) -> AgentToolExecutionResult {
+        let result = ToolResult(
+            status: .warning,
+            title: prepared.action.title,
+            summary: "用户未批准执行",
+            details: "本次工具调用已跳过。",
+            actionID: prepared.action.id,
+            createdAt: .now
+        )
+        let outcome = ToolExecutionOutcome(result: result)
+        let step = LLMToolExecutionStep(
+            id: stepID,
+            action: prepared.action,
+            argumentsJSON: prepared.argumentsJSON,
+            result: result,
+            requiresUserInteraction: false
+        )
+        return AgentToolExecutionResult(
+            step: step,
+            payload: makeToolResultPayload(for: prepared.action, outcome: outcome, argumentsJSON: prepared.argumentsJSON),
+            shouldStopAfterStep: true
         )
     }
 
@@ -81,7 +109,8 @@ final class AgentToolExecutor {
             details: outcome.result.details,
             requiresUserInteraction: outcome.presentation != nil,
             shareURL: outcome.shareURL?.absoluteString,
-            argumentsJSON: argumentsJSON
+            argumentsJSON: argumentsJSON,
+            fileDeltas: outcome.fileDeltas
         )
         guard let data = try? JSONEncoder().encode(payload),
               let string = String(data: data, encoding: .utf8) else {
@@ -102,6 +131,7 @@ struct AgentToolPayload: Codable, Sendable {
     let requiresUserInteraction: Bool
     let shareURL: String?
     let argumentsJSON: String
+    let fileDeltas: [FileDelta]?
 
     enum CodingKeys: String, CodingKey {
         case toolName = "tool_name"
@@ -112,6 +142,7 @@ struct AgentToolPayload: Codable, Sendable {
         case requiresUserInteraction = "requires_user_interaction"
         case shareURL = "share_url"
         case argumentsJSON = "arguments_json"
+        case fileDeltas = "file_deltas"
     }
 
     static func decode(from payload: String) -> AgentToolPayload? {

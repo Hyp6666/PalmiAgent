@@ -9,7 +9,6 @@ struct AgentResearchPolicy: Sendable {
     }
 
     let researchIntentKeywords: [String]
-    let defaultSearchFallbackPrefetchCount: Int
     let maxSynthesisSourceDigests: Int
     let sourceDigestProjectionThresholdCharacters: Int
     let workerPromptVersion: Int
@@ -21,7 +20,6 @@ struct AgentResearchPolicy: Sendable {
                 "research", "paper", "papers", "survey", "literature", "source", "citation",
                 "调研", "研究", "论文", "文献", "综述", "比较", "对比", "核心论文", "资料搜集"
             ],
-            defaultSearchFallbackPrefetchCount: 1,
             maxSynthesisSourceDigests: 6,
             sourceDigestProjectionThresholdCharacters: 2_000,
             workerPromptVersion: 1,
@@ -42,13 +40,6 @@ struct AgentResearchPolicy: Sendable {
             return false
         }
         return researchIntentKeywords.contains { normalized.contains($0.lowercased()) }
-    }
-
-    func searchFallbackPrefetchCount(for query: String, resultsCount: Int) -> Int {
-        guard !isResearchIntent(texts: [query]) else {
-            return 0
-        }
-        return min(defaultSearchFallbackPrefetchCount, resultsCount)
     }
 
     func softTokenBudget(for kind: AgentHiddenArtifactKind, payloadLength: Int) -> Int {

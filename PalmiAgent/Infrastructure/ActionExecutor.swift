@@ -8,10 +8,8 @@ import VisionKit
 @MainActor
 final class ActionExecutor {
     private let workspaceManager: WorkspaceManager
-    private let javaScriptSandboxService: JavaScriptSandboxService
     private let workspaceReadService: WorkspaceReadService
     private let pythonNotebookSandboxService: PythonNotebookSandboxService
-    private let sandboxTerminalService: SandboxTerminalService
     private let calendarService: CalendarService
     private let remindersService: RemindersService
     private let contactsService: ContactsService
@@ -29,10 +27,8 @@ final class ActionExecutor {
 
     init(
         workspaceManager: WorkspaceManager,
-        javaScriptSandboxService: JavaScriptSandboxService,
         workspaceReadService: WorkspaceReadService,
         pythonNotebookSandboxService: PythonNotebookSandboxService,
-        sandboxTerminalService: SandboxTerminalService,
         calendarService: CalendarService,
         remindersService: RemindersService,
         contactsService: ContactsService,
@@ -49,10 +45,8 @@ final class ActionExecutor {
         userDefaults: UserDefaults = .standard
     ) {
         self.workspaceManager = workspaceManager
-        self.javaScriptSandboxService = javaScriptSandboxService
         self.workspaceReadService = workspaceReadService
         self.pythonNotebookSandboxService = pythonNotebookSandboxService
-        self.sandboxTerminalService = sandboxTerminalService
         self.calendarService = calendarService
         self.remindersService = remindersService
         self.contactsService = contactsService
@@ -72,30 +66,16 @@ final class ActionExecutor {
     func execute(_ action: ToolAction, arguments: ToolArguments) async -> ToolExecutionOutcome {
         do {
             switch action.id {
-            case .bootstrapWorkspace:
-                if let path = arguments.string("path"), !path.isEmpty {
-                    let url = try workspaceManager.createDirectory(at: path)
-                    return success(action, "目录已创建", details: url.path)
-                }
-                let url = try workspaceManager.ensureWorkspace()
-                return success(action, "工作区已就绪", details: url.path)
-
-            case .writeFile:
-                let path = try arguments.requiredString("path")
-                let content = try arguments.requiredString("content")
-                let url = try workspaceManager.writeText(content, to: path)
-                return success(action, "文件已写入", details: url.path)
-
-            case .read:
+            case .fileRead:
                 let path = try arguments.requiredString("path")
                 let readMode = WorkspaceReadMode(
                     rawValue: arguments.string("mode")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
                 ) ?? .auto
                 let result = try workspaceReadService.read(
                     at: path,
-                    recursive: arguments.bool("recursive") ?? true,
+                    recursive: false,
                     maxCharacters: arguments.int("max_chars") ?? 20_000,
-                    maxFiles: arguments.int("max_files") ?? 64,
+                    maxFiles: 1,
                     mode: readMode,
                     offset: max(0, arguments.int("offset") ?? 0),
                     chunkSize: arguments.int("chunk_size"),
@@ -103,55 +83,214 @@ final class ActionExecutor {
                 )
                 return success(action, result.summary, details: result.details)
 
-            case .listWorkspaceFiles:
+            case .fileWrite:
+                let path = try arguments.requiredString("path")
+                let content = try arguments.requiredString("content")
+                let before = workspaceItemSnapshot(at: path)
+                let url = try workspaceManager.writeText(content, to: path)
+                let after = workspaceItemSnapshot(at: path)
+                return success(
+                    action,
+                    "文件已写入",
+                    details: url.path,
+                    fileDeltas: [
+                        fileDelta(
+                            action: action,
+                            path: path,
+                            kind: before.exists ? .modified : .created,
+                            before: before.byteCount,
+                            after: after.byteCount,
+                            summary: before.exists ? "工作区文件已覆盖写入" : "工作区文件已创建"
+                        )
+                    ]
+                )
+
+            case .fileAppend:
+                let path = try arguments.requiredString("path")
+                let content = try arguments.requiredString("content")
+                let before = workspaceItemSnapshot(at: path)
+                let url = try workspaceManager.appendText(content, to: path)
+                let after = workspaceItemSnapshot(at: path)
+                return success(
+                    action,
+                    "内容已追加",
+                    details: url.path,
+                    fileDeltas: [
+                        fileDelta(
+                            action: action,
+                            path: path,
+                            kind: before.exists ? .modified : .created,
+                            before: before.byteCount,
+                            after: after.byteCount,
+                            summary: before.exists ? "已追加内容到文件" : "文件已创建（追加模式）"
+                        )
+                    ]
+                )
+
+            case .listDirectory:
                 let path = arguments.string("path") ?? "."
                 let recursive = arguments.bool("recursive") ?? true
+                let includeContent = arguments.bool("include_content") ?? false
+
+                if includeContent {
+                    let readMode = WorkspaceReadMode(
+                        rawValue: arguments.string("mode")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+                    ) ?? .auto
+                    let result = try workspaceReadService.read(
+                        at: path,
+                        recursive: recursive,
+                        maxCharacters: arguments.int("max_chars") ?? 20_000,
+                        maxFiles: arguments.int("max_files") ?? 64,
+                        mode: readMode,
+                        offset: max(0, arguments.int("offset") ?? 0),
+                        chunkSize: arguments.int("chunk_size"),
+                        focus: arguments.string("focus")
+                    )
+                    return success(action, result.summary, details: result.details)
+                }
+
                 if recursive {
                     let tree = try workspaceManager.directoryTree(at: path)
                     let files = try workspaceManager.listFileURLsRecursively(at: path)
                     return success(action, "共找到 \(files.count) 个文件", details: tree)
                 } else {
                     let entries = try workspaceManager.listEntries(at: path)
-                    let details = entries.map { "\($0.isDirectory ? "dir " : "file") \($0.url.lastPathComponent)" }
-                        .joined(separator: "\n")
+                    let details = entries.map { entry in
+                        let prefix = entry.isDirectory ? "📁 " : "📄 "
+                        return "\(prefix)\(entry.url.lastPathComponent)"
+                    }.joined(separator: "\n")
                     return success(action, "共找到 \(entries.count) 个条目", details: details.isEmpty ? "(空目录)" : details)
                 }
 
-            case .inspectSandboxCapabilities:
-                let focus = arguments.string("focus")
-                return success(action, "沙盒能力边界已整理", details: sandboxTerminalService.capabilityReport(focus: focus))
+            case .fileManage:
+                let operation = try arguments.requiredString("operation").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
-            case .runSandboxTerminal:
-                let run = if let script = arguments.string("script"), !script.isEmpty {
-                    try sandboxTerminalService.run(script: script)
-                } else {
-                    try sandboxTerminalService.runDemoSession()
+                switch operation {
+                case "mkdir":
+                    let path = try arguments.requiredString("path")
+                    let before = workspaceItemSnapshot(at: path)
+                    let url = try workspaceManager.createDirectory(at: path)
+                    let after = workspaceItemSnapshot(at: path)
+                    return success(
+                        action,
+                        "目录已创建",
+                        details: url.path,
+                        fileDeltas: [
+                            fileDelta(
+                                action: action,
+                                path: path,
+                                kind: before.exists ? .modified : .directoryCreated,
+                                before: before.byteCount,
+                                after: after.byteCount,
+                                summary: "工作区目录已创建或确认存在"
+                            )
+                        ]
+                    )
+
+                case "delete":
+                    let path = try arguments.requiredString("path")
+                    let before = workspaceItemSnapshot(at: path)
+                    try workspaceManager.removeItem(at: path)
+                    return success(
+                        action,
+                        "已删除",
+                        details: path,
+                        fileDeltas: [
+                            fileDelta(
+                                action: action,
+                                path: path,
+                                kind: .deleted,
+                                before: before.byteCount,
+                                after: nil,
+                                summary: "工作区文件/目录已删除"
+                            )
+                        ]
+                    )
+
+                case "move", "rename":
+                    let source = try arguments.requiredString("path")
+                    let destination = try arguments.requiredString("destination")
+                    let before = workspaceItemSnapshot(at: source)
+                    _ = try workspaceManager.moveItem(from: source, to: destination)
+                    let after = workspaceItemSnapshot(at: destination)
+                    return success(
+                        action,
+                        "已移动",
+                        details: "\(source) → \(destination)",
+                        fileDeltas: [
+                            fileDelta(
+                                action: action,
+                                path: source,
+                                kind: .deleted,
+                                before: before.byteCount,
+                                after: nil,
+                                summary: "源文件已移走"
+                            ),
+                            fileDelta(
+                                action: action,
+                                path: destination,
+                                kind: .created,
+                                before: nil,
+                                after: after.byteCount,
+                                summary: "文件已移入新位置"
+                            )
+                        ]
+                    )
+
+                case "copy":
+                    let source = try arguments.requiredString("path")
+                    let destination = try arguments.requiredString("destination")
+                    let url = try workspaceManager.copyItem(from: source, to: destination)
+                    let after = workspaceItemSnapshot(at: destination)
+                    return success(
+                        action,
+                        "已复制",
+                        details: "\(source) → \(url.path)",
+                        fileDeltas: [
+                            fileDelta(
+                                action: action,
+                                path: destination,
+                                kind: .created,
+                                before: nil,
+                                after: after.byteCount,
+                                summary: "文件已复制"
+                            )
+                        ]
+                    )
+
+                case "info":
+                    let path = try arguments.requiredString("path")
+                    let info = try workspaceManager.fileInfo(at: path)
+                    guard info.exists else {
+                        return success(action, "目标不存在", details: "路径：\(path)\n存在：否")
+                    }
+                    var lines = [
+                        "路径：\(path)",
+                        "存在：是",
+                        "类型：\(info.isDirectory ? "目录" : "文件")"
+                    ]
+                    if let size = info.fileSize {
+                        lines.append("大小：\(size) 字节")
+                    }
+                    if let childCount = info.childCount {
+                        lines.append("子项数：\(childCount)")
+                    }
+                    if let date = info.modifiedAt {
+                        lines.append("修改时间：\(date.formatted(date: .abbreviated, time: .standard))")
+                    }
+                    return success(action, "文件信息已返回", details: lines.joined(separator: "\n"))
+
+                case "exists":
+                    let path = try arguments.requiredString("path")
+                    let exists = try workspaceManager.itemExists(at: path)
+                    return success(action, exists ? "存在" : "不存在", details: "路径：\(path)\n存在：\(exists ? "是" : "否")")
+
+                default:
+                    throw AppError.invalidState("不支持的 operation：\(operation)。可用值：mkdir、delete、move、copy、info、exists。")
                 }
-                return success(action, "终端脚本已执行", details: "\(run.transcript)\n\ntranscript: \(run.artifactURL.lastPathComponent)")
 
-            case .exportWorkspace:
-                let url = try workspaceManager.url(for: arguments.string("path") ?? ".")
-                return ToolExecutionOutcome(
-                    result: makeResult(action, status: .success, summary: "内容已准备好导出", details: url.path),
-                    shareURL: url
-                )
-
-            case .runJavaScriptSandbox:
-                let result: JavaScriptExecutionResult
-                if let script = arguments.string("script"), !script.isEmpty {
-                    result = try javaScriptSandboxService.runInlineScript(script, sourceName: "tool-inline.js")
-                } else if let scriptPath = arguments.string("script_path"), !scriptPath.isEmpty {
-                    result = try javaScriptSandboxService.runScriptFile(at: scriptPath)
-                } else {
-                    result = try javaScriptSandboxService.runDefaultScript()
-                }
-                return success(
-                    action,
-                    "JavaScript 沙盒已运行",
-                    details: "\(result.transcript)\n\n日志文件：\(result.artifactURL.lastPathComponent)\n脚本：\(result.scriptPath)"
-                )
-
-            case .pythonSandbox:
+            case .runPython:
+                let before = workspaceFileSnapshot()
                 let inlineScript = arguments.string("script")?.trimmingCharacters(in: .whitespacesAndNewlines)
                 let scriptPath = arguments.string("script_path")?.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -168,36 +307,63 @@ final class ActionExecutor {
                 } else if let scriptPath, !scriptPath.isEmpty {
                     result = try pythonNotebookSandboxService.runScriptFile(at: scriptPath)
                 } else {
-                    if try !workspaceManager.itemExists(at: "demo.py") {
-                        _ = try workspaceManager.writePythonStub()
-                    }
-                    result = try pythonNotebookSandboxService.runScriptFile(at: "demo.py")
+                    throw AppError.invalidState("必须提供 script（内联脚本）或 script_path（工作区 .py 文件路径）。")
                 }
+                let fileDeltas = diffWorkspaceFiles(
+                    before: before,
+                    after: workspaceFileSnapshot(),
+                    action: action,
+                    summary: "Python 脚本修改了工作区文件"
+                )
 
                 return success(
                     action,
-                    "Python 沙盒已运行",
+                    "Python 脚本已执行",
                     details: """
                     \(result.transcript)
 
                     日志文件：\(result.artifactURL.lastPathComponent)
                     Python 源文件：\(result.sourcePath)
                     运行时：\(result.runtimeDescription)
+                    """,
+                    fileDeltas: fileDeltas
+                )
+
+            case .detectWebSearchProviders:
+                let requestedProvider = try optionalSearchProvider(from: arguments)
+                let providerIDs = requestedProvider.map { [$0] } ?? enabledSearchProviderIDs()
+                let probes = await webResearchService.detectSearchProviders(providerIDs: providerIDs)
+                let reachableCount = probes.filter(\.isReachable).count
+                let details = probes.map { probe in
+                    """
+                    \(probe.providerID.title)（\(probe.providerID.rawValue)）
+                    状态：\(probe.isReachable ? "可用" : "不可用")
+                    耗时：\(probe.latencyMilliseconds) ms
+                    HTTP：\(probe.statusCode.map(String.init) ?? "无")
+                    说明：\(probe.message)
+                    """
+                }.joined(separator: "\n\n")
+                return success(
+                    action,
+                    "已探测 \(probes.count) 个搜索源，\(reachableCount) 个可访问",
+                    details: """
+                    已开启搜索源：\(WebSearchProviderSettings.enabledProviderIDsDescription(userDefaults: userDefaults))
+
+                    探测结果：
+                    \(details.isEmpty ? "没有可探测的搜索源。" : details)
                     """
                 )
 
             case .searchWeb:
-                let reasoningProfile = currentReasoningStrengthProfile()
+                let retrievalProfile = currentRetrievalQualityProfile()
                 let query = try arguments.requiredString("query")
-                let maxResults = reasoningProfile.webSearch.maxResults
-                let results = try await webResearchService.search(query: query, maxResults: maxResults)
-                let prefetchedResultCount = AgentResearchPolicy.default.searchFallbackPrefetchCount(
-                    for: query,
-                    resultsCount: results.count
-                )
-                let prefetchedPages = await webResearchService.batchFetchBestEffort(
-                    urls: Array(results.prefix(prefetchedResultCount).map(\.url)),
-                    maxBodyCharacters: reasoningProfile.webSearch.autoBrowse.fetchMaxCharacters
+                let providerID = try selectedSearchProvider(from: arguments)
+                let maxResults = retrievalProfile.webSearch.maxResults
+                let results = try await webResearchService.search(
+                    query: query,
+                    maxResults: maxResults,
+                    providerID: providerID,
+                    timeoutSeconds: retrievalProfile.webSearch.timeoutSeconds
                 )
                 let details = results.enumerated().map { index, result in
                     """
@@ -206,87 +372,79 @@ final class ActionExecutor {
                     \(result.snippet)
                     """
                 }.joined(separator: "\n\n")
-                let prefetchedDetails = prefetchedPages.enumerated().map { index, entry in
-                    let header = """
-                    \(index + 1). \(entry.url.absoluteString)
-                    """
-                    if let summary = entry.summary {
-                        let excerpt = String(summary.bodyText.prefix(reasoningProfile.webSearch.autoBrowse.snippetMaxCharacters))
-                        return """
-                        \(index + 1). \(summary.title)
-                        \(summary.url.absoluteString)
-                        正文摘录：\(excerpt)
-                        """
-                    }
-                    return """
-                    \(header)
-                    预读失败：\(entry.errorDescription ?? "未知错误")
-                    """
-                }.joined(separator: "\n\n")
                 return success(
                     action,
                     results.isEmpty ? "没有搜索到网页结果" : "已返回 \(results.count) 条网页结果",
                     details: """
                     查询：\(query)
-                    搜索源：Baidu via WebKit
+                    搜索源：\(providerID.title)（\(providerID.technicalTitle)，source=\(providerID.rawValue)）
+                    已开启搜索源：\(WebSearchProviderSettings.enabledProviderIDsDescription(userDefaults: userDefaults))
                     目标结果数：\(maxResults)
                     实际命中：\(results.count)
-                    自动预读网页：\(prefetchedResultCount)
+                    搜索超时：\(Int(retrievalProfile.webSearch.timeoutSeconds)) 秒
+                    正文读取：未读取。请根据候选 URL 自行选择后调用 `fetchStaticWebPage`。
 
                     搜索结果：
                     \(details.isEmpty ? "没有解析到可用结果。" : details)
-
-                    已预读网页摘要：
-                    \(prefetchedDetails.isEmpty ? "没有预读到可用网页正文。" : prefetchedDetails)
                     """
                 )
 
             case .fetchStaticWebPage:
-                let reasoningProfile = currentReasoningStrengthProfile()
-                let url = try requiredURL(arguments.string("url") ?? "https://developer.apple.com")
-                let maxChars = reasoningProfile.webContent.fetchStaticWebPageMaxCharacters
-                let summary = try await webResearchService.fetchSummary(from: url, maxBodyCharacters: maxChars)
-                return success(action, "已抓取 \(summary.title)", details: "字节数：\(summary.byteCount)\n正文片段：\(summary.bodyText)")
-
-            case .fetchWebBatch:
-                let reasoningProfile = currentReasoningStrengthProfile()
-                let urls = try parseURLs(arguments.stringArray("urls")) ?? [
-                    URL(string: "https://developer.apple.com")!,
-                    URL(string: "https://www.apple.com/ios/")!,
-                    URL(string: "https://www.example.com")!
-                ]
-                let maxChars = reasoningProfile.webContent.fetchWebBatchMaxCharacters
-                let summaries = try await webResearchService.batchFetch(urls: urls, maxBodyCharacters: maxChars)
-                let details = summaries.map {
-                    """
-                    \($0.title)
-                    \($0.url.absoluteString)
-                    字节数：\($0.byteCount)
-                    正文片段：\($0.bodyText)
+                let retrievalProfile = currentRetrievalQualityProfile()
+                let maxChars = retrievalProfile.webContent.fetchStaticWebPageMaxCharacters
+                let requestedURLs = try webPageURLs(from: arguments)
+                let uniqueURLs = uniqueURLs(requestedURLs)
+                let maxURLs = retrievalProfile.webContent.fetchStaticWebPageMaxURLs
+                let urls = Array(uniqueURLs.prefix(maxURLs))
+                let skippedCount = max(0, uniqueURLs.count - urls.count)
+                let attempts = await webResearchService.fetchSummaries(
+                    urls: urls,
+                    maxBodyCharacters: maxChars,
+                    maxConcurrentRequests: retrievalProfile.webContent.fetchStaticWebPageMaxConcurrentRequests,
+                    requestTimeoutSeconds: retrievalProfile.webContent.fetchStaticWebPageRequestTimeoutSeconds,
+                    totalTimeoutSeconds: retrievalProfile.webContent.fetchStaticWebPageTotalTimeoutSeconds
+                )
+                let successCount = attempts.filter { $0.summary != nil }.count
+                let unfinishedCount = max(0, urls.count - attempts.count)
+                let details = attempts.enumerated().map { index, attempt in
+                    if let summary = attempt.summary {
+                        return """
+                        \(index + 1). \(summary.title)
+                        \(summary.url.absoluteString)
+                        字节数：\(summary.byteCount)
+                        正文片段：\(summary.bodyText)
+                        """
+                    }
+                    return """
+                    \(index + 1). \(attempt.url.absoluteString)
+                    抓取失败：\(attempt.errorDescription ?? "未知错误")
                     """
                 }.joined(separator: "\n\n")
-                return success(action, "批量抓取完成，共 \(summaries.count) 个网页", details: details)
+                let skippedLine = skippedCount > 0 ? "\n已按工具技术上限跳过 \(skippedCount) 个 URL。" : ""
+                let unfinishedLine = unfinishedCount > 0 ? "\n总时间上限内未完成 \(unfinishedCount) 个 URL，已返回已完成结果。" : ""
+                return success(
+                    action,
+                    successCount == 0 ? "网页浏览未取得正文" : "已浏览 \(successCount)/\(urls.count) 个网页",
+                    details: """
+                    请求 URL：\(requestedURLs.count)
+                    去重后 URL：\(uniqueURLs.count)
+                    本次执行 URL：\(urls.count)
+                    当前档位建议：\(retrievalProfile.webContent.fetchStaticWebPageRecommendedURLCount) 个 URL
+                    工具技术上限：\(maxURLs) 个 URL
+                    并行上限：\(retrievalProfile.webContent.fetchStaticWebPageMaxConcurrentRequests)
+                    单 URL 超时：\(Int(retrievalProfile.webContent.fetchStaticWebPageRequestTimeoutSeconds)) 秒
+                    总时间上限：\(Int(retrievalProfile.webContent.fetchStaticWebPageTotalTimeoutSeconds)) 秒
+                    \(skippedLine)
+                    \(unfinishedLine)
 
-            case .saveWebPageToWorkspace:
-                let reasoningProfile = currentReasoningStrengthProfile()
-                let sourceURL = try requiredURL(arguments.string("url") ?? "https://developer.apple.com")
-                let maxChars = reasoningProfile.webContent.saveWebPageToWorkspaceMaxCharacters
-                let summary = try await webResearchService.fetchSummary(from: sourceURL, maxBodyCharacters: maxChars)
-                let markdown = """
-                # \(summary.title)
+                    网页结果：
+                    \(details.isEmpty ? "没有取得可用网页正文。" : details)
+                    """,
+                    status: successCount == 0 || skippedCount > 0 || unfinishedCount > 0 ? .warning : .success
+                )
 
-                来源：\(summary.url.absoluteString)
-
-                正文片段：
-                \(summary.bodyText)
-                """
-                let url: URL
-                if let path = arguments.string("path"), !path.isEmpty {
-                    url = try workspaceManager.writeText(markdown, to: path)
-                } else {
-                    url = try workspaceManager.writeWebPage(title: summary.title, body: markdown)
-                }
-                return success(action, "网页摘要已落盘", details: url.path)
+            case .fetchWebBatch, .saveWebPageToWorkspace:
+                throw AppError.unsupported("该网页工具已下线，请改用网页搜索或网页浏览。")
 
             case .openInAppBrowser:
                 let url = try requiredURL(arguments.string("url") ?? "https://developer.apple.com")
@@ -924,9 +1082,13 @@ final class ActionExecutor {
         _ action: ToolAction,
         _ summary: String,
         details: String,
-        status: ToolResult.Status = .success
+        status: ToolResult.Status = .success,
+        fileDeltas: [FileDelta] = []
     ) -> ToolExecutionOutcome {
-        ToolExecutionOutcome(result: makeResult(action, status: status, summary: summary, details: details))
+        ToolExecutionOutcome(
+            result: makeResult(action, status: status, summary: summary, details: details),
+            fileDeltas: fileDeltas
+        )
     }
 
     private func makeResult(
@@ -952,18 +1114,173 @@ final class ActionExecutor {
         return url
     }
 
-    private func parseURLs(_ rawValues: [String]?) throws -> [URL]? {
-        guard let rawValues else { return nil }
-        return try rawValues.map(requiredURL)
+    private func workspaceItemSnapshot(at relativePath: String) -> (exists: Bool, byteCount: Int?) {
+        guard let url = try? workspaceManager.url(for: relativePath) else {
+            return (false, nil)
+        }
+        return (FileManager.default.fileExists(atPath: url.path), fileByteCount(at: url))
+    }
+
+    private func fileByteCount(at url: URL) -> Int? {
+        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey]) else {
+            return nil
+        }
+        if values.isDirectory == true {
+            return nil
+        }
+        return values.fileSize
+    }
+
+    private func workspaceFileSnapshot() -> [String: WorkspaceFileSnapshotState] {
+        guard let rootURL = try? workspaceManager.url(for: ".") else {
+            return [:]
+        }
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
+        guard let enumerator = FileManager.default.enumerator(
+            at: rootURL,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsHiddenFiles]
+        ) else {
+            return [:]
+        }
+
+        var snapshot: [String: WorkspaceFileSnapshotState] = [:]
+        for case let url as URL in enumerator {
+            guard let values = try? url.resourceValues(forKeys: keys),
+                  values.isRegularFile == true else {
+                continue
+            }
+            snapshot[workspaceRelativePath(for: url)] = WorkspaceFileSnapshotState(
+                byteCount: values.fileSize,
+                modifiedAt: values.contentModificationDate
+            )
+        }
+        return snapshot
+    }
+
+    private func diffWorkspaceFiles(
+        before: [String: WorkspaceFileSnapshotState],
+        after: [String: WorkspaceFileSnapshotState],
+        action: ToolAction,
+        summary: String
+    ) -> [FileDelta] {
+        let paths = Set(before.keys).union(after.keys).sorted()
+        return paths.compactMap { path in
+            let old = before[path]
+            let new = after[path]
+            let kind: FileDeltaKind?
+            switch (old, new) {
+            case (.none, .some):
+                kind = .created
+            case (.some, .none):
+                kind = .deleted
+            case let (.some(old), .some(new)):
+                kind = old == new ? nil : .modified
+            case (.none, .none):
+                kind = nil
+            }
+
+            guard let kind else { return nil }
+            return fileDelta(
+                action: action,
+                path: path,
+                kind: kind,
+                before: old?.byteCount,
+                after: new?.byteCount,
+                summary: summary
+            )
+        }
+    }
+
+    private func workspaceRelativePath(for url: URL) -> String {
+        guard let rootPath = try? workspaceManager.rootPath() else {
+            return url.lastPathComponent
+        }
+        let root = URL(fileURLWithPath: rootPath).standardizedFileURL.path
+        let path = url.standardizedFileURL.path
+        guard path == root || path.hasPrefix(root + "/") else {
+            return url.lastPathComponent
+        }
+        let start = path.index(path.startIndex, offsetBy: root.count)
+        let relative = path[start...].trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return relative.isEmpty ? "." : relative
+    }
+
+    private func fileDelta(
+        action: ToolAction,
+        path: String,
+        kind: FileDeltaKind,
+        before: Int?,
+        after: Int?,
+        summary: String
+    ) -> FileDelta {
+        FileDelta(
+            toolName: action.id.rawValue,
+            path: path,
+            kind: kind,
+            beforeByteCount: before,
+            afterByteCount: after,
+            summary: summary
+        )
+    }
+
+    private struct WorkspaceFileSnapshotState: Equatable {
+        let byteCount: Int?
+        let modifiedAt: Date?
+    }
+
+    private func webPageURLs(from arguments: ToolArguments) throws -> [URL] {
+        var rawValues: [String] = []
+        if let url = arguments.string("url")?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !url.isEmpty {
+            rawValues.append(url)
+        }
+        rawValues.append(contentsOf: arguments.stringArray("urls") ?? [])
+
+        let urls = try rawValues
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .map(requiredURL)
+        guard !urls.isEmpty else {
+            throw AppError.invalidState("网页浏览需要提供 url 或 urls。")
+        }
+        return urls
+    }
+
+    private func uniqueURLs(_ urls: [URL]) -> [URL] {
+        var seen: Set<String> = []
+        var unique: [URL] = []
+        for url in urls {
+            let key = url.absoluteString
+            guard !seen.contains(key) else {
+                continue
+            }
+            seen.insert(key)
+            unique.append(url)
+        }
+        return unique
     }
 
     func effectiveArgumentsJSON(for action: ToolAction, arguments: ToolArguments) -> String {
-        let reasoningProfile = currentReasoningStrengthProfile()
+        let retrievalProfile = currentRetrievalQualityProfile()
 
         switch action.id {
-        case .searchWeb:
+        case .detectWebSearchProviders:
             var payload: [String: Any] = [
-                "max_results": reasoningProfile.webSearch.maxResults
+                "enabled_sources": enabledSearchProviderIDs().map(\.rawValue)
+            ]
+            if let source = arguments.string("source")?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !source.isEmpty {
+                payload["source"] = source
+            }
+            return normalizedArgumentsJSONString(payload, fallback: arguments.normalizedJSONString())
+
+        case .searchWeb:
+            let selectedSource = (try? selectedSearchProvider(from: arguments)) ?? enabledSearchProviderIDs().first ?? WebSearchProviderSettings.defaultProviderID
+            var payload: [String: Any] = [
+                "max_results": retrievalProfile.webSearch.maxResults,
+                "source": selectedSource.rawValue,
+                "timeout_seconds": Int(retrievalProfile.webSearch.timeoutSeconds)
             ]
             if let query = arguments.string("query")?.trimmingCharacters(in: .whitespacesAndNewlines),
                !query.isEmpty {
@@ -973,34 +1290,19 @@ final class ActionExecutor {
 
         case .fetchStaticWebPage:
             var payload: [String: Any] = [
-                "max_chars": reasoningProfile.webContent.fetchStaticWebPageMaxCharacters
+                "max_chars": retrievalProfile.webContent.fetchStaticWebPageMaxCharacters,
+                "recommended_urls": retrievalProfile.webContent.fetchStaticWebPageRecommendedURLCount,
+                "max_urls": retrievalProfile.webContent.fetchStaticWebPageMaxURLs,
+                "max_concurrent_requests": retrievalProfile.webContent.fetchStaticWebPageMaxConcurrentRequests,
+                "request_timeout_seconds": Int(retrievalProfile.webContent.fetchStaticWebPageRequestTimeoutSeconds),
+                "total_timeout_seconds": Int(retrievalProfile.webContent.fetchStaticWebPageTotalTimeoutSeconds)
             ]
             if let url = arguments.string("url")?.trimmingCharacters(in: .whitespacesAndNewlines),
                !url.isEmpty {
                 payload["url"] = url
             }
-            return normalizedArgumentsJSONString(payload, fallback: arguments.normalizedJSONString())
-
-        case .fetchWebBatch:
-            var payload: [String: Any] = [
-                "max_chars": reasoningProfile.webContent.fetchWebBatchMaxCharacters
-            ]
             if let urls = arguments.stringArray("urls"), !urls.isEmpty {
                 payload["urls"] = urls
-            }
-            return normalizedArgumentsJSONString(payload, fallback: arguments.normalizedJSONString())
-
-        case .saveWebPageToWorkspace:
-            var payload: [String: Any] = [
-                "max_chars": reasoningProfile.webContent.saveWebPageToWorkspaceMaxCharacters
-            ]
-            if let url = arguments.string("url")?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !url.isEmpty {
-                payload["url"] = url
-            }
-            if let path = arguments.string("path")?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !path.isEmpty {
-                payload["path"] = path
             }
             return normalizedArgumentsJSONString(payload, fallback: arguments.normalizedJSONString())
 
@@ -1009,9 +1311,40 @@ final class ActionExecutor {
         }
     }
 
-    private func currentReasoningStrengthProfile() -> ReasoningStrengthProfile {
+    private func currentRetrievalQualityProfile() -> RetrievalQualityProfile {
         let surface = (try? workspaceManager.currentProject().surface) ?? .professional
-        return ReasoningStrengthProfile.current(for: surface, userDefaults: userDefaults)
+        return AgentRunProfile.current(for: surface, userDefaults: userDefaults).retrieval
+    }
+
+    private func enabledSearchProviderIDs() -> [WebSearchProviderID] {
+        WebSearchProviderSettings.enabledProviderIDs(userDefaults: userDefaults)
+    }
+
+    private func optionalSearchProvider(from arguments: ToolArguments) throws -> WebSearchProviderID? {
+        guard let rawSource = arguments.string("source")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawSource.isEmpty else {
+            return nil
+        }
+        return try resolveSearchProvider(rawSource)
+    }
+
+    private func selectedSearchProvider(from arguments: ToolArguments) throws -> WebSearchProviderID {
+        guard let rawSource = arguments.string("source")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawSource.isEmpty,
+              rawSource.lowercased() != "auto" else {
+            return enabledSearchProviderIDs().first ?? WebSearchProviderSettings.defaultProviderID
+        }
+        return try resolveSearchProvider(rawSource)
+    }
+
+    private func resolveSearchProvider(_ rawSource: String) throws -> WebSearchProviderID {
+        guard let providerID = WebSearchProviderSettings.provider(id: rawSource) else {
+            throw AppError.invalidState("未知搜索源：\(rawSource)")
+        }
+        guard enabledSearchProviderIDs().contains(providerID) else {
+            throw AppError.invalidState("搜索源未在设置中开启：\(providerID.title)")
+        }
+        return providerID
     }
 
     private func normalizedArgumentsJSONString(_ payload: [String: Any], fallback: String) -> String {
