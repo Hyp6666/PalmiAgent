@@ -2413,16 +2413,19 @@ private struct ModelConfigurationProfileEditorScreen: View {
     }
 
     private func modelSelectionMenu(role: APIModelRole, selectedOption: APIModelDefinition) -> some View {
-        Menu {
-            ForEach(store.availableModels(for: providerID, role: role, profileID: profileID)) { model in
-                Button {
-                    modelBinding(role: role).wrappedValue = model.id
-                } label: {
-                    if model.id == selectedOption.id {
-                        Label(model.title, systemImage: "checkmark")
-                    } else {
-                        Text(model.title)
-                    }
+        let catalogModels = store.catalogModels(for: providerID, role: role, profileID: profileID)
+        let remoteModels = store.remoteModels(for: providerID, role: role, profileID: profileID)
+
+        return Menu {
+            ForEach(catalogModels) { model in
+                modelMenuButton(model, role: role, selectedOption: selectedOption)
+            }
+
+            if !remoteModels.isEmpty {
+                Divider()
+
+                ForEach(remoteModels) { model in
+                    modelMenuButton(model, role: role, selectedOption: selectedOption)
                 }
             }
         } label: {
@@ -2447,6 +2450,22 @@ private struct ModelConfigurationProfileEditorScreen: View {
                 isEditingInput = false
             }
         )
+    }
+
+    private func modelMenuButton(
+        _ model: APIModelDefinition,
+        role: APIModelRole,
+        selectedOption: APIModelDefinition
+    ) -> some View {
+        Button {
+            modelBinding(role: role).wrappedValue = model.id
+        } label: {
+            if model.id == selectedOption.id {
+                Label(model.title, systemImage: "checkmark")
+            } else {
+                Text(model.title)
+            }
+        }
     }
 
     private func validationIndicator(for state: APIConnectionValidationState) -> some View {

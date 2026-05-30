@@ -554,13 +554,16 @@ final class ChatStore {
     }
 
     private func makeThoughtCard(from card: AgentThoughtCard) -> PalmiToolCallCard {
-        PalmiToolCallCard(
-            cardKind: card.kind == .phaseThought ? .phaseThought : .modelThink,
-            toolTitle: "思考",
+        let isPhaseThought = card.kind == .phaseThought
+        return PalmiToolCallCard(
+            cardKind: isPhaseThought ? .phaseThought : .modelThink,
+            toolTitle: isPhaseThought ? card.title : "思考",
             toolName: card.kind.rawValue,
             presentationKind: .data,
             status: .success,
-            summary: card.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "思考" : card.summary,
+            summary: card.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? (isPhaseThought ? "阶段思考" : "思考")
+                : card.summary,
             details: card.details,
             argumentsJSON: "",
             requiresUserInteraction: false,

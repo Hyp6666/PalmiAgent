@@ -29,6 +29,9 @@ struct LLMDiscoveredModel: Hashable, Sendable {
             "/vl",
             "vl-",
             "v-",
+            "glm-5v",
+            "glm-4.6v",
+            "glm-4.5v",
             "omni",
             "multimodal"
         ]

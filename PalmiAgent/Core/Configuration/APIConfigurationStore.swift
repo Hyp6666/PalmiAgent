@@ -628,6 +628,7 @@ struct APIConfigurationProfileSnapshot: Identifiable, Sendable {
     let reasoningModel: APIModelDefinition
     let multimodalModel: APIModelDefinition
     let lightweightModel: APIModelDefinition
+    let remoteModelDefinitions: [APIModelDefinition]
     let hasAPIKey: Bool
     let maskedAPIKey: String?
     let endpointURL: URL?
@@ -1188,6 +1189,7 @@ final class APIConfigurationStore {
             reasoningModel: resolvedReasoningModel,
             multimodalModel: resolvedMultimodalModel,
             lightweightModel: resolvedLightweightModel,
+            remoteModelDefinitions: profile.remoteModelDefinitions ?? [],
             hasAPIKey: !(apiKey?.isEmpty ?? true),
             maskedAPIKey: apiKey.flatMap(maskedSecret),
             endpointURL: resolvedEndpointURL,

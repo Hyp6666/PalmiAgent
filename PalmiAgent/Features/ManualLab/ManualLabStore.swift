@@ -346,6 +346,30 @@ final class ManualLabStore {
         return selectedAccessMode(for: providerID, profileID: profileID).availableModels(for: role)
     }
 
+    func catalogModels(
+        for providerID: APIProviderID,
+        role: APIModelRole,
+        profileID: UUID? = nil
+    ) -> [APIModelDefinition] {
+        let provider = snapshot(for: providerID).provider
+        guard provider.supportsManualModelSelection else {
+            return [APIModelDefinition.automatic(for: role)]
+        }
+        let accessModeID = selectedAccessModeID(for: providerID, profileID: profileID)
+        let baseAccessMode = provider.accessMode(withID: accessModeID) ?? provider.preferredAccessMode
+        return baseAccessMode.availableModels(for: role)
+    }
+
+    func remoteModels(
+        for providerID: APIProviderID,
+        role: APIModelRole,
+        profileID: UUID? = nil
+    ) -> [APIModelDefinition] {
+        let catalogIDs = Set(catalogModels(for: providerID, role: role, profileID: profileID).map(\.id))
+        return availableModels(for: providerID, role: role, profileID: profileID)
+            .filter { !catalogIDs.contains($0.id) }
+    }
+
     func availableAccessModes(for providerID: APIProviderID) -> [APIAccessModeDefinition] {
         snapshot(for: providerID).provider.accessModes
     }
@@ -364,7 +388,13 @@ final class ManualLabStore {
 
     func selectedAccessMode(for providerID: APIProviderID, profileID: UUID? = nil) -> APIAccessModeDefinition {
         let activeSnapshot = snapshot(for: providerID)
-        return activeSnapshot.provider.accessMode(withID: selectedAccessModeID(for: providerID, profileID: profileID)) ?? activeSnapshot.selectedAccessMode
+        let accessModeID = selectedAccessModeID(for: providerID, profileID: profileID)
+        let baseAccessMode = activeSnapshot.provider.accessMode(withID: accessModeID) ?? activeSnapshot.selectedAccessMode
+        let resolvedProfileID = resolvedProfileID(for: providerID, profileID: profileID)
+        if let profile = profiles(for: providerID).first(where: { $0.id == resolvedProfileID }) {
+            return baseAccessMode.mergingRemoteModels(profile.remoteModelDefinitions)
+        }
+        return baseAccessMode
     }
 
     func selectedModelID(for providerID: APIProviderID) -> String {

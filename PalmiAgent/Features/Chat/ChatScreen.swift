@@ -22,8 +22,11 @@ struct ChatScreen: View {
     @State private var isShowingEvidencePanel = false
     @State private var previewedWorkspaceFile: WorkspacePreviewFile?
     @State private var isShowingAttachmentMenu = false
+    @State private var isShowingQuickConfiguration = false
     @State private var attachmentPresentation: PalmiAttachmentImportPresentation?
     @State private var attachmentButtonFrame: CGRect = .zero
+    // 输入区液态玻璃形变命名空间：让“+”按钮与输入框在同一 GlassEffectContainer 内融合。
+    @Namespace private var composerGlassNamespace
     // 缓存模型选择快照。原计算路径要 UserDefaults + JSON decode，
     // 在 body 里每次访问都会触发，正好卡在弹窗动画收尾那帧。
     // 仅在 onAppear / 打开菜单 / override 变化时刷新。
@@ -40,7 +43,6 @@ struct ChatScreen: View {
 
     private enum ComposerMenu: String, Identifiable {
         case controlCenter
-        case quickSettings
 
         var id: String { rawValue }
     }
@@ -136,31 +138,66 @@ struct ChatScreen: View {
         min(360, max(186, 24 + CGFloat(modelSelectionRowCount) * 54))
     }
 
-    private var quickSettingsPanelHeight: CGFloat {
-        let reasoningCount = isChatSurface
-            ? ChatReasoningTier.allCases.count
-            : ProfessionalReasoningTier.allCases.count
-        let authorizationRows = ToolAuthorizationMode.allCases.count
-        let modelReasoningRows = selectedModelReasoningRowCount
-        let modelReasoningChrome = modelReasoningRows > 0 ? 42 : 0
-        return min(560, max(320, 108 + CGFloat(reasoningCount + 2 + authorizationRows + modelReasoningRows) * 52 + CGFloat(modelReasoningChrome)))
-    }
-
-    private var selectedModelReasoningRowCount: Int {
-        selectedModelReasoningOptions.count
-    }
-
     private var selectedModelReasoningOptions: [ModelReasoningControlOption] {
         let _ = modelReasoningRevision
+        return makeSelectedModelReasoningOptions { defaultEnabled in
+            isModelThinkingEnabled(defaultEnabled: defaultEnabled)
+        }
+    }
+
+    private var selectedModelReasoningMenuOptions: [ModelReasoningControlOption] {
+        let _ = modelReasoningRevision
+        return makeSelectedModelReasoningOptions { _ in
+            true
+        }
+    }
+
+    private var modelThinkingToggleOption: ModelReasoningControlOption? {
+        selectedModelReasoningMenuOptions.first { option in
+            if case .thinkingToggle = option.action {
+                return true
+            }
+            return false
+        }
+    }
+
+    private var modelEffortMenuOptions: [ModelReasoningControlOption] {
+        selectedModelReasoningMenuOptions.filter { option in
+            if case .thinkingToggle = option.action {
+                return false
+            }
+            return true
+        }
+    }
+
+    private var modelThinkingModeTitle: String {
+        guard let option = modelThinkingToggleOption,
+              case .thinkingToggle(let defaultEnabled) = option.action else {
+            return "关闭"
+        }
+
+        return isModelThinkingEnabled(defaultEnabled: defaultEnabled) ? "开启" : "关闭"
+    }
+
+    private var modelEffortTitle: String {
+        return modelEffortMenuOptions
+            .first(where: { isSelectedModelReasoningOption($0) })?
+            .title ?? "默认"
+    }
+
+    private func makeSelectedModelReasoningOptions(
+        isThinkingEnabled: (Bool) -> Bool
+    ) -> [ModelReasoningControlOption] {
         let state = modelSelectionState
         let nativeReasoning = LLMModelIntegrationCatalog
             .spec(for: state.provider.id, model: state.selectedModel)
             .capabilities
             .nativeReasoning
 
-        return ModelReasoningControlCatalog.options(for: nativeReasoning) { defaultEnabled in
-            isModelThinkingEnabled(defaultEnabled: defaultEnabled)
-        }
+        return ModelReasoningControlCatalog.options(
+            for: nativeReasoning,
+            isThinkingEnabled: isThinkingEnabled
+        )
     }
 
     private var topChromeReservedHeight: CGFloat {
@@ -233,6 +270,7 @@ struct ChatScreen: View {
             cachedModelSelectionState = computedModelSelectionState
         }
         .onPreferenceChange(ChatAttachmentButtonFramePreferenceKey.self) { frame in
+            guard attachmentButtonFrame != frame else { return }
             attachmentButtonFrame = frame
         }
         .onChange(of: isFocused) { _, newValue in
@@ -264,6 +302,13 @@ struct ChatScreen: View {
                     store.resolveApproval(request, approved: false)
                 }
             )
+        }
+        .sheet(isPresented: $isShowingQuickConfiguration) {
+            quickConfigurationSheet
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(38)
+                .presentationBackground(Color(red: 0.948, green: 0.950, blue: 0.958))
         }
         .palmiAttachmentImporter(
             presentation: $attachmentPresentation,
@@ -583,70 +628,76 @@ struct ChatScreen: View {
     }
 
     private var composerInputBar: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Button {
-                toggleAttachmentMenu()
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(isShowingAttachmentMenu ? Color.accentColor : Color.black.opacity(0.82))
-                    .rotationEffect(.degrees(isShowingAttachmentMenu ? 45 : 0))
-                    .frame(width: 38, height: 38)
-                    .background {
-                        Circle()
-                            .fill(Color.white.opacity(isShowingAttachmentMenu ? 0.18 : 0.08))
-                            .glassEffect(
-                                .regular.tint(Color.white.opacity(isShowingAttachmentMenu ? 0.34 : 0.18)).interactive(),
-                                in: .circle
-                            )
-                            .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
-                    }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("添加")
-            .background(
-                GeometryReader { proxy in
-                    Color.clear.preference(
-                        key: ChatAttachmentButtonFramePreferenceKey.self,
-                        value: proxy.frame(in: .named("chat-root"))
-                    )
+        // “+”与输入框是同一 GlassEffectContainer 内的两个独立玻璃元素：
+        // 平时分离，点击「+」时间距收拢到融合阈值内，触发原生液态桥接（短暂融合）。
+        GlassEffectContainer(spacing: 14) {
+            HStack(alignment: .center, spacing: isShowingAttachmentMenu ? 3 : 16) {
+                // 「+」独立圆形玻璃按钮
+                Button {
+                    toggleAttachmentMenu()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundStyle(isShowingAttachmentMenu ? Color.accentColor : Color.primary.opacity(0.85))
+                        .rotationEffect(.degrees(isShowingAttachmentMenu ? 45 : 0))
+                        .frame(width: 48, height: 48)
+                        .contentShape(Circle())
                 }
-            )
-
-            TextField("输入消息…", text: $store.inputText, axis: .vertical)
-                .lineLimit(1...6)
-                .textFieldStyle(.plain)
-                .focused($isFocused)
-                .font(.body)
-                .frame(minHeight: 22)
-                .simultaneousGesture(
-                    TapGesture().onEnded {
-                        if isShowingAttachmentMenu {
-                            withAnimation(floatingBubbleAnimation) {
-                                isShowingAttachmentMenu = false
-                            }
-                        }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .glassEffectID("composer-plus", in: composerGlassNamespace)
+                .accessibilityLabel("添加")
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: ChatAttachmentButtonFramePreferenceKey.self,
+                            value: proxy.frame(in: .named("chat-root"))
+                        )
                     }
                 )
 
-            Button {
-                sendMessage()
-            } label: {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(store.canSend ? Color.white : Color.secondary.opacity(0.65))
-                    .frame(width: 34, height: 34)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(store.canSend ? Color.accentColor : Color.black.opacity(0.08))
-                    )
+                // 输入框 + 发送：独立胶囊玻璃
+                HStack(alignment: .center, spacing: 8) {
+                    TextField("输入消息…", text: $store.inputText, axis: .vertical)
+                        .lineLimit(1...6)
+                        .textFieldStyle(.plain)
+                        .focused($isFocused)
+                        .font(.body)
+                        .frame(minHeight: 24)
+                        .simultaneousGesture(
+                            TapGesture().onEnded {
+                                if isShowingAttachmentMenu {
+                                    withAnimation(floatingBubbleAnimation) {
+                                        isShowingAttachmentMenu = false
+                                    }
+                                }
+                            }
+                        )
+
+                    Button {
+                        sendMessage()
+                    } label: {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(store.canSend ? Color.white : Color.secondary.opacity(0.5))
+                            .frame(width: 34, height: 34)
+                            .background {
+                                Circle()
+                                    .fill(store.canSend ? Color.accentColor : Color.primary.opacity(0.06))
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!store.canSend)
+                    .animation(floatingBubbleAnimation, value: store.canSend)
+                }
+                .padding(.leading, 18)
+                .padding(.trailing, 6)
+                .padding(.vertical, 7)
+                .frame(minHeight: 48)
+                .glassEffect(.regular.interactive(), in: .capsule)
+                .glassEffectID("composer-field", in: composerGlassNamespace)
             }
-            .buttonStyle(.plain)
-            .disabled(!store.canSend)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .chatGlassSurface(cornerRadius: 24, interactive: true)
         .gesture(
             DragGesture(minimumDistance: 20, coordinateSpace: .local)
                 .onEnded { value in
@@ -687,140 +738,368 @@ struct ChatScreen: View {
         compactModelSelectionContent
     }
 
-    private var quickSettingsContent: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            TopChromeMenuRow(
-                title: "工具",
-                isSelected: areToolsEnabled
-            ) {
-                areToolsEnabled.toggle()
-            }
+    @ViewBuilder
+    private var quickSettingsMenuContent: some View {
+        Section {
+            taskReasoningMenuContent(showsSelection: true, usesCompactWidth: true)
+        }
 
-            ForEach(ToolAuthorizationMode.allCases) { mode in
-                TopChromeMenuRow(
-                    title: mode.title,
-                    isSelected: store.toolAuthorizationStore.mode == mode
-                ) {
-                    store.toolAuthorizationStore.setMode(mode)
-                }
-            }
-
-            topChromeDivider
-                .padding(.vertical, 6)
-
-            TopChromeMenuRow(
-                title: "阶段进度",
-                isSelected: isExternalReasoningEnabled
-            ) {
-                isExternalReasoningEnabled.toggle()
-            }
-
-            topChromeDivider
-                .padding(.vertical, 6)
-
-            Text("任务倾向")
-                .font(.system(size: 13, weight: .medium, design: .rounded))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .padding(.bottom, 4)
-
-            quickSettingsReasoningContent
-
-            if selectedModelReasoningRowCount > 0 {
-                topChromeDivider
-                    .padding(.vertical, 6)
-
-                Text("模型参数")
-                    .font(.system(size: 13, weight: .medium, design: .rounded))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 4)
-
-                modelNativeReasoningSettingsContent
+        Section {
+            Button("配置") {
+                presentQuickConfiguration()
             }
         }
-    }
-
-    private var quickSettingsReasoningContent: some View {
-        let selectedChatTier = ChatReasoningTier.resolved(rawValue: chatReasoningTierRaw)
-        let selectedProfessionalTier = ProfessionalReasoningTier.resolved(rawValue: professionalReasoningTierRaw)
-
-        return VStack(spacing: 0) {
-            if isChatSurface {
-                ForEach(Array(ChatReasoningTier.allCases.reversed())) { tier in
-                    TopChromeMenuRow(
-                        title: tier.title,
-                        isSelected: tier == selectedChatTier
-                    ) {
-                        chatReasoningTierRaw = tier.rawValue
-                    }
-                }
-            } else {
-                ForEach(Array(ProfessionalReasoningTier.allCases.reversed())) { tier in
-                    TopChromeMenuRow(
-                        title: tier.title,
-                        isSelected: tier == selectedProfessionalTier
-                    ) {
-                        professionalReasoningTierRaw = tier.rawValue
-                    }
-                }
-            }
-        }
-        .disabled(store.isLoading)
     }
 
     @ViewBuilder
-    private var modelNativeReasoningSettingsContent: some View {
-        ForEach(selectedModelReasoningOptions) { option in
-            TopChromeMenuRow(
-                title: option.title,
-                isSelected: isSelectedModelReasoningOption(option)
-            ) {
-                applyModelReasoningOption(option)
+    private func taskReasoningMenuContent(showsSelection: Bool, usesCompactWidth: Bool = false) -> some View {
+        let selectedChatTier = ChatReasoningTier.resolved(rawValue: chatReasoningTierRaw)
+        let selectedProfessionalTier = ProfessionalReasoningTier.resolved(rawValue: professionalReasoningTierRaw)
+
+        if isChatSurface {
+            ForEach(Array(ChatReasoningTier.allCases.reversed())) { tier in
+                Button {
+                    performQuickSettingsMutation {
+                        chatReasoningTierRaw = tier.rawValue
+                    }
+                } label: {
+                    taskReasoningMenuLabel(
+                        title: tier.title,
+                        isSelected: tier == selectedChatTier,
+                        showsSelection: showsSelection,
+                        usesCompactWidth: usesCompactWidth
+                    )
+                }
+                .disabled(store.isLoading)
             }
+        } else {
+            ForEach(Array(ProfessionalReasoningTier.allCases.reversed())) { tier in
+                Button {
+                    performQuickSettingsMutation {
+                        professionalReasoningTierRaw = tier.rawValue
+                    }
+                } label: {
+                    taskReasoningMenuLabel(
+                        title: tier.title,
+                        isSelected: tier == selectedProfessionalTier,
+                        showsSelection: showsSelection,
+                        usesCompactWidth: usesCompactWidth
+                    )
+                }
+                .disabled(store.isLoading)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func taskReasoningMenuLabel(
+        title: String,
+        isSelected: Bool,
+        showsSelection: Bool,
+        usesCompactWidth: Bool
+    ) -> some View {
+        if showsSelection {
+            menuSelectionLabel(title, isSelected: isSelected)
+                .frame(width: usesCompactWidth ? 96 : nil, alignment: .leading)
+        } else {
+            Text(title)
+                .frame(width: usesCompactWidth ? 96 : nil, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder
+    private var modelThinkingModeMenuContent: some View {
+        if let option = modelThinkingToggleOption,
+           case .thinkingToggle(let defaultEnabled) = option.action {
+            let isEnabled = isModelThinkingEnabled(defaultEnabled: defaultEnabled)
+            Button {
+                performQuickSettingsMutation {
+                    setModelThinkingEnabled(true)
+                }
+            } label: {
+                menuSelectionLabel("开启", isSelected: isEnabled)
+            }
+
+            Button {
+                performQuickSettingsMutation {
+                    setModelThinkingEnabled(false)
+                }
+            } label: {
+                menuSelectionLabel("关闭", isSelected: !isEnabled)
+            }
+        } else {
+            Button { } label: {
+                menuSelectionLabel("关闭", isSelected: true)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var modelEffortMenuContent: some View {
+        if modelEffortMenuOptions.isEmpty {
+            Button { } label: {
+                menuSelectionLabel("默认", isSelected: true)
+            }
+        } else {
+            ForEach(modelEffortMenuOptions) { option in
+                Button {
+                    performQuickSettingsMutation {
+                        applyModelReasoningOption(option)
+                    }
+                } label: {
+                    menuSelectionLabel(
+                        option.title,
+                        isSelected: isSelectedModelReasoningOption(option)
+                    )
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var toolEnabledMenuContent: some View {
+        Button {
+            performQuickSettingsMutation {
+                areToolsEnabled = true
+            }
+        } label: {
+            menuSelectionLabel("开启", isSelected: areToolsEnabled)
+        }
+
+        Button {
+            performQuickSettingsMutation {
+                areToolsEnabled = false
+            }
+        } label: {
+            menuSelectionLabel("关闭", isSelected: !areToolsEnabled)
+        }
+    }
+
+    @ViewBuilder
+    private var externalReasoningMenuContent: some View {
+        Button {
+            performQuickSettingsMutation {
+                isExternalReasoningEnabled = true
+            }
+        } label: {
+            menuSelectionLabel("开启", isSelected: isExternalReasoningEnabled)
+        }
+
+        Button {
+            performQuickSettingsMutation {
+                isExternalReasoningEnabled = false
+            }
+        } label: {
+            menuSelectionLabel("关闭", isSelected: !isExternalReasoningEnabled)
+        }
+    }
+
+    @ViewBuilder
+    private var toolAuthorizationMenuContent: some View {
+        ForEach(Array(ToolAuthorizationMode.allCases.reversed())) { mode in
+            Button {
+                performQuickSettingsMutation {
+                    store.toolAuthorizationStore.setMode(mode)
+                }
+            } label: {
+                menuSelectionLabel(
+                    mode.title,
+                    isSelected: store.toolAuthorizationStore.mode == mode
+                )
+            }
+        }
+    }
+
+    private var quickConfigurationSheet: some View {
+        ZStack {
+            Color(red: 0.948, green: 0.950, blue: 0.958)
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                ZStack {
+                    Text("配置")
+                        .font(.system(size: 21, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity)
+
+                    HStack {
+                        Spacer()
+
+                        Button {
+                            isShowingQuickConfiguration = false
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 21, weight: .semibold))
+                                .foregroundStyle(Color.black.opacity(0.84))
+                                .frame(width: 52, height: 52)
+                                .background(Color.white.opacity(0.86), in: Circle())
+                                .glassEffect(.regular.interactive(), in: .circle)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("关闭配置")
+                    }
+                }
+                .padding(.horizontal, 22)
+                .padding(.top, 30)
+                .padding(.bottom, 28)
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 28) {
+                        configurationCard {
+                            configurationMenuRow(title: "任务倾向", value: selectedReasoningTitle) {
+                                taskReasoningMenuContent(showsSelection: true)
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            configurationCard {
+                                configurationMenuRow(title: "工具", value: areToolsEnabled ? "开启" : "关闭") {
+                                    toolEnabledMenuContent
+                                }
+
+                                configurationDivider
+
+                                configurationMenuRow(title: "工具授权", value: store.toolAuthorizationStore.mode.title) {
+                                    toolAuthorizationMenuContent
+                                }
+                            }
+
+                            configurationCaption("需开启工具以允许Palmi发挥更多的功能")
+                        }
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            configurationCard {
+                                configurationMenuRow(title: "阶段思考", value: isExternalReasoningEnabled ? "开启" : "关闭") {
+                                    externalReasoningMenuContent
+                                }
+                            }
+
+                            configurationCaption("允许Palmi以类似工具调用的形式进行阶段性总结来进一步增大Palmi的能力")
+                        }
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            configurationCard {
+                                configurationMenuRow(title: "思考模式", value: modelThinkingModeTitle) {
+                                    modelThinkingModeMenuContent
+                                }
+
+                                configurationDivider
+
+                                configurationMenuRow(title: "思考强度", value: modelEffortTitle) {
+                                    modelEffortMenuContent
+                                }
+                            }
+
+                            configurationCaption("思考能力的配置需模型本身支持")
+                        }
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, 34)
+                }
+            }
+        }
+    }
+
+    private func configurationCard<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(spacing: 0) {
+            content()
+        }
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+    }
+
+    private func configurationCaption(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 14, weight: .medium, design: .rounded))
+            .foregroundStyle(Color.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 18)
+    }
+
+    private func configurationMenuRow<MenuContent: View>(
+        title: String,
+        value: String,
+        isEnabled: Bool = true,
+        @ViewBuilder menuContent: @escaping () -> MenuContent
+    ) -> some View {
+        HStack(spacing: 14) {
+            Text(title)
+                .font(.system(size: 19, weight: .semibold, design: .rounded))
+                .foregroundStyle(.primary)
+
+            Spacer(minLength: 12)
+
+            Menu {
+                menuContent()
+            } label: {
+                HStack(spacing: 6) {
+                    Text(value)
+                        .lineLimit(1)
+
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .foregroundStyle(isEnabled ? Color.secondary : Color.secondary.opacity(0.42))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .contentShape(Capsule())
+            }
+            .menuOrder(.fixed)
+            .disabled(!isEnabled)
+        }
+        .frame(minHeight: 62)
+        .padding(.horizontal, 20)
+    }
+
+    private var configurationDivider: some View {
+        Rectangle()
+            .fill(Color.black.opacity(0.10))
+            .frame(height: 1)
+            .padding(.leading, 20)
+            .padding(.trailing, 20)
+    }
+
+    @ViewBuilder
+    private func menuSelectionLabel(_ title: String, isSelected: Bool) -> some View {
+        if isSelected {
+            Label(title, systemImage: "checkmark")
+        } else {
+            Text(title)
         }
     }
 
     private var quickSettingsHost: some View {
-        BottomAnchoredGlassHost(
-            isExpanded: activeComposerMenu == .quickSettings,
-            anchor: .bottomLeading,
-            collapsedSize: CGSize(width: 44, height: 44),
-            expandedSize: CGSize(width: 224, height: quickSettingsPanelHeight),
-            collapsedCornerRadius: 16,
-            expandedCornerRadius: 30,
-            animation: floatingBubbleAnimation
-        ) {
-            toggleComposerMenu(.quickSettings)
-        } collapsedContent: {
-            Image(systemName: "slider.horizontal.3")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.primary)
-        } expandedContent: {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 8) {
-                    Text("设置")
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.primary)
-
-                    Spacer(minLength: 0)
-
-                    Text(selectedReasoningTitle)
-                        .font(.system(size: 13, weight: .medium, design: .rounded))
-                        .foregroundStyle(.secondary)
+        Menu {
+            quickSettingsMenuContent
+                .transaction { transaction in
+                    transaction.animation = nil
+                    transaction.disablesAnimations = true
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 10)
-
-                ScrollView(.vertical, showsIndicators: false) {
-                    quickSettingsContent
-                        .padding(.horizontal, 12)
-                        .padding(.bottom, 14)
+        } label: {
+            Text(selectedReasoningTitle)
+                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color.accentColor)
+                .padding(.horizontal, 15)
+                .frame(height: 44)
+                .frame(minWidth: 54)
+                .background {
+                    Capsule()
+                        .fill(Color.white.opacity(0.14))
                 }
-                .scrollBounceBehavior(.basedOnSize)
-            }
+                .contentShape(Capsule())
+                .glassEffect(.regular.interactive(), in: .capsule)
+                .clipShape(Capsule())
         }
+        .buttonStyle(.plain)
+        .menuOrder(.fixed)
+        .accessibilityLabel("任务倾向")
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                scheduleQuickSettingsPreparation()
+            }
+        )
     }
 
     private var contextInspectorHost: some View {
@@ -829,7 +1108,7 @@ struct ChatScreen: View {
             anchor: .bottomTrailing,
             collapsedSize: CGSize(width: 44, height: 44),
             expandedSize: CGSize(width: 244, height: 318),
-            collapsedCornerRadius: 16,
+            collapsedCornerRadius: 22,
             expandedCornerRadius: 30,
             animation: floatingBubbleAnimation
         ) {
@@ -859,8 +1138,9 @@ struct ChatScreen: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(.primary)
                 .frame(width: 44, height: 44)
+                .contentShape(Circle())
                 .chatGlassSurface(
-                    cornerRadius: 16,
+                    cornerRadius: 22,
                     interactive: true,
                     backgroundOpacity: 0.02,
                     tintOpacity: 0.08
@@ -1276,6 +1556,37 @@ struct ChatScreen: View {
         }
     }
 
+    private func performQuickSettingsMutation(_ mutation: () -> Void) {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            mutation()
+        }
+    }
+
+    private func presentQuickConfiguration() {
+        prepareQuickSettingsMenu()
+        isShowingQuickConfiguration = true
+    }
+
+    private func scheduleQuickSettingsPreparation() {
+        Task { @MainActor in
+            await Task.yield()
+            prepareQuickSettingsMenu()
+        }
+    }
+
+    private func prepareQuickSettingsMenu() {
+        if isFocused { isFocused = false }
+        cachedModelSelectionState = computedModelSelectionState
+        modelReasoningRevision &+= 1
+        withAnimation(floatingBubbleAnimation) {
+            activeComposerMenu = nil
+            isShowingContextInfo = false
+            isShowingAttachmentMenu = false
+        }
+    }
+
     private func toggleComposerMenu(_ menu: ComposerMenu) {
         if isFocused { isFocused = false }
         cachedModelSelectionState = computedModelSelectionState
@@ -1542,14 +1853,35 @@ struct ChatScreen: View {
 
 private struct ChatCanvasBackground: View {
     var body: some View {
-        LinearGradient(
-            colors: [
-                Color(red: 0.998, green: 0.996, blue: 0.991),
-                Color(red: 0.972, green: 0.969, blue: 0.958)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.998, green: 0.996, blue: 0.991),
+                    Color(red: 0.960, green: 0.963, blue: 0.974)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            // 极淡彩色光晕：给液态玻璃提供可折射的内容，同时保持浅色清爽、文字清晰可读。
+            RadialGradient(
+                colors: [Color(red: 0.40, green: 0.55, blue: 0.96).opacity(0.12), .clear],
+                center: UnitPoint(x: 0.14, y: 0.10),
+                startRadius: 0,
+                endRadius: 380
+            )
+            RadialGradient(
+                colors: [Color(red: 0.62, green: 0.44, blue: 0.94).opacity(0.10), .clear],
+                center: UnitPoint(x: 0.92, y: 0.24),
+                startRadius: 0,
+                endRadius: 340
+            )
+            RadialGradient(
+                colors: [Color(red: 0.36, green: 0.74, blue: 0.86).opacity(0.10), .clear],
+                center: UnitPoint(x: 0.84, y: 0.94),
+                startRadius: 0,
+                endRadius: 420
+            )
+        }
     }
 }
 
@@ -1557,8 +1889,8 @@ private struct ChatTopChromeScrim: View {
     var body: some View {
         LinearGradient(
             stops: [
-                .init(color: Color(red: 0.998, green: 0.996, blue: 0.991).opacity(0.98), location: 0),
-                .init(color: Color(red: 0.998, green: 0.996, blue: 0.991).opacity(0.90), location: 0.70),
+                .init(color: Color(red: 0.998, green: 0.996, blue: 0.991).opacity(0.86), location: 0),
+                .init(color: Color(red: 0.996, green: 0.995, blue: 0.992).opacity(0.50), location: 0.62),
                 .init(color: Color(red: 0.972, green: 0.969, blue: 0.958).opacity(0), location: 1)
             ],
             startPoint: .top,
@@ -1772,22 +2104,20 @@ private struct ToolCallCard: View {
     let isExpanded: Bool
     let onToggle: () -> Void
 
-    // 所有思考来源（reasoning_content / <think> / phase_thought）走同一套小字灰字样式。
-    private var isThoughtCard: Bool {
-        toolCall.cardKind == .modelThink || toolCall.cardKind == .phaseThought
-    }
-
     var body: some View {
-        if isThoughtCard {
-            thoughtBody
-        } else {
+        switch toolCall.cardKind {
+        case .modelThink:
+            modelThinkBody
+        case .phaseThought:
+            phaseThoughtBody
+        case .tool:
             toolBody
         }
     }
 
-    // 思考：小字灰字的单行触发，可独立展开/收起显示完整内容。
+    // 模型原生 thinking：小字灰字的单行触发，可独立展开/收起显示完整内容。
     @ViewBuilder
-    private var thoughtBody: some View {
+    private var modelThinkBody: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button(action: onToggle) {
                 HStack(spacing: 6) {
@@ -1826,6 +2156,32 @@ private struct ToolCallCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, 16)
                     .padding(.top, 2)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 2)
+    }
+
+    // phase_thought 是 Agent 的阶段总结工具，不属于模型原生 thinking。
+    @ViewBuilder
+    private var phaseThoughtBody: some View {
+        let content = phaseThoughtContent
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 7) {
+                Image(systemName: iconName)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+
+                Text(phaseThoughtTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            }
+
+            if shouldRenderToolDetailsAsMarkdown(content) {
+                AssistantMarkdownBlock(markdown: content)
+            } else {
+                AssistantPlainTextBlock(text: content)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -2011,6 +2367,23 @@ private struct ToolCallCard: View {
         }
     }
 
+    private var phaseThoughtTitle: String {
+        let title = toolCall.toolTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if title.isEmpty || title == "思考" {
+            return "阶段思考"
+        }
+        return title
+    }
+
+    private var phaseThoughtContent: String {
+        let details = toolCall.details.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !details.isEmpty {
+            return details
+        }
+        let summary = toolCall.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        return summary.isEmpty ? "（本次阶段思考未提供可展示内容）" : summary
+    }
+
     private func shouldRenderToolDetailsAsMarkdown(_ details: String) -> Bool {
         let trimmed = details.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
@@ -2124,55 +2497,54 @@ private struct ExpandingTopPillHost<Content: View>: View {
     private let headerHeight: CGFloat = 48
 
     var body: some View {
-        VStack(spacing: 0) {
-            Button(action: onToggle) {
-                HStack(spacing: 8) {
-                    Text(title)
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Color.black.opacity(0.88))
-                        .lineLimit(1)
-
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(Color.black.opacity(0.48))
-                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: headerHeight)
-                .padding(.horizontal, 12)
-            }
-            .buttonStyle(.plain)
-
+        Group {
             if isExpanded {
-                ScrollView(.vertical, showsIndicators: false) {
-                    content
-                        .padding(.horizontal, 8)
-                        .padding(.top, 2)
-                        .padding(.bottom, 12)
+                VStack(spacing: 0) {
+                    headerButton
+
+                    ScrollView(.vertical, showsIndicators: false) {
+                        content
+                            .padding(.horizontal, 8)
+                            .padding(.top, 2)
+                            .padding(.bottom, 12)
+                    }
+                    .scrollBounceBehavior(.basedOnSize)
+                    .frame(height: bodyHeight)
+                    .transition(.opacity)
                 }
-                .scrollBounceBehavior(.basedOnSize)
-                .frame(height: bodyHeight)
-                .transition(.opacity)
+                .frame(width: expandedWidth, height: headerHeight + bodyHeight, alignment: .top)
+                // 展开后用非交互玻璃：容器级触摸跟踪会和内部按钮抢手势，导致“粘滞、轻点不展开”。
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 36, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 36, style: .continuous))
+            } else {
+                headerButton
+                    .frame(width: collapsedWidth, height: headerHeight)
+                    // 折叠态把交互玻璃直接作用在按钮上：液态按压 + 命中可靠（与“+”同款）。
+                    .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
             }
         }
-        .frame(
-            width: isExpanded ? expandedWidth : collapsedWidth,
-            height: isExpanded ? headerHeight + bodyHeight : headerHeight,
-            alignment: .top
-        )
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: isExpanded ? 36 : 24,
-                style: .continuous
-            )
-        )
-        .chatGlassSurface(
-            cornerRadius: isExpanded ? 36 : 24,
-            interactive: true,
-            backgroundOpacity: isExpanded ? 0.12 : 0.20,
-            tintOpacity: isExpanded ? 0.28 : 0.30
-        )
         .animation(animation, value: isExpanded)
+    }
+
+    private var headerButton: some View {
+        Button(action: onToggle) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color.black.opacity(0.88))
+                    .lineLimit(1)
+
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Color.black.opacity(0.48))
+                    .rotationEffect(.degrees(isExpanded ? 180 : 0))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: headerHeight)
+            .padding(.horizontal, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -2200,41 +2572,31 @@ private struct BottomAnchoredGlassHost<CollapsedContent: View, ExpandedContent: 
         Color.clear
             .frame(width: collapsedSize.width, height: collapsedSize.height)
             .overlay(alignment: anchor) {
-                ZStack(alignment: anchor) {
-                    RoundedRectangle(cornerRadius: currentCornerRadius, style: .continuous)
-                        .fill(Color.clear)
-                        .frame(width: currentSize.width, height: currentSize.height)
-                        .chatGlassSurface(
-                            cornerRadius: currentCornerRadius,
-                            interactive: true,
-                            backgroundOpacity: isExpanded ? 0.08 : 0.02,
-                            tintOpacity: isExpanded ? 0.24 : 0.08
-                        )
-
+                Group {
                     if isExpanded {
                         expandedContent
                             .frame(width: expandedSize.width, height: expandedSize.height, alignment: .top)
+                            // 展开面板用非交互玻璃，避免与内部控件抢手势。
+                            .glassEffect(
+                                .regular,
+                                in: RoundedRectangle(cornerRadius: expandedCornerRadius, style: .continuous)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: expandedCornerRadius, style: .continuous))
                     } else {
                         Button(action: onToggle) {
                             collapsedContent
                                 .frame(width: collapsedSize.width, height: collapsedSize.height)
+                                .contentShape(RoundedRectangle(cornerRadius: collapsedCornerRadius, style: .continuous))
                         }
                         .buttonStyle(.plain)
+                        // 折叠态交互玻璃直接作用在按钮上：圆形 + 液态按压（与“+”同款）。
+                        .glassEffect(
+                            .regular.interactive(),
+                            in: RoundedRectangle(cornerRadius: collapsedCornerRadius, style: .continuous)
+                        )
                     }
                 }
                 .frame(width: currentSize.width, height: currentSize.height, alignment: anchor)
-                .clipShape(
-                    RoundedRectangle(
-                        cornerRadius: currentCornerRadius,
-                        style: .continuous
-                    )
-                )
-                .contentShape(
-                    RoundedRectangle(
-                        cornerRadius: currentCornerRadius,
-                        style: .continuous
-                    )
-                )
                 .animation(animation, value: isExpanded)
                 .zIndex(isExpanded ? 3 : 1)
             }
@@ -2754,32 +3116,15 @@ private struct ContextTotalBar: View {
 private struct ChatGlassSurfaceModifier: ViewModifier {
     let cornerRadius: CGFloat
     let interactive: Bool
+    // backgroundOpacity / tintOpacity 为旧接口保留：原生液态玻璃不再叠加白色填充与白色着色，
+    // 否则会盖掉玻璃的折射与高光，让控件呈现为“不透明白块”。保留参数仅为兼容既有调用点。
     let backgroundOpacity: Double
     let tintOpacity: Double
 
-    @ViewBuilder
     func body(content: Content) -> some View {
-        if interactive {
-            content
-                .background {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(Color.white.opacity(backgroundOpacity))
-                        .glassEffect(
-                            .regular.tint(Color.white.opacity(tintOpacity)).interactive(),
-                            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        )
-                }
-        } else {
-            content
-                .background {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(Color.white.opacity(backgroundOpacity))
-                        .glassEffect(
-                            .regular.tint(Color.white.opacity(tintOpacity)),
-                            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        )
-                }
-        }
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        content
+            .glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
     }
 }
 
@@ -2806,7 +3151,7 @@ private extension PalmiChatMessage {
         guard kind == .toolCall else {
             return false
         }
-        return toolCall?.cardKind == .phaseThought || toolCall?.cardKind == .modelThink
+        return toolCall?.cardKind == .modelThink
     }
 
     var isToolExecutionMessage: Bool {
