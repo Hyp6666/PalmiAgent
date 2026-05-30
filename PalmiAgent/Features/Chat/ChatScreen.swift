@@ -1,5 +1,33 @@
 import SwiftUI
 
+private let extremeCapabilityAccent = Color(red: 1.0, green: 0.16, blue: 0.10)
+
+private struct QuickConfigurationCardStyle: ViewModifier {
+    let isExtreme: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
+
+        if isExtreme {
+            ZStack {
+                Color.black.opacity(0.18)
+                    .clipShape(shape)
+                    .glassEffect(.clear, in: shape)
+                    .overlay {
+                        shape.stroke(Color.white.opacity(0.18), lineWidth: 1)
+                    }
+                    .allowsHitTesting(false)
+
+                content
+            }
+        } else {
+            content
+                .background(Color.white, in: shape)
+        }
+    }
+}
+
 struct ChatScreen: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -126,6 +154,13 @@ struct ChatScreen: View {
             return ChatReasoningTier.resolved(rawValue: chatReasoningTierRaw).title
         }
         return ProfessionalReasoningTier.resolved(rawValue: professionalReasoningTierRaw).title
+    }
+
+    private var isExtremeCapabilitySelected: Bool {
+        if isChatSurface {
+            return ChatReasoningTier.resolved(rawValue: chatReasoningTierRaw) == .expert
+        }
+        return ProfessionalReasoningTier.resolved(rawValue: professionalReasoningTierRaw) == .infinite
     }
 
     private var modelSelectionRowCount: Int {
@@ -911,122 +946,158 @@ struct ChatScreen: View {
     }
 
     private var quickConfigurationSheet: some View {
-        ZStack {
-            Color(red: 0.948, green: 0.950, blue: 0.958)
-                .ignoresSafeArea()
+        let isExtreme = isExtremeCapabilitySelected
 
-            VStack(spacing: 0) {
-                ZStack {
-                    Text("配置")
-                        .font(.system(size: 21, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity)
+        return GeometryReader { proxy in
+            ZStack {
+                Color(red: 0.948, green: 0.950, blue: 0.958)
+                    .opacity(isExtreme ? 0 : 1)
+                    .ignoresSafeArea()
 
-                    HStack {
-                        Spacer()
+                if isExtreme {
+                    Color.black
+                        .ignoresSafeArea()
 
-                        Button {
-                            isShowingQuickConfiguration = false
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 21, weight: .semibold))
-                                .foregroundStyle(Color.black.opacity(0.84))
-                                .frame(width: 52, height: 52)
-                                .background(Color.white.opacity(0.86), in: Circle())
-                                .glassEffect(.regular.interactive(), in: .circle)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("关闭配置")
-                    }
+                    CapabilityDiamondLoop(centerPoint: extremeCapabilityCenter(in: proxy))
+                        .transition(.opacity)
                 }
-                .padding(.horizontal, 22)
-                .padding(.top, 30)
-                .padding(.bottom, 28)
 
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 28) {
-                        configurationCard {
-                            configurationMenuRow(title: "任务倾向", value: selectedReasoningTitle) {
-                                taskReasoningMenuContent(showsSelection: true)
+                VStack(spacing: 0) {
+                    ZStack {
+                        Text("配置")
+                            .font(.system(size: 21, weight: .semibold, design: .rounded))
+                            .foregroundStyle(isExtreme ? Color.white.opacity(0.94) : Color.primary)
+                            .frame(maxWidth: .infinity)
+
+                        HStack {
+                            Spacer()
+
+                            Button {
+                                isShowingQuickConfiguration = false
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 21, weight: .semibold))
+                                    .foregroundStyle(isExtreme ? Color.white.opacity(0.92) : Color.black.opacity(0.84))
+                                    .frame(width: 52, height: 52)
+                                    .background(isExtreme ? Color.white.opacity(0.13) : Color.white.opacity(0.86), in: Circle())
+                                    .glassEffect(.regular.interactive(), in: .circle)
                             }
-                        }
-
-                        VStack(alignment: .leading, spacing: 10) {
-                            configurationCard {
-                                configurationMenuRow(title: "工具", value: areToolsEnabled ? "开启" : "关闭") {
-                                    toolEnabledMenuContent
-                                }
-
-                                configurationDivider
-
-                                configurationMenuRow(title: "工具授权", value: store.toolAuthorizationStore.mode.title) {
-                                    toolAuthorizationMenuContent
-                                }
-                            }
-
-                            configurationCaption("需开启工具以允许Palmi发挥更多的功能")
-                        }
-
-                        VStack(alignment: .leading, spacing: 10) {
-                            configurationCard {
-                                configurationMenuRow(title: "阶段思考", value: isExternalReasoningEnabled ? "开启" : "关闭") {
-                                    externalReasoningMenuContent
-                                }
-                            }
-
-                            configurationCaption("允许Palmi以类似工具调用的形式进行阶段性总结来进一步增大Palmi的能力")
-                        }
-
-                        VStack(alignment: .leading, spacing: 10) {
-                            configurationCard {
-                                configurationMenuRow(title: "思考模式", value: modelThinkingModeTitle) {
-                                    modelThinkingModeMenuContent
-                                }
-
-                                configurationDivider
-
-                                configurationMenuRow(title: "思考强度", value: modelEffortTitle) {
-                                    modelEffortMenuContent
-                                }
-                            }
-
-                            configurationCaption("思考能力的配置需模型本身支持")
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("关闭配置")
                         }
                     }
-                    .padding(.horizontal, 18)
-                    .padding(.bottom, 34)
+                    .padding(.horizontal, 22)
+                    .padding(.top, 30)
+                    .padding(.bottom, 28)
+
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 28) {
+                            configurationCard(isExtreme: isExtreme) {
+                                configurationMenuRow(
+                                    title: "能力",
+                                    value: selectedReasoningTitle,
+                                    isExtreme: isExtreme,
+                                    usesExtremeAccent: isExtreme
+                                ) {
+                                    taskReasoningMenuContent(showsSelection: true)
+                                }
+                            }
+
+                            VStack(alignment: .leading, spacing: 10) {
+                                configurationCard(isExtreme: isExtreme) {
+                                    configurationMenuRow(title: "工具", value: areToolsEnabled ? "开启" : "关闭", isExtreme: isExtreme) {
+                                        toolEnabledMenuContent
+                                    }
+
+                                    configurationDivider(isExtreme: isExtreme)
+
+                                    configurationMenuRow(title: "工具授权", value: store.toolAuthorizationStore.mode.title, isExtreme: isExtreme) {
+                                        toolAuthorizationMenuContent
+                                    }
+                                }
+
+                                configurationCaption("需开启工具以允许Palmi发挥更多的功能", isExtreme: isExtreme)
+                            }
+
+                            VStack(alignment: .leading, spacing: 10) {
+                                configurationCard(isExtreme: isExtreme) {
+                                    configurationMenuRow(title: "阶段思考", value: isExternalReasoningEnabled ? "开启" : "关闭", isExtreme: isExtreme) {
+                                        externalReasoningMenuContent
+                                    }
+                                }
+
+                                configurationCaption("允许Palmi以类似工具调用的形式进行阶段性总结来进一步增大Palmi的能力", isExtreme: isExtreme)
+                            }
+
+                            VStack(alignment: .leading, spacing: 10) {
+                                configurationCard(isExtreme: isExtreme) {
+                                    configurationMenuRow(title: "思考模式", value: modelThinkingModeTitle, isExtreme: isExtreme) {
+                                        modelThinkingModeMenuContent
+                                    }
+
+                                    configurationDivider(isExtreme: isExtreme)
+
+                                    configurationMenuRow(title: "思考强度", value: modelEffortTitle, isExtreme: isExtreme) {
+                                        modelEffortMenuContent
+                                    }
+                                }
+
+                                configurationCaption("思考能力的配置需模型本身支持", isExtreme: isExtreme)
+                            }
+                        }
+                        .padding(.horizontal, 18)
+                        .padding(.bottom, 34)
+                    }
                 }
             }
+            .animation(.easeInOut(duration: 0.5), value: isExtreme)
         }
     }
 
     private func configurationCard<Content: View>(
+        isExtreme: Bool = false,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(spacing: 0) {
             content()
         }
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .modifier(QuickConfigurationCardStyle(isExtreme: isExtreme))
     }
 
-    private func configurationCaption(_ text: String) -> some View {
+    private func configurationCaption(_ text: String, isExtreme: Bool = false) -> some View {
         Text(text)
             .font(.system(size: 14, weight: .medium, design: .rounded))
-            .foregroundStyle(Color.secondary)
+            .foregroundStyle(isExtreme ? Color.white.opacity(0.58) : Color.secondary)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 18)
+    }
+
+    private func extremeCapabilityCenter(in proxy: GeometryProxy) -> CGPoint {
+        let presentationTopInset = max(proxy.safeAreaInsets.top, proxy.size.height * 0.071)
+        let cardHorizontalPadding: CGFloat = 18
+        let rowHorizontalPadding: CGFloat = 20
+        let valueTextCenterFromRowTrailing: CGFloat = 52
+        let headerHeight: CGFloat = 30 + 52 + 28
+        let firstRowHeight: CGFloat = 62
+
+        return CGPoint(
+            x: proxy.size.width - cardHorizontalPadding - rowHorizontalPadding - valueTextCenterFromRowTrailing,
+            y: presentationTopInset + headerHeight + firstRowHeight / 2
+        )
     }
 
     private func configurationMenuRow<MenuContent: View>(
         title: String,
         value: String,
         isEnabled: Bool = true,
+        isExtreme: Bool = false,
+        usesExtremeAccent: Bool = false,
         @ViewBuilder menuContent: @escaping () -> MenuContent
     ) -> some View {
         HStack(spacing: 14) {
             Text(title)
                 .font(.system(size: 19, weight: .semibold, design: .rounded))
-                .foregroundStyle(.primary)
+                .foregroundStyle(isExtreme ? Color.white.opacity(0.94) : Color.primary)
 
             Spacer(minLength: 12)
 
@@ -1041,8 +1112,12 @@ struct ChatScreen: View {
                         .font(.system(size: 13, weight: .semibold))
                 }
                 .font(.system(size: 18, weight: .semibold, design: .rounded))
-                .foregroundStyle(isEnabled ? Color.secondary : Color.secondary.opacity(0.42))
-                .padding(.horizontal, 10)
+                .foregroundStyle(configurationValueColor(
+                    isEnabled: isEnabled,
+                    isExtreme: isExtreme,
+                    usesExtremeAccent: usesExtremeAccent
+                ))
+                .padding(.horizontal, isExtreme ? 12 : 10)
                 .padding(.vertical, 8)
                 .contentShape(Capsule())
             }
@@ -1053,9 +1128,23 @@ struct ChatScreen: View {
         .padding(.horizontal, 20)
     }
 
-    private var configurationDivider: some View {
+    private func configurationValueColor(
+        isEnabled: Bool,
+        isExtreme: Bool,
+        usesExtremeAccent: Bool = false
+    ) -> Color {
+        if isExtreme && usesExtremeAccent {
+            return isEnabled ? extremeCapabilityAccent : extremeCapabilityAccent.opacity(0.42)
+        }
+        if isExtreme {
+            return isEnabled ? Color.white.opacity(0.70) : Color.white.opacity(0.34)
+        }
+        return isEnabled ? Color.secondary : Color.secondary.opacity(0.42)
+    }
+
+    private func configurationDivider(isExtreme: Bool = false) -> some View {
         Rectangle()
-            .fill(Color.black.opacity(0.10))
+            .fill(isExtreme ? Color.white.opacity(0.16) : Color.black.opacity(0.10))
             .frame(height: 1)
             .padding(.leading, 20)
             .padding(.trailing, 20)
@@ -1094,7 +1183,7 @@ struct ChatScreen: View {
         }
         .buttonStyle(.plain)
         .menuOrder(.fixed)
-        .accessibilityLabel("任务倾向")
+        .accessibilityLabel("能力")
         .simultaneousGesture(
             TapGesture().onEnded {
                 scheduleQuickSettingsPreparation()
@@ -1341,7 +1430,7 @@ struct ChatScreen: View {
         let selectedProfessionalTier = ProfessionalReasoningTier.resolved(rawValue: professionalReasoningTierRaw)
 
         return FloatingGlassPanel(
-            title: "任务倾向",
+            title: "能力",
             subtitle: isChatSurface ? "聊天模式" : "专业模式"
         ) {
             if isChatSurface {

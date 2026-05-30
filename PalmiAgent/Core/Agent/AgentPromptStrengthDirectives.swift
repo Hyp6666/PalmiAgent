@@ -9,7 +9,7 @@ struct AgentPromptStrengthDirectives {
         switch tier {
         case .speed:
             return format(
-                heading: "当前任务倾向：效率。",
+                heading: "当前能力：效率。",
                 rules: [
                     "在确保问题判断正确、关键事实可靠的前提下，优先选择轻量、直接、短路径的完成方式。",
                     "能直接完成就直接完成；不要主动扩展成大范围调研、比较、长分析或多步骤执行。",
@@ -30,7 +30,7 @@ struct AgentPromptStrengthDirectives {
                 rules.append("`phase_thought` 可以使用，但只在阶段切换、关键判断或需要解释为什么继续下一步时使用，不要把它当默认流程。")
             }
             rules.append("先给用户可用结论，再补最关键的说明，避免过短，也避免过满。")
-            return format(heading: "当前任务倾向：质量。", rules: rules)
+            return format(heading: "当前能力：质量。", rules: rules)
 
         case .infinite:
             var rules: [String] = [
@@ -46,7 +46,7 @@ struct AgentPromptStrengthDirectives {
             }
             rules.append("在形成最终答复前，主动检查是否还缺关键边界条件、异常情况、替代方案、失败风险、验证结果或用户真正关心的落地细节。")
             rules.append("如果用户请求允许，你可以多做一步有价值的补充，例如更完整的比较、更稳妥的执行确认、或更可落地的下一步建议。")
-            return format(heading: "当前任务倾向：极致。", rules: rules)
+            return format(heading: "当前能力：极致。", rules: rules)
         }
     }
 
