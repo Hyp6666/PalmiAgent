@@ -1,6 +1,19 @@
 import SwiftUI
 
-private let extremeCapabilityAccent = Color(red: 1.0, green: 0.16, blue: 0.10)
+private let extremeCapabilityAccent = Color(red: 255.0 / 255.0, green: 77.0 / 255.0, blue: 0.0 / 255.0)
+private let efficiencyCapabilityAccent = Color(red: 0.14, green: 0.68, blue: 0.34)
+
+private enum QuickConfigurationSheetCoordinateSpace {
+    static let name = "quickConfigurationSheet"
+}
+
+private struct QuickConfigurationValueCenterPreferenceKey: PreferenceKey {
+    static var defaultValue: CGPoint?
+
+    static func reduce(value: inout CGPoint?, nextValue: () -> CGPoint?) {
+        value = nextValue() ?? value
+    }
+}
 
 private struct QuickConfigurationCardStyle: ViewModifier {
     let isExtreme: Bool
@@ -51,6 +64,7 @@ struct ChatScreen: View {
     @State private var previewedWorkspaceFile: WorkspacePreviewFile?
     @State private var isShowingAttachmentMenu = false
     @State private var isShowingQuickConfiguration = false
+    @State private var measuredExtremeCapabilityValueCenter: CGPoint?
     @State private var attachmentPresentation: PalmiAttachmentImportPresentation?
     @State private var attachmentButtonFrame: CGRect = .zero
     // 输入区液态玻璃形变命名空间：让“+”按钮与输入框在同一 GlassEffectContainer 内融合。
@@ -161,6 +175,17 @@ struct ChatScreen: View {
             return ChatReasoningTier.resolved(rawValue: chatReasoningTierRaw) == .expert
         }
         return ProfessionalReasoningTier.resolved(rawValue: professionalReasoningTierRaw) == .infinite
+    }
+
+    private var selectedCapabilityAccent: Color {
+        switch selectedReasoningTitle {
+        case "极致":
+            return extremeCapabilityAccent
+        case "效率":
+            return efficiencyCapabilityAccent
+        default:
+            return Color.accentColor
+        }
     }
 
     private var modelSelectionRowCount: Int {
@@ -956,9 +981,11 @@ struct ChatScreen: View {
 
                 if isExtreme {
                     Color.black
+                        .padding(.bottom, -24)
                         .ignoresSafeArea()
 
-                    CapabilityDiamondLoop(centerPoint: extremeCapabilityCenter(in: proxy))
+                    CapabilityDiamondLoop(centerPoint: measuredExtremeCapabilityValueCenter ?? fallbackExtremeCapabilityCenter(in: proxy))
+                        .ignoresSafeArea()
                         .transition(.opacity)
                 }
 
@@ -997,7 +1024,8 @@ struct ChatScreen: View {
                                     title: "能力",
                                     value: selectedReasoningTitle,
                                     isExtreme: isExtreme,
-                                    usesExtremeAccent: isExtreme
+                                    valueAccent: selectedCapabilityAccent,
+                                    tracksValueCenter: isExtreme
                                 ) {
                                     taskReasoningMenuContent(showsSelection: true)
                                 }
@@ -1050,6 +1078,10 @@ struct ChatScreen: View {
                     }
                 }
             }
+            .coordinateSpace(name: QuickConfigurationSheetCoordinateSpace.name)
+            .onPreferenceChange(QuickConfigurationValueCenterPreferenceKey.self) { center in
+                measuredExtremeCapabilityValueCenter = center
+            }
             .animation(.easeInOut(duration: 0.5), value: isExtreme)
         }
     }
@@ -1072,7 +1104,7 @@ struct ChatScreen: View {
             .padding(.horizontal, 18)
     }
 
-    private func extremeCapabilityCenter(in proxy: GeometryProxy) -> CGPoint {
+    private func fallbackExtremeCapabilityCenter(in proxy: GeometryProxy) -> CGPoint {
         let presentationTopInset = max(proxy.safeAreaInsets.top, proxy.size.height * 0.071)
         let cardHorizontalPadding: CGFloat = 18
         let rowHorizontalPadding: CGFloat = 20
@@ -1091,7 +1123,8 @@ struct ChatScreen: View {
         value: String,
         isEnabled: Bool = true,
         isExtreme: Bool = false,
-        usesExtremeAccent: Bool = false,
+        valueAccent: Color? = nil,
+        tracksValueCenter: Bool = false,
         @ViewBuilder menuContent: @escaping () -> MenuContent
     ) -> some View {
         HStack(spacing: 14) {
@@ -1107,6 +1140,18 @@ struct ChatScreen: View {
                 HStack(spacing: 6) {
                     Text(value)
                         .lineLimit(1)
+                        .background {
+                            if tracksValueCenter {
+                                GeometryReader { textProxy in
+                                    let frame = textProxy.frame(in: .named(QuickConfigurationSheetCoordinateSpace.name))
+
+                                    Color.clear.preference(
+                                        key: QuickConfigurationValueCenterPreferenceKey.self,
+                                        value: CGPoint(x: frame.midX, y: frame.midY)
+                                    )
+                                }
+                            }
+                        }
 
                     Image(systemName: "chevron.up.chevron.down")
                         .font(.system(size: 13, weight: .semibold))
@@ -1115,7 +1160,7 @@ struct ChatScreen: View {
                 .foregroundStyle(configurationValueColor(
                     isEnabled: isEnabled,
                     isExtreme: isExtreme,
-                    usesExtremeAccent: usesExtremeAccent
+                    valueAccent: valueAccent
                 ))
                 .padding(.horizontal, isExtreme ? 12 : 10)
                 .padding(.vertical, 8)
@@ -1131,10 +1176,10 @@ struct ChatScreen: View {
     private func configurationValueColor(
         isEnabled: Bool,
         isExtreme: Bool,
-        usesExtremeAccent: Bool = false
+        valueAccent: Color? = nil
     ) -> Color {
-        if isExtreme && usesExtremeAccent {
-            return isEnabled ? extremeCapabilityAccent : extremeCapabilityAccent.opacity(0.42)
+        if let valueAccent {
+            return isEnabled ? valueAccent : valueAccent.opacity(0.42)
         }
         if isExtreme {
             return isEnabled ? Color.white.opacity(0.70) : Color.white.opacity(0.34)
@@ -1169,7 +1214,7 @@ struct ChatScreen: View {
         } label: {
             Text(selectedReasoningTitle)
                 .font(.system(size: 17, weight: .semibold, design: .rounded))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(selectedCapabilityAccent)
                 .padding(.horizontal, 15)
                 .frame(height: 44)
                 .frame(minWidth: 54)

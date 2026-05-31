@@ -15,17 +15,19 @@ using namespace metal;
                                                   float rotation,
                                                   float scale,
                                                   float2 center,
+                                                  half4 centerColor,
                                                   half4 color1,
                                                   half4 color2,
                                                   half4 color3,
                                                   half4 background) {
     (void)color;
+    (void)channelOffset;
 
     float2 size = boundingRect.zw;
     float2 uv = (position * 2.0 - size) / min(size.x, size.y);
 
-    uv = uv / max(scale, 0.0001);
     uv -= center;
+    uv = uv / max(scale, 0.0001);
 
     float c = cos(rotation);
     float s = sin(rotation);
@@ -45,29 +47,46 @@ using namespace metal;
     };
 
     float3 glow = float3(0.0);
-    for (int channel = 0; channel < 3; channel++) {
-        float acc = 0.0;
-        for (int line = 0; line < count; line++) {
-            float launchOffset = float(line) / max(float(count), 1.0);
-            float phase = fract(t - channelOffset * float(channel) + launchOffset);
-            float f = phase * spacing - d + m;
-            float width = max(lineWidth, 0.0001) * (1.0 + 0.08 * float(line));
-            float pulse = smoothstep(width * 3.2, 0.0, abs(f));
-            acc += pulse * (0.18 + 0.04 * float(line));
-        }
-        glow += channels[channel] * acc;
+    float centerPulse = 0.0;
+    float waveWidth = max(lineWidth * 34.0, 0.52);
+    float feather = max(lineWidth * 3.2, 0.045);
+    for (int line = 0; line < count; line++) {
+        float launchOffset = float(line) / max(float(count), 1.0);
+        float phase = fract(t + launchOffset);
+        float radius = phase * spacing;
+        float warpedDistance = d - m;
+
+        float birth = smoothstep(0.025, waveWidth * 0.95, radius);
+        float activeWidth = min(waveWidth, max(radius * 0.92, 0.001)) * birth;
+        float innerEdge = radius - activeWidth;
+        float outerEdge = radius;
+
+        float afterInnerEdge = smoothstep(innerEdge - feather, innerEdge + feather, warpedDistance);
+        float beforeOuterEdge = 1.0 - smoothstep(outerEdge - feather, outerEdge + feather, warpedDistance);
+        float band = afterInnerEdge * beforeOuterEdge * birth;
+        float corePosition = abs(warpedDistance - mix(innerEdge, outerEdge, 0.54));
+        float core = smoothstep(activeWidth * 0.34 + feather, 0.0, corePosition) * birth;
+        float ribbonPosition = clamp((warpedDistance - innerEdge) / max(activeWidth, 0.001), 0.0, 1.0);
+
+        float3 ribbonColor = mix(channels[0], channels[1], smoothstep(0.08, 0.58, ribbonPosition));
+        ribbonColor = mix(ribbonColor, channels[2], smoothstep(0.50, 1.0, ribbonPosition));
+
+        float lineWeight = 0.40 + 0.045 * float(line);
+        glow += ribbonColor * pow(band, 0.58) * lineWeight;
+        glow += channels[2] * core * 0.16;
+
+        centerPulse = max(centerPulse, 1.0 - smoothstep(0.0, 0.16, phase));
     }
 
     float vignette = smoothstep(1.45, 0.18, length(uv));
     float3 bg = float3(background.rgb);
-    float centerGlint = smoothstep(0.34, 0.0, d);
-    centerGlint *= 0.72 + 0.28 * sin(time * 5.4) * sin(time * 5.4);
+    float centerGlint = smoothstep(0.24, 0.0, d);
+    centerGlint *= 0.16 + 0.84 * centerPulse;
 
-    float3 centerColor = channels[0] + channels[1] * 0.18 + channels[2] * 0.12;
-    float3 col = bg + glow * (0.34 + vignette * 0.34);
-    col += centerColor * centerGlint * 0.62;
+    float3 col = bg + glow * (0.56 + vignette * 0.44);
+    col += float3(centerColor.rgb) * centerGlint * 0.62;
     col += float3(0.014, 0.018, 0.028) * vignette;
-    col = col / (1.0 + col * 0.55);
+    col = col / (1.0 + col * 0.36);
 
     return half4(half3(col), 1.0);
 }
