@@ -1,1 +1,47 @@
+# Local reference repositories and agent workspace files
 reference/
+AGENTS.md
+CLAUDE.md
+.claude/
+.codex/
+.cursor/
+.cursorrules
+.windsurf/
+
+# Internal planning notes and local verification prompts
+docs/
+TestPrompts/
+strength-mapping-template.md
+
+# Xcode and Apple build output
+DerivedData/
+build/
+Build/
+*.xcuserstate
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM
+*.dSYM.zip
+*.xcresult
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# Swift Package Manager local state
+.build/
+.swiftpm/
+
+# macOS filesystem noise
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Local secrets, signing material, and environment overrides
+.env
+.env.*
+*.p8
+*.p12
+*.cer
+*.mobileprovision
