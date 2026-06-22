@@ -20,6 +20,10 @@ enum APIProviderID: String, CaseIterable, Codable, Identifiable, Sendable {
     case ollama
     case customOpenAI
 
+    /// 对外开放的供应商：GLM（智谱官方）、DeepSeek（官方），以及自定义 OpenAI 兼容（手填 base URL + 模型名）。
+    /// 其余 case 仍保留在枚举里（兼容历史持久化与各处 switch），但不在 UI 中提供新建/展示。
+    static let palmiSelectable: [APIProviderID] = [.glm, .deepseek, .customOpenAI]
+
     var id: String { rawValue }
 
     var vendorTitle: String {
@@ -132,6 +136,10 @@ struct APIModelDefinition: Identifiable, Hashable, Codable, Sendable {
     let summary: String
     let traits: Set<APIModelTrait>
 
+    var supportsMultimodal: Bool {
+        traits.contains(.multimodal)
+    }
+
     init(
         id: String,
         title: String,
@@ -178,7 +186,8 @@ struct APIAccessModeDefinition: Identifiable, Sendable {
     let note: String
 
     var defaultModel: APIModelDefinition {
-        models.first(where: { !isMultimodal($0) }) ?? models[0]
+        // 兼容「无预设模型」的供应商（如自定义 OpenAI 兼容）：空数组时回退到「自动」，避免越界崩溃。
+        models.first(where: { !isMultimodal($0) }) ?? models.first ?? .automatic(for: .defaultModel)
     }
 
     var reasoningDefaultModel: APIModelDefinition {
@@ -236,7 +245,7 @@ struct APIAccessModeDefinition: Identifiable, Sendable {
         guard model.id != APIModelSelection.noneMultimodalID else {
             return false
         }
-        return model.traits.contains(.multimodal)
+        return model.supportsMultimodal
     }
 }
 
@@ -366,7 +375,7 @@ enum APIProviderCatalog {
         APIProviderDefinition(
             id: .glm,
             title: "GLM",
-            subtitle: "把智谱的标准 API 与 Coding Plan 明确拆开。端点、模型、计费口径、错误提示都跟随当前接入模式变化。",
+            subtitle: "把智谱 / Z.AI 的标准 API 与 Coding Plan 明确拆开。端点、模型、计费口径、错误提示都跟随当前接入模式变化。",
             secretLabel: "API Key",
             placeholder: "请输入 GLM API Key",
             secretRequirement: .required,
@@ -380,7 +389,7 @@ enum APIProviderCatalog {
                     title: "标准 API",
                     subtitle: "适用于自建 app、网站、机器人和服务端集成，按标准 API 计费。",
                     badgeText: "标准计费",
-                    baseURL: URL(string: "https://open.bigmodel.cn/api/paas/v4")!,
+                    baseURL: URL(string: "https://open.bigmodel.cn/api/paas/v4/")!,
                     models: [
                         APIModelDefinition(
                             id: "glm-5.1",
@@ -463,9 +472,15 @@ enum APIProviderCatalog {
                     baseURL: URL(string: "https://open.bigmodel.cn/api/coding/paas/v4")!,
                     models: [
                         APIModelDefinition(
+                            id: "glm-5.2",
+                            title: "GLM-5.2",
+                            summary: "Coding Plan 高强度复杂任务候选，官方面向编码 Agent 场景提供，适合复杂推理与长上下文工程任务。",
+                            traits: [.reasoningPreferred]
+                        ),
+                        APIModelDefinition(
                             id: "glm-5.1",
                             title: "GLM-5.1",
-                            summary: "官方当前公开支持的 Coding Plan 旗舰候选之一。",
+                            summary: "Coding Plan 长周期任务候选，适合需要稳定规划和持续执行的工程任务。",
                             traits: [.reasoningPreferred]
                         ),
                         APIModelDefinition(
@@ -557,8 +572,8 @@ enum APIProviderCatalog {
             id: .lmstudio,
             title: "LM Studio",
             subtitle: "面向局域网内的 LM Studio 服务器。模型不在 app 里手选，而是通过服务端当前可见模型自动解析并配对。",
-            secretLabel: "API Token（可选）",
-            placeholder: "留空表示不启用鉴权；如服务端开启 Require Authentication，再填 LM Studio token",
+            secretLabel: "API Key",
+            placeholder: "API Key",
             secretRequirement: .optional,
             endpointStrategy: .profileManaged,
             modelSelectionStyle: .automaticRemote,
@@ -838,7 +853,9 @@ final class APIConfigurationStore {
             baseURL: configuration.baseURL,
             apiKey: configuration.apiKey,
             modelsURL: nil,
-            isFullURL: configuration.baseURL.absoluteString.hasSuffix("/chat/completions")
+            isFullURL: configuration.baseURL.absoluteString.hasSuffix("/chat/completions"),
+            providerID: providerID,
+            probeMultimodalSupport: providerID == .customOpenAI
         )
         let modelDefinitions = discoveredModels.map(\.apiModelDefinition)
 
@@ -890,34 +907,48 @@ final class APIConfigurationStore {
             providerID: providerID
         )
 
-        let normalizedDefaultModelID = normalizedModelSelectionID(
+        var normalizedDefaultModelID = normalizedModelSelectionID(
             defaultModelID,
             role: .defaultModel,
             provider: definition,
             providerID: providerID,
             accessMode: accessMode
         )
-        let normalizedReasoningModelID = normalizedModelSelectionID(
+        var normalizedReasoningModelID = normalizedModelSelectionID(
             reasoningModelID,
             role: .reasoningModel,
             provider: definition,
             providerID: providerID,
             accessMode: accessMode
         )
-        let normalizedMultimodalModelID = normalizedModelSelectionID(
+        var normalizedMultimodalModelID = normalizedModelSelectionID(
             multimodalModelID,
             role: .multimodalModel,
             provider: definition,
             providerID: providerID,
             accessMode: accessMode
         )
-        let normalizedLightweightModelID = normalizedModelSelectionID(
+        var normalizedLightweightModelID = normalizedModelSelectionID(
             lightweightModelID,
             role: .lightweightModel,
             provider: definition,
             providerID: providerID,
             accessMode: accessMode
         )
+        normalizeManualModelSelections(
+            provider: definition,
+            accessMode: accessMode,
+            defaultModelID: &normalizedDefaultModelID,
+            reasoningModelID: &normalizedReasoningModelID,
+            multimodalModelID: &normalizedMultimodalModelID,
+            lightweightModelID: &normalizedLightweightModelID
+        )
+
+        if definition.supportsManualModelSelection,
+           accessMode.models.isEmpty,
+           !isManualModelIDAllowed(normalizedReasoningModelID, provider: definition, accessMode: accessMode) {
+            throw AppError.invalidState("主模型必填。")
+        }
 
         try validateModel(normalizedDefaultModelID, in: accessMode, role: .defaultModel, provider: definition)
         try validateModel(normalizedReasoningModelID, in: accessMode, role: .reasoningModel, provider: definition)
@@ -948,6 +979,9 @@ final class APIConfigurationStore {
             profileName,
             fallback: defaultProfileName(for: definition, index: index + 1)
         )
+        let endpointDidChange =
+            profiles[index].customBaseURLString != normalizedBaseURLString ||
+            profiles[index].selectedServer != selectedServer
         profiles[index].isUserCreated = true
         profiles[index].selectedAccessModeID = selectedAccessModeID
         profiles[index].defaultModelID = normalizedDefaultModelID
@@ -956,10 +990,48 @@ final class APIConfigurationStore {
         profiles[index].lightweightModelID = normalizedLightweightModelID
         profiles[index].customBaseURLString = normalizedBaseURLString
         profiles[index].selectedServer = selectedServer
+        if endpointDidChange {
+            profiles[index].remoteModelDefinitions = nil
+        }
         profiles[index].updatedAt = .now
 
         writeProfiles(profiles, for: providerID)
         writeActiveProfileID(profileID, for: providerID)
+    }
+
+    func liveChatReasoningModelSupportsMultimodal(for providerID: APIProviderID) async -> Bool {
+        let staticSnapshot = chatModelSelectionSnapshot(for: providerID)
+        let staticSupport = LLMModelIntegrationCatalog
+            .spec(for: providerID, model: staticSnapshot.configuredReasoningModel)
+            .capabilities
+            .supportsVision
+        guard providerID == .customOpenAI else {
+            return staticSupport
+        }
+
+        guard let configuration = try? resolvedConfiguration(for: providerID) else {
+            return false
+        }
+        let modelID = configuration.reasoningModel.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !modelID.isEmpty,
+              modelID != APIModelSelection.automaticID,
+              modelID != APIModelSelection.noneMultimodalID else {
+            return false
+        }
+
+        let supportsMultimodal = await modelDiscoveryService.probeMultimodalSupport(
+            modelID: modelID,
+            baseURL: configuration.baseURL,
+            apiKey: configuration.apiKey,
+            providerID: providerID
+        )
+        recordMultimodalProbeResult(
+            providerID: providerID,
+            profileID: configuration.profileID,
+            modelID: modelID,
+            supportsMultimodal: supportsMultimodal
+        )
+        return supportsMultimodal
     }
 
     func clearAPIKey(for providerID: APIProviderID, profileID: UUID) throws {
@@ -1079,9 +1151,64 @@ final class APIConfigurationStore {
             }
             return
         }
+        if isManualModelIDAllowed(modelID, provider: provider, accessMode: accessMode) {
+            return
+        }
         guard availableModels(for: provider, accessMode: accessMode, role: role).contains(where: { $0.id == modelID }) else {
             throw AppError.invalidState("\(role.title) 无效：\(modelID)")
         }
+    }
+
+    private func normalizeManualModelSelections(
+        provider: APIProviderDefinition,
+        accessMode: APIAccessModeDefinition,
+        defaultModelID: inout String,
+        reasoningModelID: inout String,
+        multimodalModelID: inout String,
+        lightweightModelID: inout String
+    ) {
+        guard provider.supportsManualModelSelection, accessMode.models.isEmpty else { return }
+
+        let manualModelID = [
+            reasoningModelID,
+            defaultModelID,
+            lightweightModelID,
+            multimodalModelID
+        ].first { isManualModelIDAllowed($0, provider: provider, accessMode: accessMode) }
+
+        guard let manualModelID else {
+            if multimodalModelID == APIModelSelection.automaticID {
+                multimodalModelID = APIModelSelection.noneMultimodalID
+            }
+            return
+        }
+
+        if defaultModelID == APIModelSelection.automaticID {
+            defaultModelID = manualModelID
+        }
+        if reasoningModelID == APIModelSelection.automaticID {
+            reasoningModelID = manualModelID
+        }
+        if lightweightModelID == APIModelSelection.automaticID {
+            lightweightModelID = manualModelID
+        }
+        if multimodalModelID == APIModelSelection.automaticID {
+            multimodalModelID = APIModelSelection.noneMultimodalID
+        }
+    }
+
+    private func isManualModelIDAllowed(
+        _ modelID: String,
+        provider: APIProviderDefinition,
+        accessMode: APIAccessModeDefinition
+    ) -> Bool {
+        guard provider.supportsManualModelSelection, accessMode.models.isEmpty else {
+            return false
+        }
+        let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty
+            && trimmed != APIModelSelection.automaticID
+            && trimmed != APIModelSelection.noneMultimodalID
     }
 
     private func availableModels(
@@ -1322,7 +1449,9 @@ final class APIConfigurationStore {
     }
 
     private func removeLegacyMetadata(for providerID: APIProviderID) {
-        metadataDefaults.removeObject(forKey: legacyMetadataKey(for: providerID))
+        let key = legacyMetadataKey(for: providerID)
+        guard metadataDefaults.object(forKey: key) != nil else { return }
+        metadataDefaults.removeObject(forKey: key)
     }
 
     private func readActiveProfileID(for providerID: APIProviderID) -> UUID? {
@@ -1388,34 +1517,46 @@ final class APIConfigurationStore {
         )
         let accessMode = baseAccessMode.mergingRemoteModels(normalized.remoteModelDefinitions)
 
-        normalized.defaultModelID = normalizedModelSelectionID(
+        var normalizedDefaultModelID = normalizedModelSelectionID(
             profile.defaultModelID,
             role: .defaultModel,
             provider: definition,
             providerID: providerID,
             accessMode: accessMode
         )
-        normalized.reasoningModelID = normalizedModelSelectionID(
+        var normalizedReasoningModelID = normalizedModelSelectionID(
             profile.reasoningModelID,
             role: .reasoningModel,
             provider: definition,
             providerID: providerID,
             accessMode: accessMode
         )
-        normalized.multimodalModelID = normalizedModelSelectionID(
+        var normalizedMultimodalModelID = normalizedModelSelectionID(
             profile.multimodalModelID,
             role: .multimodalModel,
             provider: definition,
             providerID: providerID,
             accessMode: accessMode
         )
-        normalized.lightweightModelID = normalizedModelSelectionID(
+        var normalizedLightweightModelID = normalizedModelSelectionID(
             profile.lightweightModelID,
             role: .lightweightModel,
             provider: definition,
             providerID: providerID,
             accessMode: accessMode
         )
+        normalizeManualModelSelections(
+            provider: definition,
+            accessMode: accessMode,
+            defaultModelID: &normalizedDefaultModelID,
+            reasoningModelID: &normalizedReasoningModelID,
+            multimodalModelID: &normalizedMultimodalModelID,
+            lightweightModelID: &normalizedLightweightModelID
+        )
+        normalized.defaultModelID = normalizedDefaultModelID
+        normalized.reasoningModelID = normalizedReasoningModelID
+        normalized.multimodalModelID = normalizedMultimodalModelID
+        normalized.lightweightModelID = normalizedLightweightModelID
         return normalized
     }
 
@@ -1442,6 +1583,48 @@ final class APIConfigurationStore {
         return normalizedModels.isEmpty ? nil : normalizedModels
     }
 
+    private func recordMultimodalProbeResult(
+        providerID: APIProviderID,
+        profileID: UUID,
+        modelID: String,
+        supportsMultimodal: Bool
+    ) {
+        var profiles = profileRecords(for: providerID)
+        guard let index = profiles.firstIndex(where: { $0.id == profileID }) else {
+            return
+        }
+        let definition = APIProviderCatalog.definition(for: providerID)
+        let baseAccessMode = definition.accessMode(withID: profiles[index].selectedAccessModeID) ?? definition.preferredAccessMode
+        let canonicalID = LLMModelIntegrationCatalog.canonicalModelID(for: providerID, modelID: modelID)
+        let existingRemoteModels = profiles[index].remoteModelDefinitions ?? []
+        let existingModel = existingRemoteModels.first(where: { $0.id == canonicalID })
+            ?? baseAccessMode.models.first(where: { $0.id == canonicalID })
+
+        var traits = existingModel?.traits ?? LLMDiscoveredModel.textTraits(for: canonicalID)
+        if supportsMultimodal {
+            traits.insert(.multimodal)
+        } else {
+            traits.remove(.multimodal)
+        }
+
+        var remoteModels = existingRemoteModels.filter { $0.id != canonicalID }
+        remoteModels.append(
+            APIModelDefinition(
+                id: canonicalID,
+                title: existingModel?.title ?? canonicalID,
+                summary: existingModel?.summary ?? "",
+                traits: traits
+            )
+        )
+        profiles[index].remoteModelDefinitions = normalizedRemoteModelDefinitions(
+            remoteModels,
+            providerID: providerID,
+            baseAccessMode: baseAccessMode
+        )
+        profiles[index].updatedAt = .now
+        writeProfiles(profiles, for: providerID)
+    }
+
     private func normalizedModelSelectionID(
         _ modelID: String?,
         role: APIModelRole,
@@ -1456,6 +1639,10 @@ final class APIConfigurationStore {
         let rawID = modelID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let canonicalID = LLMModelIntegrationCatalog.canonicalModelID(for: providerID, modelID: rawID)
         let availableModels = accessMode.availableModels(for: role)
+
+        if isManualModelIDAllowed(canonicalID, provider: provider, accessMode: accessMode) {
+            return canonicalID
+        }
 
         if role == .defaultModel {
             if canonicalID != APIModelSelection.automaticID,
@@ -1624,7 +1811,16 @@ final class APIConfigurationStore {
                 return defaultModel
             }
         }
-        return accessMode.model(withID: selectionID) ?? accessMode.defaultModel(for: role)
+        if let catalogModel = accessMode.model(withID: selectionID) {
+            return catalogModel
+        }
+        // 空目录的手填供应商（自定义 OpenAI 兼容）：把用户手填的模型名合成成模型，原样透传给 API，
+        // 不再回退到默认——否则手填的模型 ID 会被丢掉。
+        let trimmed = selectionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty, trimmed != APIModelSelection.automaticID {
+            return APIModelDefinition(id: trimmed, title: trimmed, summary: "")
+        }
+        return accessMode.defaultModel(for: role)
     }
 
     private func hasSavedSecret(for providerID: APIProviderID, profileID: UUID) -> Bool {
@@ -1715,6 +1911,60 @@ struct KeychainSecretStore {
         }
     }
 
+    func saveSecret(_ secret: String, account: String) throws {
+        guard let data = secret.data(using: .utf8) else {
+            throw AppError.operationFailed("API Key 编码失败。")
+        }
+
+        let query = baseQuery(account: account)
+        let attributes: [String: Any] = [kSecValueData as String: data]
+        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+
+        switch status {
+        case errSecSuccess:
+            return
+        case errSecItemNotFound:
+            var item = query
+            item[kSecValueData as String] = data
+            item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            let addStatus = SecItemAdd(item as CFDictionary, nil)
+            guard addStatus == errSecSuccess else {
+                throw AppError.operationFailed("API Key 写入 Keychain 失败：\(addStatus)")
+            }
+        default:
+            throw AppError.operationFailed("API Key 更新 Keychain 失败：\(status)")
+        }
+    }
+
+    func readSecret(account: String) throws -> String? {
+        var query = baseQuery(account: account)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        switch status {
+        case errSecSuccess:
+            guard let data = result as? Data,
+                  let value = String(data: data, encoding: .utf8) else {
+                throw AppError.operationFailed("Keychain 里的 API Key 无法解码。")
+            }
+            return value
+        case errSecItemNotFound:
+            return nil
+        default:
+            throw AppError.operationFailed("读取 Keychain 失败：\(status)")
+        }
+    }
+
+    func deleteSecret(account: String) throws {
+        let status = SecItemDelete(baseQuery(account: account) as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw AppError.operationFailed("删除 Keychain 里的 API Key 失败：\(status)")
+        }
+    }
+
     private func baseQuery(
         for providerID: APIProviderID,
         profileID: UUID?,
@@ -1724,6 +1974,14 @@ struct KeychainSecretStore {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: keychainAccount(for: providerID, profileID: profileID, kind: kind)
+        ]
+    }
+
+    private func baseQuery(account: String) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
         ]
     }
 

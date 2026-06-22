@@ -1,8 +1,10 @@
 import Contacts
 import EventKit
 import Foundation
+import ImageIO
 import MapKit
 import UIKit
+import UniformTypeIdentifiers
 import VisionKit
 
 @MainActor
@@ -23,6 +25,9 @@ final class ActionExecutor {
     private let foundationModelService: FoundationModelService
     private let currentDateTimeService: CurrentDateTimeService
     private let alarmService: AlarmService
+    private let ocrService: PPocrv6TinyOCRService
+    private let modelPlanStore: ModelPlanStore
+    private let modelRuntime: AgentModelRuntime
     private let userDefaults: UserDefaults
 
     init(
@@ -42,6 +47,9 @@ final class ActionExecutor {
         foundationModelService: FoundationModelService,
         currentDateTimeService: CurrentDateTimeService,
         alarmService: AlarmService,
+        ocrService: PPocrv6TinyOCRService,
+        modelPlanStore: ModelPlanStore,
+        modelRuntime: AgentModelRuntime,
         userDefaults: UserDefaults = .standard
     ) {
         self.workspaceManager = workspaceManager
@@ -60,10 +68,17 @@ final class ActionExecutor {
         self.foundationModelService = foundationModelService
         self.currentDateTimeService = currentDateTimeService
         self.alarmService = alarmService
+        self.ocrService = ocrService
+        self.modelPlanStore = modelPlanStore
+        self.modelRuntime = modelRuntime
         self.userDefaults = userDefaults
     }
 
-    func execute(_ action: ToolAction, arguments: ToolArguments) async -> ToolExecutionOutcome {
+    func execute(
+        _ action: ToolAction,
+        arguments: ToolArguments,
+        modelOverrides: AgentModelRoleOverrides = .empty
+    ) async -> ToolExecutionOutcome {
         do {
             switch action.id {
             case .fileRead:
@@ -329,6 +344,88 @@ final class ActionExecutor {
                     fileDeltas: fileDeltas
                 )
 
+            case .recognizeImageText:
+                let path = try arguments.requiredString("path")
+                let outputDirectory = arguments.string("output_directory")
+                let beforeTextPath = ocrOutputSnapshotPath(
+                    for: path,
+                    outputDirectory: outputDirectory,
+                    fileExtension: "txt"
+                )
+                let beforeJSONPath = ocrOutputSnapshotPath(
+                    for: path,
+                    outputDirectory: outputDirectory,
+                    fileExtension: "json"
+                )
+                let beforeText = workspaceItemSnapshot(at: beforeTextPath)
+                let beforeJSON = workspaceItemSnapshot(at: beforeJSONPath)
+                let result = try ocrService.recognizeImageText(
+                    at: path,
+                    outputDirectory: outputDirectory,
+                    recognitionLanguages: arguments.stringArray("recognition_languages") ?? ["zh-Hans", "en-US"],
+                    usesLanguageCorrection: arguments.bool("uses_language_correction") ?? true
+                )
+                let afterText = workspaceItemSnapshot(at: result.textPath)
+                let afterJSON = workspaceItemSnapshot(at: result.jsonPath)
+                let recognizedCount = result.lines.count
+                let details = """
+                engine：\(result.engine)
+                model：\(result.modelName)
+                source：\(result.sourcePath)
+                text：\(result.textPath)
+                json：\(result.jsonPath)
+
+                \(result.plainText.isEmpty ? "没有可返回的文本。" : result.plainText)
+                """
+                return success(
+                    action,
+                    recognizedCount > 0 ? "已识别 \(recognizedCount) 行文本" : "未识别到文本",
+                    details: details,
+                    status: recognizedCount > 0 ? .success : .warning,
+                    fileDeltas: [
+                        fileDelta(
+                            action: action,
+                            path: result.textPath,
+                            kind: beforeText.exists ? .modified : .created,
+                            before: beforeText.byteCount,
+                            after: afterText.byteCount,
+                            summary: "OCR 文本结果已写入工作区"
+                        ),
+                        fileDelta(
+                            action: action,
+                            path: result.jsonPath,
+                            kind: beforeJSON.exists ? .modified : .created,
+                            before: beforeJSON.byteCount,
+                            after: afterJSON.byteCount,
+                            summary: "OCR 结构化结果已写入工作区"
+                        )
+                    ]
+                )
+
+            case .scanImageWithMultimodalModel:
+                let path = try arguments.requiredString("path")
+                let prompt = try arguments.requiredString("prompt")
+                let dataURL = try multimodalToolImageDataURL(at: path)
+                let response = try await scanImageWithMultimodalModel(
+                    prompt: prompt,
+                    imageDataURL: dataURL,
+                    modelOverrides: modelOverrides
+                )
+                let text = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                let details = """
+                model：\(response.modelTitle)
+                source：\(path)
+                prompt：\(prompt)
+
+                \(text.isEmpty ? "多模态模型没有返回文本。" : text)
+                """
+                return success(
+                    action,
+                    text.isEmpty ? "多模态模型未返回文本" : "多模态模型已返回识别结果",
+                    details: details,
+                    status: text.isEmpty ? .warning : .success
+                )
+
             case .detectWebSearchProviders:
                 let requestedProvider = try optionalSearchProvider(from: arguments)
                 let providerIDs = requestedProvider.map { [$0] } ?? enabledSearchProviderIDs()
@@ -391,7 +488,7 @@ final class ActionExecutor {
 
             case .fetchStaticWebPage:
                 let retrievalProfile = currentRetrievalQualityProfile()
-                let maxChars = retrievalProfile.webContent.fetchStaticWebPageMaxCharacters
+                let maxChars = effectiveFetchStaticWebPageMaxCharacters(from: arguments, profile: retrievalProfile.webContent)
                 let requestedURLs = try webPageURLs(from: arguments)
                 let uniqueURLs = uniqueURLs(requestedURLs)
                 let maxURLs = retrievalProfile.webContent.fetchStaticWebPageMaxURLs
@@ -430,6 +527,9 @@ final class ActionExecutor {
                     去重后 URL：\(uniqueURLs.count)
                     本次执行 URL：\(urls.count)
                     当前档位建议：\(retrievalProfile.webContent.fetchStaticWebPageRecommendedURLCount) 个 URL
+                    正文字符数：\(maxChars)
+                    当前档位建议正文字符数：\(retrievalProfile.webContent.fetchStaticWebPageRecommendedMaxCharacters)
+                    正文字符绝对上限：\(retrievalProfile.webContent.fetchStaticWebPageAbsoluteMaxCharacters)
                     工具技术上限：\(maxURLs) 个 URL
                     并行上限：\(retrievalProfile.webContent.fetchStaticWebPageMaxConcurrentRequests)
                     单 URL 超时：\(Int(retrievalProfile.webContent.fetchStaticWebPageRequestTimeoutSeconds)) 秒
@@ -450,6 +550,8 @@ final class ActionExecutor {
                 let url = try requiredURL(arguments.string("url") ?? "https://developer.apple.com")
                 let safariOptions = SafariPresentationOptions(
                     url: url,
+                    fileReadAccessURL: url.isFileURL ? (try? workspaceManager.url(for: ".")) : nil,
+                    displayTitle: arguments.string("title"),
                     entersReaderIfAvailable: arguments.bool("reader_mode") ?? false,
                     barCollapsingEnabled: arguments.bool("bar_collapsing_enabled") ?? false
                 )
@@ -1091,6 +1193,97 @@ final class ActionExecutor {
         )
     }
 
+    private func scanImageWithMultimodalModel(
+        prompt: String,
+        imageDataURL: String,
+        modelOverrides: AgentModelRoleOverrides
+    ) async throws -> MultimodalModelScanResponse {
+        let override = resolvedMultimodalOverride(from: modelOverrides)
+        guard case .resolved(let resolved) = override else {
+            if case .unavailable(let message) = override {
+                throw AppError.invalidState(message)
+            }
+            throw AppError.invalidState("当前会话未选择可用的多模态模型。")
+        }
+        guard resolved.capabilities.supportsVision else {
+            throw AppError.invalidState("当前多模态模型尚未通过视觉输入验证。")
+        }
+
+        var userMessage = AgentModelMessage.user(prompt)
+        userMessage.imageDataURLs = [imageDataURL]
+        let response = try await modelRuntime.complete(
+            AgentModelRequest(
+                selection: AgentModelSelection(
+                    providerID: resolved.configuration.provider.id,
+                    modelRole: .multimodalModel,
+                    reasoning: .automatic,
+                    configurationOverride: override
+                ),
+                apiMessages: [
+                    .system("你是图片理解工具。根据用户的视觉问题阅读图片，只返回和图片相关的直接答案。"),
+                    userMessage
+                ],
+                tools: [],
+                toolIntent: .none,
+                temperatureOverride: 0
+            )
+        )
+        return MultimodalModelScanResponse(
+            text: response.message.textContent,
+            modelTitle: resolved.model.title
+        )
+    }
+
+    private func resolvedMultimodalOverride(
+        from modelOverrides: AgentModelRoleOverrides
+    ) -> AgentModelConfigurationOverride {
+        if let override = modelOverrides.override(for: .multimodalModel) {
+            return override
+        }
+        return modelPlanStore
+            .roleOverrides(for: nil)
+            .override(for: .multimodalModel) ?? .unavailable("当前会话未选择可用的多模态模型。")
+    }
+
+    private func multimodalToolImageDataURL(at path: String) throws -> String {
+        let normalizedPath = path
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !normalizedPath.isEmpty else {
+            throw AppError.invalidState("图片路径不能为空。")
+        }
+        let url = try workspaceManager.url(for: normalizedPath)
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+            throw AppError.invalidState("无法读取图片：\(normalizedPath)")
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 1536
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            throw AppError.invalidState("无法解析图片：\(normalizedPath)")
+        }
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            data,
+            UTType.jpeg.identifier as CFString,
+            1,
+            nil
+        ) else {
+            throw AppError.operationFailed("图片编码器不可用。")
+        }
+        CGImageDestinationAddImage(
+            destination,
+            cgImage,
+            [kCGImageDestinationLossyCompressionQuality: 0.8] as CFDictionary
+        )
+        guard CGImageDestinationFinalize(destination) else {
+            throw AppError.operationFailed("图片编码失败。")
+        }
+        return "data:image/jpeg;base64,\((data as Data).base64EncodedString())"
+    }
+
     private func makeResult(
         _ action: ToolAction,
         status: ToolResult.Status,
@@ -1108,10 +1301,18 @@ final class ActionExecutor {
     }
 
     private func requiredURL(_ rawValue: String) throws -> URL {
-        guard let url = URL(string: rawValue), let scheme = url.scheme, !scheme.isEmpty else {
-            throw AppError.invalidState("不是合法 URL：\(rawValue)")
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw AppError.invalidState("不是合法 URL 或工作区路径：\(rawValue)")
         }
-        return url
+        if let url = URL(string: trimmed), let scheme = url.scheme, !scheme.isEmpty {
+            return url
+        }
+        if let workspaceURL = try? workspaceManager.url(for: trimmed),
+           FileManager.default.fileExists(atPath: workspaceURL.path) {
+            return workspaceURL
+        }
+        throw AppError.invalidState("不是合法 URL 或工作区路径：\(rawValue)")
     }
 
     private func workspaceItemSnapshot(at relativePath: String) -> (exists: Bool, byteCount: Int?) {
@@ -1119,6 +1320,38 @@ final class ActionExecutor {
             return (false, nil)
         }
         return (FileManager.default.fileExists(atPath: url.path), fileByteCount(at: url))
+    }
+
+    private func ocrOutputSnapshotPath(
+        for sourcePath: String,
+        outputDirectory: String?,
+        fileExtension: String
+    ) -> String {
+        let baseDirectory: String
+        if let outputDirectory {
+            let trimmed = outputDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            baseDirectory = trimmed.isEmpty ? defaultOCRDirectory(for: sourcePath) : trimmed
+        } else {
+            baseDirectory = defaultOCRDirectory(for: sourcePath)
+        }
+
+        let filename = URL(fileURLWithPath: sourcePath).deletingPathExtension().lastPathComponent
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        let safeName = filename.unicodeScalars.map { scalar in
+            allowed.contains(scalar) ? String(scalar) : "-"
+        }
+            .joined()
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-_"))
+        return "\(baseDirectory)/\((safeName.isEmpty ? "image" : safeName)).ocr.\(fileExtension)"
+    }
+
+    private func defaultOCRDirectory(for sourcePath: String) -> String {
+        if let range = sourcePath.range(of: "/original/"),
+           sourcePath.hasPrefix(".files/uploads/") {
+            return String(sourcePath[..<range.lowerBound]) + "/extracted"
+        }
+        return ".files/ocr"
     }
 
     private func fileByteCount(at url: URL) -> Int? {
@@ -1229,6 +1462,21 @@ final class ActionExecutor {
         let modifiedAt: Date?
     }
 
+    private struct MultimodalModelScanResponse {
+        let text: String
+        let modelTitle: String
+    }
+
+    private func effectiveFetchStaticWebPageMaxCharacters(
+        from arguments: ToolArguments,
+        profile: WebContentStrengthConfiguration
+    ) -> Int {
+        guard let requestedMaxCharacters = arguments.int("max_chars"), requestedMaxCharacters > 0 else {
+            return profile.fetchStaticWebPageAbsoluteMaxCharacters
+        }
+        return min(requestedMaxCharacters, profile.fetchStaticWebPageAbsoluteMaxCharacters)
+    }
+
     private func webPageURLs(from arguments: ToolArguments) throws -> [URL] {
         var rawValues: [String] = []
         if let url = arguments.string("url")?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1289,8 +1537,11 @@ final class ActionExecutor {
             return normalizedArgumentsJSONString(payload, fallback: arguments.normalizedJSONString())
 
         case .fetchStaticWebPage:
+            let maxChars = effectiveFetchStaticWebPageMaxCharacters(from: arguments, profile: retrievalProfile.webContent)
             var payload: [String: Any] = [
-                "max_chars": retrievalProfile.webContent.fetchStaticWebPageMaxCharacters,
+                "max_chars": maxChars,
+                "recommended_max_chars": retrievalProfile.webContent.fetchStaticWebPageRecommendedMaxCharacters,
+                "absolute_max_chars": retrievalProfile.webContent.fetchStaticWebPageAbsoluteMaxCharacters,
                 "recommended_urls": retrievalProfile.webContent.fetchStaticWebPageRecommendedURLCount,
                 "max_urls": retrievalProfile.webContent.fetchStaticWebPageMaxURLs,
                 "max_concurrent_requests": retrievalProfile.webContent.fetchStaticWebPageMaxConcurrentRequests,

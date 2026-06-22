@@ -111,7 +111,7 @@ private extension UIColor {
     }
 }
 
-enum MediaPresentation: Identifiable {
+enum MediaPresentation: @unchecked Sendable, Identifiable {
     case imagePicker(ToolActionID, UIImagePickerController.SourceType)
     case documentScanner(ToolActionID)
     case textScanner(ToolActionID)
@@ -126,7 +126,7 @@ enum MediaPresentation: Identifiable {
         case .textScanner(let actionID):
             "\(actionID.rawValue).text-scanner"
         case .safari(let actionID, let options):
-            "\(actionID.rawValue).safari.\(options.url.absoluteString).reader-\(options.entersReaderIfAvailable).collapse-\(options.barCollapsingEnabled)"
+            "\(actionID.rawValue).safari.\(options.url.absoluteString).title-\(options.displayTitle ?? "none").reader-\(options.entersReaderIfAvailable).collapse-\(options.barCollapsingEnabled).read-\(options.fileReadAccessURL?.absoluteString ?? "none")"
         }
     }
 
@@ -168,8 +168,10 @@ enum MediaPresentation: Identifiable {
     }
 }
 
-struct SafariPresentationOptions: Hashable {
+struct SafariPresentationOptions: Hashable, Sendable {
     let url: URL
+    let fileReadAccessURL: URL?
+    let displayTitle: String?
     let entersReaderIfAvailable: Bool
     let barCollapsingEnabled: Bool
 }

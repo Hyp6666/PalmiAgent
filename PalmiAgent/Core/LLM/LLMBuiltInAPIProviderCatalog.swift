@@ -125,7 +125,7 @@ enum LLMBuiltInAPIProviderCatalog {
             id: .modelscope,
             title: "ModelScope",
             subtitle: "魔搭社区 / ModelScope OpenAI-compatible 接入。不同模型服务 endpoint 可能不同。",
-            placeholder: "请输入 ModelScope Token",
+            placeholder: "ModelScope API Key",
             endpointPlaceholder: "https://api-inference.modelscope.cn/v1",
             categoryNote: "",
             models: [
@@ -164,7 +164,7 @@ enum LLMBuiltInAPIProviderCatalog {
             id: .ollama,
             title: "Ollama",
             subtitle: "本地 Ollama OpenAI-compatible `/v1` 接入。",
-            placeholder: "Ollama 默认无需 API Key",
+            placeholder: "API Key",
             endpointPlaceholder: "http://localhost:11434/v1",
             secretRequirement: .optional,
             categoryNote: "只接 Ollama 的 OpenAI-compatible `/v1`，不接原生 `/api/generate`。",
@@ -180,14 +180,13 @@ enum LLMBuiltInAPIProviderCatalog {
             id: .customOpenAI,
             title: "自定义 OpenAI-compatible",
             subtitle: "接入用户自己的 OpenAI-compatible 服务。Palmi 不背书具体供应商。",
-            placeholder: "请输入 API Key；本地服务可留空",
-            endpointPlaceholder: "https://example.com/v1",
+            placeholder: "API Key",
+            endpointPlaceholder: "https://api.example.com/v1",
             secretRequirement: .optional,
             categoryNote: "",
-            models: [
-                model("gpt-4.1", "gpt-4.1", ""),
-                model("gpt-5.4", "gpt-5.4", "")
-            ]
+            // 不预置任何模型：模型名由用户手动填写（只要走 OpenAI 兼容协议即可）。
+            models: [],
+            editableModelRoles: [.reasoningModel]
         )
     ]
 
@@ -233,18 +232,19 @@ enum LLMBuiltInAPIProviderCatalog {
         endpointPlaceholder: String,
         secretRequirement: APISecretRequirement = .required,
         categoryNote: String,
-        models: [APIModelDefinition]
+        models: [APIModelDefinition],
+        editableModelRoles: [APIModelRole]? = nil
     ) -> APIProviderDefinition {
         APIProviderDefinition(
             id: id,
             title: title,
             subtitle: subtitle,
-            secretLabel: secretRequirement == .optional ? "API Key / Token（可选）" : "API Key",
+            secretLabel: "API Key",
             placeholder: placeholder,
             secretRequirement: secretRequirement,
             endpointStrategy: .profileManaged,
             modelSelectionStyle: .catalog,
-            editableModelRoles: editableRoles(for: models),
+            editableModelRoles: editableModelRoles ?? editableRoles(for: models),
             transport: .openAICompatibleChatCompletions,
             accessModes: [
                 APIAccessModeDefinition(

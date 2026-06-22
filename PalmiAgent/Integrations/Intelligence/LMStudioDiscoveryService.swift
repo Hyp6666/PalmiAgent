@@ -277,7 +277,7 @@ final class LMStudioDiscoveryService {
             baseURLString: baseURL.absoluteString,
             selectedModelID: nil,
             selectedModelTitle: nil,
-            selectedModelSummary: "服务端已开启 Require Authentication，填入 LM Studio API Token 后才能读取模型信息。",
+            selectedModelSummary: "服务端已开启 Require Authentication，填入 LM Studio API Key 后才能读取模型信息。",
             selectedVisionModelID: nil,
             selectedVisionModelTitle: nil,
             selectedVisionModelSummary: nil,

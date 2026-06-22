@@ -5,6 +5,7 @@ final class AppContainer {
     let workspaceManager = WorkspaceManager()
     lazy var workspaceStore = WorkspaceStore(workspaceManager: workspaceManager)
     let apiConfigurationStore = APIConfigurationStore()
+    let modelPlanStore = ModelPlanStore()
     let toolPermissionStore = ToolPermissionStore()
     let toolAuthorizationStore = ToolAuthorizationStore()
     lazy var skillRegistry = SkillRegistry(workspaceManager: workspaceManager)
@@ -25,6 +26,7 @@ final class AppContainer {
         session: llmSession,
         lmStudioDiscoveryService: lmStudioDiscoveryService
     )
+    lazy var modelCandidateValidationService = ModelCandidateValidationService()
     lazy var workspaceReadService = WorkspaceReadService(workspaceManager: workspaceManager)
     lazy var pythonNotebookSandboxService = PythonNotebookSandboxService(
         workspaceManager: workspaceManager
@@ -42,6 +44,7 @@ final class AppContainer {
     let foundationModelService = FoundationModelService()
     let currentDateTimeService = CurrentDateTimeService()
     let alarmService = AlarmService()
+    lazy var ocrService = PPocrv6TinyOCRService(workspaceManager: workspaceManager)
 
     lazy var executor = ActionExecutor(
         workspaceManager: workspaceManager,
@@ -59,7 +62,10 @@ final class AppContainer {
         spotlightService: spotlightService,
         foundationModelService: foundationModelService,
         currentDateTimeService: currentDateTimeService,
-        alarmService: alarmService
+        alarmService: alarmService,
+        ocrService: ocrService,
+        modelPlanStore: modelPlanStore,
+        modelRuntime: llmAPIClient
     )
 
     lazy var agentToolExecutor = AgentToolExecutor(actionExecutor: executor)
@@ -78,27 +84,33 @@ final class AppContainer {
         modelRuntime: llmAPIClient,
         toolContextProjector: toolContextProjector
     )
-    lazy var agentLoop = AgentLoop(
-        modelRuntime: llmAPIClient,
-        toolExecutor: agentToolExecutor,
-        toolAuthorizationStore: toolAuthorizationStore,
-        promptBuilder: AgentPromptBuilder(),
-        skillRegistry: skillRegistry,
-        workspaceManager: workspaceManager,
-        contextAssembler: contextAssembler,
-        contextCompactor: contextCompactor,
-        toolArtifactPipeline: toolArtifactPipeline,
-        toolContextProjector: toolContextProjector,
-        configuration: .default
-    )
+    func makeAgentLoop() -> AgentLoop {
+        AgentLoop(
+            modelRuntime: llmAPIClient,
+            toolExecutor: agentToolExecutor,
+            toolAuthorizationStore: toolAuthorizationStore,
+            promptBuilder: AgentPromptBuilder(),
+            skillRegistry: skillRegistry,
+            workspaceManager: workspaceManager,
+            contextAssembler: contextAssembler,
+            contextCompactor: contextCompactor,
+            toolArtifactPipeline: toolArtifactPipeline,
+            toolContextProjector: toolContextProjector,
+            configuration: .default
+        )
+    }
+
+    lazy var agentLoop = makeAgentLoop()
     lazy var conversationTitleService = ConversationTitleService(modelRuntime: llmAPIClient)
 
     lazy var store = ManualLabStore(
         actions: ActionCatalog.all,
         executor: executor,
         apiConfigurationStore: apiConfigurationStore,
+        modelPlanStore: modelPlanStore,
         llmToolCallingService: llmToolCallingService,
         apiConnectionValidationService: apiConnectionValidationService,
+        modelCandidateValidationService: modelCandidateValidationService,
         lmStudioDiscoveryService: lmStudioDiscoveryService,
         workspaceStore: workspaceStore,
         toolPermissionStore: toolPermissionStore,
@@ -108,7 +120,9 @@ final class AppContainer {
     lazy var chatStore = ChatStore(
         actions: ActionCatalog.all,
         apiConfigurationStore: apiConfigurationStore,
+        modelPlanStore: modelPlanStore,
         agentLoop: agentLoop,
+        makeAgentLoop: { [unowned self] in self.makeAgentLoop() },
         conversationTitleService: conversationTitleService,
         skillRegistry: skillRegistry,
         workspaceManager: workspaceManager,

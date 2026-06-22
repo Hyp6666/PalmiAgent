@@ -24,6 +24,8 @@ enum ToolActionID: String, CaseIterable, Codable, Sendable {
     case listDirectory
     case fileManage
     case runPython
+    case recognizeImageText
+    case scanImageWithMultimodalModel
     case detectWebSearchProviders
     case searchWeb
     case fetchStaticWebPage

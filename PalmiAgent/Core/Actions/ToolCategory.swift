@@ -2,6 +2,7 @@ import Foundation
 
 enum ToolCategory: String, CaseIterable, Identifiable, Codable, Sendable {
     case workspace
+    case multimodal
     case web
     case personalData
     case media
@@ -15,6 +16,8 @@ enum ToolCategory: String, CaseIterable, Identifiable, Codable, Sendable {
         switch self {
         case .workspace:
             "工作区与沙盒"
+        case .multimodal:
+            "多模态"
         case .web:
             "网页研究"
         case .personalData:
@@ -34,6 +37,8 @@ enum ToolCategory: String, CaseIterable, Identifiable, Codable, Sendable {
         switch self {
         case .workspace:
             "临时项目目录、文件生成、脚本容器"
+        case .multimodal:
+            "图片、OCR 与本地视觉处理"
         case .web:
             "网页搜索、正文浏览、静态分析"
         case .personalData:

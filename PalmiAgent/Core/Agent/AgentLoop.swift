@@ -1,5 +1,13 @@
 import Foundation
 
+/// 输入框「规划」菜单里选择的会话模式。纯提示词工程：只影响注入到系统提示里的一段指令，
+/// 不改动任何工具调用、也不改动 loop 机制。一次性——由 ChatStore 在本轮最终总结结束后清回 .standard。
+enum AgentComposerMode: String, Codable, Equatable, Sendable {
+    case standard
+    case goal
+    case deepResearch
+}
+
 @MainActor
 final class AgentLoop {
     private static let phaseThoughtToolName = "phase_thought"
@@ -24,6 +32,18 @@ final class AgentLoop {
     private var pendingInterruptions: [String] = []
     private var pendingApprovalContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
     private var pendingApprovalRequests: [UUID: AgentApprovalRequest] = [:]
+
+    // 目标 / 深度研究模式：当前一轮的注入态。runTurn 进入时置位、退出时（defer）清回。
+    // 这三个只在 makeBaseSystemPrompt 里被读取并拼进系统提示，每轮迭代都会带上。
+    private var activeTurnMode: AgentComposerMode = .standard
+    private var activeTurnModeQuery: String = ""
+    private var activeTurnDeepResearchFolder: String = ""
+    // 当轮要内联给主模型的图片（已降采样转 JPEG 的 data URL）。仅当主模型支持视觉时才非空；
+    // 在 runTurn 进入时按能力加载、退出时清空——保证图片只活在本轮、不持久化。
+    private var activeTurnImageDataURLs: [String] = []
+    private var activeTurnInlineImagePaths: Set<String> = []
+    private var activeTurnHasImageAttachments = false
+    private var activeTurnMultimodalScannerAvailable = false
 
     let events: AsyncStream<AgentEvent>
     private let eventContinuation: AsyncStream<AgentEvent>.Continuation
@@ -193,7 +213,8 @@ final class AgentLoop {
 
     func forceCompactContext(
         providerID: APIProviderID,
-        actions: [ToolAction]
+        actions: [ToolAction],
+        modelOverrides: AgentModelRoleOverrides = .empty
     ) async throws -> Bool {
         let runProfile = currentAgentRunProfile()
         let baseSystemPrompt = makeBaseSystemPrompt(
@@ -216,6 +237,7 @@ final class AgentLoop {
             let compaction = try await contextCompactor.forceCompact(
                 session: session,
                 providerID: providerID,
+                modelOverrides: modelOverrides,
                 baseSystemPrompt: baseSystemPrompt,
                 skills: activeSkills,
                 configuration: runProfile.contextCompaction
@@ -239,7 +261,8 @@ final class AgentLoop {
     func compactContextIfNeeded(
         providerID: APIProviderID,
         actions: [ToolAction],
-        protectedRecentMessageCount: Int = 0
+        protectedRecentMessageCount: Int = 0,
+        modelOverrides: AgentModelRoleOverrides = .empty
     ) async throws -> Bool {
         let runProfile = currentAgentRunProfile()
         let baseSystemPrompt = makeBaseSystemPrompt(
@@ -251,6 +274,7 @@ final class AgentLoop {
         let activeSkills = skillRegistry.enabledSkills(for: activeProjectID)
         return await maybeCompactContext(
             providerID: providerID,
+            modelOverrides: modelOverrides,
             baseSystemPrompt: baseSystemPrompt,
             skills: activeSkills,
             protectedRecentMessageCount: protectedRecentMessageCount,
@@ -269,13 +293,42 @@ final class AgentLoop {
     func runTurn(
         userInput: String,
         providerID: APIProviderID,
-        actions: [ToolAction]
+        actions: [ToolAction],
+        mode: AgentComposerMode = .standard,
+        imagePaths: [String] = [],
+        modelOverrides: AgentModelRoleOverrides = .empty
     ) async throws -> AgentTurnResult {
         let trimmedInput = userInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedInput.isEmpty else {
             throw AppError.invalidState("请输入要让模型执行的自然语言指令。")
         }
+        // 置位本轮模式注入态；无论正常返回还是抛错，结束时（defer）都清回标准态。
+        activeTurnMode = mode
+        activeTurnModeQuery = trimmedInput
+        activeTurnDeepResearchFolder = (mode == .deepResearch) ? Self.makeDeepResearchFolderPath() : ""
+        defer {
+            activeTurnMode = .standard
+            activeTurnModeQuery = ""
+            activeTurnDeepResearchFolder = ""
+            activeTurnImageDataURLs = []
+            activeTurnInlineImagePaths = []
+            activeTurnHasImageAttachments = false
+            activeTurnMultimodalScannerAvailable = false
+        }
         let runProfile = currentAgentRunProfile()
+        activeTurnHasImageAttachments = !imagePaths.isEmpty
+        activeTurnMultimodalScannerAvailable = multimodalScannerAvailable(modelOverrides: modelOverrides)
+        // 仅当主模型本身支持视觉时，才把图片附件降采样转 JPEG 内联进来；同轮 OCR 会在执行层被跳过，避免模型绕回 OCR 路线。
+        // 多模态模型槽位只属于 scanImageWithMultimodalModel 工具，不能替代主模型驱动本轮对话。
+        let inlineImages = await loadInlineImagesIfVisionSupported(
+            imagePaths,
+            providerID: providerID,
+            runProfile: runProfile,
+            modelOverrides: modelOverrides
+        )
+        activeTurnImageDataURLs = inlineImages.map { $0.dataURL }
+        activeTurnInlineImagePaths = Set(inlineImages.map { $0.path })
+        let turnRequestRole: APIModelRole = .reasoningModel
         let toolRouter = ToolRouter(
             phaseThoughtToolName: Self.phaseThoughtToolName,
             taskStateToolName: TaskStateToolDefinitionFactory.toolName
@@ -308,10 +361,11 @@ final class AgentLoop {
                     break
                 }
             }
-            session.append(.user(text: trimmedInput))
+            let sessionUserInput = inputWithInlineImageRecord(trimmedInput)
+            session.append(.user(text: sessionUserInput))
             appendEventLog(.turnStarted, summary: "开始新一轮任务")
             let turnContext = AgentTurnContext(
-                userInput: trimmedInput,
+                userInput: sessionUserInput,
                 providerID: providerID,
                 actions: actions,
                 runProfile: runProfile,
@@ -350,6 +404,7 @@ final class AgentLoop {
                 let activeSkills = skillRegistry.enabledSkills(for: activeProjectID)
                 _ = await maybeCompactContext(
                     providerID: providerID,
+                    modelOverrides: modelOverrides,
                     baseSystemPrompt: baseSystemPrompt,
                     skills: activeSkills,
                     protectedRecentMessageCount: session.messages.count - turnContext.turnStartMessageIndex,
@@ -372,15 +427,23 @@ final class AgentLoop {
                 do {
                     iterations += 1
                     appendEventLog(.modelRequest, summary: "请求模型第 \(iterations) 次")
-                    response = try await modelRuntime.complete(
-                        AgentModelRequest(
+                    // 主循环改用流式：reasoning 逐字经 onReasoningDelta 实时上屏；正文仍由响应整体处理
+                    //（onDelta 留空），响应结构与 complete 完全一致，循环逻辑不变。
+                    response = try await modelRuntime.stream(
+                        AgentModelStreamingRequest(
                             selection: AgentModelSelection(
                                 providerID: providerID,
-                                reasoning: runProfile.modelReasoningRequest
+                                modelRole: turnRequestRole,
+                                reasoning: runProfile.modelReasoningRequest,
+                                configurationOverride: modelOverrides.override(for: turnRequestRole)
                             ),
-                            apiMessages: assembledContext.apiMessages,
+                            apiMessages: attachingTurnImagesIfNeeded(to: assembledContext.apiMessages),
                             tools: toolDefinitions,
-                            toolIntent: .auto
+                            toolIntent: .auto,
+                            onDelta: { _ in },
+                            onReasoningDelta: { [weak self] text in
+                                self?.emit(.reasoningDelta(text: text))
+                            }
                         )
                     )
                 } catch {
@@ -417,7 +480,6 @@ final class AgentLoop {
                     continue
                 }
 
-                let displayableReasoningMessage = response.message
                 let assistantText = LLMGuardrails.sanitizeUserFacingReply(
                     response.message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
                 )
@@ -427,8 +489,6 @@ final class AgentLoop {
                     if consumePendingInterruptions() {
                         continue
                     }
-
-                    emitNativeReasoningCardIfPresent(from: displayableReasoningMessage)
 
                     if executedSteps.isEmpty {
                         emit(.tokenUpdate(totalTokens: outputTokens))
@@ -454,8 +514,6 @@ final class AgentLoop {
                         iterations: iterations
                     )
                 }
-
-                emitNativeReasoningCardIfPresent(from: displayableReasoningMessage)
 
                 if let progressNote = toolBatchProgressNote(assistantText: assistantText) {
                     taskStateRuntime.recordNonTaskProgress()
@@ -499,6 +557,13 @@ final class AgentLoop {
                                 continue
                             }
 
+                            if appendInlineImageOCRSuppressionResultIfNeeded(
+                                for: toolUse,
+                                prepared: routedPrepared
+                            ) {
+                                continue
+                            }
+
                             let prepared: AgentPreparedToolExecution
                             switch toolExecutor.prepare(toolUse, actions: [routedPrepared.action]) {
                             case .failure(let errorOutput):
@@ -535,7 +600,10 @@ final class AgentLoop {
                             )
                         }
 
-                        let completedParallelCalls = await executeParallelReadOnlyCalls(parallelCalls)
+                        let completedParallelCalls = await executeParallelReadOnlyCalls(
+                            parallelCalls,
+                            modelOverrides: modelOverrides
+                        )
                         for completed in completedParallelCalls {
                             let fileDeltas = attachToolUseID(
                                 completed.execution.step.fileDeltas,
@@ -547,6 +615,7 @@ final class AgentLoop {
                                 argumentsJSON: completed.execution.step.argumentsJSON,
                                 result: completed.execution.step.result,
                                 requiresUserInteraction: completed.execution.step.requiresUserInteraction,
+                                presentation: completed.execution.step.presentation,
                                 fileDeltas: fileDeltas
                             )
                             executedSteps.append(executionStep)
@@ -587,6 +656,7 @@ final class AgentLoop {
                                     isError: executionStep.result.status == .failure
                                 ),
                                 providerID: providerID,
+                                modelOverrides: modelOverrides,
                                 userGoal: trimmedInput
                             ) {
                                 session.hiddenArtifacts = hiddenArtifacts
@@ -668,6 +738,13 @@ final class AgentLoop {
                             continue
                         }
 
+                        if appendInlineImageOCRSuppressionResultIfNeeded(
+                            for: toolUse,
+                            prepared: routedPrepared
+                        ) {
+                            continue
+                        }
+
                         let prepared: AgentPreparedToolExecution
                         switch toolExecutor.prepare(toolUse, actions: [routedPrepared.action]) {
                         case .failure(let errorOutput):
@@ -690,6 +767,7 @@ final class AgentLoop {
                                 prepared: prepared,
                                 policy: policy,
                                 providerID: providerID,
+                                modelOverrides: modelOverrides,
                                 userGoal: trimmedInput
                             )
                             if !approved {
@@ -736,7 +814,11 @@ final class AgentLoop {
                         )
                         emit(.toolStarted(stepID: stepID, action: prepared.action, argumentsJSON: prepared.argumentsJSON))
 
-                        let execution = await toolExecutor.execute(prepared, stepID: stepID)
+                        let execution = await toolExecutor.execute(
+                            prepared,
+                            stepID: stepID,
+                            modelOverrides: modelOverrides
+                        )
                         let fileDeltas = attachToolUseID(
                             execution.step.fileDeltas,
                             toolUseID: toolUse.id
@@ -747,6 +829,7 @@ final class AgentLoop {
                             argumentsJSON: execution.step.argumentsJSON,
                             result: execution.step.result,
                             requiresUserInteraction: execution.step.requiresUserInteraction,
+                            presentation: execution.step.presentation,
                             fileDeltas: fileDeltas
                         )
                         executedSteps.append(executionStep)
@@ -788,6 +871,7 @@ final class AgentLoop {
                                 isError: executionStep.result.status == .failure
                             ),
                             providerID: providerID,
+                            modelOverrides: modelOverrides,
                             userGoal: trimmedInput
                         ) {
                             session.hiddenArtifacts = hiddenArtifacts
@@ -829,6 +913,7 @@ final class AgentLoop {
                     let activeSkills = skillRegistry.enabledSkills(for: activeProjectID)
                     _ = await maybeCompactContext(
                             providerID: providerID,
+                            modelOverrides: modelOverrides,
                             baseSystemPrompt: baseSystemPrompt,
                             skills: activeSkills,
                             protectedRecentMessageCount: session.messages.count - turnContext.turnStartMessageIndex,
@@ -850,9 +935,11 @@ final class AgentLoop {
                             AgentModelStreamingRequest(
                                 selection: AgentModelSelection(
                                     providerID: providerID,
-                                    reasoning: runProfile.modelReasoningRequest
+                                    modelRole: turnRequestRole,
+                                    reasoning: runProfile.modelReasoningRequest,
+                                    configurationOverride: modelOverrides.override(for: turnRequestRole)
                                 ),
-                                apiMessages: assembledContext.apiMessages,
+                                apiMessages: attachingTurnImagesIfNeeded(to: assembledContext.apiMessages),
                                 onDelta: { text in
                                     self.emit(.streamingDelta(text: text))
                                 },
@@ -968,14 +1055,19 @@ final class AgentLoop {
     }
 
     private func executeParallelReadOnlyCalls(
-        _ calls: [AgentParallelToolCall]
+        _ calls: [AgentParallelToolCall],
+        modelOverrides: AgentModelRoleOverrides
     ) async -> [AgentParallelToolCompletion] {
         guard !calls.isEmpty else { return [] }
 
         return await withTaskGroup(of: AgentParallelToolCompletion.self) { group in
             for call in calls {
                 group.addTask { @MainActor in
-                    let execution = await self.toolExecutor.execute(call.prepared, stepID: call.stepID)
+                    let execution = await self.toolExecutor.execute(
+                        call.prepared,
+                        stepID: call.stepID,
+                        modelOverrides: modelOverrides
+                    )
                     return AgentParallelToolCompletion(call: call, execution: execution)
                 }
             }
@@ -993,6 +1085,7 @@ final class AgentLoop {
         prepared: AgentPreparedToolExecution,
         policy: ToolPolicyMetadata,
         providerID: APIProviderID,
+        modelOverrides: AgentModelRoleOverrides,
         userGoal: String
     ) async -> Bool {
         if policy.confirmationPolicy == .allow {
@@ -1037,6 +1130,7 @@ final class AgentLoop {
                 request: request,
                 policy: policy,
                 providerID: providerID,
+                modelOverrides: modelOverrides,
                 userGoal: userGoal
             ) {
             case .approved:
@@ -1120,6 +1214,7 @@ final class AgentLoop {
         request: AgentApprovalRequest,
         policy: ToolPolicyMetadata,
         providerID: APIProviderID,
+        modelOverrides: AgentModelRoleOverrides,
         userGoal: String
     ) async -> ToolAutoReviewOutcome {
         let permissions = request.systemPermissions.map(\.title).joined(separator: "、")
@@ -1149,7 +1244,8 @@ final class AgentLoop {
                     selection: AgentModelSelection(
                         providerID: providerID,
                         modelRole: .lightweightModel,
-                        reasoning: .disabled
+                        reasoning: .disabled,
+                        configurationOverride: modelOverrides.override(for: .lightweightModel)
                     ),
                     apiMessages: [
                         .system("你是工具调用审批器。只能返回严格 JSON，不解释，不展开推理。"),
@@ -1319,6 +1415,7 @@ final class AgentLoop {
     @discardableResult
     private func maybeCompactContext(
         providerID: APIProviderID,
+        modelOverrides: AgentModelRoleOverrides,
         baseSystemPrompt: String,
         skills: [SkillPackage],
         protectedRecentMessageCount: Int,
@@ -1338,6 +1435,7 @@ final class AgentLoop {
             let compaction = try await contextCompactor.maybeCompact(
                 session: session,
                 providerID: providerID,
+                modelOverrides: modelOverrides,
                 baseSystemPrompt: baseSystemPrompt,
                 skills: skills,
                 protectedRecentMessageCount: protectedRecentMessageCount,
@@ -1370,12 +1468,214 @@ final class AgentLoop {
         runProfile: AgentRunProfile,
         phaseThoughtEnabled: Bool
     ) -> String {
-        promptBuilder.build(
+        var prompt = promptBuilder.build(
             actions: actions,
             tier: runProfile.professionalTier,
             exposesTools: !actions.isEmpty,
             exposesPhaseThought: phaseThoughtEnabled
         )
+        if let modeLayer = composerModeInstructionLayer() {
+            prompt += "\n\n" + modeLayer
+        }
+        if let multimodalLayer = multimodalRoutingInstructionLayer(actions: actions) {
+            prompt += "\n\n" + multimodalLayer
+        }
+        return prompt
+    }
+
+    private func multimodalRoutingInstructionLayer(actions: [ToolAction]) -> String? {
+        guard activeTurnHasImageAttachments else { return nil }
+        let toolIDs = Set(actions.map(\.id))
+        let canUseOCR = toolIDs.contains(.recognizeImageText)
+        let canUseMultimodalScanner = toolIDs.contains(.scanImageWithMultimodalModel)
+
+        let decision = MultimodalImageRoutingDecision.resolve(
+            hasImageAttachments: activeTurnHasImageAttachments,
+            primaryHasInlineImage: !activeTurnImageDataURLs.isEmpty,
+            multimodalScannerAvailable: activeTurnMultimodalScannerAvailable,
+            canUseMultimodalScanner: canUseMultimodalScanner,
+            canUseOCR: canUseOCR
+        )
+
+        switch decision {
+        case .primaryInlineImage:
+            return "【本轮图片路由】用户上传的图片已经作为真实图像输入发送给主模型。除非用户明确要求提取图片文字，否则不要调用图片扫描工具。"
+        case .multimodalScannerTool:
+            return "【本轮图片路由】主模型当前没有内联图像输入；如果用户需要理解图片内容，优先调用 `scanImageWithMultimodalModel`。如果该工具失败，或任务只需要图片文字，再调用 `recognizeImageText` 做 OCR 兜底。"
+        case .ocrFallback:
+            return "【本轮图片路由】主模型当前没有内联图像输入，且当前会话没有可用的多模态模型扫描后端；不要调用 `scanImageWithMultimodalModel`，请直接调用 `recognizeImageText` 对附件图片做 OCR 兜底，再基于可读文字回答。"
+        case .unavailable:
+            return "【本轮图片路由】主模型当前没有内联图像输入，也没有可用的图片扫描工具；不要臆测图片内容，直接说明当前无法读取附件图片。"
+        case nil:
+            return nil
+        }
+    }
+
+    // 目标 / 深度研究模式注入层：纯提示词，随每轮迭代拼进系统提示。standard 时返回 nil。
+    private func composerModeInstructionLayer() -> String? {
+        switch activeTurnMode {
+        case .standard:
+            return nil
+        case .goal:
+            let goal = activeTurnModeQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+            return "【目标模式】请仔细思考，在绝对保证全部完成目标之前，不要停止思考或急于总结，"
+                + "每当你认为需要停止思考或无须调用工具的时候，你必须至少再调用一次阶段思考的工具。"
+                + "我们的目标是：\(goal)"
+        case .deepResearch:
+            return Self.deepResearchInstruction(
+                query: activeTurnModeQuery.trimmingCharacters(in: .whitespacesAndNewlines),
+                folder: activeTurnDeepResearchFolder
+            )
+        }
+    }
+
+    private static func makeDeepResearchFolderPath() -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return "深度研究/研究-\(formatter.string(from: Date()))"
+    }
+
+    private static func deepResearchInstruction(query: String, folder: String) -> String {
+        """
+        【深度研究模式】本轮启用深度研究，请严格遵守以下流程：
+        1. 工作目录：先在「项目根目录」下创建（若不存在）名为「深度研究」的文件夹，再在其中创建本轮专属子文件夹「\(folder)」。本轮所有中间笔记、网页摘录、来源清单与最终报告都保存在该子文件夹内。
+        2. 检索强度：你非常倾向于调用网页搜索和网页浏览的工具，且你至少必须成功搜索 100 个网页，以及至少成功浏览 20 个网页、至多成功浏览 100 个网页，才可以考虑总结；否则你总是倾向于不停地搜索更多信息。
+        3. 过程留痕：每完成一批检索/浏览，就把关键信息、来源链接与访问日期追加写入子文件夹内的笔记文件（如「笔记.md」），避免信息丢失。
+        4. 最终报告：达到上述检索量后，用 Markdown 格式输出研究报告，并把同一份报告写入「\(folder)/报告.md」。报告须包含：一级标题、摘要、目录、按主题分节的详细论述（每个关键结论后用方括号标注来源编号，如 [12]）、结论与展望、参考资料清单（编号 + 标题 + 链接 + 访问日期）。
+        本轮研究主题是：\(query)
+        """
+    }
+
+    // MARK: - 内联图片（多模态）
+
+    private func inputWithInlineImageRecord(_ input: String) -> String {
+        guard !activeTurnImageDataURLs.isEmpty else { return input }
+        let record = "【视觉输入记录】本轮有 \(activeTurnImageDataURLs.count) 张用户上传图片已作为真实图像输入发送给支持视觉的主模型；后续即使切换到非视觉模型，也应把紧随其后的图像分析视为基于真实图片的历史结论，而不是臆测。附件路径见本消息的“附件：”块。"
+        return "\(input)\n\n\(record)"
+    }
+
+    private func appendInlineImageOCRSuppressionResultIfNeeded(
+        for toolUse: AgentToolUse,
+        prepared: AgentPreparedToolExecution
+    ) -> Bool {
+        guard shouldSuppressOCRForInlineImage(prepared) else {
+            return false
+        }
+
+        let payload = suppressedInlineImageOCRPayload(
+            action: prepared.action,
+            argumentsJSON: prepared.argumentsJSON
+        )
+        session.append(
+            .toolResult(
+                toolUseID: toolUse.id,
+                toolName: prepared.action.id.rawValue,
+                output: payload,
+                isError: false
+            )
+        )
+        appendEventLog(
+            .toolFinished,
+            summary: "已跳过 OCR：本轮图片已内联给模型",
+            payloadJSON: prepared.argumentsJSON
+        )
+        return true
+    }
+
+    private func shouldSuppressOCRForInlineImage(_ prepared: AgentPreparedToolExecution) -> Bool {
+        guard prepared.action.id == .recognizeImageText,
+              !activeTurnInlineImagePaths.isEmpty,
+              let requestedPath = normalizedRelativePath(prepared.arguments.string("path")) else {
+            return false
+        }
+        return activeTurnInlineImagePaths.contains(requestedPath)
+    }
+
+    private func suppressedInlineImageOCRPayload(
+        action: ToolAction,
+        argumentsJSON: String
+    ) -> String {
+        let summary = "已跳过 OCR"
+        let details = "本轮图片已经作为多模态图像输入提供给主模型。请直接基于可见图像回答；只有在没有可见图像输入且用户明确要求提取图片文字时，才应使用 OCR。"
+        let payload = AgentToolPayload(
+            toolName: action.id.rawValue,
+            title: action.title,
+            status: ToolResult.Status.warning.rawValue,
+            summary: summary,
+            details: details,
+            requiresUserInteraction: false,
+            shareURL: nil,
+            argumentsJSON: argumentsJSON,
+            fileDeltas: nil
+        )
+        guard let data = try? JSONEncoder().encode(payload),
+              let string = String(data: data, encoding: .utf8) else {
+            return """
+            {"tool_name":"\(action.id.rawValue)","title":"\(action.title)","status":"warning","summary":"\(summary)","details":"\(details)","requires_user_interaction":false,"arguments_json":\(String(reflecting: argumentsJSON)),"file_deltas":null}
+            """
+        }
+        return string
+    }
+
+    /// 仅当主模型支持视觉时，加载图片附件、降采样转 JPEG 成 data URL；同轮 OCR 误调用会在执行层被跳过。
+    private func loadInlineImagesIfVisionSupported(
+        _ paths: [String],
+        providerID: APIProviderID,
+        runProfile: AgentRunProfile,
+        modelOverrides: AgentModelRoleOverrides
+    ) async -> [(path: String, dataURL: String)] {
+        guard !paths.isEmpty else { return [] }
+        let selection = AgentModelSelection(
+            providerID: providerID,
+            modelRole: .reasoningModel,
+            reasoning: runProfile.modelReasoningRequest,
+            configurationOverride: modelOverrides.override(for: .reasoningModel)
+        )
+        guard let capabilities = try? await modelRuntime.capabilities(for: selection),
+              capabilities.supportsVision else {
+            return []
+        }
+        return paths.compactMap { path in
+            guard let normalizedPath = normalizedRelativePath(path),
+                  let dataURL = inlineImageDataURL(at: normalizedPath) else {
+                return nil
+            }
+            return (path: normalizedPath, dataURL: dataURL)
+        }
+    }
+
+    private func multimodalScannerAvailable(modelOverrides: AgentModelRoleOverrides) -> Bool {
+        guard case .resolved(let resolved) = modelOverrides.override(for: .multimodalModel) else {
+            return false
+        }
+        return resolved.capabilities.supportsVision
+    }
+
+    /// 给消息序列里「最后一条 user 消息」贴上当轮图片。每次迭代都贴，保证整轮里模型始终看得到原图；
+    /// 但因为不写回 session，本轮结束后图片自然消失，不会永久占用后续上下文。
+    private func attachingTurnImagesIfNeeded(to messages: [AgentModelMessage]) -> [AgentModelMessage] {
+        guard !activeTurnImageDataURLs.isEmpty,
+              let lastUserIndex = messages.lastIndex(where: { $0.role == "user" }) else {
+            return messages
+        }
+        var updated = messages
+        updated[lastUserIndex].imageDataURLs = activeTurnImageDataURLs
+        return updated
+    }
+
+    /// 把工作区图片降采样到 ≤1536px、转 JPEG(q0.8)，编码成 data URL。
+    /// 转码保证跨端点兼容（很多 OpenAI 兼容端点不收 HEIC），降采样顺带压低图片 token 成本。
+    private func inlineImageDataURL(at relativePath: String) -> String? {
+        guard let url = try? workspaceManager.url(for: relativePath) else { return nil }
+        return MultimodalInlineImageEncoder.dataURL(at: url)
+    }
+
+    private func normalizedRelativePath(_ path: String?) -> String? {
+        let normalized = path?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/")) ?? ""
+        return normalized.isEmpty ? nil : normalized
     }
 
     private var isExternalReasoningEnabled: Bool {

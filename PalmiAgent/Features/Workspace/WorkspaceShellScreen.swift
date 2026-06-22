@@ -71,7 +71,7 @@ struct WorkspaceShellScreen: View {
                 onDismiss: { isShowingModePicker = false }
             )
         }
-        .task(id: workspaceStore.selectedThreadID) {
+        .task(id: workspaceStore.selectedSelection) {
             chatStore.loadMessagesForActiveThread()
         }
         .task(id: workspaceStore.selectedProjectID) {
@@ -94,6 +94,7 @@ struct WorkspaceShellScreen: View {
             WorkspaceSidebar(
                 store: workspaceStore,
                 onSelectThread: {},
+                chatStore: chatStore,
                 onOpenSettings: { isShowingSettings = true },
                 shellMode: .professional,
                 onOpenModeSwitcher: { isShowingModePicker = true }
@@ -119,6 +120,7 @@ struct WorkspaceShellScreen: View {
         NavigationStack(path: $chatModePath) {
             ChatHistoryHomeScreen(
                 store: workspaceStore,
+                chatStore: chatStore,
                 onOpenConversation: { project in
                     workspaceStore.selectChatConversation(project)
                     chatModePath = [.conversation(project.id)]
@@ -134,7 +136,7 @@ struct WorkspaceShellScreen: View {
                         workspaceStore: workspaceStore,
                         skillRegistry: skillRegistry,
                         onOpenSkills: nil,
-                        onShowWorkspace: nil,
+                        onShowWorkspace: { chatModePath = [] },
                         onShowFiles: nil,
                         shellMode: .chat,
                         onOpenModeSwitcher: { isShowingModePicker = true }
@@ -150,6 +152,7 @@ struct WorkspaceShellScreen: View {
             WorkspaceSidebar(
                 store: workspaceStore,
                 onSelectThread: { compactPath = [.chat] },
+                chatStore: chatStore,
                 onOpenSettings: { isShowingSettings = true },
                 shellMode: .professional,
                 onOpenModeSwitcher: { isShowingModePicker = true }
@@ -162,7 +165,7 @@ struct WorkspaceShellScreen: View {
                         workspaceStore: workspaceStore,
                         skillRegistry: skillRegistry,
                         onOpenSkills: { isShowingProjectSkills = true },
-                        onShowWorkspace: nil,
+                        onShowWorkspace: { compactPath = [] },
                         onShowFiles: { isShowingWorkspaceBrowser = true },
                         shellMode: .professional,
                         onOpenModeSwitcher: { isShowingModePicker = true }
@@ -190,6 +193,7 @@ private struct WorkspaceSidebar: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Bindable var store: WorkspaceStore
     let onSelectThread: () -> Void
+    @Bindable var chatStore: ChatStore
     let onOpenSettings: () -> Void
     let shellMode: AppShellMode
     let onOpenModeSwitcher: (() -> Void)?
@@ -227,6 +231,11 @@ private struct WorkspaceSidebar: View {
                             onCreateThread: { presentThreadCreation(for: project) },
                             onRenameProject: { presentedNameEditor = .renameProject(project) },
                             onDeleteProject: { pendingDeletion = .project(project) },
+                            runningBadgeText: { thread in
+                                chatStore.runningBadgeText(
+                                    for: WorkspaceSelection(projectID: project.id, threadID: thread.id)
+                                )
+                            },
                             onSelectThread: { thread in
                                 store.selectThread(thread)
                                 onSelectThread()
@@ -499,6 +508,7 @@ private struct WorkspaceProjectRow: View {
     let onCreateThread: () -> Void
     let onRenameProject: () -> Void
     let onDeleteProject: () -> Void
+    let runningBadgeText: (WorkspaceThreadRecord) -> String?
     let onSelectThread: (WorkspaceThreadRecord) -> Void
     let onRenameThread: (WorkspaceThreadRecord) -> Void
     let onDeleteThread: (WorkspaceThreadRecord) -> Void
@@ -559,6 +569,7 @@ private struct WorkspaceProjectRow: View {
                         WorkspaceThreadRow(
                             thread: thread,
                             isSelected: selectedThreadID == thread.id,
+                            runningBadgeText: runningBadgeText(thread),
                             onSelect: { onSelectThread(thread) },
                             onRename: { onRenameThread(thread) },
                             onDelete: { onDeleteThread(thread) }
@@ -576,6 +587,7 @@ private struct WorkspaceProjectRow: View {
 private struct WorkspaceThreadRow: View {
     let thread: WorkspaceThreadRecord
     let isSelected: Bool
+    let runningBadgeText: String?
     let onSelect: () -> Void
     let onRename: () -> Void
     let onDelete: () -> Void
@@ -592,6 +604,15 @@ private struct WorkspaceThreadRow: View {
                     Text(thread.updatedAt.formatted(date: .abbreviated, time: .shortened))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+
+                    if let runningBadgeText {
+                        Label(runningBadgeText, systemImage: "sparkles")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.blue)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(.blue.opacity(0.10), in: Capsule())
+                    }
                 }
 
                 Spacer()
@@ -1512,13 +1533,1896 @@ private struct PersonalizationSettingsScreen: View {
 
 private struct ModelConfigurationManagerScreen: View {
     @Bindable var store: ManualLabStore
-    @State private var presentedSheet: ModelConfigurationSheetRoute?
+    @State private var presentedPlan: ModelPlanPresentation?
+    @State private var pendingDeletion: ModelPlanSnapshot?
+    @State private var renamingPlanID: UUID?
+    @State private var renameDraft = ""
+    @State private var errorMessage: String?
+
+    private var planStore: ModelPlanStore {
+        store.modelPlanStore
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 12) {
+                if planStore.plans.isEmpty {
+                    emptyState
+                } else {
+                    ForEach(planStore.plans) { plan in
+                        planRow(plan)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+        .navigationTitle("大模型管理")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    let planID = planStore.createPlan()
+                    presentedPlan = ModelPlanPresentation(planID: planID)
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("新增方案")
+            }
+        }
+        .sheet(item: $presentedPlan) { presentation in
+            NavigationStack {
+                ModelPlanEditorScreen(
+                    planStore: planStore,
+                    validationService: store.modelCandidateValidationService,
+                    planID: presentation.planID
+                )
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("关闭") {
+                            presentedPlan = nil
+                        }
+                    }
+                }
+            }
+        }
+        .confirmationDialog(
+            "删除方案",
+            isPresented: pendingDeletionBinding,
+            presenting: pendingDeletion
+        ) { plan in
+            Button("删除方案", role: .destructive) {
+                planStore.deletePlan(plan.id)
+                if presentedPlan?.planID == plan.id {
+                    presentedPlan = nil
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: { plan in
+            Text(plan.name)
+        }
+        .alert("重命名方案", isPresented: renamingPlanBinding) {
+            TextField("方案名称", text: $renameDraft)
+
+            Button("保存") {
+                saveRenamedPlan()
+            }
+
+            Button("取消", role: .cancel) {
+                renamingPlanID = nil
+                renameDraft = ""
+            }
+        }
+        .alert("无法启用方案", isPresented: errorBinding) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
+    }
+
+    private var emptyState: some View {
+        Button {
+            let planID = planStore.createPlan()
+            presentedPlan = ModelPlanPresentation(planID: planID)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(.blue)
+
+                Text("新增模型方案")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.primary)
+
+                Spacer()
+            }
+            .padding(18)
+            .glassEffect(.regular.tint(.white.opacity(0.08)), in: .rect(cornerRadius: 24))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func planRow(_ plan: ModelPlanSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                Text(plan.name)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button {
+                    activate(plan)
+                } label: {
+                    Text(plan.isActive ? "使用中" : "启用")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(plan.isActive ? Color.blue : Color.primary)
+                        .padding(.horizontal, 12)
+                        .frame(height: 34)
+                        .background(
+                            Capsule()
+                                .fill(plan.isActive ? Color.blue.opacity(0.12) : Color.secondary.opacity(0.12))
+                        )
+                        .overlay(
+                            Capsule()
+                                .stroke(plan.isActive ? Color.blue.opacity(0.35) : Color.secondary.opacity(0.22), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(plan.isActive ? "当前方案" : "启用方案")
+                .disabled(plan.isActive)
+
+                Menu {
+                    Button {
+                        beginRenaming(plan)
+                    } label: {
+                        Label("重命名方案", systemImage: "pencil")
+                    }
+
+                    Button {
+                        presentedPlan = ModelPlanPresentation(planID: plan.id)
+                    } label: {
+                        Label("配置方案", systemImage: "slider.horizontal.3")
+                    }
+
+                    Button(role: .destructive) {
+                        pendingDeletion = plan
+                    } label: {
+                        Label("删除方案", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.title2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                planSlotMenu(.primary, plan: plan, emptyValue: "未选择")
+                planSlotMenu(.multimodal, plan: plan, emptyValue: "无")
+                planSlotMenu(.lightweight, plan: plan, emptyValue: "无")
+            }
+        }
+        .padding(18)
+        .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .onTapGesture {
+            presentedPlan = ModelPlanPresentation(planID: plan.id)
+        }
+        .glassEffect(.regular.tint(.white.opacity(0.08)), in: .rect(cornerRadius: 24))
+    }
+
+    private func planSlotMenu(
+        _ slot: ModelPlanSlot,
+        plan: ModelPlanSnapshot,
+        emptyValue: String
+    ) -> some View {
+        let candidates = plan.candidates(for: slot)
+        let selected = plan.selectedCandidate(for: slot)
+
+        return HStack(spacing: 8) {
+            Text(slot.title)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 64, alignment: .leading)
+
+            Spacer(minLength: 8)
+
+            Menu {
+                if candidates.isEmpty {
+                    if slot.isRequired {
+                        Text("无候选")
+                            .disabled(true)
+                    } else {
+                        Label("无", systemImage: "checkmark")
+                            .disabled(true)
+                    }
+                } else {
+                    ForEach(candidates) { candidate in
+                        Button {
+                            select(candidate, planID: plan.id, slot: slot)
+                        } label: {
+                            if selected?.id == candidate.id {
+                                Label(candidate.title, systemImage: "checkmark")
+                            } else {
+                                Text(candidate.title)
+                            }
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 7) {
+                    Text(selected?.title ?? emptyValue)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(selected == nil ? .secondary : .primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(candidates.isEmpty && slot.isRequired ? Color.secondary : Color.blue)
+                }
+                .frame(minHeight: 32)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func activate(_ plan: ModelPlanSnapshot) {
+        guard !plan.isActive else { return }
+        do {
+            try planStore.activatePlan(plan.id)
+        } catch {
+            errorMessage = modelConfigurationErrorMessage(error)
+        }
+    }
+
+    private func select(_ candidate: ModelCandidateSnapshot, planID: UUID, slot: ModelPlanSlot) {
+        do {
+            try planStore.selectCandidate(candidate.id, planID: planID, slot: slot)
+        } catch {
+            errorMessage = modelConfigurationErrorMessage(error)
+        }
+    }
+
+    private func beginRenaming(_ plan: ModelPlanSnapshot) {
+        renamingPlanID = plan.id
+        renameDraft = plan.name
+    }
+
+    private func saveRenamedPlan() {
+        guard let renamingPlanID else { return }
+        planStore.setPlanName(renameDraft, planID: renamingPlanID)
+        self.renamingPlanID = nil
+        renameDraft = ""
+    }
+
+    private var pendingDeletionBinding: Binding<Bool> {
+        Binding(
+            get: { pendingDeletion != nil },
+            set: { isPresented in
+                if !isPresented {
+                    pendingDeletion = nil
+                }
+            }
+        )
+    }
+
+    private var renamingPlanBinding: Binding<Bool> {
+        Binding(
+            get: { renamingPlanID != nil },
+            set: { isPresented in
+                if !isPresented {
+                    renamingPlanID = nil
+                    renameDraft = ""
+                }
+            }
+        )
+    }
+
+    private var errorBinding: Binding<Bool> {
+        Binding(
+            get: { errorMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    errorMessage = nil
+                }
+            }
+        )
+    }
+}
+
+private struct ModelPlanEditorScreen: View {
+    @Bindable var planStore: ModelPlanStore
+    let validationService: ModelCandidateValidationService
+    let planID: UUID
+    @State private var errorMessage: String?
+    @FocusState private var isEditingName: Bool
+
+    private var plan: ModelPlanSnapshot? {
+        planStore.plan(id: planID)
+    }
+
+    var body: some View {
+        Group {
+            if let plan {
+                GeometryReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 14) {
+                            planNameCard
+
+                            ForEach(ModelPlanSlot.allCases) { slot in
+                                slotCard(slot, plan: plan)
+                            }
+
+                            Spacer(minLength: 20)
+
+                            modelLibraryCard(plan)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 16)
+                        .frame(
+                            maxWidth: .infinity,
+                            minHeight: proxy.size.height,
+                            alignment: .top
+                        )
+                    }
+                    .scrollDismissesKeyboard(.interactively)
+                }
+                .background(Color(uiColor: .systemGroupedBackground))
+            } else {
+                Color(uiColor: .systemGroupedBackground)
+            }
+        }
+        .navigationTitle(plan?.name ?? "模型方案")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert("配置失败", isPresented: errorBinding) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
+    }
+
+    private var planNameCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("方案名称")
+                .font(.headline)
+
+            TextField("方案名称", text: planNameBinding)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+                .focused($isEditingName)
+                .onSubmit {
+                    isEditingName = false
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .padding(18)
+        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 24))
+    }
+
+    private func slotCard(_ slot: ModelPlanSlot, plan: ModelPlanSnapshot) -> some View {
+        let candidates = plan.candidates(for: slot)
+        let selected = plan.selectedCandidate(for: slot)
+        let selectedTitle = selected?.title ?? (slot.isRequired ? "未选择" : "无")
+
+        return HStack(spacing: 12) {
+            Text(slot.title)
+                .font(.headline)
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Menu {
+                if candidates.isEmpty {
+                    if slot.isRequired {
+                        Text("无候选")
+                            .disabled(true)
+                    } else {
+                        Label("无", systemImage: "checkmark")
+                            .disabled(true)
+                    }
+                } else {
+                    ForEach(candidates) { candidate in
+                        Button {
+                            select(candidate, slot: slot)
+                        } label: {
+                            if candidate.id == selected?.id {
+                                Label(candidate.title, systemImage: "checkmark")
+                            } else {
+                                Text(candidate.title)
+                            }
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 7) {
+                    Text(selectedTitle)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(candidates.isEmpty ? Color.secondary : Color.blue)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(candidates.isEmpty ? Color.secondary : Color.blue)
+                }
+                .frame(minHeight: 32)
+                .frame(maxWidth: 176, alignment: .trailing)
+            }
+            .buttonStyle(.plain)
+            .disabled(candidates.isEmpty && slot.isRequired)
+
+            NavigationLink {
+                ModelSlotCandidateListScreen(
+                    planStore: planStore,
+                    validationService: validationService,
+                    planID: planID,
+                    slot: slot
+                )
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(18)
+        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 24))
+    }
+
+    private func modelLibraryCard(_ plan: ModelPlanSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("模型库")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+
+                    Text("\(plan.candidates.count) 个已保存模型")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                NavigationLink {
+                    ModelLibraryScreen(
+                        planStore: planStore,
+                        validationService: validationService,
+                        planID: planID
+                    )
+                } label: {
+                    Label("管理", systemImage: "tray.full")
+                        .font(.subheadline.weight(.semibold))
+                        .labelStyle(.titleAndIcon)
+                        .foregroundStyle(.blue)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(.blue.opacity(0.12), in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemGroupedBackground).opacity(0.82))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.secondary.opacity(0.14), lineWidth: 1)
+        )
+    }
+
+    private var planNameBinding: Binding<String> {
+        Binding(
+            get: { planStore.plan(id: planID)?.name ?? "" },
+            set: { planStore.setPlanName($0, planID: planID) }
+        )
+    }
+
+    private func select(_ candidate: ModelCandidateSnapshot, slot: ModelPlanSlot) {
+        do {
+            try planStore.selectCandidate(candidate.id, planID: planID, slot: slot)
+        } catch {
+            errorMessage = modelConfigurationErrorMessage(error)
+        }
+    }
+
+    private var errorBinding: Binding<Bool> {
+        Binding(
+            get: { errorMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    errorMessage = nil
+                }
+            }
+        )
+    }
+}
+
+private struct ModelSlotCandidateListScreen: View {
+    @Bindable var planStore: ModelPlanStore
+    let validationService: ModelCandidateValidationService
+    let planID: UUID
+    let slot: ModelPlanSlot
+    @State private var pendingDeletion: ModelCandidateSnapshot?
+    @State private var editingCandidate: ModelCandidateSnapshot?
+    @State private var validatingCandidateIDs: Set<UUID> = []
+    @State private var errorMessage: String?
+
+    private var plan: ModelPlanSnapshot? {
+        planStore.plan(id: planID)
+    }
+
+    private var candidates: [ModelCandidateSnapshot] {
+        plan?.candidates(for: slot) ?? []
+    }
+
+    private var libraryCandidates: [ModelCandidateSnapshot] {
+        plan?.libraryCandidates(excluding: slot) ?? []
+    }
+
+    private var candidateRowItems: [ScopedCandidateRowItem] {
+        candidates.map { ScopedCandidateRowItem(scope: .candidate, slot: slot, candidate: $0) }
+    }
+
+    private var libraryRowItems: [ScopedCandidateRowItem] {
+        libraryCandidates.map { ScopedCandidateRowItem(scope: .library, slot: slot, candidate: $0) }
+    }
+
+    private struct ScopedCandidateRowItem: Identifiable {
+        enum Scope: String {
+            case candidate
+            case library
+        }
+
+        let scope: Scope
+        let slot: ModelPlanSlot
+        let candidate: ModelCandidateSnapshot
+
+        var id: String {
+            "\(slot.rawValue)-\(scope.rawValue)-\(candidate.id.uuidString)"
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 12) {
+                NavigationLink {
+                    ModelCandidateAddScreen(
+                        planStore: planStore,
+                        validationService: validationService,
+                        planID: planID,
+                        slot: slot
+                    )
+                } label: {
+                    addModelRow
+                }
+                .buttonStyle(.plain)
+
+                if candidates.isEmpty {
+                    emptyCandidateRow
+                } else {
+                    ForEach(candidateRowItems) { item in
+                        candidateRow(item.candidate)
+                    }
+                }
+
+                libraryDivider
+
+                if libraryCandidates.isEmpty {
+                    emptyLibraryRow
+                } else {
+                    ForEach(libraryRowItems) { item in
+                        libraryCandidateRow(item.candidate)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+        .navigationTitle(slot.listTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $editingCandidate) { candidate in
+            ModelCandidateEditorSheet(
+                planStore: planStore,
+                planID: planID,
+                candidate: candidate
+            )
+        }
+        .confirmationDialog(
+            "删除模型",
+            isPresented: pendingDeletionBinding,
+            presenting: pendingDeletion
+        ) { candidate in
+            Button("删除模型", role: .destructive) {
+                planStore.deleteCandidate(candidate.id, planID: planID)
+            }
+            Button("取消", role: .cancel) {}
+        } message: { candidate in
+            Text(candidate.title)
+        }
+        .alert("配置失败", isPresented: errorBinding) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
+    }
+
+    private var addModelRow: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "plus.circle.fill")
+                .font(.title3)
+                .foregroundStyle(.blue)
+
+            Text("添加模型")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.primary)
+
+            Spacer()
+        }
+        .padding(18)
+        .glassEffect(.regular.tint(.white.opacity(0.08)), in: .rect(cornerRadius: 24))
+    }
+
+    private var emptyCandidateRow: some View {
+        Text("还没有加入\(slot.title)候选")
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 16)
+            .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private var libraryDivider: some View {
+        HStack(spacing: 12) {
+            Rectangle()
+                .fill(Color.secondary.opacity(0.25))
+                .frame(height: 1)
+
+            Text("模型库")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            Rectangle()
+                .fill(Color.secondary.opacity(0.25))
+                .frame(height: 1)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var emptyLibraryRow: some View {
+        Text("模型库暂无可加入的模型")
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 16)
+            .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func candidateRow(_ candidate: ModelCandidateSnapshot) -> some View {
+        let isSelected = plan?.selectedCandidate(for: slot)?.id == candidate.id
+        let isSelectable = candidate.isConfigured(for: slot)
+
+        return HStack(alignment: .center, spacing: 12) {
+            Button {
+                select(candidate)
+            } label: {
+                HStack(alignment: .center, spacing: 12) {
+                    candidateText(candidate)
+
+                    Image(systemName: candidateSelectionIcon(isSelected: isSelected, isSelectable: isSelectable))
+                        .font(.title3)
+                        .foregroundStyle(isSelected ? .blue : .secondary.opacity(0.45))
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(!isSelectable)
+
+            candidateMenu(candidate, inSlot: true)
+        }
+        .padding(18)
+        .glassEffect(.regular.tint(.white.opacity(0.08)), in: .rect(cornerRadius: 24))
+    }
+
+    private func libraryCandidateRow(_ candidate: ModelCandidateSnapshot) -> some View {
+        let canAdd = candidate.isConfigured(for: slot)
+
+        return HStack(alignment: .center, spacing: 12) {
+            candidateText(candidate)
+
+            Button {
+                addToSlot(candidate)
+            } label: {
+                Image(systemName: canAdd ? "plus.circle.fill" : "minus.circle")
+                    .font(.title3)
+                    .foregroundStyle(canAdd ? .blue : .secondary.opacity(0.45))
+                    .frame(width: 34, height: 34)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canAdd)
+            .accessibilityLabel("加入\(slot.title)候选")
+
+            candidateMenu(candidate, inSlot: false)
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemGroupedBackground).opacity(0.82))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.secondary.opacity(0.14), lineWidth: 1)
+        )
+    }
+
+    private func candidateText(_ candidate: ModelCandidateSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(candidate.title)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+
+            Text(candidate.subtitle)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func candidateMenu(_ candidate: ModelCandidateSnapshot, inSlot: Bool) -> some View {
+        Menu {
+            Button {
+                editingCandidate = candidate
+            } label: {
+                Label("编辑模型", systemImage: "pencil")
+            }
+
+            if inSlot {
+                Button {
+                    removeFromSlot(candidate)
+                } label: {
+                    Label("移出\(slot.title)候选", systemImage: "minus.circle")
+                }
+            } else {
+                Button {
+                    addToSlot(candidate)
+                } label: {
+                    Label("加入\(slot.title)候选", systemImage: "plus.circle")
+                }
+                .disabled(!candidate.isConfigured(for: slot))
+            }
+
+            Divider()
+
+            Button(role: .destructive) {
+                pendingDeletion = candidate
+            } label: {
+                Label("删除模型", systemImage: "trash")
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 34, height: 34)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func candidateSelectionIcon(isSelected: Bool, isSelectable: Bool) -> String {
+        if isSelected {
+            return "checkmark.circle.fill"
+        }
+        return isSelectable ? "circle" : "minus.circle"
+    }
+
+    private func select(_ candidate: ModelCandidateSnapshot) {
+        do {
+            try planStore.selectCandidate(candidate.id, planID: planID, slot: slot)
+        } catch {
+            errorMessage = modelConfigurationErrorMessage(error)
+        }
+    }
+
+    private func addToSlot(_ candidate: ModelCandidateSnapshot) {
+        do {
+            try planStore.addCandidateToSlot(candidate.id, planID: planID, slot: slot)
+        } catch {
+            errorMessage = modelConfigurationErrorMessage(error)
+        }
+    }
+
+    private func addOrValidateAndAddToSlot(_ candidate: ModelCandidateSnapshot) {
+        addToSlot(candidate)
+    }
+
+    private func validateAndAddToSlot(_ candidate: ModelCandidateSnapshot) {
+        guard canValidateForSlot(candidate) else {
+            addToSlot(candidate)
+            return
+        }
+        validatingCandidateIDs.insert(candidate.id)
+        let draft = validationDraft(for: candidate, slot: slot)
+
+        Task {
+            defer {
+                validatingCandidateIDs.remove(candidate.id)
+            }
+            do {
+                let result = try await validationService.validate(draft)
+                try planStore.updateCandidateValidation(candidate.id, planID: planID, validation: result)
+                try planStore.addCandidateToSlot(candidate.id, planID: planID, slot: slot)
+            } catch {
+                errorMessage = modelConfigurationErrorMessage(error)
+            }
+        }
+    }
+
+    private func canValidateForSlot(_ candidate: ModelCandidateSnapshot) -> Bool {
+        slot.requiresVisionValidation &&
+        candidate.validationStatus == .valid &&
+        candidate.capabilities.supportsText &&
+        !candidate.capabilities.supportsVision
+    }
+
+    private func validationDraft(for candidate: ModelCandidateSnapshot, slot: ModelPlanSlot) -> ModelCandidateDraft {
+        ModelCandidateDraft(
+            slot: slot,
+            displayName: candidate.record.displayName,
+            preset: candidate.preset,
+            baseURLString: candidate.baseURLString,
+            apiKey: planStore.apiKey(for: planID, candidateID: candidate.id),
+            modelName: candidate.modelName
+        )
+    }
+
+    private func removeFromSlot(_ candidate: ModelCandidateSnapshot) {
+        do {
+            try planStore.removeCandidateFromSlot(candidate.id, planID: planID, slot: slot)
+        } catch {
+            errorMessage = modelConfigurationErrorMessage(error)
+        }
+    }
+
+    private var pendingDeletionBinding: Binding<Bool> {
+        Binding(
+            get: { pendingDeletion != nil },
+            set: { isPresented in
+                if !isPresented {
+                    pendingDeletion = nil
+                }
+            }
+        )
+    }
+
+    private var errorBinding: Binding<Bool> {
+        Binding(
+            get: { errorMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    errorMessage = nil
+                }
+            }
+        )
+    }
+}
+
+private struct ModelLibraryScreen: View {
+    @Bindable var planStore: ModelPlanStore
+    let validationService: ModelCandidateValidationService
+    let planID: UUID
+    @State private var pendingDeletion: ModelCandidateSnapshot?
+    @State private var editingCandidate: ModelCandidateSnapshot?
+    @State private var validatingCandidateIDs: Set<UUID> = []
+    @State private var errorMessage: String?
+
+    private var plan: ModelPlanSnapshot? {
+        planStore.plan(id: planID)
+    }
+
+    private var candidates: [ModelCandidateSnapshot] {
+        plan?.libraryCandidates() ?? []
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 12) {
+                ForEach(candidates) { candidate in
+                    libraryRow(candidate)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+        .navigationTitle("模型库")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    ModelCandidateAddScreen(
+                        planStore: planStore,
+                        validationService: validationService,
+                        planID: planID,
+                        slot: .primary,
+                        selectAfterSingleAdd: false,
+                        addToSlot: false,
+                        titleOverride: "添加模型"
+                    )
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("添加模型")
+            }
+        }
+        .sheet(item: $editingCandidate) { candidate in
+            ModelCandidateEditorSheet(
+                planStore: planStore,
+                planID: planID,
+                candidate: candidate
+            )
+        }
+        .confirmationDialog(
+            "删除模型",
+            isPresented: pendingDeletionBinding,
+            presenting: pendingDeletion
+        ) { candidate in
+            Button("删除模型", role: .destructive) {
+                planStore.deleteCandidate(candidate.id, planID: planID)
+            }
+            Button("取消", role: .cancel) {}
+        } message: { candidate in
+            Text(candidate.title)
+        }
+        .alert("配置失败", isPresented: errorBinding) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
+    }
+
+    private func libraryRow(_ candidate: ModelCandidateSnapshot) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(candidate.title)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+
+                Text(candidate.subtitle)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Menu {
+                Button {
+                    editingCandidate = candidate
+                } label: {
+                    Label("编辑模型", systemImage: "pencil")
+                }
+
+                Divider()
+
+                ForEach(ModelPlanSlot.allCases) { slot in
+                    Button {
+                        addToSlot(candidate, slot: slot)
+                    } label: {
+                        Label("加入\(slot.title)候选", systemImage: "plus.circle")
+                    }
+                    .disabled(!candidate.isConfigured(for: slot))
+                }
+
+                Divider()
+
+                Button(role: .destructive) {
+                    pendingDeletion = candidate
+                } label: {
+                    Label("删除模型", systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 34, height: 34)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemGroupedBackground).opacity(0.82))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.secondary.opacity(0.14), lineWidth: 1)
+        )
+    }
+
+    private func addToSlot(_ candidate: ModelCandidateSnapshot, slot: ModelPlanSlot) {
+        do {
+            try planStore.addCandidateToSlot(candidate.id, planID: planID, slot: slot)
+        } catch {
+            errorMessage = modelConfigurationErrorMessage(error)
+        }
+    }
+
+    private func addOrValidateAndAddToSlot(_ candidate: ModelCandidateSnapshot, slot: ModelPlanSlot) {
+        addToSlot(candidate, slot: slot)
+    }
+
+    private func validateAndAddToSlot(_ candidate: ModelCandidateSnapshot, slot: ModelPlanSlot) {
+        guard canValidate(candidate, for: slot) else {
+            addToSlot(candidate, slot: slot)
+            return
+        }
+        validatingCandidateIDs.insert(candidate.id)
+        let draft = ModelCandidateDraft(
+            slot: slot,
+            displayName: candidate.record.displayName,
+            preset: candidate.preset,
+            baseURLString: candidate.baseURLString,
+            apiKey: planStore.apiKey(for: planID, candidateID: candidate.id),
+            modelName: candidate.modelName
+        )
+
+        Task {
+            defer {
+                validatingCandidateIDs.remove(candidate.id)
+            }
+            do {
+                let result = try await validationService.validate(draft)
+                try planStore.updateCandidateValidation(candidate.id, planID: planID, validation: result)
+                try planStore.addCandidateToSlot(candidate.id, planID: planID, slot: slot)
+            } catch {
+                errorMessage = modelConfigurationErrorMessage(error)
+            }
+        }
+    }
+
+    private func canValidate(_ candidate: ModelCandidateSnapshot, for slot: ModelPlanSlot) -> Bool {
+        slot.requiresVisionValidation &&
+        candidate.validationStatus == .valid &&
+        candidate.capabilities.supportsText &&
+        !candidate.capabilities.supportsVision
+    }
+
+    private var pendingDeletionBinding: Binding<Bool> {
+        Binding(
+            get: { pendingDeletion != nil },
+            set: { isPresented in
+                if !isPresented {
+                    pendingDeletion = nil
+                }
+            }
+        )
+    }
+
+    private var errorBinding: Binding<Bool> {
+        Binding(
+            get: { errorMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    errorMessage = nil
+                }
+            }
+        )
+    }
+}
+
+private struct ModelCandidateEditorSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var planStore: ModelPlanStore
+    let planID: UUID
+    let candidateID: UUID
+    @State private var displayName: String
+    @State private var modelName: String
+    @State private var baseURLString: String
+    @State private var apiKey: String
+    @State private var errorMessage: String?
+    @FocusState private var focusedField: Field?
+
+    init(
+        planStore: ModelPlanStore,
+        planID: UUID,
+        candidate: ModelCandidateSnapshot
+    ) {
+        self.planStore = planStore
+        self.planID = planID
+        self.candidateID = candidate.id
+        _displayName = State(initialValue: candidate.record.displayName)
+        _modelName = State(initialValue: candidate.modelName)
+        _baseURLString = State(initialValue: candidate.baseURLString)
+        _apiKey = State(initialValue: planStore.apiKey(for: planID, candidateID: candidate.id))
+    }
+
+    private enum Field {
+        case displayName
+        case modelName
+        case baseURL
+        case apiKey
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    editorField(
+                        title: "显示名称",
+                        text: $displayName,
+                        field: .displayName,
+                        submit: .next
+                    ) {
+                        focusedField = .modelName
+                    }
+
+                    editorField(
+                        title: "请求模型名称",
+                        text: $modelName,
+                        field: .modelName,
+                        submit: .next
+                    ) {
+                        focusedField = .baseURL
+                    }
+
+                    editorField(
+                        title: "Base URL",
+                        text: $baseURLString,
+                        field: .baseURL,
+                        keyboardType: .URL,
+                        submit: .next
+                    ) {
+                        focusedField = .apiKey
+                    }
+
+                    editorField(
+                        title: "API Key",
+                        text: $apiKey,
+                        field: .apiKey,
+                        isSecure: true,
+                        submit: .done
+                    ) {
+                        focusedField = nil
+                        save()
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 16)
+            }
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle("编辑模型")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("取消") {
+                        dismiss()
+                    }
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("保存") {
+                        save()
+                    }
+                    .disabled(!canSave)
+                }
+            }
+            .alert("保存失败", isPresented: errorBinding) {
+                Button("知道了", role: .cancel) {}
+            } message: {
+                Text(errorMessage ?? "")
+            }
+        }
+    }
+
+    private func editorField(
+        title: String,
+        text: Binding<String>,
+        field: Field,
+        keyboardType: UIKeyboardType = .default,
+        isSecure: Bool = false,
+        submit: SubmitLabel,
+        onSubmit: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.headline)
+
+            Group {
+                if isSecure {
+                    SecureField(title, text: text)
+                } else {
+                    TextField(title, text: text)
+                        .keyboardType(keyboardType)
+                }
+            }
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .submitLabel(submit)
+            .focused($focusedField, equals: field)
+            .onSubmit(onSubmit)
+            .textFieldStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .padding(18)
+        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 24))
+    }
+
+    private var canSave: Bool {
+        !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !modelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !baseURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func save() {
+        guard canSave else { return }
+        do {
+            try planStore.updateCandidateConfiguration(
+                candidateID,
+                planID: planID,
+                displayName: displayName,
+                modelName: modelName,
+                baseURLString: baseURLString,
+                apiKey: apiKey
+            )
+            dismiss()
+        } catch {
+            errorMessage = modelConfigurationErrorMessage(error)
+        }
+    }
+
+    private var errorBinding: Binding<Bool> {
+        Binding(
+            get: { errorMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    errorMessage = nil
+                }
+            }
+        )
+    }
+}
+
+private struct ModelCandidateAddScreen: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var planStore: ModelPlanStore
+    let validationService: ModelCandidateValidationService
+    let planID: UUID
+    let slot: ModelPlanSlot
+    let selectAfterSingleAdd: Bool
+    let addToSlot: Bool
+    let titleOverride: String?
+    @State private var selectedPreset: ModelCandidateProviderPreset = .openAICompatible
+    @State private var baseURLString = ""
+    @State private var apiKey = ""
+    @State private var officialDisplayNames: [String: String] = [:]
+    @State private var customDisplayName = ""
+    @State private var customModelName = ""
+    @State private var rowStates: [CandidateValidationKey: CandidateValidationRowState] = [:]
+    @State private var isBulkTesting = false
+    @State private var isBulkAdding = false
+    @State private var errorMessage: String?
+    @FocusState private var focusedField: Field?
+
+    init(
+        planStore: ModelPlanStore,
+        validationService: ModelCandidateValidationService,
+        planID: UUID,
+        slot: ModelPlanSlot,
+        selectAfterSingleAdd: Bool = true,
+        addToSlot: Bool = true,
+        titleOverride: String? = nil
+    ) {
+        self.planStore = planStore
+        self.validationService = validationService
+        self.planID = planID
+        self.slot = slot
+        self.selectAfterSingleAdd = selectAfterSingleAdd
+        self.addToSlot = addToSlot
+        self.titleOverride = titleOverride
+    }
+
+    private enum Field {
+        case baseURL
+        case apiKey
+        case customDisplayName
+        case customModelName
+    }
+
+    private struct CandidateValidationKey: Hashable {
+        let slot: ModelPlanSlot
+        let preset: ModelCandidateProviderPreset
+        let baseURLString: String
+        let modelName: String
+    }
+
+    private enum CandidateValidationRowState {
+        case idle
+        case validating
+        case valid(ModelCandidateValidationResult)
+        case failed(String)
+        case added
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 14) {
+                presetCard
+                baseURLCard
+                apiKeyCard
+                if !officialModelsForSlot.isEmpty {
+                    officialModelsCard
+                }
+                customModelCard
+                bulkActionBar
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 16)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .background(Color(uiColor: .systemGroupedBackground))
+        .navigationTitle(titleOverride ?? "添加\(slot.title)")
+        .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: baseURLString) { _, _ in
+            rowStates.removeAll()
+        }
+        .onChange(of: apiKey) { _, _ in
+            rowStates.removeAll()
+        }
+        .alert("操作失败", isPresented: errorBinding) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
+    }
+
+    private var officialModelsForSlot: [ModelCandidatePresetModel] {
+        let models = selectedPreset.officialModels
+        guard slot.requiresVisionValidation else {
+            return models
+        }
+        return models.filter(\.supportsMultimodal)
+    }
+
+    private var presetCard: some View {
+        HStack(spacing: 12) {
+            Text("预设")
+                .font(.headline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Menu {
+                presetMenuButton(.openAICompatible)
+
+                Divider()
+
+                presetMenuButton(.glm)
+                presetMenuButton(.glmCodingPlan)
+
+                Divider()
+
+                presetMenuButton(.deepseek)
+            } label: {
+                HStack(spacing: 7) {
+                    Text(selectedPreset.title)
+                        .font(.subheadline.weight(.semibold))
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2.weight(.bold))
+                }
+                .foregroundStyle(.blue)
+            }
+        }
+        .padding(18)
+        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 24))
+    }
+
+    private func presetMenuButton(_ preset: ModelCandidateProviderPreset) -> some View {
+        Button {
+            applyPreset(preset)
+        } label: {
+            if preset == selectedPreset {
+                Label(preset.title, systemImage: "checkmark")
+            } else {
+                Text(preset.title)
+            }
+        }
+    }
+
+    private var officialModelsCard: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(officialModelsForSlot.enumerated()), id: \.element.id) { index, option in
+                officialModelRow(option)
+
+                if index < officialModelsForSlot.count - 1 {
+                    Divider()
+                        .padding(.leading, 18)
+                }
+            }
+        }
+        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 24))
+    }
+
+    private func officialModelRow(_ option: ModelCandidatePresetModel) -> some View {
+        let draft = draft(for: option)
+        let key = key(for: draft)
+
+        return HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("请求模型名称")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    Text(option.id)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                }
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("显示名称")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    TextField("任意备注名称", text: officialDisplayNameBinding(for: option))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .textFieldStyle(.plain)
+                        .font(.subheadline.weight(.medium))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 9)
+                        .background(.white.opacity(0.16), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+
+                if let status = statusText(for: key) {
+                    Text(status.text)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(status.color)
+                        .lineLimit(2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            candidateActionButton(draft: draft, key: key)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+    }
+
+    private var baseURLCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Base URL")
+                .font(.headline)
+
+            TextField("https://api.example.com/v1", text: $baseURLString)
+                .keyboardType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.next)
+                .focused($focusedField, equals: .baseURL)
+                .onSubmit {
+                    focusedField = .apiKey
+                }
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .padding(18)
+        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 24))
+    }
+
+    private var apiKeyCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("API Key")
+                .font(.headline)
+
+            SecureField("API Key", text: $apiKey)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.next)
+                .focused($focusedField, equals: .apiKey)
+                .onSubmit {
+                    focusedField = .customModelName
+                }
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .padding(18)
+        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 24))
+    }
+
+    private var customModelCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("自定义模型")
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("请求模型名称")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                TextField("真实模型名称", text: $customModelName)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.next)
+                    .focused($focusedField, equals: .customModelName)
+                    .onSubmit {
+                        focusedField = .customDisplayName
+                    }
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("显示名称")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                TextField("任意备注名称", text: $customDisplayName)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.done)
+                    .focused($focusedField, equals: .customDisplayName)
+                    .onSubmit {
+                        focusedField = nil
+                    }
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+
+            if let draft = customDraft {
+                HStack(spacing: 12) {
+                    candidateActionButton(draft: draft, key: key(for: draft))
+
+                    if let status = statusText(for: key(for: draft)) {
+                        Text(status.text)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(status.color)
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+        }
+        .padding(18)
+        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 24))
+    }
+
+    private var bulkActionBar: some View {
+        HStack(spacing: 10) {
+            Button {
+                testAll()
+            } label: {
+                HStack(spacing: 8) {
+                    if isBulkTesting {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "bolt.horizontal.circle")
+                    }
+
+                    Text("测试全部")
+                        .font(.body.weight(.semibold))
+                }
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 15)
+                .background(.blue.opacity(0.14), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(currentDrafts.isEmpty || isBulkTesting || isBulkAdding)
+
+            Button {
+                addAll()
+            } label: {
+                HStack(spacing: 8) {
+                    if isBulkAdding {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "plus.circle")
+                    }
+
+                    Text("添加全部")
+                        .font(.body.weight(.semibold))
+                }
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 15)
+                .background(.cyan.opacity(0.16), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(addableDrafts.isEmpty || isBulkAdding)
+        }
+        .padding(6)
+        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 28))
+    }
+
+    private func applyPreset(_ preset: ModelCandidateProviderPreset) {
+        selectedPreset = preset
+        rowStates.removeAll()
+        if !preset.baseURLString.isEmpty {
+            baseURLString = preset.baseURLString
+        }
+    }
+
+    private func draft(for option: ModelCandidatePresetModel) -> ModelCandidateDraft {
+        ModelCandidateDraft(
+            slot: slot,
+            displayName: officialDisplayNames[option.id] ?? "",
+            preset: selectedPreset,
+            baseURLString: baseURLString,
+            apiKey: apiKey,
+            modelName: option.id
+        )
+    }
+
+    private var customDraft: ModelCandidateDraft? {
+        let trimmedModelName = customModelName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedModelName.isEmpty else {
+            return nil
+        }
+        return ModelCandidateDraft(
+            slot: slot,
+            displayName: customDisplayName,
+            preset: selectedPreset,
+            baseURLString: baseURLString,
+            apiKey: apiKey,
+            modelName: trimmedModelName
+        )
+    }
+
+    private func key(for draft: ModelCandidateDraft) -> CandidateValidationKey {
+        CandidateValidationKey(
+            slot: draft.slot,
+            preset: draft.preset,
+            baseURLString: draft.baseURLString.trimmingCharacters(in: .whitespacesAndNewlines),
+            modelName: draft.modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    @ViewBuilder
+    private func candidateActionButton(
+        draft: ModelCandidateDraft,
+        key: CandidateValidationKey
+    ) -> some View {
+        if isAdded(key) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.title3)
+                .foregroundStyle(.green)
+                .frame(width: 58, height: 34)
+                .accessibilityLabel("已添加")
+        } else {
+            VStack(spacing: 8) {
+                Button {
+                    validate(draft, key: key)
+                } label: {
+                    if isValidating(key) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(width: 58, height: 30)
+                    } else {
+                        Text(isFailed(key) ? "重试" : "测试")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(isFailed(key) ? .red : .blue)
+                            .frame(width: 58, height: 30)
+                            .background((isFailed(key) ? Color.red : Color.blue).opacity(0.10), in: Capsule())
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(isValidating(key) || isBulkTesting)
+
+                Button {
+                    add(
+                        draft,
+                        validation: validationResult(for: key),
+                        key: key,
+                        selectAfterAdd: selectAfterSingleAdd
+                    )
+                } label: {
+                    Label("添加", systemImage: "plus.circle")
+                        .font(.caption.weight(.semibold))
+                        .labelStyle(.titleAndIcon)
+                        .foregroundStyle(.cyan)
+                        .frame(width: 58, height: 30)
+                        .background(.cyan.opacity(0.12), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(!canAdd(draft) || isBulkAdding)
+            }
+        }
+    }
+
+    private func statusText(for key: CandidateValidationKey) -> (text: String, color: Color)? {
+        switch rowStates[key] {
+        case .valid:
+            return ("已验证", .green)
+        case .failed(let message):
+            return (message, .red)
+        case .added:
+            return ("已添加", .green)
+        case .idle, .validating, .none:
+            return nil
+        }
+    }
+
+    private func validationResult(for key: CandidateValidationKey) -> ModelCandidateValidationResult? {
+        if case .valid(let result) = rowStates[key] {
+            return result
+        }
+        return nil
+    }
+
+    private func isValidating(_ key: CandidateValidationKey) -> Bool {
+        if case .validating = rowStates[key] {
+            return true
+        }
+        return false
+    }
+
+    private func isFailed(_ key: CandidateValidationKey) -> Bool {
+        if case .failed = rowStates[key] {
+            return true
+        }
+        return false
+    }
+
+    private func isAdded(_ key: CandidateValidationKey) -> Bool {
+        if case .added = rowStates[key] {
+            return true
+        }
+        return false
+    }
+
+    private var currentDrafts: [(draft: ModelCandidateDraft, key: CandidateValidationKey)] {
+        var drafts: [(draft: ModelCandidateDraft, key: CandidateValidationKey)] = []
+        for option in officialModelsForSlot {
+            let draft = draft(for: option)
+            drafts.append((draft: draft, key: key(for: draft)))
+        }
+        if let customDraft {
+            drafts.append((draft: customDraft, key: key(for: customDraft)))
+        }
+        return drafts
+    }
+
+    private var addableDrafts: [(draft: ModelCandidateDraft, key: CandidateValidationKey)] {
+        currentDrafts.filter { canAdd($0.draft) }
+    }
+
+    private func validate(_ draft: ModelCandidateDraft, key: CandidateValidationKey) {
+        focusedField = nil
+        rowStates[key] = .validating
+
+        Task {
+            do {
+                let result = try await validationService.validate(draft)
+                rowStates[key] = .valid(result)
+            } catch {
+                rowStates[key] = .failed(modelConfigurationErrorMessage(error))
+            }
+        }
+    }
+
+    private func add(
+        _ draft: ModelCandidateDraft,
+        validation: ModelCandidateValidationResult?,
+        key: CandidateValidationKey,
+        selectAfterAdd: Bool
+    ) {
+        do {
+            try planStore.addCandidate(
+                planID: planID,
+                draft: draft,
+                validation: validation,
+                selectAfterAdd: selectAfterAdd,
+                addToSlot: addToSlot
+            )
+            rowStates[key] = .added
+        } catch {
+            errorMessage = modelConfigurationErrorMessage(error)
+        }
+    }
+
+    private func officialDisplayNameBinding(for option: ModelCandidatePresetModel) -> Binding<String> {
+        Binding(
+            get: { officialDisplayNames[option.id] ?? "" },
+            set: { value in officialDisplayNames[option.id] = value }
+        )
+    }
+
+    private func canAdd(_ draft: ModelCandidateDraft) -> Bool {
+        !draft.modelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !draft.baseURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func testAll() {
+        let items = currentDrafts
+        guard !items.isEmpty else { return }
+        focusedField = nil
+        isBulkTesting = true
+
+        Task {
+            defer {
+                isBulkTesting = false
+            }
+            for item in items {
+                rowStates[item.key] = .validating
+                do {
+                    let result = try await validationService.validate(item.draft)
+                    rowStates[item.key] = .valid(result)
+                } catch {
+                    rowStates[item.key] = .failed(modelConfigurationErrorMessage(error))
+                }
+            }
+        }
+    }
+
+    private func addAll() {
+        let items = addableDrafts
+        guard !items.isEmpty else { return }
+        isBulkAdding = true
+        for item in items {
+            add(
+                item.draft,
+                validation: validationResult(for: item.key),
+                key: item.key,
+                selectAfterAdd: false
+            )
+        }
+        isBulkAdding = false
+    }
+
+    private var errorBinding: Binding<Bool> {
+        Binding(
+            get: { errorMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    errorMessage = nil
+                }
+            }
+        )
+    }
+}
+
+private struct ModelPlanPresentation: Identifiable {
+    let planID: UUID
+    var id: UUID { planID }
+}
+
+private func modelConfigurationErrorMessage(_ error: Error) -> String {
+    (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+}
+
+private struct LegacyModelConfigurationManagerScreen: View {
+    @Bindable var store: ManualLabStore
+    @State private var presentedSheet: LegacyModelConfigurationSheetRoute?
     @State private var pendingDeletion: APIConfigurationProfileSnapshot?
     @State private var deletionErrorMessage: String?
     @State private var transientProfileIDs: Set<UUID> = []
 
     private var profiles: [APIConfigurationProfileSnapshot] {
-        APIProviderID.allCases
+        // 只保留 GLM（智谱官方）与 DeepSeek（官方）两家，其余供应商不再展示。
+        APIProviderID.palmiSelectable
             .flatMap { providerID in
                 store.profiles(for: providerID).filter(isVisibleProfile)
             }
@@ -1600,13 +3504,12 @@ private struct ModelConfigurationManagerScreen: View {
     }
 
     @ViewBuilder
-    private func sheetContent(for route: ModelConfigurationSheetRoute) -> some View {
+    private func sheetContent(for route: LegacyModelConfigurationSheetRoute) -> some View {
         switch route {
         case .create:
             ModelConfigurationCreationScreen(initialProviderID: store.activeProviderID) { providerID in
                 let profileID = store.createProfile(for: providerID)
                 transientProfileIDs.insert(profileID)
-                store.setActiveProviderID(providerID)
                 presentedSheet = .edit(providerID: providerID, profileID: profileID)
             }
             .toolbar {
@@ -1768,28 +3671,19 @@ private struct ModelConfigurationCreationScreen: View {
         ProviderSection(
             id: "official",
             title: "官方直连",
-            providers: [.deepseek, .glm, .qwen, .kimi, .minimax, .openai]
+            providers: [.glm, .deepseek]
         ),
         ProviderSection(
-            id: "cloud",
-            title: "云平台与厂商",
-            providers: [.volcengine, .hunyuan, .qianfan, .stepfun, .azureOpenAI]
-        ),
-        ProviderSection(
-            id: "aggregator",
-            title: "聚合与托管",
-            providers: [.siliconflow, .modelscope, .openrouter]
-        ),
-        ProviderSection(
-            id: "local",
-            title: "本地与自定义",
-            providers: [.lmstudio, .ollama, .customOpenAI]
+            id: "custom",
+            title: "OpenAI 兼容",
+            providers: [.customOpenAI]
         )
     ]
 
     init(initialProviderID: APIProviderID, onCreate: @escaping (APIProviderID) -> Void) {
         self.onCreate = onCreate
-        _selectedProviderID = State(initialValue: initialProviderID)
+        let initial = APIProviderID.palmiSelectable.contains(initialProviderID) ? initialProviderID : .glm
+        _selectedProviderID = State(initialValue: initial)
     }
 
     var body: some View {
@@ -1998,7 +3892,7 @@ private struct ModelConfigurationProfileEditorScreen: View {
 
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center) {
-                Text(supportsDiscovery ? "服务器" : "API Endpoint")
+                Text(supportsDiscovery ? "服务器" : "Base URL")
                     .font(.headline)
 
                 Spacer()
@@ -2028,7 +3922,7 @@ private struct ModelConfigurationProfileEditorScreen: View {
                 }
             }
 
-            TextField("Endpoint", text: customBaseURLBinding)
+            TextField(endpointPlaceholder, text: customBaseURLBinding)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.done)
@@ -2233,7 +4127,7 @@ private struct ModelConfigurationProfileEditorScreen: View {
                 isEditingInput = false
                 store.clearAPIKey(for: providerID, profileID: profileID)
             } label: {
-                Text(profile.provider.secretRequirement == .optional ? "清空 Token" : "清空 Key")
+                Text("清空 API Key")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.red)
                     .frame(maxWidth: .infinity)
@@ -2272,15 +4166,41 @@ private struct ModelConfigurationProfileEditorScreen: View {
 
             Spacer(minLength: 8)
 
-            HStack(spacing: 10) {
-                validationIndicator(for: validationState)
-                modelSelectionMenu(role: role, selectedOption: selectedOption)
+            if providerUsesManualModelName {
+                // 自定义 OpenAI 兼容：模型名手填（无预设、无候选列表）。
+                TextField("输入模型名称", text: manualModelBinding(role: role))
+                    .font(.footnote.weight(.semibold))
+                    .multilineTextAlignment(.trailing)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.done)
+                    .focused($isEditingInput)
+                    .frame(width: 166, alignment: .trailing)
+            } else {
+                HStack(spacing: 10) {
+                    validationIndicator(for: validationState)
+                    modelSelectionMenu(role: role, selectedOption: selectedOption)
+                }
+                .frame(width: 166, alignment: .trailing)
             }
-            .frame(width: 166, alignment: .trailing)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private var providerUsesManualModelName: Bool {
+        providerID == .customOpenAI
+    }
+
+    private func manualModelBinding(role: APIModelRole) -> Binding<String> {
+        Binding(
+            get: {
+                let id = store.selectedModelID(for: providerID, role: role, profileID: profileID)
+                return id == APIModelSelection.automaticID ? "" : id
+            },
+            set: { store.setSelectedModelID($0, role: role, for: providerID, profileID: profileID) }
+        )
     }
 
     private func compactValueRow(title: String, value: String) -> some View {
@@ -2374,21 +4294,11 @@ private struct ModelConfigurationProfileEditorScreen: View {
     }
 
     private var secretFieldTitle: String {
-        switch providerID {
-        case .lmstudio, .ollama, .customOpenAI:
-            return "API Token"
-        case .openai, .azureOpenAI, .glm, .deepseek, .qwen, .kimi, .minimax, .volcengine, .hunyuan, .qianfan, .stepfun, .modelscope, .siliconflow, .openrouter:
-            return "API Key"
-        }
+        "API Key"
     }
 
     private var secretFieldPlaceholder: String {
-        switch providerID {
-        case .lmstudio, .ollama, .customOpenAI:
-            return "Token"
-        case .openai, .azureOpenAI, .glm, .deepseek, .qwen, .kimi, .minimax, .volcengine, .hunyuan, .qianfan, .stepfun, .modelscope, .siliconflow, .openrouter:
-            return "API Key"
-        }
+        "API Key"
     }
 
     private var customBaseURLBinding: Binding<String> {
@@ -2396,6 +4306,11 @@ private struct ModelConfigurationProfileEditorScreen: View {
             get: { store.customBaseURLDraft(for: providerID, profileID: profileID) },
             set: { store.setCustomBaseURLDraft($0, for: providerID, profileID: profileID) }
         )
+    }
+
+    private var endpointPlaceholder: String {
+        let placeholder = store.selectedAccessMode(for: providerID, profileID: profileID).subtitle
+        return placeholder.isEmpty ? "https://api.example.com/v1" : placeholder
     }
 
     private func modelBinding(role: APIModelRole) -> Binding<String> {
@@ -2489,7 +4404,7 @@ private struct ModelConfigurationProfileEditorScreen: View {
     }
 }
 
-private enum ModelConfigurationSheetRoute: Identifiable {
+private enum LegacyModelConfigurationSheetRoute: Identifiable {
     case create
     case edit(providerID: APIProviderID, profileID: UUID)
 

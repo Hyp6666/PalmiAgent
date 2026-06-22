@@ -334,6 +334,8 @@ private struct ToolManagementGroupAppearance {
             .init(symbolName: "square.grid.2x2", tint: .gray)
         case .workspaceFiles:
             .init(symbolName: "folder", tint: .blue)
+        case .multimodal:
+            .init(symbolName: "viewfinder", tint: .purple)
         case .webResearch:
             .init(symbolName: "globe", tint: .cyan)
         }

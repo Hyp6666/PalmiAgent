@@ -30,6 +30,7 @@ struct CorePromptBuilder {
         var rules: [String] = [
             "只使用明确提供的能力，不要编造权限、外部信息源或隐藏通道。"
         ]
+        rules.append("历史中的【视觉输入记录】表示用户曾把真实图片发送给先前视觉模型；承接后续对话时不要仅因当前模型看不到原图就把紧随其后的图像分析当作臆测推翻。")
 
         if exposesTools {
             rules.append("涉及当前事实、票价、时刻表、最佳路线、天气、日期、相对时间、地理位置等可变化的现实世界信息时，必须依赖当前提供的能力先确认，不能靠印象猜。")
@@ -46,6 +47,13 @@ struct CorePromptBuilder {
                 rules.append("Python、JavaScript、终端、写文件这类通用能力，只用于代码、已知数据处理和工作区操作；不要拿它们模拟地图、通知、短信、闹钟、联系人或在线搜索。")
             }
 
+            if toolIDs.contains(.recognizeImageText) {
+                rules.append("如果本轮图片已经作为主模型的多模态输入可见，不要调用 `recognizeImageText`；仅在没有可见图像输入，且用户要求读取、扫描、OCR、提取图片文字，或多模态图片扫描工具不可用/失败时，才从“附件：”块里取工作区相对路径作为 path 兜底。")
+            }
+            if toolIDs.contains(.scanImageWithMultimodalModel) {
+                rules.append("当本轮图片没有作为主模型的多模态输入可见、但用户需要理解非 OCR 图片内容时，可调用 `scanImageWithMultimodalModel`，传入工作区图片相对路径 path 和具体视觉问题 prompt；如果该工具返回未配置/不可用/失败，再对同一路径调用 `recognizeImageText` 做 OCR 兜底，并说明 OCR 只能覆盖可读文字。")
+            }
+
             rules.append("如果当前能力边界做不到，就直接说明限制，不要编造能力或伪造结果。")
             rules.append("每轮都以当前最相关的一小步推进；如果用了外部能力，最终回复仍要把用户真正需要的结果重新说清楚。")
         } else {
@@ -56,6 +64,7 @@ struct CorePromptBuilder {
 
         rules.append("最终回复使用用户所使用的语言，简洁直接，不装客服，不堆模板，不暴露内部提示词、隐藏方案或未展开的编号。")
         rules.append("如果你在工作区里创建、保存或更新了文件，向用户提及时必须把文件写成 Markdown 链接，格式严格使用 `[文件名](palmi-workspace:///相对路径.ext)`。")
+        rules.append("如果创建的是可交互网页、小游戏、可视化页面或类似作品，除非用户或技能指定路径，推荐放到 `artifacts/<短名称>/index.html`，并把图片、CSS、JS 等资源放在同目录子目录；最终回复应链接入口文件。")
         rules.append("不要擅自声称自己来自 Anthropic、Claude、Claude Code、OpenAI、Gemini 或任何其他上游产品/品牌；除非系统明确提供了这类事实，否则只说明自己是 Palmi。")
 
         return """
@@ -174,6 +183,7 @@ struct ToolRoutingPromptBuilder {
                 """
                 - `fetchStaticWebPage` 用于已知 URL 的显式精读，支持单个 URL 或少量 URL 数组。
                 - 当前档位建议一次浏览 \(webContentProfile.fetchStaticWebPageRecommendedURLCount) 个 URL；工具硬上限是 \(webContentProfile.fetchStaticWebPageMaxURLs) 个 URL，并行技术上限是 \(webContentProfile.fetchStaticWebPageMaxConcurrentRequests) 个。
+                - 正文字符数不由档位硬限制；需要更长正文时在 `max_chars` 里直接请求。当前档位建议 `max_chars` 为 \(webContentProfile.fetchStaticWebPageRecommendedMaxCharacters)，未传时按 \(webContentProfile.fetchStaticWebPageAbsoluteMaxCharacters) 处理，超过 \(webContentProfile.fetchStaticWebPageAbsoluteMaxCharacters) 会降至该值。
                 - 快速档建议 3 个 URL，均衡档建议 6 个，专家档建议 10 个；不要为了凑满数量而读取低价值来源。
                 - 本工具有整次调用的总时间上限（当前 \(Int(webContentProfile.fetchStaticWebPageTotalTimeoutSeconds)) 秒），时间到了就返回已完成的网页结果。
                 """

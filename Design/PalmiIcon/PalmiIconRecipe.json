@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "canvas": 1024,
+  "artworkScale": 1.225,
+  "background": {
+    "topLeading": "#F2FAFF",
+    "bottomTrailing": "#0088FF",
+    "warmAccent": "#FFE4A8",
+    "warmAccentOpacity": 0.10
+  },
+  "face": {
+    "centerX": 512,
+    "centerY": 510,
+    "width": 620,
+    "height": 548,
+    "cornerRadius": 210,
+    "fill": "#EAFDFF",
+    "fillOpacity": 0.72,
+    "rim": "#FFFFFF",
+    "rimOpacity": 0.78,
+    "rimWidth": 10,
+    "innerRimOpacity": 0.18,
+    "innerRimWidth": 18
+  },
+  "highlight": {
+    "startX": 260,
+    "startY": 414,
+    "control1X": 260,
+    "control1Y": 312,
+    "control2X": 362,
+    "control2Y": 246,
+    "endX": 512,
+    "endY": 246,
+    "lineWidth": 12,
+    "fill": "#FFFFFF",
+    "opacity": 0.58,
+    "blur": 0.4
+  },
+  "eyeGlints": {
+    "xOffset": -11,
+    "yOffset": -23,
+    "diameter": 12,
+    "fill": "#FFFFFF",
+    "opacity": 0.78
+  },
+  "eyes": {
+    "centerY": 500,
+    "leftCenterX": 402,
+    "rightCenterX": 622,
+    "width": 52,
+    "height": 88,
+    "cornerRadius": 26,
+    "fill": "#12202A",
+    "opacity": 0.88
+  },
+  "mouth": {
+    "centerX": 512,
+    "centerY": 610,
+    "width": 78,
+    "height": 24,
+    "lineWidth": 15,
+    "curveDepth": 9,
+    "fill": "#12202A",
+    "opacity": 0.62
+  }
+}

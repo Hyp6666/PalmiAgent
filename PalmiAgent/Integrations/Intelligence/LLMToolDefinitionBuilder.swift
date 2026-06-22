@@ -45,6 +45,10 @@ enum LLMToolDefinitionBuilder {
         switch actionID {
         case .runPython:
             return "只在用户明确需要编写/运行 Python，或你已经拿到了完整输入数据且需要计算/转换时使用。不要用它替代闹钟、地图、通知、短信、日历、联系人或网页搜索，也不要用它编造现实世界数据。文件操作请优先使用 fileRead/fileWrite/fileManage 等专用工具。"
+        case .recognizeImageText:
+            return "仅当当前轮次没有可直接查看的主模型多模态图像输入，且用户明确要求提取图片文字，或多模态图片扫描工具不可用/失败时使用。它只处理工作区内已有图片路径；若用户刚上传附件，从“附件：”块里取相对路径作为 path。"
+        case .scanImageWithMultimodalModel:
+            return "当当前主请求没有内联图像能力、但任务需要理解非 OCR 图片内容时使用。必须传工作区图片相对路径 path 和你希望多模态模型回答的 prompt；若当前会话没有可用多模态模型，工具会返回失败，随后应改用 recognizeImageText 对同一路径做 OCR 兜底。"
         case .fileWrite, .fileAppend:
             return "这是通用工作区工具，不是系统能力替身。不要用它模拟通知、闹钟、地图、短信、电话、邮件或在线搜索。"
         case .fileRead:
@@ -64,7 +68,9 @@ enum LLMToolDefinitionBuilder {
         case .searchWeb:
             return "涉及当前事实、票价、时刻表、在线信息时优先考虑它，而不是 Python。它只找候选标题、URL 和摘要，不读取正文；需要更多信息时可以换关键词多次搜索，拿到候选后再自行选择少量 URL 调用网页浏览。"
         case .fetchStaticWebPage:
-            return "用于读取已知 URL 的正文片段。可传单个 url 或 urls 数组；单次调用技术上限 10 个 URL，时间到后返回已完成结果。"
+            return "用于读取已知 URL 的正文。可传单个 url 或 urls 数组；需要更长正文时主动传 max_chars，未传时按 100000 字符处理，超过 100000 会降至 100000；单次调用技术上限 10 个 URL，时间到后返回已完成结果。"
+        case .openInAppBrowser:
+            return "用于把外部网页或刚生成的工作区 HTML 交给用户继续交互。生成小游戏、交互式海报、可视化网页等作品时，除非用户或技能指定路径，推荐把入口放在 artifacts/<短名称>/index.html，图片/CSS/JS 等资源放同目录子目录；调用时传工作区相对路径和可读 title，最终回复也给出入口文件的 Markdown 链接。"
         case .openMapsRoute:
             return "它只负责打开 Apple 地图展示地点或路线，不提供跨城交通方案优化、实时票价或时刻表计算。"
         case .sendLocalNotification:
@@ -135,6 +141,26 @@ enum LLMToolDefinitionBuilder {
                 ],
                 description: "执行真实 CPython 3.14 脚本。优先使用标准库、内置 workspace 模块和以下预装纯 Python 包：\(PythonPackageCatalog.supportedImportsSentence)。\(PythonPackageCatalog.toolingSummary) 不要依赖 pip 动态装包、系统进程、GUI、长期阻塞任务或任何未列出的第三方库。文件操作请优先使用 fileRead/fileWrite/fileManage 等专用工具。"
             )
+        case .recognizeImageText:
+            return ToolJSONSchema.object(
+                properties: [
+                    "path": ToolJSONSchema.string(description: "必填。工作区内图片文件的相对路径，通常来自用户上传附件块，例如 .files/uploads/.../original/photo.jpg。"),
+                    "output_directory": ToolJSONSchema.string(description: "可选。OCR 输出目录。未传时，附件图片写入同批次 extracted 目录，其他图片写入 .files/ocr。"),
+                    "recognition_languages": ToolJSONSchema.stringArray(description: "可选。识别语言列表，默认 [\"zh-Hans\", \"en-US\"]。"),
+                    "uses_language_correction": ToolJSONSchema.bool(description: "可选。是否启用语言纠错，默认 true。")
+                ],
+                required: ["path"],
+                description: "使用随包集成的 PP-OCRv6 Tiny 模型资源执行图片 OCR，并写出 .ocr.txt 与 .ocr.json。"
+            )
+        case .scanImageWithMultimodalModel:
+            return ToolJSONSchema.object(
+                properties: [
+                    "path": ToolJSONSchema.string(description: "必填。工作区内图片文件的相对路径，通常来自用户上传附件块，例如 .files/uploads/.../original/photo.jpg。"),
+                    "prompt": ToolJSONSchema.string(description: "必填。发给多模态模型的具体视觉理解指令，例如“请描述图片内容并指出关键物体”。")
+                ],
+                required: ["path", "prompt"],
+                description: "调用当前会话配置的多模态模型理解一张工作区图片，并返回文本结果。"
+            )
         case .detectWebSearchProviders:
             return ToolJSONSchema.object(
                 properties: [
@@ -153,7 +179,8 @@ enum LLMToolDefinitionBuilder {
             return ToolJSONSchema.object(
                 properties: [
                     "url": ToolJSONSchema.string(description: "可选。要浏览的单个网页 URL。和 urls 二选一。", format: "uri"),
-                    "urls": ToolJSONSchema.stringArray(description: "可选。要浏览的多个网页 URL。单次调用最多 10 个 URL，执行层会并行抓取并在总时间上限内返回已完成结果。")
+                    "urls": ToolJSONSchema.stringArray(description: "可选。要浏览的多个网页 URL。单次调用最多 10 个 URL，执行层会并行抓取并在总时间上限内返回已完成结果。"),
+                    "max_chars": ToolJSONSchema.integer(description: "可选。希望返回的网页正文字符数；未传时按 100000 处理，超过 100000 会自动降至 100000。")
                 ]
             )
         case .fetchWebBatch, .saveWebPageToWorkspace:
@@ -161,7 +188,8 @@ enum LLMToolDefinitionBuilder {
         case .openInAppBrowser:
             return ToolJSONSchema.object(
                 properties: [
-                    "url": ToolJSONSchema.string(description: "必填。要在应用内浏览器中打开的 URL。", format: "uri"),
+                    "url": ToolJSONSchema.string(description: "必填。要在应用内浏览器中打开的 URL 或工作区相对路径。打开刚生成的 HTML 时优先传工作区相对路径。"),
+                    "title": ToolJSONSchema.string(description: "可选。浏览器顶部显示的网页或作品名称。打开自己生成的交互网页时，优先传作品标题。"),
                     "reader_mode": ToolJSONSchema.bool(description: "可选。是否优先进入 Reader Mode。默认 false。"),
                     "bar_collapsing_enabled": ToolJSONSchema.bool(description: "可选。是否启用地址栏折叠。默认 false。")
                 ],

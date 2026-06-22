@@ -109,9 +109,6 @@ struct ManualLabScreen: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("模型接入配置")
                         .font(.title3.weight(.bold))
-                    Text("沿用同一套 provider 卡片：GLM、DeepSeek 走标准 API；LM Studio 走局域网发现和自动配对。")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
                 }
                 Spacer()
                 configurationCountPill
@@ -317,10 +314,11 @@ struct ManualLabScreen: View {
     private func providerConfigurationCard(for providerID: APIProviderID) -> some View {
         let snapshot = store.snapshot(for: providerID)
         let selectedAccessMode = store.selectedAccessMode(for: providerID)
-        let selectedModel = store.selectedModel(for: providerID)
+        let selectedModelRole = snapshot.provider.editableModelRoles.first ?? .reasoningModel
+        let selectedModel = store.selectedModel(for: providerID, role: selectedModelRole)
         let feedback = store.feedback(for: providerID)
         let isActiveProvider = store.activeProviderID == providerID
-        let keyStatusTitle = snapshot.provider.secretRequirement == .optional ? "Token 状态" : "Key 状态"
+        let keyStatusTitle = "API Key 状态"
         let keyStatusValue = snapshot.hasAPIKey ? (snapshot.maskedAPIKey ?? "已保存") : "未配置"
 
         return VStack(alignment: .leading, spacing: 16) {
@@ -378,7 +376,7 @@ struct ManualLabScreen: View {
                 .pickerStyle(.segmented)
 
                 HStack(spacing: 12) {
-                    configurationMetric(title: "端点", value: snapshot.endpointDisplayValue, tint: .purple)
+                    configurationMetric(title: "Base URL", value: snapshot.endpointDisplayValue, tint: .purple)
                     configurationMetric(title: "口径", value: selectedAccessMode.badgeText, tint: .mint)
                 }
             }
@@ -391,12 +389,22 @@ struct ManualLabScreen: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("模型")
                         .font(.subheadline.weight(.semibold))
-                    Picker("模型", selection: modelBinding(for: providerID)) {
-                        ForEach(store.availableModels(for: providerID)) { model in
-                            Text(model.title).tag(model.id)
+
+                    if providerID == .customOpenAI {
+                        TextField("输入模型名称", text: modelBinding(for: providerID, role: .reasoningModel))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    } else {
+                        Picker("模型", selection: modelBinding(for: providerID)) {
+                            ForEach(store.availableModels(for: providerID)) { model in
+                                Text(model.title).tag(model.id)
+                            }
                         }
+                        .pickerStyle(.menu)
                     }
-                    .pickerStyle(.menu)
 
                     if store.supportsRemoteModelDiscovery(for: providerID) {
                         Button {
@@ -439,7 +447,7 @@ struct ManualLabScreen: View {
                 .buttonStyle(.borderedProminent)
                 .tint(.cyan)
 
-                Button(snapshot.provider.secretRequirement == .optional ? "清空 Token" : "清空 API Key") {
+                Button("清空 API Key") {
                     store.clearAPIKey(for: providerID)
                 }
                 .buttonStyle(.bordered)
@@ -616,10 +624,10 @@ struct ManualLabScreen: View {
         let selectedServer = store.selectedLMStudioServer(for: providerID)
 
         VStack(alignment: .leading, spacing: 12) {
-            Text(supportsDiscovery ? "本地服务器" : "API Endpoint")
+            Text(supportsDiscovery ? "本地服务器" : "Base URL")
                 .font(.subheadline.weight(.semibold))
 
-            TextField("Endpoint", text: customBaseURLBinding(for: providerID))
+            TextField(snapshot.selectedAccessMode.subtitle, text: customBaseURLBinding(for: providerID))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .padding(.horizontal, 16)
@@ -762,10 +770,10 @@ struct ManualLabScreen: View {
         )
     }
 
-    private func modelBinding(for providerID: APIProviderID) -> Binding<String> {
+    private func modelBinding(for providerID: APIProviderID, role: APIModelRole = .defaultModel) -> Binding<String> {
         Binding(
-            get: { store.selectedModelID(for: providerID) },
-            set: { store.setSelectedModelID($0, for: providerID) }
+            get: { store.selectedModelID(for: providerID, role: role) },
+            set: { store.setSelectedModelID($0, role: role, for: providerID) }
         )
     }
 

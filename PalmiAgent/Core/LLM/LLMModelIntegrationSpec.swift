@@ -197,6 +197,7 @@ enum LLMModelIntegrationCatalog {
         ], register)
 
         registerMany(.glm, [
+            glm("glm-5.2"),
             glm("glm-5.1"),
             glm("glm-5-turbo"),
             glm("glm-5"),
@@ -322,7 +323,7 @@ enum LLMModelIntegrationCatalog {
         traits: Set<APIModelTrait>
     ) -> LLMModelIntegrationSpec? {
         let lowercasedID = modelID.lowercased()
-        let vision = traits.contains(.multimodal) || isVisionModelID(lowercasedID)
+        let vision = traits.contains(.multimodal)
         let source: ProviderCapabilitySource = providerID == .customOpenAI ? .customUserInput : .remoteModelList
 
         switch providerID {
@@ -334,7 +335,7 @@ enum LLMModelIntegrationCatalog {
 
         case .qwen:
             if isQwenThinkingModelID(lowercasedID) {
-                return inferred(qwenThinking(modelID, providerID: .qwen, defaultEnabled: !isQwenVisionModelID(lowercasedID), vision: vision, docs: qwenDocs), source: source)
+                return inferred(qwenThinking(modelID, providerID: .qwen, defaultEnabled: !vision, vision: vision, docs: qwenDocs), source: source)
             }
             if isKimiThinkingModelID(lowercasedID) {
                 return inferred(enableThinking(modelID, providerID: .qwen, family: "dashscope-kimi-thinking", docs: qwenDocs, defaultEnabled: true, vision: vision, defaultBudget: 8_192), source: source)
@@ -355,7 +356,7 @@ enum LLMModelIntegrationCatalog {
 
         case .qianfan:
             if isQwenThinkingModelID(lowercasedID) {
-                return inferred(qwenThinking(modelID, providerID: .qianfan, defaultEnabled: !isQwenVisionModelID(lowercasedID), vision: vision, docs: qianfanDocs), source: source)
+                return inferred(qwenThinking(modelID, providerID: .qianfan, defaultEnabled: !vision, vision: vision, docs: qianfanDocs), source: source)
             }
             if lowercasedID.contains("ernie-5.0-thinking") || lowercasedID.contains("ernie-4.5-vl") {
                 return inferred(enableThinking(modelID, providerID: .qianfan, family: "qianfan-enable-thinking", docs: qianfanDocs, defaultEnabled: lowercasedID.contains("thinking"), vision: vision), source: source)
@@ -367,7 +368,7 @@ enum LLMModelIntegrationCatalog {
 
         case .modelscope:
             if isQwenThinkingModelID(lowercasedID) {
-                return inferred(qwenThinking(modelID, providerID: .modelscope, defaultEnabled: !isQwenVisionModelID(lowercasedID), vision: vision, docs: modelscopeDocs), source: source)
+                return inferred(qwenThinking(modelID, providerID: .modelscope, defaultEnabled: !vision, vision: vision, docs: modelscopeDocs), source: source)
             }
             return nil
 
@@ -950,22 +951,6 @@ enum LLMModelIntegrationCatalog {
         )
     }
 
-    private static func isVisionModelID(_ lowercasedID: String) -> Bool {
-        [
-            "vision",
-            "visual",
-            "vl",
-            "omni",
-            "multimodal",
-            "image",
-            "5v",
-            "4.5v",
-            "4.6v"
-        ].contains { signal in
-            lowercasedID.contains(signal)
-        }
-    }
-
     private static func isReasoningModelID(_ lowercasedID: String) -> Bool {
         [
             "reason",
@@ -1000,13 +985,6 @@ enum LLMModelIntegrationCatalog {
     private static func isQwenThinkingModelID(_ lowercasedID: String) -> Bool {
         lowercasedID.contains("qwen3") ||
         lowercasedID.contains("qwq") ||
-        lowercasedID.contains("qwen3.5") ||
-        lowercasedID.contains("qwen3.6")
-    }
-
-    private static func isQwenVisionModelID(_ lowercasedID: String) -> Bool {
-        lowercasedID.contains("qwen3-vl") ||
-        lowercasedID.contains("qwen3vl") ||
         lowercasedID.contains("qwen3.5") ||
         lowercasedID.contains("qwen3.6")
     }
@@ -1074,7 +1052,9 @@ enum LLMModelIntegrationCatalog {
     private static let glmDocs = docs(
         "https://docs.z.ai/guides/capabilities/thinking-mode",
         "https://docs.z.ai/guides/capabilities/thinking",
-        "https://docs.z.ai/api-reference/llm/chat-completion"
+        "https://docs.z.ai/api-reference/llm/chat-completion",
+        "https://docs.z.ai/devpack/overview",
+        "https://docs.z.ai/devpack/latest-model"
     )
     private static let deepSeekDocs = docs(
         "https://api-docs.deepseek.com/guides/thinking_mode",

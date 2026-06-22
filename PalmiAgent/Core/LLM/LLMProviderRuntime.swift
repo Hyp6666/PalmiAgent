@@ -50,6 +50,10 @@ struct LLMModelCapabilities: Codable, Hashable, Sendable {
     var supportsReasoningReplay: Bool
     var nativeReasoning: LLMNativeReasoningEncoding
 
+    var supportsMultimodal: Bool {
+        supportsVision
+    }
+
     static let standardText = LLMModelCapabilities(
         supportsToolCalls: true,
         supportsRequiredToolChoice: true,

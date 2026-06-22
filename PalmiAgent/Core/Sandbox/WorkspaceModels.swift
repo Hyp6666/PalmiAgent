@@ -38,9 +38,10 @@ struct WorkspaceThreadRecord: Identifiable, Hashable, Codable, Sendable {
     var name: String
     let createdAt: Date
     var updatedAt: Date
+    var modelPlanOverride: ModelPlanSessionOverride?
 }
 
-struct WorkspaceSelection: Equatable, Sendable {
+struct WorkspaceSelection: Equatable, Hashable, Codable, Sendable {
     let projectID: UUID
     let threadID: UUID
 }

@@ -140,6 +140,8 @@ struct OpenAIChatMessage: Encodable {
     let toolCallID: String?
     let reasoningContent: String?
     let reasoningDetails: JSONRuntimeValue?
+    // 内联图片（data URL）。非空时 content 以 OpenAI 多模态「内容数组」编码：[{text}, {image_url}…]。
+    var imageDataURLs: [String] = []
 
     static func system(_ content: String) -> OpenAIChatMessage {
         OpenAIChatMessage(role: "system", content: content, toolCalls: nil, toolCallID: nil, reasoningContent: nil, reasoningDetails: nil)
@@ -176,7 +178,8 @@ struct OpenAIChatMessage: Encodable {
             toolCalls: toolCalls,
             toolCallID: toolCallID,
             reasoningContent: nil,
-            reasoningDetails: nil
+            reasoningDetails: nil,
+            imageDataURLs: imageDataURLs
         )
     }
 
@@ -187,6 +190,55 @@ struct OpenAIChatMessage: Encodable {
         case toolCallID = "tool_call_id"
         case reasoningContent = "reasoning_content"
         case reasoningDetails = "reasoning_details"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(role, forKey: .role)
+        if imageDataURLs.isEmpty {
+            // 无图：完全沿用原有「content 为字符串」的编码，行为不变。
+            try container.encodeIfPresent(content, forKey: .content)
+        } else {
+            // 有图：content 编码为多模态内容数组——先文本（若有），再依次 image_url。
+            var parts: [ContentPart] = []
+            if let content, !content.isEmpty {
+                parts.append(.text(content))
+            }
+            parts.append(contentsOf: imageDataURLs.map(ContentPart.imageURL))
+            try container.encode(parts, forKey: .content)
+        }
+        try container.encodeIfPresent(toolCalls, forKey: .toolCalls)
+        try container.encodeIfPresent(toolCallID, forKey: .toolCallID)
+        try container.encodeIfPresent(reasoningContent, forKey: .reasoningContent)
+        try container.encodeIfPresent(reasoningDetails, forKey: .reasoningDetails)
+    }
+
+    private enum ContentPart: Encodable {
+        case text(String)
+        case imageURL(String)
+
+        private enum Keys: String, CodingKey {
+            case type
+            case text
+            case imageURL = "image_url"
+        }
+
+        private enum ImageKeys: String, CodingKey {
+            case url
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: Keys.self)
+            switch self {
+            case .text(let text):
+                try container.encode("text", forKey: .type)
+                try container.encode(text, forKey: .text)
+            case .imageURL(let url):
+                try container.encode("image_url", forKey: .type)
+                var image = container.nestedContainer(keyedBy: ImageKeys.self, forKey: .imageURL)
+                try image.encode(url, forKey: .url)
+            }
+        }
     }
 }
 

@@ -34,6 +34,13 @@ esac
 FRAMEWORKS_DIR="$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH"
 mkdir -p "$FRAMEWORKS_DIR"
 
+echo "Cleaning stale Python extension frameworks"
+find "$FRAMEWORKS_DIR" -maxdepth 1 -type d -name "*.framework" ! -name "Python.framework" | while read framework; do
+  if find "$framework" -maxdepth 1 -name "*.origin" -print -quit | grep -q .; then
+    rm -rf "$framework"
+  fi
+done
+
 echo "Embedding Python.framework from $SLICE_FOLDER"
 rsync -au --delete \
   "$PYTHON_XCFRAMEWORK_PATH/$SLICE_FOLDER/Python.framework" \

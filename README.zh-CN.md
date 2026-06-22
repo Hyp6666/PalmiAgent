@@ -6,6 +6,7 @@ PalmiAgent 是一个本地优先的 iOS Agent 工作区，用于把 OpenAI-compa
 <p align="center">
   <img src="Screenshots/palmi-chat.jpg" width="260" alt="PalmiAgent 聊天界面">
   <img src="Screenshots/palmi-extreme-config.jpg" width="260" alt="PalmiAgent 极致能力配置">
+  <img src="Screenshots/palmi-multimodal-image-analysis.png" width="260" alt="PalmiAgent 多模态图片分析">
 </p>
 
 ## 特性
@@ -32,7 +33,7 @@ PalmiAgent 是一个本地优先的 iOS Agent 工作区，用于把 OpenAI-compa
 4. 让 Xcode 自动解析 Swift Package 依赖。
 5. Build and Run。
 
-PalmiAgent 不包含任何模型权重。使用 hosted API 或本地模型之前，需要先在应用内配置对应 provider。
+PalmiAgent 随包包含 PP-OCRv6 Tiny OCR 资源，用于本地图片文字识别；除此之外不包含通用 LLM 权重。使用 hosted API 或本地 LLM 之前，需要先在应用内配置对应 provider。
 
 ## 仓库说明
 

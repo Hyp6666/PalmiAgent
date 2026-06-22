@@ -11,6 +11,7 @@ Third-party components remain under their own licenses.
 - **swift-cmark / cmark-gfm** is resolved as a Swift Package dependency and includes BSD-style and MIT-style license notices in its `COPYING` file.
 - **CPython iOS runtime** is bundled under `Vendor/PythonSupport/Python.xcframework`. Its license file is included at `Vendor/PythonSupport/Python.xcframework/lib/python3.14/LICENSE.txt`.
 - **Vendored Python packages** are bundled under `Vendor/PythonSupport/app_packages`. Their package metadata and license files remain in that directory. The bundle currently includes packages such as `beautifulsoup4`, `networkx`, `openpyxl`, `packaging`, `python-dateutil`, `pytz`, `six`, `sympy`, `tabulate`, `tomli`, `typing_extensions`, and `tzdata`.
+- **PP-OCRv6 Tiny ONNX OCR models** by PaddlePaddle are bundled under `PalmiAgent/Resources/OCR/PP-OCRv6-tiny.bundle` and are licensed under the Apache License 2.0. The bundled files are the Tiny text detection and text recognition ONNX assets from `PaddlePaddle/PP-OCRv6_tiny_det_onnx` and `PaddlePaddle/PP-OCRv6_tiny_rec_onnx`. Local model source and checksum details are recorded in `PalmiAgent/Resources/OCR/PP-OCRv6-tiny.bundle/NOTICE.md`.
 
 ## Implementation References
 

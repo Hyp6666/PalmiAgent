@@ -113,7 +113,8 @@ struct WebSearchStrengthConfiguration: Sendable {
 }
 
 struct WebContentStrengthConfiguration: Sendable {
-    let fetchStaticWebPageMaxCharacters: Int
+    let fetchStaticWebPageRecommendedMaxCharacters: Int
+    let fetchStaticWebPageAbsoluteMaxCharacters: Int
     let fetchStaticWebPageRecommendedURLCount: Int
     let fetchStaticWebPageMaxURLs: Int
     let fetchStaticWebPageMaxConcurrentRequests: Int
@@ -122,7 +123,8 @@ struct WebContentStrengthConfiguration: Sendable {
 }
 
 enum ReasoningStrengthProfile {
-    static let extendedToolPayloadMaxCharacters = 20_000
+    nonisolated static let extendedToolPayloadMaxCharacters = 20_000
+    nonisolated static let fetchStaticWebPageAbsoluteMaxCharacters = 100_000
 
     static func resolvedProfessionalTier(
         for surface: WorkspaceProjectSurface,

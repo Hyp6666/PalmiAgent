@@ -1,6 +1,7 @@
 import SwiftUI
 import QuickLook
 import UIKit
+import ImageIO
 
 struct WorkspacePreviewFile: Identifiable {
     enum PreviewKind {
@@ -45,7 +46,7 @@ struct WorkspaceFilePreviewSheet: View {
 
     var body: some View {
         NavigationStack {
-            previewBody
+            WorkspaceFilePreviewContent(file: file)
                 .background(.white)
                 .navigationTitle(file.title)
                 .navigationBarTitleDisplayMode(.inline)
@@ -65,9 +66,154 @@ struct WorkspaceFilePreviewSheet: View {
                 }
         }
     }
+}
 
-    @ViewBuilder
-    private var previewBody: some View {
+struct WorkspaceFileCarouselPreviewSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let files: [WorkspacePreviewFile]
+    let initialFileID: UUID
+    @State private var selectedFileID: UUID
+
+    init(files: [WorkspacePreviewFile], initialFileID: UUID) {
+        self.files = files
+        self.initialFileID = initialFileID
+        _selectedFileID = State(initialValue: initialFileID)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if files.isEmpty {
+                    VStack(spacing: 10) {
+                        Image(systemName: "paperclip")
+                            .font(.system(size: 34, weight: .semibold))
+                            .foregroundStyle(.secondary)
+
+                        Text("暂无可预览附件")
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(.white)
+                } else {
+                    ZStack(alignment: .bottom) {
+                        TabView(selection: $selectedFileID) {
+                            ForEach(files) { file in
+                                WorkspaceFilePreviewContent(file: file)
+                                    .tag(file.id)
+                            }
+                        }
+                        .tabViewStyle(.page(indexDisplayMode: files.count > 1 ? .automatic : .never))
+
+                        if files.count > 1 {
+                            carouselControls
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 12)
+                        }
+                    }
+                    .background(.white)
+                }
+            }
+            .navigationTitle(currentFile?.title ?? "附件预览")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("关闭") {
+                        dismiss()
+                    }
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    if let currentFile {
+                        ShareLink(item: currentFile.url) {
+                            Image(systemName: "square.and.arrow.up")
+                                .foregroundStyle(Color.accentColor)
+                        }
+                    }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment:
+                goToNextFile()
+            case .decrement:
+                goToPreviousFile()
+            @unknown default:
+                break
+            }
+        }
+    }
+
+    private var currentFile: WorkspacePreviewFile? {
+        files.first { $0.id == selectedFileID } ?? files.first
+    }
+
+    private var selectedIndex: Int {
+        files.firstIndex { $0.id == selectedFileID } ?? 0
+    }
+
+    private var canGoPrevious: Bool {
+        selectedIndex > 0
+    }
+
+    private var canGoNext: Bool {
+        selectedIndex < files.count - 1
+    }
+
+    private var carouselControls: some View {
+        HStack(spacing: 14) {
+            Button(action: goToPreviousFile) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 16, weight: .bold))
+                    .frame(width: 38, height: 38)
+                    .contentShape(Circle())
+            }
+            .disabled(!canGoPrevious)
+            .accessibilityLabel("上一项附件")
+
+            Text("\(selectedIndex + 1) / \(files.count)")
+                .font(.caption.weight(.semibold))
+                .monospacedDigit()
+                .frame(minWidth: 56)
+
+            Button(action: goToNextFile) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 16, weight: .bold))
+                    .frame(width: 38, height: 38)
+                    .contentShape(Circle())
+            }
+            .disabled(!canGoNext)
+            .accessibilityLabel("下一项附件")
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(Capsule().fill(Color.black.opacity(0.58)))
+    }
+
+    private func goToPreviousFile() {
+        let nextIndex = max(0, selectedIndex - 1)
+        guard files.indices.contains(nextIndex) else { return }
+        withAnimation(.easeInOut(duration: 0.18)) {
+            selectedFileID = files[nextIndex].id
+        }
+    }
+
+    private func goToNextFile() {
+        let nextIndex = min(files.count - 1, selectedIndex + 1)
+        guard files.indices.contains(nextIndex) else { return }
+        withAnimation(.easeInOut(duration: 0.18)) {
+            selectedFileID = files[nextIndex].id
+        }
+    }
+}
+
+private struct WorkspaceFilePreviewContent: View {
+    let file: WorkspacePreviewFile
+
+    var body: some View {
         switch file.kind {
         case .markdown:
             ScrollView {
@@ -90,9 +236,82 @@ struct WorkspaceFilePreviewSheet: View {
             }
 
         case .quickLook:
-            QuickLookPreview(url: file.url)
-                .ignoresSafeArea(edges: .bottom)
+            if WorkspaceImagePreview.isSupported(url: file.url) {
+                WorkspaceImagePreview(url: file.url)
+            } else {
+                QuickLookPreview(url: file.url)
+                    .ignoresSafeArea(edges: .bottom)
+            }
         }
+    }
+}
+
+private struct WorkspaceImagePreview: View {
+    let url: URL
+    @State private var image: UIImage?
+    @State private var didFail = false
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.96)
+                .ignoresSafeArea()
+
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(12)
+            } else if didFail {
+                VStack(spacing: 10) {
+                    Image(systemName: "photo")
+                        .font(.system(size: 32, weight: .semibold))
+                    Text("该图片暂无可预览内容")
+                        .font(.headline)
+                }
+                .foregroundStyle(.white.opacity(0.82))
+            } else {
+                ProgressView()
+                    .tint(.white)
+            }
+        }
+        .task(id: url) {
+            await loadImage()
+        }
+    }
+
+    static func isSupported(url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        return ["jpg", "jpeg", "png", "heic", "heif", "gif", "webp", "bmp", "tiff"].contains(ext)
+    }
+
+    private func loadImage() async {
+        let loadedImage = await Task.detached(priority: .utility) {
+            Self.downsample(url: url, maxPixel: 2_400)
+        }.value
+
+        await MainActor.run {
+            image = loadedImage
+            didFail = loadedImage == nil
+        }
+    }
+
+    nonisolated private static func downsample(url: URL, maxPixel: CGFloat) -> UIImage? {
+        guard let source = CGImageSourceCreateWithURL(
+            url as CFURL,
+            [kCGImageSourceShouldCache: false] as CFDictionary
+        ) else {
+            return nil
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixel)
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+        return UIImage(cgImage: cgImage)
     }
 }
 

@@ -1,7 +1,17 @@
 import SwiftUI
+import UIKit
+import ImageIO
 
 private let extremeCapabilityAccent = Color(red: 255.0 / 255.0, green: 77.0 / 255.0, blue: 0.0 / 255.0)
 private let efficiencyCapabilityAccent = Color(red: 0.14, green: 0.68, blue: 0.34)
+
+// 聊天画布与上下蒙版共用同一套「中性白」：顶端纯白、底端极浅中性灰，无任何暖色/彩色偏向。
+// 蒙版的实色端直接取这两个值，保证画布与蒙版拼接处零色差、无接缝。
+private let chatCanvasTopColor = Color(red: 1.0, green: 1.0, blue: 1.0)
+private let chatCanvasBottomColor = Color(red: 0.965, green: 0.967, blue: 0.972)
+
+// 大框底排控制元素（加号圆、极致药丸、模式芯片圆、上下文轮、发送圆）统一的高度/直径。
+private let composerControlSize: CGFloat = 40
 
 private enum QuickConfigurationSheetCoordinateSpace {
     static let name = "quickConfigurationSheet"
@@ -41,6 +51,19 @@ private struct QuickConfigurationCardStyle: ViewModifier {
     }
 }
 
+private struct LinkOpenRequest: Identifiable {
+    let id = UUID()
+    let url: URL
+    let title: String?
+    let sourceRect: CGRect?
+}
+
+private struct WorkspaceFileCarouselPresentation: Identifiable {
+    let id = UUID()
+    let files: [WorkspacePreviewFile]
+    let initialFileID: UUID
+}
+
 struct ChatScreen: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -58,17 +81,19 @@ struct ChatScreen: View {
     @State private var expandedToolMessageIDs: Set<UUID> = []
     @State private var collapsedTurnIDs: Set<UUID> = []
     @State private var pendingAutoCollapseTurnID: UUID?
-    @State private var activeComposerMenu: ComposerMenu?
     @State private var isShowingContextInfo = false
-    @State private var isShowingEvidencePanel = false
     @State private var previewedWorkspaceFile: WorkspacePreviewFile?
-    @State private var isShowingAttachmentMenu = false
+    @State private var previewedAttachmentFiles: WorkspaceFileCarouselPresentation?
+    @State private var isShowingPlusMenu = false
+    @State private var isShowingModeInfo = false
+    @State private var pendingMultimodalImport: PalmiAttachmentImportPresentation?
     @State private var isShowingQuickConfiguration = false
     @State private var measuredExtremeCapabilityValueCenter: CGPoint?
     @State private var attachmentPresentation: PalmiAttachmentImportPresentation?
-    @State private var attachmentButtonFrame: CGRect = .zero
-    // 输入区液态玻璃形变命名空间：让“+”按钮与输入框在同一 GlassEffectContainer 内融合。
-    @Namespace private var composerGlassNamespace
+    @State private var composerSectionHeight: CGFloat = 128
+    @State private var isMessageAutoFollowEnabled = true
+    @State private var pendingLinkAction: LinkOpenRequest?
+    @State private var linkSharePayload: SharePayload?
     // 缓存模型选择快照。原计算路径要 UserDefaults + JSON decode，
     // 在 body 里每次访问都会触发，正好卡在弹窗动画收尾那帧。
     // 仅在 onAppear / 打开菜单 / override 变化时刷新。
@@ -83,19 +108,31 @@ struct ChatScreen: View {
 
     private let bottomAnchorID = "chat-bottom-anchor"
 
-    private enum ComposerMenu: String, Identifiable {
-        case controlCenter
-
-        var id: String { rawValue }
-    }
-
     private struct ModelSelectionState {
-        let provider: APIProviderDefinition
-        let accessMode: APIAccessModeDefinition
-        let configuredModel: APIModelDefinition
+        let plans: [ModelPlanSnapshot]
+        let activePlanID: UUID?
+        let selectedPlan: ModelPlanSnapshot?
+        let sessionOverride: ModelPlanSessionOverride?
+        let primaryCandidate: ModelCandidateSnapshot?
+        let multimodalCandidate: ModelCandidateSnapshot?
+        let lightweightCandidate: ModelCandidateSnapshot?
+        let selectedProviderID: APIProviderID
         let selectedModel: APIModelDefinition
-        let followsSettings: Bool
-        let supportsOverride: Bool
+
+        var isCustom: Bool {
+            sessionOverride?.hasCandidateOverrides == true
+        }
+
+        func selectedCandidate(for slot: ModelPlanSlot) -> ModelCandidateSnapshot? {
+            switch slot {
+            case .primary:
+                return primaryCandidate
+            case .multimodal:
+                return multimodalCandidate
+            case .lightweight:
+                return lightweightCandidate
+            }
+        }
     }
 
     init(
@@ -139,28 +176,62 @@ struct ChatScreen: View {
     }
 
     private var computedModelSelectionState: ModelSelectionState {
+        let plans = store.modelPlanStore.plans
+        let sessionOverride = workspaceStore.selectedThread?.modelPlanOverride
+        let activePlan = store.modelPlanStore.activePlanSnapshot()
+        let selectedPlan = store.modelPlanStore.selectedPlan(for: sessionOverride)
+        let primaryCandidate = selectedPlan.map {
+            store.modelPlanStore.selectedCandidate(for: .primary, in: $0, sessionOverride: sessionOverride)
+        } ?? nil
+        let multimodalCandidate = selectedPlan.map {
+            store.modelPlanStore.selectedCandidate(for: .multimodal, in: $0, sessionOverride: sessionOverride)
+        } ?? nil
+        let lightweightCandidate = selectedPlan.map {
+            store.modelPlanStore.selectedCandidate(for: .lightweight, in: $0, sessionOverride: sessionOverride)
+        } ?? nil
         let snapshot = store.apiConfigurationStore.chatModelSelectionSnapshot(for: activeProviderID)
-        let accessMode = snapshot.selectedAccessMode
-        let configuredModel = snapshot.configuredReasoningModel
-        let overrideID = store.apiConfigurationStore
-            .chatOverrideReasoningModelID(for: activeProviderID)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let selectedModel = snapshot.provider.supportsManualModelSelection
-            ? (accessMode.model(withID: overrideID) ?? configuredModel)
-            : configuredModel
+        let selectedProviderID = primaryCandidate.map { $0.preset.providerIDHint ?? .customOpenAI } ?? snapshot.provider.id
+        let selectedModel = primaryCandidate.map {
+            apiModelDefinition(for: $0, slot: .primary)
+        } ?? snapshot.configuredReasoningModel
 
         return ModelSelectionState(
-            provider: snapshot.provider,
-            accessMode: accessMode,
-            configuredModel: configuredModel,
-            selectedModel: selectedModel,
-            followsSettings: overrideID.isEmpty,
-            supportsOverride: snapshot.provider.supportsManualModelSelection
+            plans: plans,
+            activePlanID: activePlan?.id,
+            selectedPlan: selectedPlan,
+            sessionOverride: sessionOverride,
+            primaryCandidate: primaryCandidate,
+            multimodalCandidate: multimodalCandidate,
+            lightweightCandidate: lightweightCandidate,
+            selectedProviderID: selectedProviderID,
+            selectedModel: selectedModel
         )
     }
 
     private var topOrbTitle: String {
         "Palmi"
+    }
+
+    private func apiModelDefinition(
+        for candidate: ModelCandidateSnapshot,
+        slot: ModelPlanSlot
+    ) -> APIModelDefinition {
+        var traits = Set<APIModelTrait>()
+        if candidate.capabilities.supportsVision {
+            traits.insert(.multimodal)
+        }
+        if slot == .lightweight {
+            traits.insert(.lightweight)
+        }
+        if slot == .primary {
+            traits.insert(.reasoningPreferred)
+        }
+        return APIModelDefinition(
+            id: candidate.modelName,
+            title: candidate.title,
+            summary: candidate.subtitle,
+            traits: traits
+        )
     }
 
     private var selectedReasoningTitle: String {
@@ -186,16 +257,6 @@ struct ChatScreen: View {
         default:
             return Color.accentColor
         }
-    }
-
-    private var modelSelectionRowCount: Int {
-        modelSelectionState.supportsOverride
-            ? modelSelectionState.accessMode.models.count + 1
-            : 1
-    }
-
-    private var topChromePanelHeight: CGFloat {
-        min(360, max(186, 24 + CGFloat(modelSelectionRowCount) * 54))
     }
 
     private var selectedModelReasoningOptions: [ModelReasoningControlOption] {
@@ -250,7 +311,7 @@ struct ChatScreen: View {
     ) -> [ModelReasoningControlOption] {
         let state = modelSelectionState
         let nativeReasoning = LLMModelIntegrationCatalog
-            .spec(for: state.provider.id, model: state.selectedModel)
+            .spec(for: state.selectedProviderID, model: state.selectedModel)
             .capabilities
             .nativeReasoning
 
@@ -264,15 +325,22 @@ struct ChatScreen: View {
         76
     }
 
-    private var topChromeScrimHeight: CGFloat {
-        168
+    private var topChromeControlSize: CGFloat {
+        52
     }
 
-    private var topChromeOverlayHeight: CGFloat {
-        max(
-            topChromeScrimHeight,
-            topChromeReservedHeight + (activeComposerMenu == .controlCenter ? topChromePanelHeight : 0)
-        )
+    private var topModelMenuWidth: CGFloat {
+        148
+    }
+
+    private var topModelMenuExpandedItemWidth: CGFloat {
+        150
+    }
+
+    // 底部蒙版向上超出输入区的“渗出量”。给渐变留出在最高一排按钮之上
+    // 由透明过渡到不透明的空间，使可见蒙版边缘略高于按钮顶排（而非压在按钮上）。
+    private var bottomMaskTopBleed: CGFloat {
+        60
     }
 
     private var floatingBubbleAnimation: Animation {
@@ -281,9 +349,16 @@ struct ChatScreen: View {
     }
 
     private var activeStartedAt: Date? {
-        turns.last?.headerMessage?.sessionHeader?.finishedAt == nil
-            ? turns.last?.headerMessage?.sessionHeader?.startedAt
-            : nil
+        guard store.isLoading,
+              turns.last?.headerMessage?.id == store.activeTurnHeaderID,
+              turns.last?.headerMessage?.sessionHeader?.finishedAt == nil else {
+            return nil
+        }
+        return turns.last?.headerMessage?.sessionHeader?.startedAt
+    }
+
+    private var messageBottomClearance: CGFloat {
+        max(96, composerSectionHeight + 10)
     }
 
     var body: some View {
@@ -291,63 +366,62 @@ struct ChatScreen: View {
             ChatCanvasBackground()
                 .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                ZStack {
+            ZStack(alignment: .bottom) {
+                ZStack(alignment: .top) {
                     messageList
+                    topChromeVisualMask
                     overlayBackdrop
                 }
+                bottomChromeVisualMask
                 composerSection
             }
         }
         .coordinateSpace(name: "chat-root")
-        .safeAreaInset(edge: .top, spacing: 0) {
-            Color.clear
+        .overlay(alignment: .top) {
+            topChromeBar()
                 .frame(height: topChromeReservedHeight)
         }
-        .overlay(alignment: .top) {
-            GeometryReader { proxy in
-                ZStack(alignment: .top) {
-                    let chromeMaskHeight = proxy.safeAreaInsets.top + 56
-                    ChatTopChromeScrim()
-                        .frame(height: chromeMaskHeight)
-                        .allowsHitTesting(false)
-                        .zIndex(0)
-
-                    topChrome(width: proxy.size.width)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        .zIndex(1)
-                }
-            }
-            .frame(height: topChromeOverlayHeight)
-        }
-        .overlay(alignment: .bottomLeading) {
-            chatAttachmentMenuOverlay
+        .overlay {
+            linkActionPopoverAnchor
         }
         .onAppear {
             cachedModelSelectionState = computedModelSelectionState
         }
+        .task(id: workspaceStore.selectedSelection) {
+            store.loadMessagesForActiveThread()
+        }
         .onChange(of: activeProviderRaw) { _, _ in
             cachedModelSelectionState = computedModelSelectionState
         }
-        .onPreferenceChange(ChatAttachmentButtonFramePreferenceKey.self) { frame in
-            guard attachmentButtonFrame != frame else { return }
-            attachmentButtonFrame = frame
-        }
-        .onChange(of: isFocused) { _, newValue in
-            if newValue, isShowingAttachmentMenu {
-                withAnimation(floatingBubbleAnimation) {
-                    isShowingAttachmentMenu = false
-                }
-            }
+        .onPreferenceChange(ChatComposerSectionHeightPreferenceKey.self) { height in
+            guard height > 0, abs(composerSectionHeight - height) > 0.5 else { return }
+            composerSectionHeight = height
         }
         .environment(\.openURL, OpenURLAction { url in
             handleOpenURL(url)
         })
+        .environment(\.selectableLinkInteractionHandler, handleSelectableLinkInteraction)
         .sheet(item: $previewedWorkspaceFile) { file in
             WorkspaceFilePreviewSheet(file: file)
         }
-        .sheet(isPresented: $isShowingEvidencePanel) {
-            AgentEvidencePanel(snapshot: store.evidenceSnapshot)
+        .sheet(item: $previewedAttachmentFiles) { presentation in
+            WorkspaceFileCarouselPreviewSheet(
+                files: presentation.files,
+                initialFileID: presentation.initialFileID
+            )
+        }
+        .sheet(item: $linkSharePayload) { payload in
+            ShareSheet(items: [payload.url])
+        }
+        .fullScreenCover(item: $store.browserPresentation) { presentation in
+            switch presentation {
+            case .safari(_, let options):
+                PalmiBrowserScreen(options: options) {
+                    store.browserPresentation = nil
+                }
+            case .imagePicker(_, _), .documentScanner(_), .textScanner(_):
+                EmptyView()
+            }
         }
         .sheet(item: $store.pendingApprovalRequest) { request in
             ToolApprovalSheet(
@@ -376,59 +450,111 @@ struct ChatScreen: View {
             onComplete: handleAttachmentImportCompletion,
             onError: { store.errorMessage = $0 }
         )
+        .alert(
+            "当前模型不支持多模态",
+            isPresented: Binding(
+                get: { pendingMultimodalImport != nil },
+                set: { if !$0 { pendingMultimodalImport = nil } }
+            ),
+            presenting: pendingMultimodalImport
+        ) { presentation in
+            Button("取消", role: .cancel) {
+                pendingMultimodalImport = nil
+            }
+            Button("确定") {
+                pendingMultimodalImport = nil
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    presentAttachmentImport(presentation)
+                }
+            }
+        } message: { _ in
+            Text("该模型无法直接识别图片。你可以让 Palmi 调用工具，扫描附件中图片或文件里的文字内容。是否仍要上传该附件？")
+        }
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
     }
 
+    private var topChromeVisualMask: some View {
+        GeometryReader { proxy in
+            VStack(spacing: 0) {
+                ChatTopChromeVisualMask()
+                    .frame(height: proxy.safeAreaInsets.top + topChromeReservedHeight)
+                    .ignoresSafeArea(edges: .top)
+
+                Spacer(minLength: 0)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
     private var messageList: some View {
         ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: true) {
-                VStack(alignment: .leading, spacing: 26) {
-                    if turns.isEmpty {
-                        emptyState
-                    }
+            // GeometryReader 自身忽略顶部安全区以从屏幕顶部铺开，于是它上报的
+            // safeAreaInsets.top 即为被忽略的状态栏高度，用于下方顶部让位 spacer。
+            GeometryReader { geometry in
+                ScrollView(.vertical, showsIndicators: true) {
+                    VStack(alignment: .leading, spacing: 26) {
+                        // 顶部让位：与底部 messageBottomClearance 对称的清空高度。
+                        // 让最早的消息滚到顶时停在顶部 chrome（状态栏 + topChromeReservedHeight）
+                        // 下方，而不是被 3 个按钮 / 顶部蒙版永久遮挡。
+                        Color.clear
+                            .frame(height: geometry.safeAreaInsets.top + topChromeReservedHeight)
 
-                    ForEach(turns) { turn in
-                        turnView(turn)
-                            .id(turn.id)
-                    }
+                        if turns.isEmpty {
+                            emptyState
+                        }
 
-                    if let activeStartedAt {
-                        BottomStreamingIndicator(startedAt: activeStartedAt)
-                            .padding(.top, 4)
-                    }
+                        ForEach(turns) { turn in
+                            turnView(turn)
+                                .id(turn.id)
+                        }
 
-                    Color.clear
-                        .frame(height: 1)
-                        .id(bottomAnchorID)
+                        if let activeStartedAt {
+                            BottomStreamingIndicator(startedAt: activeStartedAt)
+                                .padding(.top, 4)
+                        }
+
+                        Color.clear
+                            .frame(height: messageBottomClearance)
+                            .id(bottomAnchorID)
+                    }
+                    .padding(.horizontal, 18)
                 }
-                .padding(.horizontal, 18)
-                .padding(.top, 14)
-                .padding(.bottom, 20)
-            }
-            .scrollDismissesKeyboard(.interactively)
-            .onAppear {
-                scrollToBottom(proxy, animated: false)
-            }
-            .onChange(of: store.messages.count) {
-                if store.isLoading {
-                    pendingAutoCollapseTurnID = store.activeTurnHeaderID ?? pendingAutoCollapseTurnID
-                } else {
-                    collapsePendingCompletedTurn()
+                .scrollDismissesKeyboard(.interactively)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 8)
+                        .onChanged { _ in
+                            isMessageAutoFollowEnabled = false
+                        }
+                )
+                .onAppear {
+                    isMessageAutoFollowEnabled = true
+                    scrollToBottom(proxy, animated: false)
                 }
-                scrollToBottom(proxy)
-            }
-            .onChange(of: store.isLoading) {
-                if store.isLoading {
-                    pendingAutoCollapseTurnID = store.activeTurnHeaderID ?? turns.last?.id
-                } else {
-                    collapsePendingCompletedTurn()
+                .onChange(of: store.messages.count) {
+                    if store.isLoading {
+                        pendingAutoCollapseTurnID = store.activeTurnHeaderID ?? pendingAutoCollapseTurnID
+                    } else if isMessageAutoFollowEnabled {
+                        collapsePendingCompletedTurn()
+                    }
+                    scrollToBottomIfFollowing(proxy)
                 }
-                scrollToBottom(proxy)
+                .onChange(of: store.isLoading) {
+                    if store.isLoading {
+                        pendingAutoCollapseTurnID = store.activeTurnHeaderID ?? turns.last?.id
+                    } else if isMessageAutoFollowEnabled {
+                        collapsePendingCompletedTurn()
+                    }
+                    scrollToBottomIfFollowing(proxy)
+                }
+                // 关键修复：composer 高度变化（图片预览/附件增删/发送清空/多行输入）后重对齐到底部，
+                // 否则底部留白与实际 composer 高度错位，内容会偶发沉到输入框下面被遮住。
+                .onChange(of: composerSectionHeight) {
+                    scrollToBottomIfFollowing(proxy, animated: false)
+                }
             }
-            .onChange(of: store.messages.last?.content.count ?? 0) {
-                scrollToBottom(proxy, animated: false)
-            }
+            .ignoresSafeArea(edges: .top)
         }
     }
 
@@ -577,19 +703,33 @@ struct ChatScreen: View {
         HStack {
             Spacer(minLength: 52)
 
-            SelectablePlainTextView(
-                text: message.content,
-                textColor: .white,
-                tintColor: .white,
-                widthBehavior: .fitContent
-            )
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .fill(Color.accentColor)
-                )
-                .frame(maxWidth: 460, alignment: .trailing)
+            VStack(alignment: .trailing, spacing: 8) {
+                if !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    SelectablePlainTextView(
+                        text: message.content,
+                        textColor: .white,
+                        tintColor: .white,
+                        widthBehavior: .fitContent
+                    )
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .fill(Color.accentColor)
+                    )
+                }
+
+                if !message.attachments.isEmpty {
+                    ChatAttachmentStack(
+                        attachments: message.attachments,
+                        resolvedURL: { try? workspaceStore.workspaceURL(for: $0.relativePath) },
+                        onTap: { previewSessionAttachment($0) }
+                    )
+                    .frame(maxWidth: 360, alignment: .trailing)
+                }
+            }
+            .frame(maxWidth: 460, alignment: .trailing)
+            .accessibilityElement(children: .contain)
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
@@ -606,185 +746,449 @@ struct ChatScreen: View {
     }
 
     private var composerSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            composerAccessoryRow
-            if !store.pendingAttachments.isEmpty {
-                pendingAttachmentStrip
+        // 仿 Gemini/Grok：把「附件 / 多行输入 / 控制按钮行」合进一块液态玻璃大框。
+        GlassEffectContainer(spacing: 16) {
+            VStack(alignment: .leading, spacing: 10) {
+                if !store.pendingAttachments.isEmpty {
+                    composerAttachmentTiles
+                }
+
+                // 文本框与控制行包在一起，下拉手势只作用于这里——不连累附件横向滚动。
+                VStack(alignment: .leading, spacing: 10) {
+                    ComposerTextEditor(store: store, isFocused: $isFocused)
+
+                    composerControlRow
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 24, coordinateSpace: .local)
+                        .onEnded { value in
+                            if value.translation.height > 0 {
+                                isFocused = false
+                            }
+                        }
+                )
             }
-            composerInputBar
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+            .padding(.bottom, 10)
+            // 一块玻璃；不加 .clipShape，好让专业模式的上下文轮展开面板能向上溢出、不被裁切。
+            .glassEffect(
+                .regular,
+                in: RoundedRectangle(cornerRadius: 28, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                    .allowsHitTesting(false)
+            )
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 12)
         .padding(.top, 10)
         .padding(.bottom, 8)
-        .zIndex(isShowingAttachmentMenu ? 4 : 1)
+        .zIndex(1)
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: ChatComposerSectionHeightPreferenceKey.self,
+                    value: proxy.size.height
+                )
+            }
+        )
+    }
+
+    private var bottomChromeVisualMask: some View {
+        // 高度只用 composerSectionHeight + bleed，不再读 safeAreaInsets.bottom：
+        // 一旦尊重键盘，proxy.safeAreaInsets.bottom 会变成键盘高度，蒙版会过高。
+        // Home 指示条由下方 .ignoresSafeArea(.container) 跨过（只跨容器区、不跨键盘），
+        // 这样键盘抬起时蒙版随 composerSection 一起上浮，而不是钉死在屏幕物理底。
+        ChatBottomChromeVisualMask()
+            .frame(maxWidth: .infinity)
+            .frame(height: composerSectionHeight + bottomMaskTopBleed)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .ignoresSafeArea(.container, edges: .bottom)
+            .allowsHitTesting(false)
+            .zIndex(0.5)
     }
 
     @ViewBuilder
-    private var chatAttachmentMenuOverlay: some View {
-        if isShowingAttachmentMenu {
-            GeometryReader { proxy in
-                let menuWidth = min(max(proxy.size.width - 32, 280), 386)
-                let leading = attachmentMenuLeading(in: proxy.size.width, menuWidth: menuWidth)
-                let bottom = attachmentMenuBottomOffset(in: proxy.size.height)
+    private var linkActionPopoverAnchor: some View {
+        GeometryReader { proxy in
+            if let request = pendingLinkAction {
+                let rootFrame = proxy.frame(in: .global)
+                let sourceRect = request.sourceRect ?? CGRect(
+                    x: rootFrame.midX,
+                    y: rootFrame.midY,
+                    width: 1,
+                    height: 1
+                )
+                let anchorWidth = min(max(sourceRect.width, 1), max(proxy.size.width, 1))
+                let anchorHeight = min(max(sourceRect.height, 1), max(proxy.size.height, 1))
+                let x = min(max(sourceRect.midX - rootFrame.minX, 8), max(proxy.size.width - 8, 8))
+                let y = min(max(sourceRect.midY - rootFrame.minY, 8), max(proxy.size.height - 8, 8))
 
-                PalmiAttachmentMenu(
-                    showsPlanningRows: true,
-                    onCamera: {
-                        presentAttachmentImport(
-                            PalmiAttachmentActions.camera(
-                                destination: .hiddenFilesBatch,
-                                allowsMultipleSelection: false
-                            )
-                        )
-                    },
-                    onPhotos: {
-                        presentAttachmentImport(
-                            PalmiAttachmentActions.photos(
-                                destination: .hiddenFilesBatch,
-                                allowsMultipleSelection: true
-                            )
-                        )
-                    },
-                    onFiles: {
-                        presentAttachmentImport(
-                            PalmiAttachmentActions.files(
-                                destination: .hiddenFilesBatch,
-                                allowsMultipleSelection: true
-                            )
-                        )
+                Color.clear
+                    .frame(width: anchorWidth, height: anchorHeight)
+                    .position(x: x, y: y)
+                    .popover(
+                        item: $pendingLinkAction,
+                        attachmentAnchor: .rect(.bounds),
+                        arrowEdge: .top
+                    ) { request in
+                        linkActionPopover(for: request)
+                            .presentationCompactAdaptation(.popover)
                     }
-                )
-                .frame(width: menuWidth)
-                .padding(.leading, leading)
-                .padding(.bottom, bottom)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                .transition(
-                    .opacity.combined(
-                        with: .scale(scale: 0.94, anchor: .bottomLeading)
-                    )
-                )
-                .zIndex(5)
             }
-            .allowsHitTesting(true)
         }
     }
 
-    private var composerAccessoryRow: some View {
-        HStack(alignment: .bottom) {
+    private func linkActionPopover(for request: LinkOpenRequest) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(linkActionTitle(for: request))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let subtitle = linkActionSubtitle(for: request) {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 4)
+
+            Divider()
+
+            linkActionButton("Palmi 内置浏览器打开", systemImage: "globe") {
+                openLinkInPalmi(request)
+            }
+
+            linkActionButton("Safari 浏览器打开", systemImage: "safari") {
+                openLinkInSafari(request)
+            }
+
+            linkActionButton("分享", systemImage: "square.and.arrow.up") {
+                shareLink(request)
+            }
+        }
+        .padding(12)
+        .frame(width: 286)
+    }
+
+    private func linkActionButton(
+        _ title: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 10)
+                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    // 大框底排控制行：[+] [极致] [模式芯片?]  ……  [上下文轮(仅专业模式)] [发送]
+    // 这几个元素的高度 / 直径统一为 composerControlSize。
+    private var composerControlRow: some View {
+        HStack(spacing: 10) {
+            composerPlusButton
+
             quickSettingsHost
 
-            Spacer(minLength: 0)
+            composerModeChip
 
-            if showsContextWheel || store.hasEvidenceSnapshotContent {
-                evidencePanelButton
-            }
+            Spacer(minLength: 8)
 
             if showsContextWheel {
                 contextInspectorHost
             }
+
+            ComposerSendButton(
+                store: store,
+                animation: floatingBubbleAnimation,
+                onSend: sendMessage
+            )
         }
-        .frame(height: 44)
+        .frame(minHeight: composerControlSize)
         .zIndex(2)
     }
 
-    private var composerInputBar: some View {
-        // “+”与输入框是同一 GlassEffectContainer 内的两个独立玻璃元素：
-        // 平时分离，点击「+」时间距收拢到融合阈值内，触发原生液态桥接（短暂融合）。
-        GlassEffectContainer(spacing: 14) {
-            HStack(alignment: .center, spacing: isShowingAttachmentMenu ? 3 : 16) {
-                // 「+」独立圆形玻璃按钮
-                Button {
-                    toggleAttachmentMenu()
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 19, weight: .bold))
-                        .foregroundStyle(isShowingAttachmentMenu ? Color.accentColor : Color.primary.opacity(0.85))
-                        .rotationEffect(.degrees(isShowingAttachmentMenu ? 45 : 0))
-                        .frame(width: 48, height: 48)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
+    // 加号：还原成「液态玻璃圆圈 + 加号」。点击弹出原生 .popover，里面装自绘大菜单（第一层自定义）。
+    private var composerPlusButton: some View {
+        Button {
+            if isFocused { isFocused = false }
+            isShowingPlusMenu = true
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(Color.primary.opacity(0.85))
+                .frame(width: composerControlSize, height: composerControlSize)
+                .contentShape(Circle())
                 .glassEffect(.regular.interactive(), in: .circle)
-                .glassEffectID("composer-plus", in: composerGlassNamespace)
-                .accessibilityLabel("添加")
-                .background(
-                    GeometryReader { proxy in
-                        Color.clear.preference(
-                            key: ChatAttachmentButtonFramePreferenceKey.self,
-                            value: proxy.frame(in: .named("chat-root"))
-                        )
-                    }
-                )
-
-                // 输入框 + 发送：独立胶囊玻璃
-                HStack(alignment: .center, spacing: 8) {
-                    TextField("输入消息…", text: $store.inputText, axis: .vertical)
-                        .lineLimit(1...6)
-                        .textFieldStyle(.plain)
-                        .focused($isFocused)
-                        .font(.body)
-                        .frame(minHeight: 24)
-                        .simultaneousGesture(
-                            TapGesture().onEnded {
-                                if isShowingAttachmentMenu {
-                                    withAnimation(floatingBubbleAnimation) {
-                                        isShowingAttachmentMenu = false
-                                    }
-                                }
-                            }
-                        )
-
-                    Button {
-                        sendMessage()
-                    } label: {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(store.canSend ? Color.white : Color.secondary.opacity(0.5))
-                            .frame(width: 34, height: 34)
-                            .background {
-                                Circle()
-                                    .fill(store.canSend ? Color.accentColor : Color.primary.opacity(0.06))
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!store.canSend)
-                    .animation(floatingBubbleAnimation, value: store.canSend)
-                }
-                .padding(.leading, 18)
-                .padding(.trailing, 6)
-                .padding(.vertical, 7)
-                .frame(minHeight: 48)
-                .glassEffect(.regular.interactive(), in: .capsule)
-                .glassEffectID("composer-field", in: composerGlassNamespace)
-            }
         }
-        .gesture(
-            DragGesture(minimumDistance: 20, coordinateSpace: .local)
-                .onEnded { value in
-                    if value.translation.height > 0 {
-                        isFocused = false
-                    }
-                }
-        )
+        .buttonStyle(.plain)
+        .accessibilityLabel("添加")
+        .popover(isPresented: $isShowingPlusMenu) {
+            composerPlusMenuContent
+                .presentationCompactAdaptation(.popover)
+        }
     }
 
-    private var pendingAttachmentStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(store.pendingAttachments) { attachment in
-                    PendingAttachmentChip(attachment: attachment) {
-                        store.removePendingAttachment(attachment)
+    // 第一层「自绘大菜单」内容：相机/照片/文件 + 规划。规划那一行嵌一个原生 Menu（目标/深度研究）。
+    private var composerPlusMenuContent: some View {
+        VStack(spacing: 2) {
+            Button {
+                requestAttachmentImport(
+                    PalmiAttachmentActions.camera(destination: .hiddenFilesBatch, allowsMultipleSelection: false)
+                )
+            } label: {
+                plusMenuRow(title: "相机", systemImage: "camera", tint: .primary)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                requestAttachmentImport(
+                    PalmiAttachmentActions.photos(destination: .hiddenFilesBatch, allowsMultipleSelection: true)
+                )
+            } label: {
+                plusMenuRow(title: "照片", systemImage: "photo", tint: .primary)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                requestAttachmentImport(
+                    PalmiAttachmentActions.files(destination: .hiddenFilesBatch, allowsMultipleSelection: true)
+                )
+            } label: {
+                plusMenuRow(title: "文件", systemImage: "doc", tint: .primary)
+            }
+            .buttonStyle(.plain)
+
+            Divider()
+                .padding(.horizontal, 14)
+                .padding(.vertical, 2)
+
+            // 规划：嵌套原生 Menu。label 随当前模式变名字/图标/颜色，与模式芯片同一套配色。
+            Menu {
+                Button {
+                    isShowingPlusMenu = false
+                    store.composerMode = .goal
+                } label: {
+                    Label("目标", systemImage: "target")
+                }
+
+                Button {
+                    isShowingPlusMenu = false
+                    store.composerMode = .deepResearch
+                } label: {
+                    Label("深度研究", systemImage: "magnifyingglass")
+                }
+
+                // 已选模式时，用分隔线隔出一个「取消」用于退出该模式。
+                if store.composerMode != .standard {
+                    Section {
+                        Button(role: .destructive) {
+                            isShowingPlusMenu = false
+                            store.composerMode = .standard
+                        } label: {
+                            Label("取消", systemImage: "xmark.circle")
+                        }
                     }
+                }
+            } label: {
+                plusMenuRow(
+                    title: composerPlanTitle,
+                    systemImage: composerPlanIcon,
+                    tint: composerPlanTint,
+                    showsChevron: true
+                )
+            }
+            .menuOrder(.fixed)
+        }
+        .padding(.vertical, 6)
+        .frame(width: 250)
+    }
+
+    private func plusMenuRow(
+        title: String,
+        systemImage: String,
+        tint: Color,
+        showsChevron: Bool = false
+    ) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: systemImage)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 26)
+
+            Text(title)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(tint)
+
+            Spacer(minLength: 8)
+
+            if showsChevron {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 48)
+        .contentShape(Rectangle())
+    }
+
+    // 规划行随模式：standard→「规划」灰；goal→「目标」橙；deepResearch→「深度研究」蓝。
+    private var composerPlanTitle: String {
+        switch store.composerMode {
+        case .standard: return "规划"
+        case .goal: return "目标"
+        case .deepResearch: return "深度研究"
+        }
+    }
+
+    private var composerPlanIcon: String {
+        switch store.composerMode {
+        case .standard: return "list.bullet.clipboard"
+        case .goal: return "target"
+        case .deepResearch: return "magnifyingglass"
+        }
+    }
+
+    private var composerPlanTint: Color {
+        store.composerMode == .standard ? Color.primary.opacity(0.85) : composerModeColor
+    }
+
+    // 模式芯片：仅当处于目标/深度研究模式时显示。圆形 + 图标，点开弹出 popover：
+    // 上面一行说明文字，下面「取消 / 好的」两个按钮。取消=退出该模式；好的=仅关闭（等同点屏幕别处）。
+    // （之前用「只含 Text 的 Menu」是点不开的——Menu 没有可点项就不弹出，这里改成 popover 修复。）
+    @ViewBuilder
+    private var composerModeChip: some View {
+        if store.composerMode != .standard {
+            Button {
+                isShowingModeInfo = true
+            } label: {
+                Image(systemName: composerModeIcon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(composerModeColor)
+                    .frame(width: composerControlSize, height: composerControlSize)
+                    .background(Circle().fill(composerModeColor.opacity(0.12)))
+                    .overlay(Circle().stroke(composerModeColor.opacity(0.26), lineWidth: 1))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(composerModeAccessibilityLabel)
+            .popover(isPresented: $isShowingModeInfo) {
+                composerModeInfoPopover
+                    .presentationCompactAdaptation(.popover)
+            }
+        }
+    }
+
+    private var composerModeInfoPopover: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(composerModeHintText)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 10) {
+                Button {
+                    isShowingModeInfo = false
+                    store.composerMode = .standard
+                } label: {
+                    Text("取消")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 40)
+                        .background(Color.primary.opacity(0.06), in: Capsule())
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    isShowingModeInfo = false
+                } label: {
+                    Text("好的")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 40)
+                        .background(composerModeColor, in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(16)
+        .frame(width: 264)
+    }
+
+    private var composerModeIcon: String {
+        switch store.composerMode {
+        case .standard: return "circle"
+        case .goal: return "target"
+        case .deepResearch: return "magnifyingglass"
+        }
+    }
+
+    private var composerModeColor: Color {
+        switch store.composerMode {
+        case .standard: return .secondary
+        case .goal: return Color(red: 0.90, green: 0.45, blue: 0.10)
+        case .deepResearch: return Color(red: 0.20, green: 0.46, blue: 0.92)
+        }
+    }
+
+    private var composerModeHintText: String {
+        switch store.composerMode {
+        case .standard: return ""
+        case .goal: return "当前是目标模式，请输入内容以设立目标让 Palmi 完成"
+        case .deepResearch: return "当前是深度研究模式，请输入内容让 Palmi 进行深度研究"
+        }
+    }
+
+    private var composerModeAccessibilityLabel: String {
+        switch store.composerMode {
+        case .standard: return ""
+        case .goal: return "目标模式"
+        case .deepResearch: return "深度研究模式"
+        }
+    }
+
+    // 附件横向滚动条：圆角方块，图片=缩略图、文件=带色块+文件名，点开预览。
+    private var composerAttachmentTiles: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(store.pendingAttachments) { attachment in
+                    ComposerAttachmentTile(
+                        attachment: attachment,
+                        resolvedURL: try? workspaceStore.workspaceURL(for: attachment.relativePath),
+                        onTap: { previewAttachment(attachment) },
+                        onRemove: { store.removePendingAttachment(attachment) }
+                    )
                 }
             }
             .padding(.horizontal, 2)
+            .padding(.vertical, 3)
         }
-        .frame(height: 38)
+        .frame(height: 66)
+    }
+
+    private func previewAttachment(_ attachment: ChatStore.PendingAttachment) {
+        previewSessionAttachment(attachment.chatAttachment)
     }
 
     @ViewBuilder
     private var overlayBackdrop: some View {
-        if activeComposerMenu != nil || isShowingContextInfo || isShowingAttachmentMenu {
+        if isShowingContextInfo {
             Color.black.opacity(0.001)
                 .contentShape(Rectangle())
                 .onTapGesture {
@@ -792,10 +1196,6 @@ struct ChatScreen: View {
                 }
                 .transition(.opacity)
         }
-    }
-
-    private var controlCenterContent: some View {
-        compactModelSelectionContent
     }
 
     @ViewBuilder
@@ -1213,18 +1613,12 @@ struct ChatScreen: View {
                 }
         } label: {
             Text(selectedReasoningTitle)
-                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
                 .foregroundStyle(selectedCapabilityAccent)
-                .padding(.horizontal, 15)
-                .frame(height: 44)
-                .frame(minWidth: 54)
-                .background {
-                    Capsule()
-                        .fill(Color.white.opacity(0.14))
-                }
+                .padding(.horizontal, 16)
+                .frame(height: composerControlSize)
                 .contentShape(Capsule())
                 .glassEffect(.regular.interactive(), in: .capsule)
-                .clipShape(Capsule())
         }
         .buttonStyle(.plain)
         .menuOrder(.fixed)
@@ -1236,13 +1630,56 @@ struct ChatScreen: View {
         )
     }
 
+    private var topModelMenuHost: some View {
+        Menu {
+            topModelMenuContent
+                .transaction { transaction in
+                    transaction.animation = nil
+                    transaction.disablesAnimations = true
+                }
+        } label: {
+            topModelMenuLabel
+        }
+        .buttonStyle(.plain)
+        .menuOrder(.fixed)
+        .accessibilityLabel("Palmi")
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                prepareTopModelMenu()
+            }
+        )
+    }
+
+    private var topModelMenuLabel: some View {
+        HStack(spacing: 8) {
+            Text(topOrbTitle)
+                .lineLimit(1)
+
+            Image(systemName: "chevron.down")
+                .font(.system(size: 14, weight: .semibold))
+                .accessibilityHidden(true)
+        }
+        .font(.system(size: 20, weight: .semibold, design: .rounded))
+        .foregroundStyle(Color.black.opacity(0.88))
+        .frame(width: topModelMenuWidth, height: topChromeControlSize)
+        .contentShape(Capsule())
+        .background(Color.white.opacity(0.34), in: Capsule())
+        .glassEffect(.regular.interactive(), in: .capsule)
+        .overlay {
+            Capsule()
+                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+        .clipShape(Capsule())
+    }
+
     private var contextInspectorHost: some View {
         BottomAnchoredGlassHost(
             isExpanded: isShowingContextInfo,
             anchor: .bottomTrailing,
-            collapsedSize: CGSize(width: 44, height: 44),
+            collapsedSize: CGSize(width: composerControlSize, height: composerControlSize),
             expandedSize: CGSize(width: 244, height: 318),
-            collapsedCornerRadius: 22,
+            collapsedCornerRadius: composerControlSize / 2,
             expandedCornerRadius: 30,
             animation: floatingBubbleAnimation
         ) {
@@ -1261,97 +1698,69 @@ struct ChatScreen: View {
                 embedsInParentSurface: true
             )
         }
+        .accessibilityLabel("上下文窗口")
     }
 
-    private var evidencePanelButton: some View {
-        Button {
-            dismissTransientUI()
-            isShowingEvidencePanel = true
-        } label: {
-            Image(systemName: "doc.text.magnifyingglass")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.primary)
-                .frame(width: 44, height: 44)
-                .contentShape(Circle())
-                .chatGlassSurface(
-                    cornerRadius: 22,
-                    interactive: true,
-                    backgroundOpacity: 0.02,
-                    tintOpacity: 0.08
+    private func topChromeBar() -> some View {
+        let buttonSize = topChromeControlSize
+
+        // 显式占满全宽：让三个控件像其它图标一样“固有定位”，
+        // 而不是依赖 GeometryReader 的两段式几何推导（导航转场首帧会赛跑，
+        // 导致 Spacer 塌缩、三控件卡在左侧）。详见 topChromeReservedHeight 注释。
+        return ZStack(alignment: .top) {
+            topModelMenuHost
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(height: buttonSize)
+                .zIndex(1)
+
+            HStack(spacing: 0) {
+                topChromeButtonSlot(
+                    leadingTopChromeButton,
+                    buttonSize: buttonSize,
+                    alignment: .leading
                 )
-                .overlay(alignment: .topTrailing) {
-                    if let badge = store.taskProgressBadgeText {
-                        Text(badge)
-                            .font(.system(size: 9, weight: .bold, design: .rounded))
-                            .monospacedDigit()
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(Color.accentColor, in: Capsule())
-                            .offset(x: 5, y: -5)
-                    }
-                }
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("过程")
-    }
 
-    private func topChrome(width: CGFloat) -> some View {
-        let buttonSize: CGFloat = 48
-        let expandedWidth = min(max(width * 0.56, 216), 228)
-        let collapsedWidth = min(max(width * 0.32, 118), 126)
+                Spacer(minLength: 0)
 
-        return HStack(alignment: .top, spacing: 12) {
-            if let configuration = leadingTopChromeButton {
-                TopChromeIconButton(
-                    systemImage: configuration.systemImage,
-                    accessibilityLabel: configuration.accessibilityLabel,
-                    action: configuration.action
+                topChromeButtonSlot(
+                    trailingTopChromeButton,
+                    buttonSize: buttonSize,
+                    alignment: .trailing
                 )
-            } else {
-                Color.clear
-                    .frame(width: buttonSize, height: buttonSize)
             }
-
-            Spacer(minLength: 0)
-
-            ExpandingTopPillHost(
-                title: topOrbTitle,
-                isExpanded: activeComposerMenu == .controlCenter,
-                collapsedWidth: collapsedWidth,
-                expandedWidth: expandedWidth,
-                bodyHeight: topChromePanelHeight,
-                animation: floatingBubbleAnimation
-            ) {
-                toggleComposerMenu(.controlCenter)
-            } content: {
-                controlCenterContent
-            }
-            .layoutPriority(1)
-
-            Spacer(minLength: 0)
-
-            if let configuration = trailingTopChromeButton {
-                TopChromeIconButton(
-                    systemImage: configuration.systemImage,
-                    accessibilityLabel: configuration.accessibilityLabel,
-                    action: configuration.action
-                )
-            } else {
-                Color.clear
-                    .frame(width: buttonSize, height: buttonSize)
-            }
+            .zIndex(2)
         }
         .padding(.top, 6)
-        .padding(.horizontal, 16)
-        .padding(.bottom, activeComposerMenu == .controlCenter ? 10 : 12)
+        .padding(.horizontal, 22)
+        .padding(.bottom, 12)
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private func topChromeButtonSlot(
+        _ configuration: TopChromeButtonConfiguration?,
+        buttonSize: CGFloat,
+        alignment: Alignment
+    ) -> some View {
+        if let configuration {
+            TopChromeIconButton(
+                systemImage: configuration.systemImage,
+                accessibilityLabel: configuration.accessibilityLabel,
+                action: configuration.action
+            )
+            .frame(width: 64, height: buttonSize, alignment: alignment)
+        } else {
+            Color.clear
+                .frame(width: 64, height: buttonSize)
+                .allowsHitTesting(false)
+        }
     }
 
     private var leadingTopChromeButton: TopChromeButtonConfiguration? {
         if let onShowWorkspace {
             return TopChromeButtonConfiguration(
                 systemImage: "chevron.left",
-                accessibilityLabel: "返回工作区"
+                accessibilityLabel: shellMode == .chat ? "返回" : "返回工作区"
             ) {
                 dismissTransientUI()
                 onShowWorkspace()
@@ -1412,62 +1821,114 @@ struct ChatScreen: View {
     }
 
     private var modelSelectionPanel: some View {
+        EmptyView()
+    }
+
+    @ViewBuilder
+    private var topModelMenuContent: some View {
         let state = modelSelectionState
 
-        return FloatingGlassPanel(
-            title: "主模型",
-            subtitle: state.accessMode.title
-        ) {
-            ComposerOptionRow(
-                title: "默认",
-                subtitle: state.configuredModel.title,
-                badge: nil,
-                isSelected: state.followsSettings
-            ) {
-                selectConfiguredModel()
+        Section("预设配置") {
+            Button {} label: {
+                topModelMenuSelectionLabel("自定义", isSelected: state.isCustom)
+            }
+            .disabled(!state.isCustom)
+
+            ForEach(state.plans) { plan in
+                Button {
+                    selectModelPlan(plan)
+                } label: {
+                    topModelMenuSelectionLabel(
+                        compactTopModelMenuTitle(plan.name),
+                        isSelected: !state.isCustom && state.selectedPlan?.id == plan.id
+                    )
+                }
+            }
+        }
+
+        Divider()
+
+        topModelMenuSlotSection(.primary, state: state)
+
+        Divider()
+
+        topModelMenuSlotSection(.multimodal, state: state)
+
+        Divider()
+
+        topModelMenuSlotSection(.lightweight, state: state)
+    }
+
+    @ViewBuilder
+    private func topModelMenuSlotSection(
+        _ slot: ModelPlanSlot,
+        state: ModelSelectionState
+    ) -> some View {
+        Section(slot.title) {
+            let candidates = state.selectedPlan?.candidates(for: slot) ?? []
+
+            if !slot.isRequired {
+                Button {
+                    selectModelCandidate(nil, slot: slot)
+                } label: {
+                    topModelMenuSelectionLabel(
+                        "无",
+                        isSelected: state.selectedCandidate(for: slot) == nil
+                    )
+                }
             }
 
-            ForEach(state.accessMode.models) { model in
-                ComposerOptionRow(
-                    title: model.title,
-                    subtitle: "",
-                    badge: model.id == state.configuredModel.id ? "设置中" : nil,
-                    isSelected: !state.followsSettings && state.selectedModel.id == model.id
-                ) {
-                    selectModel(model)
+            if candidates.isEmpty && slot.isRequired {
+                Text("无")
+                    .disabled(true)
+            } else {
+                ForEach(candidates) { candidate in
+                    Button {
+                        selectModelCandidate(candidate, slot: slot)
+                    } label: {
+                        topModelMenuSelectionLabel(
+                            compactTopModelMenuTitle(candidate.title),
+                            isSelected: state.selectedCandidate(for: slot)?.id == candidate.id
+                        )
+                    }
                 }
             }
         }
     }
 
-    private var compactModelSelectionContent: some View {
-        let state = modelSelectionState
-
-        return VStack(spacing: 0) {
-            if state.supportsOverride {
-                TopChromeMenuRow(
-                    title: "默认",
-                    isSelected: state.followsSettings
-                ) {
-                    selectConfiguredModel()
-                }
-
-                ForEach(state.accessMode.models) { model in
-                    TopChromeMenuRow(
-                        title: model.title,
-                        isSelected: !state.followsSettings && state.selectedModel.id == model.id
-                    ) {
-                        selectModel(model)
-                    }
-                }
-            } else {
-                TopChromeMenuRow(
-                    title: "默认",
-                    isSelected: true,
-                    action: {}
-                )
+    @ViewBuilder
+    private func topModelMenuSelectionLabel(_ title: String, isSelected: Bool) -> some View {
+        if isSelected {
+            Label {
+                Text(title)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(width: topModelMenuExpandedItemWidth, alignment: .leading)
+            } icon: {
+                Image(systemName: "checkmark")
             }
+            .accessibilityLabel(title)
+        } else {
+            Text(title)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(width: topModelMenuExpandedItemWidth, alignment: .leading)
+                .accessibilityLabel(title)
         }
+    }
+
+    private func compactTopModelMenuTitle(_ title: String) -> String {
+        let compacted = title
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "DeepSeek ", with: "DS ")
+            .replacingOccurrences(of: "OpenAI ", with: "")
+            .replacingOccurrences(of: "Anthropic ", with: "")
+            .replacingOccurrences(of: "Google ", with: "")
+
+        let maxLength = 18
+        guard compacted.count > maxLength else { return compacted }
+
+        return "\(compacted.prefix(11))…\(compacted.suffix(5))"
     }
 
     private var reasoningSelectionPanel: some View {
@@ -1566,6 +2027,7 @@ struct ChatScreen: View {
     private func sendMessage() {
         dismissTransientUI()
         isFocused = false
+        isMessageAutoFollowEnabled = true
         store.send()
     }
 
@@ -1579,31 +2041,69 @@ struct ChatScreen: View {
     }
 
     private func presentAttachmentImport(_ presentation: PalmiAttachmentImportPresentation) {
-        withAnimation(floatingBubbleAnimation) {
-            isShowingAttachmentMenu = false
-        }
         attachmentPresentation = presentation
     }
 
-    private func attachmentMenuLeading(in containerWidth: CGFloat, menuWidth: CGFloat) -> CGFloat {
-        guard !attachmentButtonFrame.isEmpty else { return 16 }
-        let preferred = attachmentButtonFrame.minX - 4
-        return min(max(preferred, 16), max(16, containerWidth - menuWidth - 16))
+    // 当前会话的主模型是否可直接接收图片输入。
+    private func activeModelSupportsMultimodal() async -> Bool {
+        let state = cachedModelSelectionState ?? computedModelSelectionState
+        if let primaryCandidate = state.primaryCandidate {
+            return primaryCandidate.capabilities.supportsVision
+        }
+        return state.selectedModel.supportsMultimodal
     }
 
-    private func attachmentMenuBottomOffset(in containerHeight: CGFloat) -> CGFloat {
-        guard !attachmentButtonFrame.isEmpty else { return 120 }
-        return max(72, containerHeight - attachmentButtonFrame.minY + 10)
+    // 加号里相机/照片/文件的统一入口：主模型支持多模态就直接调起；否则先弹确认框，提示用工具扫描文字。
+    private func requestAttachmentImport(_ presentation: PalmiAttachmentImportPresentation) {
+        isShowingPlusMenu = false
+        cachedModelSelectionState = computedModelSelectionState
+        // 等 popover 收起再做下一步 presentation，避免同一帧两个弹层打架。
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 220_000_000)
+            let supportsMultimodal = await activeModelSupportsMultimodal()
+            cachedModelSelectionState = computedModelSelectionState
+            if supportsMultimodal {
+                presentAttachmentImport(presentation)
+            } else {
+                pendingMultimodalImport = presentation
+            }
+        }
     }
 
-    private func selectConfiguredModel() {
-        store.apiConfigurationStore.setChatOverrideReasoningModelID("", for: activeProviderID)
+    private func selectModelPlan(_ plan: ModelPlanSnapshot) {
+        guard let selection = workspaceStore.selectedSelection else { return }
+        let activePlanID = store.modelPlanStore.activePlanSnapshot()?.id
+        let override = plan.id == activePlanID ? nil : ModelPlanSessionOverride(planID: plan.id)
+        workspaceStore.setModelPlanOverride(override, for: selection)
         cachedModelSelectionState = computedModelSelectionState
         modelReasoningRevision &+= 1
     }
 
-    private func selectModel(_ model: APIModelDefinition) {
-        store.apiConfigurationStore.setChatOverrideReasoningModelID(model.id, for: activeProviderID)
+    private func selectModelCandidate(_ candidate: ModelCandidateSnapshot?, slot: ModelPlanSlot) {
+        guard let selection = workspaceStore.selectedSelection,
+              let selectedPlan = modelSelectionState.selectedPlan else {
+            return
+        }
+        var override = modelSelectionState.sessionOverride ?? ModelPlanSessionOverride(planID: selectedPlan.id)
+        override.planID = selectedPlan.id
+
+        let configuredCandidateID = selectedPlan.selectedCandidate(for: slot)?.id
+        let selectedCandidateID = candidate?.id
+
+        if selectedCandidateID == configuredCandidateID {
+            override.removeCandidateOverride(for: slot)
+        } else if let selectedCandidateID {
+            override.setCandidateID(selectedCandidateID, for: slot)
+        } else if configuredCandidateID == nil {
+            override.removeCandidateOverride(for: slot)
+        } else {
+            override.clearCandidate(for: slot)
+        }
+
+        let normalizedOverride = override.isEquivalentToSettings(activePlanID: modelSelectionState.activePlanID)
+            ? nil
+            : override
+        workspaceStore.setModelPlanOverride(normalizedOverride, for: selection)
         cachedModelSelectionState = computedModelSelectionState
         modelReasoningRevision &+= 1
     }
@@ -1611,7 +2111,7 @@ struct ChatScreen: View {
     private func isModelThinkingEnabled(defaultEnabled: Bool) -> Bool {
         let state = modelSelectionState
         return ModelNativeReasoningPreferenceStore.isThinkingEnabled(
-            providerID: state.provider.id,
+            providerID: state.selectedProviderID,
             modelID: state.selectedModel.id,
             defaultEnabled: defaultEnabled
         )
@@ -1621,7 +2121,7 @@ struct ChatScreen: View {
         let state = modelSelectionState
         ModelNativeReasoningPreferenceStore.setThinkingEnabled(
             isEnabled,
-            providerID: state.provider.id,
+            providerID: state.selectedProviderID,
             modelID: state.selectedModel.id
         )
         modelReasoningRevision &+= 1
@@ -1630,7 +2130,7 @@ struct ChatScreen: View {
     private func selectedModelEffort(defaultEffort: String) -> String {
         let state = modelSelectionState
         return ModelNativeReasoningPreferenceStore.effort(
-            providerID: state.provider.id,
+            providerID: state.selectedProviderID,
             modelID: state.selectedModel.id,
             defaultEffort: defaultEffort
         )
@@ -1640,7 +2140,7 @@ struct ChatScreen: View {
         let state = modelSelectionState
         ModelNativeReasoningPreferenceStore.setEffort(
             effort,
-            providerID: state.provider.id,
+            providerID: state.selectedProviderID,
             modelID: state.selectedModel.id
         )
         modelReasoningRevision &+= 1
@@ -1649,7 +2149,7 @@ struct ChatScreen: View {
     private func selectedQwenThinkingBudget(defaultBudget: Int?) -> Int {
         let state = modelSelectionState
         return ModelNativeReasoningPreferenceStore.qwenThinkingBudget(
-            providerID: state.provider.id,
+            providerID: state.selectedProviderID,
             modelID: state.selectedModel.id
         ) ?? ModelReasoningControlCatalog.defaultQwenBudget(defaultBudget)
     }
@@ -1658,7 +2158,7 @@ struct ChatScreen: View {
         let state = modelSelectionState
         ModelNativeReasoningPreferenceStore.setQwenThinkingBudget(
             budget,
-            providerID: state.provider.id,
+            providerID: state.selectedProviderID,
             modelID: state.selectedModel.id
         )
         modelReasoningRevision &+= 1
@@ -1712,49 +2212,36 @@ struct ChatScreen: View {
 
     private func prepareQuickSettingsMenu() {
         if isFocused { isFocused = false }
+        store.modelPlanStore.refresh()
         cachedModelSelectionState = computedModelSelectionState
         modelReasoningRevision &+= 1
         withAnimation(floatingBubbleAnimation) {
-            activeComposerMenu = nil
             isShowingContextInfo = false
-            isShowingAttachmentMenu = false
         }
     }
 
-    private func toggleComposerMenu(_ menu: ComposerMenu) {
+    private func prepareTopModelMenu() {
         if isFocused { isFocused = false }
-        cachedModelSelectionState = computedModelSelectionState
-        modelReasoningRevision &+= 1
-        withAnimation(floatingBubbleAnimation) {
-            isShowingAttachmentMenu = false
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            store.modelPlanStore.refresh()
+            cachedModelSelectionState = computedModelSelectionState
+            modelReasoningRevision &+= 1
             isShowingContextInfo = false
-            activeComposerMenu = activeComposerMenu == menu ? nil : menu
         }
     }
 
     private func dismissTransientUI() {
         withAnimation(floatingBubbleAnimation) {
-            activeComposerMenu = nil
             isShowingContextInfo = false
-            isShowingAttachmentMenu = false
         }
     }
 
     private func toggleContextInfo() {
         if isFocused { isFocused = false }
         withAnimation(floatingBubbleAnimation) {
-            activeComposerMenu = nil
-            isShowingAttachmentMenu = false
             isShowingContextInfo.toggle()
-        }
-    }
-
-    private func toggleAttachmentMenu() {
-        if isFocused { isFocused = false }
-        withAnimation(floatingBubbleAnimation) {
-            activeComposerMenu = nil
-            isShowingContextInfo = false
-            isShowingAttachmentMenu.toggle()
         }
     }
 
@@ -1797,17 +2284,24 @@ struct ChatScreen: View {
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool = true) {
-        let action = {
-            proxy.scrollTo(bottomAnchorID, anchor: .bottom)
-        }
+        DispatchQueue.main.async {
+            let action = {
+                proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+            }
 
-        if animated {
-            withAnimation(.easeOut(duration: 0.18)) {
+            if animated {
+                withAnimation(.easeOut(duration: 0.18)) {
+                    action()
+                }
+            } else {
                 action()
             }
-        } else {
-            action()
         }
+    }
+
+    private func scrollToBottomIfFollowing(_ proxy: ScrollViewProxy, animated: Bool = true) {
+        guard isMessageAutoFollowEnabled else { return }
+        scrollToBottom(proxy, animated: animated)
     }
 
     private func handleOpenURL(_ url: URL) -> OpenURLAction.Result {
@@ -1823,14 +2317,184 @@ struct ChatScreen: View {
         return .systemAction(url)
     }
 
-    private func previewWorkspaceFile(at relativePath: String) -> OpenURLAction.Result {
+    private func handleSelectableLinkInteraction(_ interaction: SelectableLinkInteraction) {
+        if shouldPresentLinkActionMenu(for: interaction.url) {
+            dismissTransientUI()
+            pendingLinkAction = LinkOpenRequest(
+                url: interaction.url,
+                title: interaction.title,
+                sourceRect: interaction.sourceRect
+            )
+        } else {
+            _ = handleOpenURL(interaction.url)
+        }
+    }
+
+    private func shouldPresentLinkActionMenu(for url: URL) -> Bool {
+        let scheme = url.scheme?.lowercased()
+        if scheme == "http" || scheme == "https" {
+            return true
+        }
+
+        if let relativePath = workspaceRelativePath(from: url) {
+            return isWebDocumentPath(relativePath)
+        }
+
+        if url.isFileURL {
+            return isWebDocumentPath(url.path)
+        }
+
+        return false
+    }
+
+    private func openLinkInPalmi(_ request: LinkOpenRequest) {
+        pendingLinkAction = nil
+        store.browserPresentation = .safari(
+            .openInAppBrowser,
+            palmiBrowserOptions(for: request)
+        )
+    }
+
+    private func openLinkInSafari(_ request: LinkOpenRequest) {
+        let url = resolvedLinkURL(for: request)
+        pendingLinkAction = nil
+        UIApplication.shared.open(url, options: [:]) { didOpen in
+            guard !didOpen else { return }
+            Task { @MainActor in
+                linkSharePayload = SharePayload(url: url)
+            }
+        }
+    }
+
+    private func shareLink(_ request: LinkOpenRequest) {
+        let url = resolvedLinkURL(for: request)
+        pendingLinkAction = nil
+        linkSharePayload = SharePayload(url: url)
+    }
+
+    private func palmiBrowserOptions(for request: LinkOpenRequest) -> SafariPresentationOptions {
+        let url = resolvedLinkURL(for: request)
+        return SafariPresentationOptions(
+            url: url,
+            fileReadAccessURL: readAccessURL(for: url),
+            displayTitle: cleanedLinkTitle(request.title) ?? browserTitle(for: url),
+            entersReaderIfAvailable: false,
+            barCollapsingEnabled: false
+        )
+    }
+
+    private func resolvedLinkURL(for request: LinkOpenRequest) -> URL {
+        if let relativePath = workspaceRelativePath(from: request.url),
+           let url = try? workspaceStore.workspaceURL(for: relativePath) {
+            return url
+        }
+
+        return request.url
+    }
+
+    private func readAccessURL(for url: URL) -> URL? {
+        guard url.isFileURL else { return nil }
+        guard let workspaceURL = workspaceStore.currentWorkspaceURL?.standardizedFileURL else {
+            return url.deletingLastPathComponent()
+        }
+
+        let fileURL = url.standardizedFileURL
+        let workspacePath = workspaceURL.path.hasSuffix("/") ? workspaceURL.path : workspaceURL.path + "/"
+        return fileURL.path.hasPrefix(workspacePath)
+            ? workspaceURL
+            : url.deletingLastPathComponent()
+    }
+
+    private func linkActionTitle(for request: LinkOpenRequest) -> String {
+        cleanedLinkTitle(request.title) ?? browserTitle(for: resolvedLinkURL(for: request))
+    }
+
+    private func linkActionSubtitle(for request: LinkOpenRequest) -> String? {
+        let url = resolvedLinkURL(for: request)
+        if url.isFileURL {
+            return relativePathWithinCurrentWorkspace(for: url) ?? url.lastPathComponent
+        }
+
+        return url.host
+    }
+
+    private func browserTitle(for url: URL) -> String {
+        if url.isFileURL {
+            return url.deletingPathExtension().lastPathComponent.isEmpty
+                ? url.lastPathComponent
+                : url.deletingPathExtension().lastPathComponent
+        }
+
+        return url.host ?? url.absoluteString
+    }
+
+    private func cleanedLinkTitle(_ title: String?) -> String? {
+        let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
+    private func isWebDocumentPath(_ path: String) -> Bool {
+        let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
+        return ext == "html" || ext == "htm" || ext == "xhtml"
+    }
+
+    private func previewSessionAttachment(_ attachment: PalmiChatAttachment) {
+        guard let presentation = makeAttachmentPreviewPresentation(opening: attachment) else {
+            _ = previewWorkspaceFile(at: attachment.relativePath)
+            return
+        }
+        previewedAttachmentFiles = presentation
+    }
+
+    private func makeAttachmentPreviewPresentation(
+        opening selectedAttachment: PalmiChatAttachment
+    ) -> WorkspaceFileCarouselPresentation? {
+        var files: [WorkspacePreviewFile] = []
+        var initialFileID: UUID?
+
+        for attachment in sessionPreviewAttachments() {
+            guard let file = makeWorkspacePreviewFile(at: attachment.relativePath) else {
+                continue
+            }
+            if attachment.id == selectedAttachment.id {
+                initialFileID = file.id
+            }
+            files.append(file)
+        }
+
+        if initialFileID == nil,
+           let selectedFile = makeWorkspacePreviewFile(at: selectedAttachment.relativePath) {
+            initialFileID = selectedFile.id
+            files.append(selectedFile)
+        }
+
+        guard let initialFileID, !files.isEmpty else {
+            return nil
+        }
+        return WorkspaceFileCarouselPresentation(
+            files: files,
+            initialFileID: initialFileID
+        )
+    }
+
+    private func sessionPreviewAttachments() -> [PalmiChatAttachment] {
+        let historicalAttachments = store.messages.flatMap(\.attachments)
+        let pendingAttachments = store.pendingAttachments.map(\.chatAttachment)
+        return historicalAttachments + pendingAttachments
+    }
+
+    private func makeWorkspacePreviewFile(at relativePath: String) -> WorkspacePreviewFile? {
         do {
             let trimmedPath = relativePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             guard !trimmedPath.isEmpty else {
-                return .discarded
+                return nil
             }
 
             let url = try workspaceStore.workspaceURL(for: trimmedPath)
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                return nil
+            }
             let kind = previewKind(for: url)
             let preview: String?
 
@@ -1842,17 +2506,24 @@ struct ChatScreen: View {
                 preview = nil
             }
 
-            previewedWorkspaceFile = WorkspacePreviewFile(
+            return WorkspacePreviewFile(
                 title: url.lastPathComponent,
                 relativePath: trimmedPath,
                 url: url,
                 preview: preview,
                 kind: kind
             )
-            return .handled
         } catch {
+            return nil
+        }
+    }
+
+    private func previewWorkspaceFile(at relativePath: String) -> OpenURLAction.Result {
+        guard let file = makeWorkspacePreviewFile(at: relativePath) else {
             return .discarded
         }
+        previewedWorkspaceFile = file
+        return .handled
     }
 
     private func workspaceRelativePath(from url: URL) -> String? {
@@ -1985,52 +2656,93 @@ struct ChatScreen: View {
     }
 }
 
-private struct ChatCanvasBackground: View {
+// 纯文本框：直接绑 store.inputText（无本地副本/无防抖）。整棵视图树里只有它读 inputText，
+// 所以打字只重渲染这一小块，不会牵动聊天列表——这是「不卡」的关键。
+private struct ComposerTextEditor: View {
+    @Bindable var store: ChatStore
+    @FocusState.Binding var isFocused: Bool
+
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.998, green: 0.996, blue: 0.991),
-                    Color(red: 0.960, green: 0.963, blue: 0.974)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            // 极淡彩色光晕：给液态玻璃提供可折射的内容，同时保持浅色清爽、文字清晰可读。
-            RadialGradient(
-                colors: [Color(red: 0.40, green: 0.55, blue: 0.96).opacity(0.12), .clear],
-                center: UnitPoint(x: 0.14, y: 0.10),
-                startRadius: 0,
-                endRadius: 380
-            )
-            RadialGradient(
-                colors: [Color(red: 0.62, green: 0.44, blue: 0.94).opacity(0.10), .clear],
-                center: UnitPoint(x: 0.92, y: 0.24),
-                startRadius: 0,
-                endRadius: 340
-            )
-            RadialGradient(
-                colors: [Color(red: 0.36, green: 0.74, blue: 0.86).opacity(0.10), .clear],
-                center: UnitPoint(x: 0.84, y: 0.94),
-                startRadius: 0,
-                endRadius: 420
-            )
-        }
+        TextField("输入消息…", text: $store.inputText, axis: .vertical)
+            .lineLimit(1...6)
+            .textFieldStyle(.plain)
+            .focused($isFocused)
+            .font(.body)
+            .frame(minHeight: 28, alignment: .top)
+            .padding(.horizontal, 4)
+            .padding(.top, 2)
     }
 }
 
-private struct ChatTopChromeScrim: View {
+// 发送键（实心圆）。单独抽出，因为它要读 canSend（依赖 inputText）；隔离后打字只刷它自己。
+private struct ComposerSendButton: View {
+    @Bindable var store: ChatStore
+    let animation: Animation
+    let onSend: () -> Void
+
     var body: some View {
+        Button {
+            guard store.canSend else { return }
+            onSend()
+        } label: {
+            Image(systemName: "arrow.up")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(store.canSend ? Color.white : Color.secondary.opacity(0.45))
+                .frame(width: composerControlSize, height: composerControlSize)
+                .background {
+                    Circle()
+                        .fill(store.canSend ? Color.accentColor : Color.primary.opacity(0.06))
+                }
+        }
+        .buttonStyle(.plain)
+        .disabled(!store.canSend)
+        .accessibilityLabel("发送")
+        .animation(animation, value: store.canSend)
+    }
+}
+
+private struct ChatTopChromeVisualMask: View {
+    var body: some View {
+        // 实色端取画布顶端纯白，alpha 从 1 渐隐到 0；与画布同色，拼接零色差。
         LinearGradient(
             stops: [
-                .init(color: Color(red: 0.998, green: 0.996, blue: 0.991).opacity(0.86), location: 0),
-                .init(color: Color(red: 0.996, green: 0.995, blue: 0.992).opacity(0.50), location: 0.62),
-                .init(color: Color(red: 0.972, green: 0.969, blue: 0.958).opacity(0), location: 1)
+                .init(color: chatCanvasTopColor.opacity(1), location: 0),
+                .init(color: chatCanvasTopColor.opacity(1), location: 0.36),
+                .init(color: chatCanvasTopColor.opacity(0.62), location: 0.70),
+                .init(color: chatCanvasTopColor.opacity(0), location: 1)
             ],
             startPoint: .top,
             endPoint: .bottom
         )
-        .ignoresSafeArea(edges: .top)
+    }
+}
+
+private struct ChatBottomChromeVisualMask: View {
+    var body: some View {
+        // 实色端取画布底端中性灰，与画布同色，拼接零色差。
+        // 实色拐点上移（0.18/0.40）：不透明区扩到约 60%，配合 bottomMaskTopBleed，
+        // 让可见蒙版边缘能高过 composer 最高一排按钮。
+        LinearGradient(
+            stops: [
+                .init(color: chatCanvasBottomColor.opacity(0), location: 0),
+                .init(color: chatCanvasBottomColor.opacity(0.62), location: 0.18),
+                .init(color: chatCanvasBottomColor.opacity(1), location: 0.40),
+                .init(color: chatCanvasBottomColor.opacity(1), location: 1)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+}
+
+private struct ChatCanvasBackground: View {
+    var body: some View {
+        // 纯中性白竖向渐变。去掉了原先的蓝/紫/青三层彩色光晕——那正是「背景偏色」的根源。
+        LinearGradient(
+            colors: [chatCanvasTopColor, chatCanvasBottomColor],
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
 }
 
@@ -2198,14 +2910,31 @@ private struct SessionHeaderStrip: View {
 private struct BottomStreamingIndicator: View {
     let startedAt: Date
 
-    private static let phases = ["🌕", "🌖", "🌗", "🌘", "🌑", "🌒", "🌓", "🌔"]
+    private static let phaseCount = 8
     private static let frameDuration = 0.08
 
     var body: some View {
         TimelineView(.periodic(from: startedAt, by: Self.frameDuration)) { context in
+            let phase = phaseIndex(at: context.date)
+
             HStack(spacing: 10) {
-                Text(Self.phases[phaseIndex(at: context.date)])
-                    .font(.system(size: 18))
+                ZStack {
+                    Circle()
+                        .stroke(Color.accentColor.opacity(0.16), lineWidth: 2)
+
+                    Circle()
+                        .trim(from: 0, to: 0.36)
+                        .stroke(
+                            Color.accentColor.opacity(0.86),
+                            style: StrokeStyle(lineWidth: 2.4, lineCap: .round)
+                        )
+                        .rotationEffect(.degrees(Double(phase) * 45))
+
+                    Circle()
+                        .fill(Color.accentColor.opacity(0.14 + Double(phase % 4) * 0.04))
+                        .frame(width: 7, height: 7)
+                }
+                .frame(width: 18, height: 18)
 
                 Text("正在处理 \(elapsedText(to: context.date))")
                     .font(.footnote.weight(.medium))
@@ -2217,7 +2946,7 @@ private struct BottomStreamingIndicator: View {
 
     private func phaseIndex(at date: Date) -> Int {
         let elapsed = max(0, date.timeIntervalSince(startedAt))
-        return Int(elapsed / Self.frameDuration) % Self.phases.count
+        return Int(elapsed / Self.frameDuration) % Self.phaseCount
     }
 
     private func elapsedText(to date: Date) -> String {
@@ -2584,14 +3313,11 @@ private struct TopChromeButtonConfiguration {
     let action: () -> Void
 }
 
-private struct ChatAttachmentButtonFramePreferenceKey: PreferenceKey {
-    static var defaultValue: CGRect = .zero
+private struct ChatComposerSectionHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
 
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        let next = nextValue()
-        if !next.isEmpty {
-            value = next
-        }
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 
@@ -2605,9 +3331,10 @@ private struct TopChromeIconButton: View {
             Image(systemName: systemImage)
                 .font(.system(size: 19, weight: .semibold))
                 .foregroundStyle(Color.black.opacity(0.88))
-                .frame(width: 48, height: 48)
+                .frame(width: 52, height: 52)
+                .contentShape(Circle())
                 .chatGlassSurface(
-                    cornerRadius: 24,
+                    cornerRadius: 26,
                     interactive: true,
                     backgroundOpacity: 0.26,
                     tintOpacity: 0.32
@@ -2615,70 +3342,7 @@ private struct TopChromeIconButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
-    }
-}
-
-private struct ExpandingTopPillHost<Content: View>: View {
-    let title: String
-    let isExpanded: Bool
-    let collapsedWidth: CGFloat
-    let expandedWidth: CGFloat
-    let bodyHeight: CGFloat
-    let animation: Animation
-    let onToggle: () -> Void
-    @ViewBuilder let content: Content
-
-    private let headerHeight: CGFloat = 48
-
-    var body: some View {
-        Group {
-            if isExpanded {
-                VStack(spacing: 0) {
-                    headerButton
-
-                    ScrollView(.vertical, showsIndicators: false) {
-                        content
-                            .padding(.horizontal, 8)
-                            .padding(.top, 2)
-                            .padding(.bottom, 12)
-                    }
-                    .scrollBounceBehavior(.basedOnSize)
-                    .frame(height: bodyHeight)
-                    .transition(.opacity)
-                }
-                .frame(width: expandedWidth, height: headerHeight + bodyHeight, alignment: .top)
-                // 展开后用非交互玻璃：容器级触摸跟踪会和内部按钮抢手势，导致“粘滞、轻点不展开”。
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 36, style: .continuous))
-                .clipShape(RoundedRectangle(cornerRadius: 36, style: .continuous))
-            } else {
-                headerButton
-                    .frame(width: collapsedWidth, height: headerHeight)
-                    // 折叠态把交互玻璃直接作用在按钮上：液态按压 + 命中可靠（与“+”同款）。
-                    .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-            }
-        }
-        .animation(animation, value: isExpanded)
-    }
-
-    private var headerButton: some View {
-        Button(action: onToggle) {
-            HStack(spacing: 8) {
-                Text(title)
-                    .font(.system(size: 17, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Color.black.opacity(0.88))
-                    .lineLimit(1)
-
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(Color.black.opacity(0.48))
-                    .rotationEffect(.degrees(isExpanded ? 180 : 0))
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: headerHeight)
-            .padding(.horizontal, 12)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+        .contentShape(Circle())
     }
 }
 
@@ -2698,8 +3362,9 @@ private struct BottomAnchoredGlassHost<CollapsedContent: View, ExpandedContent: 
         isExpanded ? expandedSize : collapsedSize
     }
 
-    private var currentCornerRadius: CGFloat {
-        isExpanded ? expandedCornerRadius : collapsedCornerRadius
+    private var usesCircularCollapsedShape: Bool {
+        abs(collapsedSize.width - collapsedSize.height) < 0.5
+            && collapsedCornerRadius >= min(collapsedSize.width, collapsedSize.height) / 2
     }
 
     var body: some View {
@@ -2717,17 +3382,27 @@ private struct BottomAnchoredGlassHost<CollapsedContent: View, ExpandedContent: 
                             )
                             .clipShape(RoundedRectangle(cornerRadius: expandedCornerRadius, style: .continuous))
                     } else {
-                        Button(action: onToggle) {
-                            collapsedContent
-                                .frame(width: collapsedSize.width, height: collapsedSize.height)
-                                .contentShape(RoundedRectangle(cornerRadius: collapsedCornerRadius, style: .continuous))
+                        if usesCircularCollapsedShape {
+                            Button(action: onToggle) {
+                                collapsedContent
+                                    .frame(width: collapsedSize.width, height: collapsedSize.height)
+                                    .contentShape(Circle())
+	                            }
+	                            .buttonStyle(.plain)
+	                            .glassEffect(.regular.interactive(), in: .circle)
+	                            .clipShape(Circle())
+	                        } else {
+                            Button(action: onToggle) {
+                                collapsedContent
+                                    .frame(width: collapsedSize.width, height: collapsedSize.height)
+                                    .contentShape(RoundedRectangle(cornerRadius: collapsedCornerRadius, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                            .glassEffect(
+                                .regular.interactive(),
+                                in: RoundedRectangle(cornerRadius: collapsedCornerRadius, style: .continuous)
+                            )
                         }
-                        .buttonStyle(.plain)
-                        // 折叠态交互玻璃直接作用在按钮上：圆形 + 液态按压（与“+”同款）。
-                        .glassEffect(
-                            .regular.interactive(),
-                            in: RoundedRectangle(cornerRadius: collapsedCornerRadius, style: .continuous)
-                        )
                     }
                 }
                 .frame(width: currentSize.width, height: currentSize.height, alignment: anchor)
@@ -2765,52 +3440,259 @@ private struct QueuedGuidanceButton: View {
     }
 }
 
-private struct PendingAttachmentChip: View {
-    let attachment: ChatStore.PendingAttachment
-    let onRemove: () -> Void
+private struct ChatAttachmentStack: View {
+    let attachments: [PalmiChatAttachment]
+    let resolvedURL: (PalmiChatAttachment) -> URL?
+    let onTap: (PalmiChatAttachment) -> Void
 
     var body: some View {
-        HStack(spacing: 7) {
-            Image(systemName: iconName)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
-
-            Text(attachment.name)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(maxWidth: 154)
-
-            Button(action: onRemove) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 18, height: 18)
-                    .background(Color.black.opacity(0.06), in: Circle())
+        VStack(alignment: .trailing, spacing: 8) {
+            ForEach(attachments) { attachment in
+                ChatAttachmentRow(
+                    attachment: attachment,
+                    resolvedURL: resolvedURL(attachment),
+                    onTap: { onTap(attachment) }
+                )
             }
-            .buttonStyle(.plain)
         }
-        .padding(.leading, 10)
-        .padding(.trailing, 6)
-        .frame(height: 32)
-        .chatGlassSurface(
-            cornerRadius: 16,
-            interactive: false,
-            backgroundOpacity: 0.08,
-            tintOpacity: 0.18
-        )
+    }
+}
+
+private struct ChatAttachmentRow: View {
+    let attachment: PalmiChatAttachment
+    let resolvedURL: URL?
+    let onTap: () -> Void
+
+    @State private var thumbnail: UIImage?
+
+    private static let previewSize = CGSize(width: 78, height: 58)
+
+    private var isImage: Bool {
+        if attachment.source != .filePicker { return true }
+        let ext = (attachment.name as NSString).pathExtension.lowercased()
+        return ["jpg", "jpeg", "png", "heic", "heif", "gif", "webp", "bmp", "tiff"].contains(ext)
     }
 
-    private var iconName: String {
-        switch attachment.source {
-        case .camera:
-            return "camera.fill"
-        case .photoLibrary:
-            return "photo.fill"
-        case .filePicker:
-            return "doc.fill"
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 10) {
+                preview
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(attachment.source.title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    Text(displayName)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .multilineTextAlignment(.leading)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color.white.opacity(0.86))
+                    .shadow(color: .black.opacity(0.06), radius: 10, y: 4)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
+        .buttonStyle(.plain)
+        .task(id: attachment.id) { await loadThumbnail() }
+        .accessibilityLabel("\(attachment.source.title)，\(displayName)")
+    }
+
+    @ViewBuilder
+    private var preview: some View {
+        if isImage {
+            if let thumbnail {
+                Image(uiImage: thumbnail)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: Self.previewSize.width, height: Self.previewSize.height)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            } else {
+                placeholderPreview(systemImage: "photo")
+            }
+        } else {
+            placeholderPreview(systemImage: "doc.fill")
+        }
+    }
+
+    private func placeholderPreview(systemImage: String) -> some View {
+        ZStack {
+            fileTint.opacity(isImage ? 0.14 : 1)
+            Image(systemName: systemImage)
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(isImage ? Color.secondary : Color.white)
+        }
+        .frame(width: Self.previewSize.width, height: Self.previewSize.height)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private var displayName: String {
+        (attachment.name as NSString).lastPathComponent
+    }
+
+    private var fileTint: Color {
+        switch (attachment.name as NSString).pathExtension.lowercased() {
+        case "pdf": return Color(red: 0.86, green: 0.27, blue: 0.24)
+        case "doc", "docx": return Color(red: 0.18, green: 0.42, blue: 0.86)
+        case "xls", "xlsx", "csv": return Color(red: 0.16, green: 0.60, blue: 0.36)
+        case "ppt", "pptx": return Color(red: 0.86, green: 0.45, blue: 0.18)
+        case "zip", "rar", "7z", "gz", "tar": return Color(red: 0.55, green: 0.45, blue: 0.30)
+        case "md", "markdown", "txt": return Color(red: 0.36, green: 0.40, blue: 0.48)
+        default: return Color(red: 0.40, green: 0.46, blue: 0.56)
+        }
+    }
+
+    private func loadThumbnail() async {
+        guard isImage, thumbnail == nil, let url = resolvedURL else { return }
+        let maxPixel = max(Self.previewSize.width, Self.previewSize.height) * 3
+        let image = await Task.detached(priority: .utility) {
+            ComposerAttachmentTile.downsample(url: url, maxPixel: maxPixel)
+        }.value
+        guard let image else { return }
+        await MainActor.run { thumbnail = image }
+    }
+}
+
+// 统一的附件方块：等大圆角矩形。图片=缩略图（点开看大图）；文件=带色方块+文件名（点开预览）。
+// 右上角内嵌删除按钮。最多 15 个由 ChatStore.addPendingAttachments 兜底。
+private struct ComposerAttachmentTile: View {
+    let attachment: ChatStore.PendingAttachment
+    let resolvedURL: URL?
+    let onTap: () -> Void
+    let onRemove: () -> Void
+
+    @State private var thumbnail: UIImage?
+
+    private static let side: CGFloat = 56
+    private static let corner: CGFloat = 14
+
+    private var isImage: Bool {
+        if attachment.source != .filePicker { return true }
+        let ext = (attachment.name as NSString).pathExtension.lowercased()
+        return ["jpg", "jpeg", "png", "heic", "heif", "gif", "webp", "bmp", "tiff"].contains(ext)
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            tileContent
+                .frame(width: Self.side, height: Self.side)
+                .clipShape(RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Self.corner, style: .continuous)
+                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .topTrailing) {
+            removeButton.padding(4)
+        }
+        .task(id: attachment.id) { await loadThumbnail() }
+    }
+
+    @ViewBuilder
+    private var tileContent: some View {
+        if isImage {
+            if let thumbnail {
+                Image(uiImage: thumbnail)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                ZStack {
+                    Color.black.opacity(0.04)
+                    Image(systemName: "photo")
+                        .font(.system(size: 20, weight: .regular))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } else {
+            ZStack {
+                fileTint
+                VStack(spacing: 3) {
+                    Image(systemName: "doc.fill")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.white)
+
+                    Text(displayName)
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.95))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .truncationMode(.middle)
+                        .padding(.horizontal, 4)
+                }
+            }
+        }
+    }
+
+    private var removeButton: some View {
+        Button(action: onRemove) {
+            Image(systemName: "xmark")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 18, height: 18)
+                .background(Circle().fill(Color.black.opacity(0.55)))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("移除附件")
+    }
+
+    private var displayName: String {
+        (attachment.name as NSString).lastPathComponent
+    }
+
+    private var fileTint: Color {
+        switch (attachment.name as NSString).pathExtension.lowercased() {
+        case "pdf": return Color(red: 0.86, green: 0.27, blue: 0.24)
+        case "doc", "docx": return Color(red: 0.18, green: 0.42, blue: 0.86)
+        case "xls", "xlsx", "csv": return Color(red: 0.16, green: 0.60, blue: 0.36)
+        case "ppt", "pptx": return Color(red: 0.86, green: 0.45, blue: 0.18)
+        case "zip", "rar", "7z", "gz", "tar": return Color(red: 0.55, green: 0.45, blue: 0.30)
+        case "md", "markdown", "txt": return Color(red: 0.36, green: 0.40, blue: 0.48)
+        default: return Color(red: 0.40, green: 0.46, blue: 0.56)
+        }
+    }
+
+    private func loadThumbnail() async {
+        guard isImage, thumbnail == nil, let url = resolvedURL else { return }
+        let maxPixel = Self.side * 3  // @3x，足够清晰且省内存
+        let image = await Task.detached(priority: .utility) {
+            ComposerAttachmentTile.downsample(url: url, maxPixel: maxPixel)
+        }.value
+        guard let image else { return }
+        await MainActor.run { thumbnail = image }
+    }
+
+    nonisolated static func downsample(url: URL, maxPixel: CGFloat) -> UIImage? {
+        guard let source = CGImageSourceCreateWithURL(
+            url as CFURL,
+            [kCGImageSourceShouldCache: false] as CFDictionary
+        ) else {
+            return nil
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixel)
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+        return UIImage(cgImage: cgImage)
     }
 }
 
@@ -2874,31 +3756,6 @@ private struct CompactGlassList<Content: View>: View {
         VStack(spacing: 8) {
             content
         }
-    }
-}
-
-private struct TopChromeMenuRow: View {
-    let title: String
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: isSelected ? "checkmark" : "circle.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(isSelected ? AnyShapeStyle(.primary) : AnyShapeStyle(Color.clear))
-                    .frame(width: 16, alignment: .leading)
-
-                Text(title)
-                    .font(.system(size: 17, weight: .medium, design: .rounded))
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(.horizontal, 4)
-            .padding(.vertical, 13)
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -3015,9 +3872,10 @@ private struct ContextUsageWheel: View {
         Group {
             if showsGlassSurface {
                 ring
-                    .padding(8)
-                    .chatGlassSurface(cornerRadius: 16, interactive: true)
-                    .contentShape(Rectangle())
+                    .frame(width: 44, height: 44)
+                    .contentShape(Circle())
+                    .glassEffect(.regular.interactive(), in: .circle)
+                    .clipShape(Circle())
             } else {
                 ring
             }
@@ -3223,27 +4081,6 @@ private struct ContextCompositionBar: View {
             }
         }
         .frame(height: 10)
-    }
-}
-
-private struct ContextTotalBar: View {
-    let progress: Double
-    let tint: Color
-
-    var body: some View {
-        GeometryReader { proxy in
-            let width = max(0, proxy.size.width * min(max(progress, 0), 1))
-
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(Color.white.opacity(0.24))
-
-                Capsule()
-                    .fill(tint)
-                    .frame(width: width)
-            }
-        }
-        .frame(height: 8)
     }
 }
 

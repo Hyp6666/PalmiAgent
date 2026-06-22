@@ -165,6 +165,7 @@ final class ContextCompactor {
     func maybeCompact(
         session: AgentSession,
         providerID: APIProviderID,
+        modelOverrides: AgentModelRoleOverrides = .empty,
         baseSystemPrompt: String,
         skills: [SkillPackage],
         protectedRecentMessageCount: Int = 0,
@@ -174,6 +175,7 @@ final class ContextCompactor {
         try await compact(
             session: session,
             providerID: providerID,
+            modelOverrides: modelOverrides,
             baseSystemPrompt: baseSystemPrompt,
             skills: skills,
             force: false,
@@ -186,6 +188,7 @@ final class ContextCompactor {
     func forceCompact(
         session: AgentSession,
         providerID: APIProviderID,
+        modelOverrides: AgentModelRoleOverrides = .empty,
         baseSystemPrompt: String,
         skills: [SkillPackage],
         protectedRecentMessageCount: Int = 0,
@@ -195,6 +198,7 @@ final class ContextCompactor {
         try await compact(
             session: session,
             providerID: providerID,
+            modelOverrides: modelOverrides,
             baseSystemPrompt: baseSystemPrompt,
             skills: skills,
             force: true,
@@ -223,6 +227,7 @@ final class ContextCompactor {
     private func compact(
         session: AgentSession,
         providerID: APIProviderID,
+        modelOverrides: AgentModelRoleOverrides,
         baseSystemPrompt: String,
         skills: [SkillPackage],
         force: Bool,
@@ -276,7 +281,8 @@ final class ContextCompactor {
             AgentModelRequest(
                 selection: AgentModelSelection(
                     providerID: providerID,
-                    reasoning: .disabled
+                    reasoning: .disabled,
+                    configurationOverride: modelOverrides.override(for: .reasoningModel)
                 ),
             apiMessages: compactionMessages,
             tools: [],

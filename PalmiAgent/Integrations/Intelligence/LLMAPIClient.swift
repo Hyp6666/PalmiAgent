@@ -35,32 +35,62 @@ final class LLMAPIClient: AgentModelRuntime {
             modelRole: request.selection.modelRole,
             preferredReasoning: request.selection.reasoning,
             toolChoice: request.toolIntent.wireToolChoice ?? "none",
-            temperatureOverride: request.temperatureOverride
+            temperatureOverride: request.temperatureOverride,
+            configurationOverride: request.selection.configurationOverride
         )
     }
 
     func stream(_ request: AgentModelStreamingRequest) async throws -> AgentModelResponse {
-        try await createStreamingChatCompletion(
+        // 无工具：沿用原有「总结流式」路径，行为完全不变。
+        guard !request.tools.isEmpty else {
+            return try await createStreamingChatCompletion(
+                providerID: request.selection.providerID,
+                apiMessages: openAICompatibleMessages(from: request.apiMessages),
+                onDelta: request.onDelta,
+                onTokenEstimate: request.onTokenEstimate,
+                modelRole: request.selection.modelRole,
+                preferredReasoning: request.selection.reasoning,
+                temperatureOverride: request.temperatureOverride,
+                configurationOverride: request.selection.configurationOverride
+            )
+        }
+        // 有工具：走带工具的流式完成（reasoning + 正文逐字流式，tool_calls 累积返回）。
+        return try await createToolCallingStreamingChatCompletion(
             providerID: request.selection.providerID,
             apiMessages: openAICompatibleMessages(from: request.apiMessages),
+            tools: openAICompatibleTools(from: request.tools),
             onDelta: request.onDelta,
+            onReasoningDelta: request.onReasoningDelta,
             onTokenEstimate: request.onTokenEstimate,
             modelRole: request.selection.modelRole,
             preferredReasoning: request.selection.reasoning,
-            temperatureOverride: request.temperatureOverride
+            toolChoice: request.toolIntent.wireToolChoice ?? "auto",
+            temperatureOverride: request.temperatureOverride,
+            configurationOverride: request.selection.configurationOverride
         )
     }
 
     func capabilities(for selection: AgentModelSelection) async throws -> LLMModelCapabilities {
-        let configuration = try apiConfigurationStore.resolvedConfiguration(for: selection.providerID)
-        let preferredModel = try await resolvedRequestModel(for: configuration, role: selection.modelRole)
+        let override = try resolvedOverride(selection.configurationOverride)
+        let configuration = try resolvedConfiguration(for: selection.providerID, override: override)
+        let preferredModel = try await resolvedRequestModel(
+            for: configuration,
+            role: selection.modelRole,
+            override: override
+        )
         let runtimeSelection = resolvedRuntimeProfile(
             for: configuration,
             preferredModel: preferredModel,
             requestedTools: [],
-            preferredReasoning: selection.reasoning
+            preferredReasoning: selection.reasoning,
+            capabilitiesOverride: override?.capabilities
         )
-        return runtimeSelection.runtimeProfile.capabilities
+        var capabilities = runtimeSelection.runtimeProfile.capabilities
+        if override == nil, selection.providerID == .customOpenAI {
+            capabilities.supportsVision = await apiConfigurationStore
+                .liveChatReasoningModelSupportsMultimodal(for: selection.providerID)
+        }
+        return capabilities
     }
 
     func createChatCompletion(
@@ -71,7 +101,8 @@ final class LLMAPIClient: AgentModelRuntime {
         modelRole: APIModelRole = .reasoningModel,
         preferredReasoning: ModelReasoningRequest = .automatic,
         toolChoice: String = "auto",
-        temperatureOverride: Double? = nil
+        temperatureOverride: Double? = nil,
+        configurationOverride: AgentModelConfigurationOverride? = nil
     ) async throws -> LLMAPIClientResponse {
         try await createChatCompletion(
             providerID: providerID,
@@ -80,7 +111,8 @@ final class LLMAPIClient: AgentModelRuntime {
             modelRole: modelRole,
             preferredReasoning: preferredReasoning,
             toolChoice: toolChoice,
-            temperatureOverride: temperatureOverride
+            temperatureOverride: temperatureOverride,
+            configurationOverride: configurationOverride
         )
     }
 
@@ -91,15 +123,22 @@ final class LLMAPIClient: AgentModelRuntime {
         modelRole: APIModelRole = .reasoningModel,
         preferredReasoning: ModelReasoningRequest = .automatic,
         toolChoice: String = "auto",
-        temperatureOverride: Double? = nil
+        temperatureOverride: Double? = nil,
+        configurationOverride: AgentModelConfigurationOverride? = nil
     ) async throws -> LLMAPIClientResponse {
-        let configuration = try apiConfigurationStore.resolvedConfiguration(for: providerID)
-        let preferredModel = try await resolvedRequestModel(for: configuration, role: modelRole)
+        let override = try resolvedOverride(configurationOverride)
+        let configuration = try resolvedConfiguration(for: providerID, override: override)
+        let preferredModel = try await resolvedRequestModel(
+            for: configuration,
+            role: modelRole,
+            override: override
+        )
         let runtimeSelection = resolvedRuntimeProfile(
             for: configuration,
             preferredModel: preferredModel,
             requestedTools: tools,
-            preferredReasoning: preferredReasoning
+            preferredReasoning: preferredReasoning,
+            capabilitiesOverride: override?.capabilities
         )
         let runtimeProfile = runtimeSelection.runtimeProfile
         let resolvedModel = runtimeProfile.model
@@ -199,57 +238,60 @@ final class LLMAPIClient: AgentModelRuntime {
         )
     }
 
-    /// Streaming version — used for final summary reply (no tools).
-    func createStreamingChatCompletion(
-        providerID: APIProviderID,
-        systemPrompt: String,
-        session agentSession: AgentSession,
-        onDelta: @escaping @MainActor (String) -> Void,
-        onTokenEstimate: (@MainActor (Int) -> Void)? = nil,
-        modelRole: APIModelRole = .reasoningModel,
-        preferredReasoning: ModelReasoningRequest = .automatic,
-        temperatureOverride: Double? = nil
-    ) async throws -> LLMAPIClientResponse {
-        try await createStreamingChatCompletion(
-            providerID: providerID,
-            apiMessages: convertToAPIMessages(systemPrompt: systemPrompt, session: agentSession),
-            onDelta: onDelta,
-            onTokenEstimate: onTokenEstimate,
-            modelRole: modelRole,
-            preferredReasoning: preferredReasoning,
-            temperatureOverride: temperatureOverride
-        )
-    }
-
-    func createStreamingChatCompletion(
+    /// 带工具的流式完成——供 agent 主循环使用：reasoning 与正文逐字流式回调，同时累积 tool_calls 并返回。
+    /// 与非流式 createChatCompletion 共用同一套模型解析 / 工具筛选，仅传输与响应组装走流式分支。
+    func createToolCallingStreamingChatCompletion(
         providerID: APIProviderID,
         apiMessages: [OpenAIChatMessage],
+        tools: [OpenAIChatToolDefinition],
         onDelta: @escaping @MainActor (String) -> Void,
+        onReasoningDelta: @escaping @MainActor (String) -> Void,
         onTokenEstimate: (@MainActor (Int) -> Void)? = nil,
         modelRole: APIModelRole = .reasoningModel,
         preferredReasoning: ModelReasoningRequest = .automatic,
-        temperatureOverride: Double? = nil
+        toolChoice: String = "auto",
+        temperatureOverride: Double? = nil,
+        configurationOverride: AgentModelConfigurationOverride? = nil
     ) async throws -> LLMAPIClientResponse {
-        let configuration = try apiConfigurationStore.resolvedConfiguration(for: providerID)
-        let requestedModel = try await resolvedRequestModel(for: configuration, role: modelRole)
+        let override = try resolvedOverride(configurationOverride)
+        let configuration = try resolvedConfiguration(for: providerID, override: override)
+        let preferredModel = try await resolvedRequestModel(
+            for: configuration,
+            role: modelRole,
+            override: override
+        )
         let effectiveReasoning = ModelNativeReasoningPreferenceStore.request(
             providerID: configuration.provider.id,
-            model: requestedModel,
+            model: preferredModel,
             fallback: preferredReasoning,
             userDefaults: userDefaults
         )
-        let runtimeProfile = LLMProviderRuntimeResolver.runtimeProfile(
+        let runtimeSelection = resolvedRuntimeProfile(
             for: configuration,
-            model: requestedModel,
-            preferredReasoning: effectiveReasoning
+            preferredModel: preferredModel,
+            requestedTools: tools,
+            preferredReasoning: effectiveReasoning,
+            capabilitiesOverride: override?.capabilities
         )
+        let runtimeProfile = runtimeSelection.runtimeProfile
         let resolvedModel = runtimeProfile.model
         let requestMessages = normalizedRequestMessages(from: apiMessages, for: configuration.provider.id)
+        let requestTools = selectedToolDefinitions(
+            requestedTools: tools,
+            runtimeSelection: runtimeSelection
+        )
+        try ensureToolsAreAvailableIfRequested(
+            requestedTools: tools,
+            selectedTools: requestTools,
+            runtimeSelection: runtimeSelection,
+            providerTitle: configuration.provider.title,
+            requestedToolChoice: requestTools.isEmpty ? nil : toolChoice
+        )
         let requestBody = OpenAICompatibleChatAdapter.makeRequestBody(
             model: resolvedModel.id,
             messages: requestMessages,
-            tools: nil,
-            toolChoice: nil,
+            tools: requestTools.isEmpty ? nil : requestTools,
+            toolChoice: requestTools.isEmpty ? nil : toolChoice,
             temperature: resolvedInteractiveTemperature(override: temperatureOverride),
             stream: true,
             runtimeProfile: runtimeProfile
@@ -271,8 +313,158 @@ final class LLMAPIClient: AgentModelRuntime {
         onTokenEstimate?(promptEstimate)
 
         let progressState = StreamingProgressState()
-        let streamingOnDelta: @Sendable (String) -> Void = { text in
-            Task { @MainActor in
+        let streamingOnDelta: @Sendable (String) async -> Void = { text in
+            await MainActor.run {
+                progressState.content.append(text)
+                onDelta(text)
+                onTokenEstimate?(promptEstimate + ApproximateTokenCounter.estimate(progressState.content))
+            }
+        }
+        let streamingOnReasoning: @Sendable (String) async -> Void = { text in
+            await MainActor.run {
+                onReasoningDelta(text)
+            }
+        }
+
+        do {
+            let result = try await LLMHTTPTransport.performStreaming(
+                request,
+                using: session,
+                onDelta: streamingOnDelta,
+                onReasoningDelta: streamingOnReasoning
+            )
+            let toolUses = result.toolCalls.map { call in
+                AgentToolUse(id: call.id, name: call.name, input: call.arguments)
+            }
+            let nativeReasoning: AgentNativeReasoningPayload?
+            if result.reasoningContent != nil || result.reasoningDetails != nil {
+                nativeReasoning = AgentNativeReasoningPayload(
+                    reasoningContent: result.reasoningContent,
+                    reasoningDetails: result.reasoningDetails,
+                    providerID: configuration.provider.id.rawValue
+                )
+            } else {
+                nativeReasoning = nil
+            }
+            return LLMAPIClientResponse(
+                message: .assistant(text: result.fullContent, toolUses: toolUses, nativeReasoning: nativeReasoning),
+                totalTokens: result.totalTokens
+            )
+        } catch let error as LLMHTTPTransportError {
+            switch error {
+            case .http(let statusCode, let data, let attempts):
+                throw annotateRetryContext(
+                    makeServiceError(
+                        statusCode: statusCode,
+                        data: data,
+                        configuration: configuration
+                    ),
+                    attempts: attempts
+                )
+            case .invalidHTTPResponse(let attempts):
+                throw AppError.operationFailed(
+                    retryAnnotatedMessage(
+                        "模型服务没有返回有效的 HTTP 响应。",
+                        attempts: attempts
+                    )
+                )
+            case .transport(let underlyingError, let attempts):
+                throw AppError.operationFailed(
+                    retryAnnotatedMessage(
+                        transportErrorMessage(for: underlyingError, provider: configuration.provider),
+                        attempts: attempts
+                    )
+                )
+            }
+        }
+    }
+
+    /// Streaming version — used for final summary reply (no tools).
+    func createStreamingChatCompletion(
+        providerID: APIProviderID,
+        systemPrompt: String,
+        session agentSession: AgentSession,
+        onDelta: @escaping @MainActor (String) -> Void,
+        onTokenEstimate: (@MainActor (Int) -> Void)? = nil,
+        modelRole: APIModelRole = .reasoningModel,
+        preferredReasoning: ModelReasoningRequest = .automatic,
+        temperatureOverride: Double? = nil,
+        configurationOverride: AgentModelConfigurationOverride? = nil
+    ) async throws -> LLMAPIClientResponse {
+        try await createStreamingChatCompletion(
+            providerID: providerID,
+            apiMessages: convertToAPIMessages(systemPrompt: systemPrompt, session: agentSession),
+            onDelta: onDelta,
+            onTokenEstimate: onTokenEstimate,
+            modelRole: modelRole,
+            preferredReasoning: preferredReasoning,
+            temperatureOverride: temperatureOverride,
+            configurationOverride: configurationOverride
+        )
+    }
+
+    func createStreamingChatCompletion(
+        providerID: APIProviderID,
+        apiMessages: [OpenAIChatMessage],
+        onDelta: @escaping @MainActor (String) -> Void,
+        onTokenEstimate: (@MainActor (Int) -> Void)? = nil,
+        modelRole: APIModelRole = .reasoningModel,
+        preferredReasoning: ModelReasoningRequest = .automatic,
+        temperatureOverride: Double? = nil,
+        configurationOverride: AgentModelConfigurationOverride? = nil
+    ) async throws -> LLMAPIClientResponse {
+        let override = try resolvedOverride(configurationOverride)
+        let configuration = try resolvedConfiguration(for: providerID, override: override)
+        let requestedModel = try await resolvedRequestModel(
+            for: configuration,
+            role: modelRole,
+            override: override
+        )
+        let effectiveReasoning = ModelNativeReasoningPreferenceStore.request(
+            providerID: configuration.provider.id,
+            model: requestedModel,
+            fallback: preferredReasoning,
+            userDefaults: userDefaults
+        )
+        let runtimeProfile = LLMProviderRuntimeResolver.runtimeProfile(
+            for: configuration,
+            model: requestedModel,
+            preferredReasoning: effectiveReasoning
+        )
+        let resolvedRuntimeProfile = runtimeProfileByOverridingCapabilities(
+            runtimeProfile,
+            overridingCapabilities: override?.capabilities
+        )
+        let resolvedModel = resolvedRuntimeProfile.model
+        let requestMessages = normalizedRequestMessages(from: apiMessages, for: configuration.provider.id)
+        let requestBody = OpenAICompatibleChatAdapter.makeRequestBody(
+            model: resolvedModel.id,
+            messages: requestMessages,
+            tools: nil,
+            toolChoice: nil,
+            temperature: resolvedInteractiveTemperature(override: temperatureOverride),
+            stream: true,
+            runtimeProfile: resolvedRuntimeProfile
+        )
+
+        let endpoint = OpenAICompatibleChatAdapter.chatCompletionsURL(
+            for: configuration.baseURL,
+            providerID: configuration.provider.id
+        )
+        var request = URLRequest(url: endpoint, timeoutInterval: LLMHTTPTransport.defaultTimeoutInterval)
+        request.httpMethod = "POST"
+        applyHeaders(
+            OpenAICompatibleChatAdapter.headers(for: resolvedRuntimeProfile, acceptsStreaming: true),
+            to: &request
+        )
+        request.httpBody = try JSONEncoder().encode(requestBody)
+
+        let promptEstimate = approximatePromptTokenCount(for: requestMessages)
+        onTokenEstimate?(promptEstimate)
+
+        let progressState = StreamingProgressState()
+        let streamingOnDelta: @Sendable (String) async -> Void = { text in
+            await MainActor.run {
                 progressState.content.append(text)
                 onDelta(text)
                 onTokenEstimate?(promptEstimate + ApproximateTokenCounter.estimate(progressState.content))
@@ -390,7 +582,8 @@ final class LLMAPIClient: AgentModelRuntime {
                 toolCalls: message.toolCalls.map(openAICompatibleToolCalls(from:)),
                 toolCallID: message.toolCallID,
                 reasoningContent: message.reasoningContent,
-                reasoningDetails: message.reasoningDetails
+                reasoningDetails: message.reasoningDetails,
+                imageDataURLs: message.imageDataURLs
             )
         }
     }
@@ -446,7 +639,8 @@ final class LLMAPIClient: AgentModelRuntime {
         for configuration: APIResolvedConfiguration,
         preferredModel: APIModelDefinition,
         requestedTools: [OpenAIChatToolDefinition],
-        preferredReasoning: ModelReasoningRequest
+        preferredReasoning: ModelReasoningRequest,
+        capabilitiesOverride: LLMModelCapabilities? = nil
     ) -> RuntimeModelSelection {
         let effectivePreferredReasoning = ModelNativeReasoningPreferenceStore.request(
             providerID: configuration.provider.id,
@@ -454,10 +648,13 @@ final class LLMAPIClient: AgentModelRuntime {
             fallback: preferredReasoning,
             userDefaults: userDefaults
         )
-        let preferredProfile = LLMProviderRuntimeResolver.runtimeProfile(
-            for: configuration,
-            model: preferredModel,
-            preferredReasoning: effectivePreferredReasoning
+        let preferredProfile = runtimeProfileByOverridingCapabilities(
+            LLMProviderRuntimeResolver.runtimeProfile(
+                for: configuration,
+                model: preferredModel,
+                preferredReasoning: effectivePreferredReasoning
+            ),
+            overridingCapabilities: capabilitiesOverride
         )
 
         guard !requestedTools.isEmpty,
@@ -474,6 +671,63 @@ final class LLMAPIClient: AgentModelRuntime {
             runtimeProfile: preferredProfile,
             shouldAttemptUnverifiedToolCalls: shouldAttemptToolsOnUnverifiedModel(preferredProfile)
         )
+    }
+
+    private func runtimeProfileByOverridingCapabilities(
+        _ profile: LLMProviderRuntimeProfile,
+        overridingCapabilities capabilities: LLMModelCapabilities?
+    ) -> LLMProviderRuntimeProfile {
+        guard let capabilities else {
+            return profile
+        }
+        return LLMProviderRuntimeProfile(
+            providerID: profile.providerID,
+            providerName: profile.providerName,
+            category: profile.category,
+            baseURL: profile.baseURL,
+            apiKey: profile.apiKey,
+            model: profile.model,
+            integrationSpec: profile.integrationSpec,
+            capabilities: capabilities,
+            preferredReasoning: profile.preferredReasoning,
+            preservesReasoningContentInToolHistory: capabilities.supportsReasoningReplay,
+            defaultHeaders: profile.defaultHeaders
+        )
+    }
+
+    private func resolvedOverride(
+        _ override: AgentModelConfigurationOverride?
+    ) throws -> AgentModelResolvedConfiguration? {
+        guard let override else {
+            return nil
+        }
+        switch override {
+        case .resolved(let resolved):
+            return resolved
+        case .unavailable(let message):
+            throw AppError.operationFailed(message)
+        }
+    }
+
+    private func resolvedConfiguration(
+        for providerID: APIProviderID,
+        override: AgentModelResolvedConfiguration?
+    ) throws -> APIResolvedConfiguration {
+        if let override {
+            return override.configuration
+        }
+        return try apiConfigurationStore.resolvedConfiguration(for: providerID)
+    }
+
+    private func resolvedRequestModel(
+        for configuration: APIResolvedConfiguration,
+        role: APIModelRole,
+        override: AgentModelResolvedConfiguration?
+    ) async throws -> APIModelDefinition {
+        if let override {
+            return override.model
+        }
+        return try await resolvedRequestModel(for: configuration, role: role)
     }
 
     private func selectedToolDefinitions(
@@ -571,7 +825,7 @@ final class LLMAPIClient: AgentModelRuntime {
             switch statusCode {
             case 401:
                 if configuration.provider.id == .lmstudio {
-                    return .operationFailed("LM Studio 调用失败：当前服务端开启了 Require Authentication，请在配置里填写 API Token。")
+                    return .operationFailed("LM Studio 调用失败：当前服务端开启了 Require Authentication，请在配置里填写 API Key。")
                 }
                 return .operationFailed("\(providerTitle) 调用失败：API Key 无效、过期，或没有访问当前模型的权限。")
             case 403:
@@ -769,10 +1023,17 @@ enum LLMHTTPTransport {
 
     // MARK: - Streaming (SSE)
 
+    struct StreamedToolCall {
+        let id: String
+        let name: String
+        let arguments: String
+    }
+
     struct StreamingResult {
         let fullContent: String
         let reasoningContent: String?
         let reasoningDetails: JSONRuntimeValue?
+        let toolCalls: [StreamedToolCall]
         let totalTokens: Int
         let response: HTTPURLResponse
     }
@@ -783,7 +1044,8 @@ enum LLMHTTPTransport {
     static func performStreaming(
         _ request: URLRequest,
         using session: URLSession,
-        onDelta: @escaping @Sendable (String) -> Void
+        onDelta: @escaping @Sendable (String) async -> Void,
+        onReasoningDelta: @escaping @Sendable (String) async -> Void = { _ in }
     ) async throws -> StreamingResult {
         var preparedRequest = request
         preparedRequest.timeoutInterval = max(preparedRequest.timeoutInterval, defaultTimeoutInterval)
@@ -824,6 +1086,9 @@ enum LLMHTTPTransport {
                 var reasoningContent = ""
                 var reasoningDetails: JSONRuntimeValue?
                 var totalTokens = 0
+                // 按 index 累积 tool_calls 分片（id/name 取首个非空，arguments 持续拼接）。
+                var toolCallOrder: [Int] = []
+                var toolCallAccumulators: [Int: (id: String, name: String, arguments: String)] = [:]
 
                 for try await line in bytes.lines {
                     guard line.hasPrefix("data: ") else { continue }
@@ -840,24 +1105,49 @@ enum LLMHTTPTransport {
                        let text = delta.content, !text.isEmpty {
                         emittedAnyDelta = true
                         fullContent += text
-                        onDelta(text)
+                        await onDelta(text)
                     }
 
                     if let delta = chunk.choices.first?.delta {
                         if let text = delta.reasoningContent, !text.isEmpty {
+                            emittedAnyDelta = true
                             reasoningContent += text
+                            await onReasoningDelta(text)
                         }
                         if let text = delta.reasoning, !text.isEmpty {
+                            emittedAnyDelta = true
                             reasoningContent += text
+                            await onReasoningDelta(text)
                         }
                         if let text = delta.thinking, !text.isEmpty {
+                            emittedAnyDelta = true
                             reasoningContent += text
+                            await onReasoningDelta(text)
                         }
                         if let details = delta.reasoningDetails {
                             reasoningDetails = Self.mergingReasoningDetails(
                                 existing: reasoningDetails,
                                 incoming: details
                             )
+                        }
+                        if let toolCallDeltas = delta.toolCalls {
+                            emittedAnyDelta = true
+                            for toolCallDelta in toolCallDeltas {
+                                let index = toolCallDelta.index ?? 0
+                                if toolCallAccumulators[index] == nil {
+                                    toolCallAccumulators[index] = (id: "", name: "", arguments: "")
+                                    toolCallOrder.append(index)
+                                }
+                                if let id = toolCallDelta.id, !id.isEmpty {
+                                    toolCallAccumulators[index]?.id = id
+                                }
+                                if let name = toolCallDelta.function?.name, !name.isEmpty {
+                                    toolCallAccumulators[index]?.name = name
+                                }
+                                if let arguments = toolCallDelta.function?.arguments {
+                                    toolCallAccumulators[index]?.arguments += arguments
+                                }
+                            }
                         }
                     }
 
@@ -867,10 +1157,22 @@ enum LLMHTTPTransport {
                     }
                 }
 
+                let accumulatedToolCalls = toolCallOrder.compactMap { index -> StreamedToolCall? in
+                    guard let accumulator = toolCallAccumulators[index], !accumulator.name.isEmpty else {
+                        return nil
+                    }
+                    return StreamedToolCall(
+                        id: accumulator.id,
+                        name: accumulator.name,
+                        arguments: accumulator.arguments
+                    )
+                }
+
                 return StreamingResult(
                     fullContent: fullContent,
                     reasoningContent: reasoningContent.isEmpty ? nil : reasoningContent,
                     reasoningDetails: reasoningDetails,
+                    toolCalls: accumulatedToolCalls,
                     totalTokens: totalTokens,
                     response: httpResponse
                 )
@@ -1026,6 +1328,7 @@ private struct SSEDelta: Decodable {
     let reasoning: String?
     let thinking: String?
     let reasoningDetails: JSONRuntimeValue?
+    let toolCalls: [SSEToolCallDelta]?
 
     enum CodingKeys: String, CodingKey {
         case content
@@ -1034,7 +1337,21 @@ private struct SSEDelta: Decodable {
         case reasoning
         case thinking
         case reasoningDetails = "reasoning_details"
+        case toolCalls = "tool_calls"
     }
+}
+
+// 流式 tool_calls 分片：首片带 index/id/name，后续片按同一 index 追加 arguments 字符串。
+private struct SSEToolCallDelta: Decodable {
+    let index: Int?
+    let id: String?
+    let type: String?
+    let function: SSEFunctionDelta?
+}
+
+private struct SSEFunctionDelta: Decodable {
+    let name: String?
+    let arguments: String?
 }
 
 private struct SSEUsage: Decodable {

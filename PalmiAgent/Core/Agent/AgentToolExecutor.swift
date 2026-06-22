@@ -51,15 +51,21 @@ final class AgentToolExecutor {
 
     func execute(
         _ prepared: AgentPreparedToolExecution,
-        stepID: UUID
+        stepID: UUID,
+        modelOverrides: AgentModelRoleOverrides = .empty
     ) async -> AgentToolExecutionResult {
-        let outcome = await actionExecutor.execute(prepared.action, arguments: prepared.arguments)
+        let outcome = await actionExecutor.execute(
+            prepared.action,
+            arguments: prepared.arguments,
+            modelOverrides: modelOverrides
+        )
         let step = LLMToolExecutionStep(
             id: stepID,
             action: prepared.action,
             argumentsJSON: prepared.argumentsJSON,
             result: outcome.result,
             requiresUserInteraction: outcome.presentation != nil,
+            presentation: outcome.presentation,
             fileDeltas: outcome.fileDeltas
         )
         return AgentToolExecutionResult(

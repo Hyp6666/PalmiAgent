@@ -7,14 +7,18 @@ CLAUDE.md
 .cursor/
 .cursorrules
 .windsurf/
+.playwright-mcp/
 
 # Internal planning notes and local verification prompts
 docs/
 TestPrompts/
 strength-mapping-template.md
+artifacts/
+simulator-preview.png
 
 # Xcode and Apple build output
 DerivedData/
+.derivedData*/
 build/
 Build/
 *.xcuserstate

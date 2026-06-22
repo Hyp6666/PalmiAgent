@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ChatHistoryHomeScreen: View {
     @Bindable var store: WorkspaceStore
+    @Bindable var chatStore: ChatStore
     let onOpenConversation: (WorkspaceProjectRecord) -> Void
     let onOpenSettings: () -> Void
     let onOpenModeSwitcher: () -> Void
@@ -41,11 +42,18 @@ struct ChatHistoryHomeScreen: View {
                         } else {
                             VStack(spacing: 10) {
                                 ForEach(store.chatProjects) { project in
+                                    let threads = store.threads(for: project.id)
+                                    let thread = threads.first
+                                    let runningBadgeText = threads.lazy.compactMap {
+                                        chatStore.runningBadgeText(
+                                            for: WorkspaceSelection(projectID: project.id, threadID: $0.id)
+                                        )
+                                    }.first
                                     ChatHistoryCard(
                                         project: project,
-                                        updatedAt: store.threads(for: project.id).first?.updatedAt ?? project.createdAt,
+                                        updatedAt: thread?.updatedAt ?? project.createdAt,
+                                        runningBadgeText: runningBadgeText,
                                         onOpen: {
-                                            store.selectChatConversation(project)
                                             onOpenConversation(project)
                                         },
                                         onRename: { presentedEditor = .rename(project) },
@@ -93,7 +101,6 @@ struct ChatHistoryHomeScreen: View {
 
                     Button {
                         if let existing = store.firstEmptyDefaultChatProject() {
-                            store.selectChatConversation(existing)
                             onOpenConversation(existing)
                         } else {
                             store.createChatConversation()
@@ -164,6 +171,7 @@ struct ChatHistoryHomeScreen: View {
 private struct ChatHistoryCard: View {
     let project: WorkspaceProjectRecord
     let updatedAt: Date
+    let runningBadgeText: String?
     let onOpen: () -> Void
     let onRename: () -> Void
     let onDelete: () -> Void
@@ -180,6 +188,15 @@ private struct ChatHistoryCard: View {
                     Text(updatedAt.formatted(date: .abbreviated, time: .shortened))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+
+                    if let runningBadgeText {
+                        Label(runningBadgeText, systemImage: "sparkles")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.blue)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(.blue.opacity(0.10), in: Capsule())
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())

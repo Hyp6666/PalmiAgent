@@ -153,7 +153,6 @@ struct PalmiAttachmentMenu: View {
     let onCamera: () -> Void
     let onPhotos: () -> Void
     let onFiles: () -> Void
-    let onPlan: () -> Void
     let onGoal: () -> Void
     let onResearch: () -> Void
 
@@ -162,7 +161,6 @@ struct PalmiAttachmentMenu: View {
         onCamera: @escaping () -> Void,
         onPhotos: @escaping () -> Void,
         onFiles: @escaping () -> Void,
-        onPlan: @escaping () -> Void = {},
         onGoal: @escaping () -> Void = {},
         onResearch: @escaping () -> Void = {}
     ) {
@@ -170,7 +168,6 @@ struct PalmiAttachmentMenu: View {
         self.onCamera = onCamera
         self.onPhotos = onPhotos
         self.onFiles = onFiles
-        self.onPlan = onPlan
         self.onGoal = onGoal
         self.onResearch = onResearch
     }
@@ -184,15 +181,8 @@ struct PalmiAttachmentMenu: View {
             }
 
             if showsPlanningRows {
-                menuRow(title: "计  划", subtitle: "与 Palmi 确定计划并执行", systemImage: "checklist", action: onPlan)
-                    .disabled(true)
-                    .opacity(0.55)
                 menuRow(title: "目  标", subtitle: "设立目标让 Palmi 完成", systemImage: "target", action: onGoal)
-                    .disabled(true)
-                    .opacity(0.55)
                 menuRow(title: "深度研究", subtitle: "让 Palmi 进行深度研究", systemImage: "sparkle.magnifyingglass", action: onResearch)
-                    .disabled(true)
-                    .opacity(0.55)
             }
         }
         .padding(14)
@@ -253,12 +243,12 @@ struct PalmiAttachmentMenu: View {
 
                 Text(title)
                     .font(.system(size: 19, weight: .bold, design: .rounded))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(Color.accentColor)
                     .frame(width: 82, alignment: .leading)
 
                 Text(subtitle)
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(Color.accentColor.opacity(0.85))
                     .lineLimit(1)
 
                 Spacer(minLength: 0)

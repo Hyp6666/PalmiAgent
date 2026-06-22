@@ -71,12 +71,16 @@ final class WorkspaceStore {
         threadsByProject[projectID] ?? []
     }
 
+    func thread(for selection: WorkspaceSelection) -> WorkspaceThreadRecord? {
+        threadsByProject[selection.projectID]?.first { $0.id == selection.threadID } ??
+        (selectedThreadID == selection.threadID ? selectedThread : nil)
+    }
+
     func reload() {
         do {
             let professionalProjects = try workspaceManager.listProjects(on: .professional)
             let chatProjects = try workspaceManager.listProjects(on: .chat)
             projects = professionalProjects
-            self.chatProjects = chatProjects
 
             let allProjects = professionalProjects + chatProjects
             var counts: [UUID: Int] = [:]
@@ -88,6 +92,7 @@ final class WorkspaceStore {
             }
             threadCounts = counts
             threadsByProject = cachedThreads
+            self.chatProjects = sortedChatProjectsByRecentThread(chatProjects)
 
             try restoreSelections()
             statusMessage = nil
@@ -106,6 +111,7 @@ final class WorkspaceStore {
             selectedNode = nil
             selectedNodePreview = nil
             threadsByProject = [:]
+            threadCounts = [:]
         }
     }
 
@@ -265,7 +271,7 @@ final class WorkspaceStore {
 
         do {
             let thread = try workspaceManager.createThread(named: name, in: projectID)
-            threadCounts[projectID] = (threadCounts[projectID] ?? 0) + 1
+            try refreshThreads(for: projectID)
             selectThread(thread)
             statusMessage = "已创建会话：\(thread.name)"
         } catch {
@@ -274,14 +280,25 @@ final class WorkspaceStore {
     }
 
     func autoTitleTargetForCurrentSelection() -> WorkspaceAutoTitleTarget? {
-        guard let project = selectedProject, let thread = selectedThread else {
+        guard let selection = selectedSelection else {
+            return nil
+        }
+
+        return autoTitleTarget(for: selection)
+    }
+
+    func autoTitleTarget(for selection: WorkspaceSelection) -> WorkspaceAutoTitleTarget? {
+        guard let project = (projects + chatProjects).first(where: { $0.id == selection.projectID }),
+              let thread = threadsByProject[selection.projectID]?.first(where: { $0.id == selection.threadID }) else {
             return nil
         }
 
         return WorkspaceAutoTitleTarget(
             surface: project.surface,
             projectID: project.id,
-            threadID: thread.id
+            threadID: thread.id,
+            projectName: project.name,
+            threadName: thread.name
         )
     }
 
@@ -357,6 +374,26 @@ final class WorkspaceStore {
         }
     }
 
+    func setModelPlanOverride(
+        _ override: ModelPlanSessionOverride?,
+        for selection: WorkspaceSelection
+    ) {
+        do {
+            try workspaceManager.updateThreadModelPlanOverride(
+                projectID: selection.projectID,
+                threadID: selection.threadID,
+                override: override
+            )
+            let refreshed = try refreshThreads(for: selection.projectID)
+            if selectedProjectID == selection.projectID {
+                threads = refreshed
+            }
+            statusMessage = nil
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
     func deleteThread(_ thread: WorkspaceThreadRecord) {
         do {
             try workspaceManager.deleteThread(projectID: thread.projectID, threadID: thread.id)
@@ -427,6 +464,7 @@ final class WorkspaceStore {
         }
 
         do {
+            try refreshThreads(for: selection.projectID)
             fileTree = try workspaceManager.withSelection(selection) {
                 try workspaceManager.listFileTree(showHiddenFiles: showsHiddenFiles)
             }
@@ -637,6 +675,31 @@ final class WorkspaceStore {
         refreshCurrentThreadContents()
     }
 
+    @discardableResult
+    private func refreshThreads(for projectID: UUID) throws -> [WorkspaceThreadRecord] {
+        let refreshedThreads = try workspaceManager.listThreads(in: projectID)
+        threadsByProject[projectID] = refreshedThreads
+        threadCounts[projectID] = refreshedThreads.count
+        if selectedProjectID == projectID {
+            threads = refreshedThreads
+        }
+        chatProjects = sortedChatProjectsByRecentThread(chatProjects)
+        return refreshedThreads
+    }
+
+    private func sortedChatProjectsByRecentThread(
+        _ projects: [WorkspaceProjectRecord]
+    ) -> [WorkspaceProjectRecord] {
+        projects.sorted { lhs, rhs in
+            let lhsUpdatedAt = threadsByProject[lhs.id]?.first?.updatedAt ?? lhs.createdAt
+            let rhsUpdatedAt = threadsByProject[rhs.id]?.first?.updatedAt ?? rhs.createdAt
+            if lhsUpdatedAt != rhsUpdatedAt {
+                return lhsUpdatedAt > rhsUpdatedAt
+            }
+            return lhs.createdAt > rhs.createdAt
+        }
+    }
+
     private func clearActiveSelection() {
         selectedProjectID = nil
         selectedThreadID = nil
@@ -651,4 +714,6 @@ struct WorkspaceAutoTitleTarget: Sendable {
     let surface: WorkspaceProjectSurface
     let projectID: UUID
     let threadID: UUID
+    let projectName: String
+    let threadName: String
 }

@@ -10,6 +10,23 @@ enum SelectableTextWidthBehavior {
     case fitContent
 }
 
+struct SelectableLinkInteraction {
+    let url: URL
+    let title: String?
+    let sourceRect: CGRect?
+}
+
+private struct SelectableLinkInteractionHandlerKey: EnvironmentKey {
+    static let defaultValue: ((SelectableLinkInteraction) -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    var selectableLinkInteractionHandler: ((SelectableLinkInteraction) -> Void)? {
+        get { self[SelectableLinkInteractionHandlerKey.self] }
+        set { self[SelectableLinkInteractionHandlerKey.self] = newValue }
+    }
+}
+
 struct SelectablePlainTextView: View {
     let text: String
     var textColor: UIColor = .label
@@ -40,19 +57,62 @@ struct SelectableMarkdownTextView: View {
     var widthBehavior: SelectableTextWidthBehavior = .fillWidth
 
     @Environment(\.openURL) private var openURL
+    @Environment(\.selectableLinkInteractionHandler) private var linkInteractionHandler
+    @State private var renderedMarkdown: RenderedMarkdown?
+
+    private struct RenderedMarkdown {
+        let key: String
+        let attributedText: NSAttributedString
+    }
+
+    private var renderKey: String {
+        [
+            String(markdown.hashValue),
+            textColor.description,
+            tintColor.description,
+            baseFont.fontName,
+            String(format: "%.2f", baseFont.pointSize)
+        ].joined(separator: "|")
+    }
+
+    private var placeholderAttributedText: NSAttributedString {
+        NSAttributedString(
+            string: markdown,
+            attributes: [
+                .font: baseFont,
+                .foregroundColor: textColor
+            ]
+        )
+    }
 
     var body: some View {
+        let key = renderKey
+        let attributedText = renderedMarkdown?.key == key
+            ? renderedMarkdown?.attributedText ?? placeholderAttributedText
+            : placeholderAttributedText
+
         SelectableAttributedTextView(
-            attributedText: MarkdownAttributedTextRenderer.render(
+            attributedText: attributedText,
+            tintColor: tintColor,
+            widthBehavior: widthBehavior
+        ) { interaction in
+            if let linkInteractionHandler {
+                linkInteractionHandler(interaction)
+            } else {
+                openURL(interaction.url)
+            }
+        }
+        .task(id: key) {
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            let rendered = MarkdownAttributedTextRenderer.render(
                 markdown: markdown,
                 textColor: textColor,
                 tintColor: tintColor,
                 baseFont: baseFont
-            ),
-            tintColor: tintColor,
-            widthBehavior: widthBehavior
-        ) { url in
-            openURL(url)
+            )
+            guard !Task.isCancelled else { return }
+            renderedMarkdown = RenderedMarkdown(key: key, attributedText: rendered)
         }
     }
 }
@@ -61,7 +121,7 @@ private struct SelectableAttributedTextView: UIViewRepresentable {
     let attributedText: NSAttributedString
     var tintColor: UIColor = .systemBlue
     var widthBehavior: SelectableTextWidthBehavior = .fillWidth
-    var onOpenURL: ((URL) -> Void)? = nil
+    var onOpenURL: ((SelectableLinkInteraction) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onOpenURL: onOpenURL)
@@ -143,9 +203,9 @@ private struct SelectableAttributedTextView: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, UITextViewDelegate {
-        var onOpenURL: ((URL) -> Void)?
+        var onOpenURL: ((SelectableLinkInteraction) -> Void)?
 
-        init(onOpenURL: ((URL) -> Void)?) {
+        init(onOpenURL: ((SelectableLinkInteraction) -> Void)?) {
             self.onOpenURL = onOpenURL
         }
 
@@ -156,8 +216,47 @@ private struct SelectableAttributedTextView: UIViewRepresentable {
             interaction: UITextItemInteraction
         ) -> Bool {
             guard let onOpenURL else { return true }
-            onOpenURL(url)
+            onOpenURL(
+                SelectableLinkInteraction(
+                    url: url,
+                    title: linkTitle(in: textView, range: characterRange),
+                    sourceRect: linkSourceRect(in: textView, range: characterRange)
+                )
+            )
             return false
+        }
+
+        private func linkTitle(in textView: UITextView, range: NSRange) -> String? {
+            guard range.location != NSNotFound,
+                  NSMaxRange(range) <= textView.attributedText.length else {
+                return nil
+            }
+            let title = (textView.attributedText.string as NSString)
+                .substring(with: range)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return title.isEmpty ? nil : title
+        }
+
+        private func linkSourceRect(in textView: UITextView, range: NSRange) -> CGRect? {
+            guard range.location != NSNotFound,
+                  NSMaxRange(range) <= textView.attributedText.length else {
+                return nil
+            }
+
+            textView.layoutManager.ensureLayout(for: textView.textContainer)
+            let glyphRange = textView.layoutManager.glyphRange(
+                forCharacterRange: range,
+                actualCharacterRange: nil
+            )
+            guard glyphRange.length > 0 else { return nil }
+
+            var rect = textView.layoutManager.boundingRect(
+                forGlyphRange: glyphRange,
+                in: textView.textContainer
+            )
+            rect.origin.x += textView.textContainerInset.left
+            rect.origin.y += textView.textContainerInset.top
+            return textView.convert(rect, to: nil)
         }
     }
 }

@@ -3,7 +3,7 @@ import UIKit
 
 struct SharePayload: Identifiable {
     let url: URL
-    var id: String { url.path }
+    var id: String { url.absoluteString }
 }
 
 struct APIConfigurationFeedback {
@@ -46,8 +46,10 @@ final class ManualLabStore {
     let actions: [ToolAction]
     let executor: ActionExecutor
     let apiConfigurationStore: APIConfigurationStore
+    let modelPlanStore: ModelPlanStore
     let llmToolCallingService: LLMToolCallingService
     let apiConnectionValidationService: APIConnectionValidationService
+    let modelCandidateValidationService: ModelCandidateValidationService
     let lmStudioDiscoveryService: LMStudioDiscoveryService
     let workspaceStore: WorkspaceStore
     let toolPermissionStore: ToolPermissionStore
@@ -78,8 +80,10 @@ final class ManualLabStore {
         actions: [ToolAction],
         executor: ActionExecutor,
         apiConfigurationStore: APIConfigurationStore,
+        modelPlanStore: ModelPlanStore,
         llmToolCallingService: LLMToolCallingService,
         apiConnectionValidationService: APIConnectionValidationService,
+        modelCandidateValidationService: ModelCandidateValidationService,
         lmStudioDiscoveryService: LMStudioDiscoveryService,
         workspaceStore: WorkspaceStore,
         toolPermissionStore: ToolPermissionStore,
@@ -88,8 +92,10 @@ final class ManualLabStore {
         self.actions = actions
         self.executor = executor
         self.apiConfigurationStore = apiConfigurationStore
+        self.modelPlanStore = modelPlanStore
         self.llmToolCallingService = llmToolCallingService
         self.apiConnectionValidationService = apiConnectionValidationService
+        self.modelCandidateValidationService = modelCandidateValidationService
         self.lmStudioDiscoveryService = lmStudioDiscoveryService
         self.workspaceStore = workspaceStore
         self.toolPermissionStore = toolPermissionStore
@@ -625,7 +631,7 @@ final class ManualLabStore {
                     )
                 } else if selectedServer.requiresAuthentication && apiToken == nil {
                     apiFeedbacks[resolvedProfileID] = .success(
-                        "\(savedProfile.profileName) 已发现并保存服务器地址；该服务端需要 API Token，填写后再点一次“自动配置”即可。"
+                        "\(savedProfile.profileName) 已发现并保存服务器地址；该服务端需要 API Key，填写后再点一次“自动配置”即可。"
                     )
                 } else {
                     apiFeedbacks[resolvedProfileID] = .success(
@@ -828,6 +834,7 @@ final class ManualLabStore {
 
         do {
             let snapshot = try persistDraft(for: providerID, profileID: resolvedProfileID)
+            setActiveProviderID(providerID)
             apiFeedbacks[resolvedProfileID] = .success("\(snapshot.profileName) 已保存。")
         } catch {
             apiFeedbacks[resolvedProfileID] = .failure(error.localizedDescription)
@@ -995,6 +1002,14 @@ final class ManualLabStore {
         if availableModels.contains(where: { $0.id == currentModelID }) {
             return currentModelID
         }
+        let trimmedCurrentModelID = currentModelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if provider.supportsManualModelSelection,
+           accessMode.models.isEmpty,
+           !trimmedCurrentModelID.isEmpty,
+           trimmedCurrentModelID != APIModelSelection.automaticID,
+           trimmedCurrentModelID != APIModelSelection.noneMultimodalID {
+            return trimmedCurrentModelID
+        }
         if provider.supportsManualModelSelection, role == .defaultModel {
             return accessMode.defaultModel.id
         }
@@ -1020,6 +1035,14 @@ final class ManualLabStore {
             case .reasoningModel, .lightweightModel:
                 return defaultModel
             }
+        }
+        let trimmed = selectionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if provider.supportsManualModelSelection,
+           accessMode.models.isEmpty,
+           !trimmed.isEmpty,
+           trimmed != APIModelSelection.automaticID,
+           trimmed != APIModelSelection.noneMultimodalID {
+            return APIModelDefinition(id: trimmed, title: trimmed, summary: "")
         }
         return accessMode.model(withID: selectionID) ?? accessMode.defaultModel(for: role)
     }

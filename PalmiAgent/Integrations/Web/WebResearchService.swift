@@ -1,6 +1,7 @@
 import Foundation
 import SafariServices
 import SwiftUI
+import UniformTypeIdentifiers
 import WebKit
 
 struct WebSearchResult: Sendable {
@@ -135,7 +136,7 @@ final class WebResearchService {
 
     func fetchSummary(
         from url: URL,
-        maxBodyCharacters: Int = 500,
+        maxBodyCharacters: Int = ReasoningStrengthProfile.fetchStaticWebPageAbsoluteMaxCharacters,
         timeoutSeconds: TimeInterval = 15
     ) async throws -> WebFetchSummary {
         let (html, byteCount) = try await loadHTML(from: url, timeoutSeconds: timeoutSeconds)
@@ -146,7 +147,7 @@ final class WebResearchService {
 
     func fetchSummaries(
         urls: [URL],
-        maxBodyCharacters: Int = 500,
+        maxBodyCharacters: Int = ReasoningStrengthProfile.fetchStaticWebPageAbsoluteMaxCharacters,
         maxConcurrentRequests: Int = 4,
         requestTimeoutSeconds: TimeInterval = 12,
         totalTimeoutSeconds: TimeInterval = 12
@@ -225,7 +226,8 @@ final class WebResearchService {
         )
         let noTags = noScripts.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
         let normalized = noTags.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-        return String(decodeHTMLEntities(normalized).prefix(max(1, maxBodyCharacters)))
+        let cappedMaxCharacters = min(max(1, maxBodyCharacters), ReasoningStrengthProfile.fetchStaticWebPageAbsoluteMaxCharacters)
+        return String(decodeHTMLEntities(normalized).prefix(cappedMaxCharacters))
     }
 
     nonisolated private static func cleanupHTMLText(_ text: String) -> String {
@@ -479,7 +481,110 @@ final class WebResearchService {
     }
 }
 
-struct SafariSheet: UIViewControllerRepresentable {
+struct PalmiBrowserScreen: View {
+    let options: SafariPresentationOptions
+    var onClose: (() -> Void)?
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var sharePayload: SharePayload?
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .top) {
+                PalmiWebBrowserView(options: options)
+                    .ignoresSafeArea()
+
+                browserChrome(safeAreaTop: proxy.safeAreaInsets.top)
+            }
+            .background(Color(.systemBackground))
+            .ignoresSafeArea()
+        }
+        .sheet(item: $sharePayload) { payload in
+            ShareSheet(items: [payload.url])
+        }
+    }
+
+    private var title: String {
+        let trimmedTitle = options.displayTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedTitle.isEmpty {
+            return trimmedTitle
+        }
+
+        if options.url.isFileURL {
+            let filename = options.url.deletingPathExtension().lastPathComponent
+            return filename.isEmpty ? options.url.lastPathComponent : filename
+        }
+
+        return options.url.host ?? "网页"
+    }
+
+    private func browserChrome(safeAreaTop: CGFloat) -> some View {
+        GlassEffectContainer(spacing: 16) {
+            ZStack {
+                Text(title)
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: 210)
+                    .glassEffect(.regular, in: .capsule)
+
+                HStack {
+                    browserChromeButton(systemImage: "chevron.left", accessibilityLabel: "返回") {
+                        onClose?()
+                        dismiss()
+                    }
+
+                    Spacer()
+
+                    browserChromeButton(systemImage: "square.and.arrow.up", accessibilityLabel: "分享网页") {
+                        sharePayload = SharePayload(url: options.url)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, safeAreaTop + 8)
+        }
+    }
+
+    private func browserChromeButton(
+        systemImage: String,
+        accessibilityLabel: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 46, height: 46)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .circle)
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+struct SafariSheet: View {
+    let options: SafariPresentationOptions
+
+    var body: some View {
+        if Self.canUseSafariViewController(for: options.url) {
+            SafariViewControllerSheet(options: options)
+        } else {
+            PalmiWebBrowserView(options: options)
+                .ignoresSafeArea(edges: .bottom)
+        }
+    }
+
+    private static func canUseSafariViewController(for url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https"
+    }
+}
+
+private struct SafariViewControllerSheet: UIViewControllerRepresentable {
     let options: SafariPresentationOptions
 
     func makeUIViewController(context: Context) -> SFSafariViewController {
@@ -490,6 +595,229 @@ struct SafariSheet: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
+}
+
+struct PalmiWebBrowserView: UIViewRepresentable {
+    let options: SafariPresentationOptions
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        if let readAccessURL = options.fileReadAccessURL {
+            configuration.setURLSchemeHandler(
+                PalmiLocalFileSchemeHandler(readAccessURL: readAccessURL),
+                forURLScheme: PalmiLocalFileScheme.scheme
+            )
+        }
+
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
+        webView.allowsBackForwardNavigationGestures = true
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
+        load(options.url, in: webView, coordinator: context.coordinator)
+        return webView
+    }
+
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        let loadKey = BrowserLoadKey(url: options.url, readAccessURL: options.fileReadAccessURL)
+        guard context.coordinator.loadedKey != loadKey else { return }
+        load(options.url, in: webView, coordinator: context.coordinator)
+    }
+
+    static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
+        coordinator.loadedKey = nil
+        uiView.stopLoading()
+        uiView.navigationDelegate = nil
+        uiView.uiDelegate = nil
+        uiView.loadHTMLString("", baseURL: nil)
+    }
+
+    private func load(_ url: URL, in webView: WKWebView, coordinator: Coordinator) {
+        coordinator.loadedKey = BrowserLoadKey(url: url, readAccessURL: options.fileReadAccessURL)
+        webView.stopLoading()
+
+        if url.isFileURL, let readAccessURL = options.fileReadAccessURL {
+            let browserURL = PalmiLocalFileScheme.url(for: url, readAccessURL: readAccessURL) ?? url
+            webView.load(URLRequest(url: browserURL))
+        } else if url.isFileURL {
+            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+        } else {
+            webView.load(URLRequest(url: url))
+        }
+    }
+
+    struct BrowserLoadKey: Equatable {
+        let url: URL
+        let readAccessURL: URL?
+    }
+
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+        var loadedKey: BrowserLoadKey?
+
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            webView.reload()
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            if navigationAction.targetFrame == nil {
+                webView.load(navigationAction.request)
+            }
+            return nil
+        }
+    }
+}
+
+private enum PalmiLocalFileScheme {
+    static let scheme = "palmi-local"
+    static let host = "workspace"
+
+    static func url(for fileURL: URL, readAccessURL: URL) -> URL? {
+        guard fileURL.isFileURL,
+              let relativePath = relativePath(for: fileURL, in: readAccessURL) else {
+            return nil
+        }
+
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = host
+        components.path = "/" + relativePath
+        return components.url
+    }
+
+    static func fileURL(for url: URL, readAccessURL: URL) -> URL? {
+        guard url.scheme == scheme, url.host == host else { return nil }
+
+        let relativePath = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !relativePath.isEmpty else { return nil }
+
+        let candidate = readAccessURL.appendingPathComponent(relativePath)
+        let standardizedRoot = readAccessURL.standardizedFileURL.resolvingSymlinksInPath()
+        let standardizedCandidate = candidate.standardizedFileURL.resolvingSymlinksInPath()
+        let rootPath = standardizedRoot.path.hasSuffix("/") ? standardizedRoot.path : standardizedRoot.path + "/"
+        guard standardizedCandidate.path.hasPrefix(rootPath) else { return nil }
+        return standardizedCandidate
+    }
+
+    static func relativePath(for fileURL: URL, in readAccessURL: URL) -> String? {
+        let standardizedRoot = readAccessURL.standardizedFileURL.resolvingSymlinksInPath()
+        let standardizedFile = fileURL.standardizedFileURL.resolvingSymlinksInPath()
+        let rootPath = standardizedRoot.path.hasSuffix("/") ? standardizedRoot.path : standardizedRoot.path + "/"
+        guard standardizedFile.path.hasPrefix(rootPath) else { return nil }
+        return String(standardizedFile.path.dropFirst(rootPath.count))
+    }
+}
+
+private final class PalmiLocalFileSchemeHandler: NSObject, WKURLSchemeHandler {
+    private let readAccessURL: URL
+
+    init(readAccessURL: URL) {
+        self.readAccessURL = readAccessURL.standardizedFileURL.resolvingSymlinksInPath()
+    }
+
+    func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+        guard let requestURL = urlSchemeTask.request.url,
+              let fileURL = PalmiLocalFileScheme.fileURL(for: requestURL, readAccessURL: readAccessURL) else {
+            urlSchemeTask.didFailWithError(Self.error(code: 400, message: "Invalid local file URL."))
+            return
+        }
+
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            urlSchemeTask.didFailWithError(Self.error(code: 404, message: "Local file not found."))
+            return
+        }
+
+        do {
+            var data = try Data(contentsOf: fileURL)
+            let mimeType = Self.mimeType(for: fileURL)
+            if Self.shouldRewriteLocalReferences(in: fileURL, mimeType: mimeType),
+               let html = String(data: data, encoding: .utf8) {
+                data = Data(Self.rewriteLocalFileReferences(in: html, readAccessURL: readAccessURL).utf8)
+            }
+
+            let response = HTTPURLResponse(
+                url: requestURL,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: [
+                    "Content-Type": mimeType,
+                    "Access-Control-Allow-Origin": "*",
+                    "Cache-Control": "no-store"
+                ]
+            ) ?? URLResponse(
+                url: requestURL,
+                mimeType: mimeType,
+                expectedContentLength: data.count,
+                textEncodingName: nil
+            )
+            urlSchemeTask.didReceive(response)
+            urlSchemeTask.didReceive(data)
+            urlSchemeTask.didFinish()
+        } catch {
+            urlSchemeTask.didFailWithError(error)
+        }
+    }
+
+    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
+
+    private static func shouldRewriteLocalReferences(in fileURL: URL, mimeType: String) -> Bool {
+        let ext = fileURL.pathExtension.lowercased()
+        return mimeType == "text/html" || ext == "html" || ext == "htm"
+    }
+
+    private static func rewriteLocalFileReferences(in html: String, readAccessURL: URL) -> String {
+        guard let regex = try? NSRegularExpression(pattern: #"file://[^"'\s<>)]+"#) else {
+            return html
+        }
+
+        var output = html
+        let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+        for match in matches.reversed() {
+            guard let range = Range(match.range, in: output) else { continue }
+            let rawURLString = String(output[range])
+            guard let fileURL = URL(string: rawURLString),
+                  let localURL = PalmiLocalFileScheme.url(for: fileURL, readAccessURL: readAccessURL) else {
+                continue
+            }
+            output.replaceSubrange(range, with: localURL.absoluteString)
+        }
+        return output
+    }
+
+    private static func mimeType(for fileURL: URL) -> String {
+        let ext = fileURL.pathExtension.lowercased()
+        switch ext {
+        case "html", "htm":
+            return "text/html; charset=utf-8"
+        case "css":
+            return "text/css; charset=utf-8"
+        case "js", "mjs":
+            return "text/javascript; charset=utf-8"
+        case "json":
+            return "application/json; charset=utf-8"
+        case "svg":
+            return "image/svg+xml"
+        default:
+            return UTType(filenameExtension: ext)?.preferredMIMEType ?? "application/octet-stream"
+        }
+    }
+
+    private static func error(code: Int, message: String) -> NSError {
+        NSError(
+            domain: "PalmiLocalFileSchemeHandler",
+            code: code,
+            userInfo: [NSLocalizedDescriptionKey: message]
+        )
+    }
 }
 
 @MainActor

@@ -10,7 +10,8 @@ final class ConversationTitleService {
 
     func generateTitle(
         from firstUserMessage: String,
-        providerID: APIProviderID
+        providerID: APIProviderID,
+        modelOverrides: AgentModelRoleOverrides = .empty
     ) async throws -> String? {
         let trimmedMessage = firstUserMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedMessage.isEmpty else { return nil }
@@ -20,7 +21,8 @@ final class ConversationTitleService {
                 selection: AgentModelSelection(
                     providerID: providerID,
                     modelRole: .lightweightModel,
-                    reasoning: .disabled
+                    reasoning: .disabled,
+                    configurationOverride: modelOverrides.override(for: .lightweightModel)
                 ),
                 apiMessages: [
                     .system(

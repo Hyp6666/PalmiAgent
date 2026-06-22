@@ -527,7 +527,8 @@ final class WorkspaceManager {
             projectID: projectID,
             name: normalizedDisplayName(name, fallback: "新会话"),
             createdAt: .now,
-            updatedAt: .now
+            updatedAt: .now,
+            modelPlanOverride: nil
         )
         let directoryURL = threadDirectoryURL(for: projectID, threadID: thread.id)
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
@@ -543,6 +544,22 @@ final class WorkspaceManager {
 
         var thread = try readThread(at: directoryURL)
         thread.name = normalizedDisplayName(newName, fallback: thread.name)
+        thread.updatedAt = .now
+        try writeJSON(thread, to: threadManifestURL(for: projectID, threadID: threadID))
+    }
+
+    func updateThreadModelPlanOverride(
+        projectID: UUID,
+        threadID: UUID,
+        override: ModelPlanSessionOverride?
+    ) throws {
+        let directoryURL = threadDirectoryURL(for: projectID, threadID: threadID)
+        guard fileManager.fileExists(atPath: directoryURL.path) else {
+            throw AppError.invalidState("目标会话不存在。")
+        }
+
+        var thread = try readThread(at: directoryURL)
+        thread.modelPlanOverride = override
         thread.updatedAt = .now
         try writeJSON(thread, to: threadManifestURL(for: projectID, threadID: threadID))
     }
@@ -684,6 +701,22 @@ final class WorkspaceManager {
             return nil
         }
         return try readJSON(AgentSession.self, from: url)
+    }
+
+    func saveRunLedgerForCurrentThread(_ ledger: AgentRunLedger) throws {
+        let selection = try currentSelection()
+        let url = threadRunLedgerURL(for: selection.projectID, threadID: selection.threadID)
+        try writeJSON(ledger, to: url)
+        try touchActiveThread()
+    }
+
+    func loadRunLedgerForCurrentThread() throws -> AgentRunLedger? {
+        let selection = try currentSelection()
+        let url = threadRunLedgerURL(for: selection.projectID, threadID: selection.threadID)
+        guard fileManager.fileExists(atPath: url.path) else {
+            return nil
+        }
+        return try readJSON(AgentRunLedger.self, from: url)
     }
 
     func globalSkillsRootURL() throws -> URL {
@@ -851,6 +884,10 @@ final class WorkspaceManager {
 
     private func threadAgentSessionURL(for projectID: UUID, threadID: UUID) -> URL {
         threadDirectoryURL(for: projectID, threadID: threadID).appendingPathComponent("agent-session.json")
+    }
+
+    private func threadRunLedgerURL(for projectID: UUID, threadID: UUID) -> URL {
+        threadDirectoryURL(for: projectID, threadID: threadID).appendingPathComponent("run-ledger.json")
     }
 
     private func readProject(at directoryURL: URL) throws -> WorkspaceProjectRecord {
@@ -1218,10 +1255,10 @@ final class WorkspaceManager {
     }
 
     private func touchActiveThread() throws {
-        guard let activeSelection else { return }
-        let threadURL = threadDirectoryURL(for: activeSelection.projectID, threadID: activeSelection.threadID)
+        guard let selection = Self.pinnedSelection ?? activeSelection else { return }
+        let threadURL = threadDirectoryURL(for: selection.projectID, threadID: selection.threadID)
         var thread = try readThread(at: threadURL)
         thread.updatedAt = .now
-        try writeJSON(thread, to: threadManifestURL(for: activeSelection.projectID, threadID: activeSelection.threadID))
+        try writeJSON(thread, to: threadManifestURL(for: selection.projectID, threadID: selection.threadID))
     }
 }

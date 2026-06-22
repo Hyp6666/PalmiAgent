@@ -7,13 +7,14 @@ experience.
 <p align="center">
   <img src="Screenshots/palmi-chat.jpg" width="260" alt="PalmiAgent chat screen">
   <img src="Screenshots/palmi-extreme-config.jpg" width="260" alt="PalmiAgent extreme capability configuration">
+  <img src="Screenshots/palmi-multimodal-image-analysis.png" width="260" alt="PalmiAgent multimodal image analysis">
 </p>
 
 ## Highlights
 
 - Chat and professional workspace modes for lightweight conversations or project-oriented work.
 - OpenAI-compatible provider configuration for hosted APIs, local servers, and custom endpoints.
-- Built-in provider profiles for OpenAI, Azure OpenAI, DeepSeek, Qwen, Kimi, MiniMax, Volcengine, Tencent Hunyuan, Baidu Qianfan, StepFun, ModelScope, SiliconFlow, OpenRouter, LM Studio, Ollama, and custom OpenAI-compatible APIs.
+- Built-in provider profiles for OpenAI, Azure OpenAI, GLM/Z.AI, DeepSeek, Qwen, Kimi, MiniMax, Volcengine, Tencent Hunyuan, Baidu Qianfan, StepFun, ModelScope, SiliconFlow, OpenRouter, LM Studio, Ollama, and custom OpenAI-compatible APIs.
 - Capability profiles for Speed, Quality, and Extreme modes, including a Metal-backed animated Extreme configuration effect.
 - Tool runtime for workspace files, embedded Python execution, web research, attachments, and selected iOS system integrations.
 - Project skills and context layers for steering model behavior without hardcoding every prompt into the chat UI.
@@ -33,8 +34,9 @@ experience.
 4. Resolve Swift Package dependencies when Xcode prompts for them.
 5. Build and run.
 
-PalmiAgent does not bundle model weights. Configure model providers inside the
-app before using hosted or local models.
+PalmiAgent bundles PP-OCRv6 Tiny OCR assets for local image text recognition,
+but does not bundle general LLM weights. Configure model providers inside the
+app before using hosted or local LLMs.
 
 ## Repository Notes
 

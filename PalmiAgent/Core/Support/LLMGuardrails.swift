@@ -1,6 +1,8 @@
 import Foundation
 
 enum LLMGuardrails {
+    static let fetchStaticWebPageToolPayloadMaxCharacters = ReasoningStrengthProfile.fetchStaticWebPageAbsoluteMaxCharacters
+
     static func compactToolPayloadForModel(
         _ payload: String,
         maxDetailsCharacters: Int = 1_600
@@ -70,10 +72,14 @@ enum LLMGuardrails {
 
         let extendedContextActionIDs: Set<ToolActionID> = [
             .searchWeb,
-            .fetchStaticWebPage,
             .fileRead,
-            .listDirectory
+            .listDirectory,
+            .recognizeImageText,
+            .scanImageWithMultimodalModel
         ]
+        if actionID == .fetchStaticWebPage {
+            return fetchStaticWebPageToolPayloadMaxCharacters
+        }
         if extendedContextActionIDs.contains(actionID) {
             return ReasoningStrengthProfile.extendedToolPayloadMaxCharacters
         }

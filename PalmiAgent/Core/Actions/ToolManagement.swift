@@ -34,6 +34,7 @@ enum ToolManagementGroupID: String, CaseIterable, Identifiable, Codable, Sendabl
     case communication
     case systemEntrypoints
     case workspaceFiles
+    case multimodal
     case webResearch
 
     var id: String { rawValue }
@@ -130,6 +131,13 @@ enum ToolManagementCatalog {
             title: "工作区文件",
             subtitle: "文件读写、目录、管理、Python",
             actionIDs: [.fileRead, .fileWrite, .fileAppend, .listDirectory, .fileManage, .runPython]
+        ),
+        .init(
+            id: .multimodal,
+            sectionID: .nonApp,
+            title: "多模态",
+            subtitle: "本地图片 OCR 与视觉处理",
+            actionIDs: [.recognizeImageText, .scanImageWithMultimodalModel]
         ),
         .init(
             id: .webResearch,

@@ -3,41 +3,30 @@ import Foundation
 struct LLMDiscoveredModel: Hashable, Sendable {
     let id: String
     let ownedBy: String?
+    let traits: Set<APIModelTrait>
+
+    init(
+        id: String,
+        ownedBy: String?,
+        traits: Set<APIModelTrait> = []
+    ) {
+        self.id = id
+        self.ownedBy = ownedBy
+        self.traits = traits
+    }
 
     var apiModelDefinition: APIModelDefinition {
         APIModelDefinition(
             id: id,
             title: id,
             summary: "",
-            traits: inferredTraits
+            traits: traits
         )
     }
 
-    private var inferredTraits: Set<APIModelTrait> {
+    static func textTraits(for id: String) -> Set<APIModelTrait> {
         var traits: Set<APIModelTrait> = []
         let lowercasedID = id.lowercased()
-
-        let visionSignals = [
-            "vision",
-            "visual",
-            "qwen3.6-plus",
-            "qwen3.6-flash",
-            "qwen3.5-plus",
-            "qwen3.5-flash",
-            "-vl",
-            "_vl",
-            "/vl",
-            "vl-",
-            "v-",
-            "glm-5v",
-            "glm-4.6v",
-            "glm-4.5v",
-            "omni",
-            "multimodal"
-        ]
-        if visionSignals.contains(where: lowercasedID.contains) {
-            traits.insert(.multimodal)
-        }
 
         let reasoningSignals = [
             "reasoner",
@@ -90,7 +79,9 @@ final class LLMModelDiscoveryService: Sendable {
         baseURL: URL,
         apiKey: String?,
         modelsURL: URL? = nil,
-        isFullURL: Bool = false
+        isFullURL: Bool = false,
+        providerID: APIProviderID? = nil,
+        probeMultimodalSupport: Bool = false
     ) async throws -> [LLMDiscoveredModel] {
         let candidates = try modelURLCandidates(
             baseURL: baseURL,
@@ -130,12 +121,26 @@ final class LLMModelDiscoveryService: Sendable {
                 }
 
                 let models = envelope.data
-                    .map { LLMDiscoveredModel(id: $0.id, ownedBy: $0.ownedBy) }
+                    .map {
+                        LLMDiscoveredModel(
+                            id: $0.id,
+                            ownedBy: $0.ownedBy,
+                            traits: LLMDiscoveredModel.textTraits(for: $0.id)
+                        )
+                    }
                     .sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }
                 guard !models.isEmpty else {
                     throw AppError.operationFailed("模型列表为空。可以手动填写模型 ID，或检查当前 Key 是否有模型权限。")
                 }
-                return models
+                guard probeMultimodalSupport else {
+                    return models
+                }
+                return await modelsWithMultimodalProbe(
+                    models,
+                    baseURL: baseURL,
+                    apiKey: apiKey,
+                    providerID: providerID
+                )
             }
 
             let body = Self.truncated(String(decoding: data, as: UTF8.self))
@@ -153,6 +158,87 @@ final class LLMModelDiscoveryService: Sendable {
         }
 
         throw AppError.operationFailed("模型列表获取失败：当前地址可能不支持 `/models`。\n\(lastEndpointError ?? "没有可用候选地址。")")
+    }
+
+    func probeMultimodalSupport(
+        modelID: String,
+        baseURL: URL,
+        apiKey: String?,
+        providerID: APIProviderID?
+    ) async -> Bool {
+        await Self.probeMultimodalSupport(
+            modelID: modelID,
+            baseURL: baseURL,
+            apiKey: apiKey,
+            providerID: providerID,
+            session: session
+        )
+    }
+
+    private func modelsWithMultimodalProbe(
+        _ models: [LLMDiscoveredModel],
+        baseURL: URL,
+        apiKey: String?,
+        providerID: APIProviderID?
+    ) async -> [LLMDiscoveredModel] {
+        await withTaskGroup(of: (String, Bool).self) { group in
+            for model in models {
+                group.addTask { [session] in
+                    let supportsMultimodal = await Self.probeMultimodalSupport(
+                        modelID: model.id,
+                        baseURL: baseURL,
+                        apiKey: apiKey,
+                        providerID: providerID,
+                        session: session
+                    )
+                    return (model.id, supportsMultimodal)
+                }
+            }
+
+            var multimodalModelIDs = Set<String>()
+            for await (modelID, supportsMultimodal) in group where supportsMultimodal {
+                multimodalModelIDs.insert(modelID)
+            }
+
+            return models.map { model in
+                guard multimodalModelIDs.contains(model.id) else { return model }
+                var traits = model.traits
+                traits.insert(.multimodal)
+                return LLMDiscoveredModel(id: model.id, ownedBy: model.ownedBy, traits: traits)
+            }
+        }
+    }
+
+    private static func probeMultimodalSupport(
+        modelID: String,
+        baseURL: URL,
+        apiKey: String?,
+        providerID: APIProviderID?,
+        session: URLSession
+    ) async -> Bool {
+        let endpoint = OpenAICompatibleChatAdapter.chatCompletionsURL(
+            for: baseURL,
+            providerID: providerID
+        )
+        var request = URLRequest(url: endpoint, timeoutInterval: 12)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let trimmedKey = apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedKey.isEmpty {
+            request.setValue("Bearer \(trimmedKey)", forHTTPHeaderField: "Authorization")
+        }
+
+        do {
+            request.httpBody = try JSONEncoder().encode(MultimodalProbeRequest(model: modelID))
+            let (_, response) = try await session.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                return false
+            }
+            return (200..<300).contains(httpResponse.statusCode)
+        } catch {
+            return false
+        }
     }
 
     func modelURLCandidates(
@@ -226,6 +312,61 @@ final class LLMModelDiscoveryService: Sendable {
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count > 512 else { return trimmed }
         return String(trimmed.prefix(512)) + "…"
+    }
+}
+
+private struct MultimodalProbeRequest: Encodable {
+    let model: String
+    let messages: [MultimodalProbeMessage]
+    let stream = false
+
+    init(model: String) {
+        self.model = model
+        messages = [
+            MultimodalProbeMessage(
+                role: "user",
+                content: [
+                    .text("Reply OK."),
+                    .imageURL(Self.transparentPNGDataURL)
+                ]
+            )
+        ]
+    }
+
+    private static let transparentPNGDataURL =
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+}
+
+private struct MultimodalProbeMessage: Encodable {
+    let role: String
+    let content: [MultimodalProbeContentPart]
+}
+
+private enum MultimodalProbeContentPart: Encodable {
+    case text(String)
+    case imageURL(String)
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case text
+        case imageURL = "image_url"
+    }
+
+    private enum ImageCodingKeys: String, CodingKey {
+        case url
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .text(let text):
+            try container.encode("text", forKey: .type)
+            try container.encode(text, forKey: .text)
+        case .imageURL(let url):
+            try container.encode("image_url", forKey: .type)
+            var imageContainer = container.nestedContainer(keyedBy: ImageCodingKeys.self, forKey: .imageURL)
+            try imageContainer.encode(url, forKey: .url)
+        }
     }
 }
 

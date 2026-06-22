@@ -21,7 +21,7 @@ struct AgentRunProfile: Sendable {
 
     static func profile(for tier: ProfessionalReasoningTier) -> AgentRunProfile {
         let searchMaxResults: Int
-        let webPageCharacters: Int
+        let webPageRecommendedMaxCharacters: Int
         let webPageRecommendedURLs: Int
         let searchTimeoutSeconds: TimeInterval
         let webPageTimeoutSeconds: TimeInterval
@@ -33,21 +33,21 @@ struct AgentRunProfile: Sendable {
         switch tier {
         case .speed:
             searchMaxResults = 10
-            webPageCharacters = 750
+            webPageRecommendedMaxCharacters = 20_000
             webPageRecommendedURLs = 3
             searchTimeoutSeconds = 3
             webPageTimeoutSeconds = 8
             targetSummaryTokenCount = 10_000
         case .balanced:
             searchMaxResults = 20
-            webPageCharacters = 1_000
+            webPageRecommendedMaxCharacters = 50_000
             webPageRecommendedURLs = 6
             searchTimeoutSeconds = 5
             webPageTimeoutSeconds = 12
             targetSummaryTokenCount = 15_000
         case .infinite:
             searchMaxResults = 30
-            webPageCharacters = 1_500
+            webPageRecommendedMaxCharacters = ReasoningStrengthProfile.fetchStaticWebPageAbsoluteMaxCharacters
             webPageRecommendedURLs = 10
             searchTimeoutSeconds = 5
             webPageTimeoutSeconds = 18
@@ -68,7 +68,8 @@ struct AgentRunProfile: Sendable {
             timeoutSeconds: searchTimeoutSeconds
         )
         let webContent = WebContentStrengthConfiguration(
-            fetchStaticWebPageMaxCharacters: webPageCharacters,
+            fetchStaticWebPageRecommendedMaxCharacters: webPageRecommendedMaxCharacters,
+            fetchStaticWebPageAbsoluteMaxCharacters: ReasoningStrengthProfile.fetchStaticWebPageAbsoluteMaxCharacters,
             fetchStaticWebPageRecommendedURLCount: webPageRecommendedURLs,
             fetchStaticWebPageMaxURLs: webPageTechnicalMaxURLs,
             fetchStaticWebPageMaxConcurrentRequests: webPageTechnicalMaxConcurrentRequests,

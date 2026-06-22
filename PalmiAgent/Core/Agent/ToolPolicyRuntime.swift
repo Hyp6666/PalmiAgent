@@ -148,6 +148,19 @@ extension ToolActionID {
                 isIdempotent: false
             )
 
+        case .recognizeImageText, .scanImageWithMultimodalModel:
+            return ToolPolicyMetadata(
+                riskLevel: .r3WorkspaceMutationOrSandbox,
+                sideEffect: self == .recognizeImageText ? .mutatesWorkspace : .readsWorkspace,
+                parallelPolicy: .sequential,
+                confirmationPolicy: .firstUse,
+                mutatesWorkspace: self == .recognizeImageText,
+                touchesPersonalData: true,
+                isInteractive: false,
+                isCacheable: false,
+                isIdempotent: true
+            )
+
         case .runPython:
             return ToolPolicyMetadata(
                 riskLevel: .r3WorkspaceMutationOrSandbox,

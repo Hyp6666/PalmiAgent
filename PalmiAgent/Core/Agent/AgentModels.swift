@@ -318,6 +318,7 @@ enum AgentEvent: Sendable {
     case thoughtCard(AgentThoughtCard)
     case queuedUserGuidanceInjected(messages: [String])
     case streamingDelta(text: String)
+    case reasoningDelta(text: String)
     case tokenUpdate(totalTokens: Int)
     case contextCompactionStarted(source: AgentContextCompactionSource)
     case contextCompactionFinished(

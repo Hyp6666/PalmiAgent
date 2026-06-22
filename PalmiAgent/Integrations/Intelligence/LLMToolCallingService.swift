@@ -6,6 +6,7 @@ struct LLMToolExecutionStep: Identifiable, Sendable {
     let argumentsJSON: String
     let result: ToolResult
     let requiresUserInteraction: Bool
+    let presentation: MediaPresentation?
     let fileDeltas: [FileDelta]
 
     init(
@@ -14,6 +15,7 @@ struct LLMToolExecutionStep: Identifiable, Sendable {
         argumentsJSON: String,
         result: ToolResult,
         requiresUserInteraction: Bool,
+        presentation: MediaPresentation? = nil,
         fileDeltas: [FileDelta] = []
     ) {
         self.id = id
@@ -21,6 +23,7 @@ struct LLMToolExecutionStep: Identifiable, Sendable {
         self.argumentsJSON = argumentsJSON
         self.result = result
         self.requiresUserInteraction = requiresUserInteraction
+        self.presentation = presentation
         self.fileDeltas = fileDeltas
     }
 }
@@ -172,6 +175,7 @@ final class LLMToolCallingService {
                 argumentsJSON: argumentsJSON,
                 result: outcome.result,
                 requiresUserInteraction: outcome.presentation != nil,
+                presentation: outcome.presentation,
                 fileDeltas: outcome.fileDeltas
             )
             steps.append(step)
@@ -392,8 +396,8 @@ final class LLMToolCallingService {
         onTokenEstimate?(promptEstimate)
 
         let progressState = StreamingReplyState()
-        let streamingOnDelta: @Sendable (String) -> Void = { text in
-            Task { @MainActor in
+        let streamingOnDelta: @Sendable (String) async -> Void = { text in
+            await MainActor.run {
                 progressState.content.append(text)
                 onDelta(text)
                 onTokenEstimate?(promptEstimate + ApproximateTokenCounter.estimate(progressState.content))
@@ -763,7 +767,7 @@ final class LLMToolCallingService {
             switch statusCode {
             case 401:
                 if configuration.provider.id == .lmstudio {
-                    return .operationFailed("LM Studio 调用失败：当前服务端开启了 Require Authentication，请在配置里填写 API Token。")
+                    return .operationFailed("LM Studio 调用失败：当前服务端开启了 Require Authentication，请在配置里填写 API Key。")
                 }
                 return .operationFailed("\(providerTitle) 调用失败：API Key 无效、过期，或没有访问当前模型的权限。")
             case 403:
@@ -938,7 +942,7 @@ final class APIConnectionValidationService {
             switch statusCode {
             case 401:
                 if configuration.provider.id == .lmstudio {
-                    return .operationFailed("\(role.title) 未联通：LM Studio 已开启鉴权，请填写 API Token 后重试。")
+                    return .operationFailed("\(role.title) 未联通：LM Studio 已开启鉴权，请填写 API Key 后重试。")
                 }
                 return .operationFailed("\(role.title) 未联通：凭据无效，或没有访问 \(model.title) 的权限。")
             case 403:

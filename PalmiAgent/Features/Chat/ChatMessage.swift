@@ -86,6 +86,13 @@ struct PalmiContextCompactionNotice: Codable, Sendable {
     }
 }
 
+struct PalmiChatAttachment: Identifiable, Hashable, Codable, Sendable {
+    let id: UUID
+    let name: String
+    let relativePath: String
+    let source: WorkspaceAttachmentSource
+}
+
 struct PalmiChatMessage: Identifiable, Codable, Sendable {
     enum Role: String, Codable, Sendable {
         case user
@@ -107,6 +114,7 @@ struct PalmiChatMessage: Identifiable, Codable, Sendable {
     let toolCall: PalmiToolCallCard?
     let sessionHeader: PalmiChatSessionHeader?
     let contextCompaction: PalmiContextCompactionNotice?
+    let attachments: [PalmiChatAttachment]
     let turnPlacement: PalmiChatTurnPlacement
     let foldBehavior: PalmiChatFoldBehavior
     let timestamp: Date
@@ -119,6 +127,7 @@ struct PalmiChatMessage: Identifiable, Codable, Sendable {
         toolCall: PalmiToolCallCard? = nil,
         sessionHeader: PalmiChatSessionHeader? = nil,
         contextCompaction: PalmiContextCompactionNotice? = nil,
+        attachments: [PalmiChatAttachment] = [],
         turnPlacement: PalmiChatTurnPlacement? = nil,
         foldBehavior: PalmiChatFoldBehavior? = nil,
         timestamp: Date = Date()
@@ -130,6 +139,7 @@ struct PalmiChatMessage: Identifiable, Codable, Sendable {
         self.toolCall = toolCall
         self.sessionHeader = sessionHeader
         self.contextCompaction = contextCompaction
+        self.attachments = attachments
         self.turnPlacement = turnPlacement ?? Self.defaultTurnPlacement(for: role, kind: kind)
         self.foldBehavior = foldBehavior ?? Self.defaultFoldBehavior(for: role, kind: kind)
         self.timestamp = timestamp
@@ -143,6 +153,7 @@ struct PalmiChatMessage: Identifiable, Codable, Sendable {
         case toolCall
         case sessionHeader
         case contextCompaction
+        case attachments
         case turnPlacement
         case foldBehavior
         case timestamp
@@ -160,6 +171,10 @@ struct PalmiChatMessage: Identifiable, Codable, Sendable {
             PalmiContextCompactionNotice.self,
             forKey: .contextCompaction
         )
+        let attachments = try container.decodeIfPresent(
+            [PalmiChatAttachment].self,
+            forKey: .attachments
+        ) ?? []
         let turnPlacement = try container.decodeIfPresent(
             PalmiChatTurnPlacement.self,
             forKey: .turnPlacement
@@ -178,6 +193,7 @@ struct PalmiChatMessage: Identifiable, Codable, Sendable {
             toolCall: toolCall,
             sessionHeader: sessionHeader,
             contextCompaction: contextCompaction,
+            attachments: attachments,
             turnPlacement: turnPlacement,
             foldBehavior: foldBehavior,
             timestamp: timestamp

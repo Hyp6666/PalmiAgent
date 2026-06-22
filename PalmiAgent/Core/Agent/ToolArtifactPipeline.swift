@@ -21,6 +21,7 @@ final class ToolArtifactPipeline {
         session: AgentSession,
         toolResult: AgentToolResultRecord,
         providerID: APIProviderID,
+        modelOverrides: AgentModelRoleOverrides = .empty,
         userGoal: String
     ) async -> AgentHiddenArtifacts? {
         guard let actionID = ToolActionID(rawValue: toolResult.toolName),
@@ -42,6 +43,7 @@ final class ToolArtifactPipeline {
                 payload: payload,
                 toolUseID: toolResult.toolUseID,
                 providerID: providerID,
+                modelOverrides: modelOverrides,
                 queryGoal: goal,
                 existingArtifacts: updatedArtifacts
             ) {
@@ -55,6 +57,7 @@ final class ToolArtifactPipeline {
                     payload: payload,
                     toolUseID: toolResult.toolUseID,
                     providerID: providerID,
+                    modelOverrides: modelOverrides,
                     queryGoal: goal,
                     existingArtifacts: updatedArtifacts
                 ) {
@@ -70,6 +73,7 @@ final class ToolArtifactPipeline {
            let synthesis = await makeResearchSynthesis(
                 artifacts: updatedArtifacts,
                 providerID: providerID,
+                modelOverrides: modelOverrides,
                 queryGoal: goal
            ) {
             updatedArtifacts.upsert(synthesis)
@@ -82,6 +86,7 @@ final class ToolArtifactPipeline {
         payload: AgentToolPayload,
         toolUseID: String,
         providerID: APIProviderID,
+        modelOverrides: AgentModelRoleOverrides,
         queryGoal: String,
         existingArtifacts: AgentHiddenArtifacts
     ) async -> SearchSelectionArtifact? {
@@ -116,6 +121,7 @@ final class ToolArtifactPipeline {
                 \(payload.details)
                 """,
                 providerID: providerID,
+                modelOverrides: modelOverrides,
                 responseType: SearchSelectionWorkerResponse.self
             )
         } catch {
@@ -143,6 +149,7 @@ final class ToolArtifactPipeline {
         payload: AgentToolPayload,
         toolUseID: String,
         providerID: APIProviderID,
+        modelOverrides: AgentModelRoleOverrides,
         queryGoal: String,
         existingArtifacts: AgentHiddenArtifacts
     ) async -> SourceDigestArtifact? {
@@ -183,6 +190,7 @@ final class ToolArtifactPipeline {
                 \(payload.details)
                 """,
                 providerID: providerID,
+                modelOverrides: modelOverrides,
                 responseType: SourceDigestWorkerResponse.self
             )
         } catch {
@@ -217,6 +225,7 @@ final class ToolArtifactPipeline {
     private func makeResearchSynthesis(
         artifacts: AgentHiddenArtifacts,
         providerID: APIProviderID,
+        modelOverrides: AgentModelRoleOverrides,
         queryGoal: String
     ) async -> ResearchSynthesisArtifact? {
         let sourceDigests = artifacts.recentSourceDigests(limit: policy.maxSynthesisSourceDigests)
@@ -265,6 +274,7 @@ final class ToolArtifactPipeline {
                 \(renderedDigests)
                 """,
                 providerID: providerID,
+                modelOverrides: modelOverrides,
                 responseType: ResearchSynthesisWorkerResponse.self
             )
         } catch {
@@ -338,14 +348,19 @@ final class ToolArtifactPipeline {
         systemPrompt: String,
         userPrompt: String,
         providerID: APIProviderID,
+        modelOverrides: AgentModelRoleOverrides,
         responseType: Response.Type
     ) async throws -> Response {
+        let modelRole: APIModelRole = providerID == .lmstudio && modelOverrides.override(for: .lightweightModel) == nil
+            ? .reasoningModel
+            : .lightweightModel
         let response = try await modelRuntime.complete(
             AgentModelRequest(
                 selection: AgentModelSelection(
                     providerID: providerID,
-                    modelRole: providerID == .lmstudio ? .reasoningModel : .lightweightModel,
-                    reasoning: .disabled
+                    modelRole: modelRole,
+                    reasoning: .disabled,
+                    configurationOverride: modelOverrides.override(for: modelRole)
                 ),
                 apiMessages: [
                     .system(systemPrompt),
