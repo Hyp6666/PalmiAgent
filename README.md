@@ -1,4 +1,4 @@
-# PalmiAgent
+<h1><img src="Screenshots/palmi-icon-github.png" width="44" alt="PalmiAgent icon"> PalmiAgent</h1>
 
 PalmiAgent is a SwiftUI iOS workspace for model-driven work. It combines chat,
 project files, model plans, multimodal input, local OCR, web research, Python

@@ -1,4 +1,4 @@
-# PalmiAgent
+<h1><img src="Screenshots/palmi-icon-github.png" width="44" alt="PalmiAgent 图标"> PalmiAgent</h1>
 
 PalmiAgent 是一个 SwiftUI iOS 工作区应用，用来把对话、项目文件、模型方案、多模态输入、本地 OCR、网页研究、Python 执行和受控系统工具放进同一个任务环境里。
 
