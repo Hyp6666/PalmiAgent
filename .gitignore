@@ -10,7 +10,8 @@ CLAUDE.md
 .playwright-mcp/
 
 # Internal planning notes and local verification prompts
-docs/
+docs/*
+!docs/临门一脚-todo.md
 TestPrompts/
 strength-mapping-template.md
 artifacts/

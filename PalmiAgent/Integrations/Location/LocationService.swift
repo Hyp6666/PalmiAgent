@@ -42,6 +42,21 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         return try await reverseGeocodedAddress(for: location)
     }
 
+    func promptInjectionAddress() async -> String {
+        switch manager.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse:
+            do {
+                return try await requestCurrentAddress()
+            } catch {
+                return "获取失败"
+            }
+        case .notDetermined, .denied, .restricted:
+            return "无权限"
+        @unknown default:
+            return "无权限"
+        }
+    }
+
     func requestCurrentLocationSummary(for coordinate: CLLocationCoordinate2D? = nil) async throws -> CurrentLocationSummary {
         let location = if let coordinate {
             CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)

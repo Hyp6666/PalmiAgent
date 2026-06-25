@@ -14,6 +14,8 @@ struct WorkspaceEntry: Sendable {
 @MainActor
 final class WorkspaceManager {
     @TaskLocal static var pinnedSelection: WorkspaceSelection?
+    // 项目级作用域：项目工作区与是否有会话无关，空项目也可访问其文件夹。
+    @TaskLocal static var pinnedProjectID: UUID?
 
     private let fileManager = FileManager.default
     private var activeSelection: WorkspaceSelection?
@@ -43,6 +45,22 @@ final class WorkspaceManager {
         operation: () async throws -> T
     ) async rethrows -> T {
         try await Self.$pinnedSelection.withValue(selection, operation: operation)
+    }
+
+    /// 按项目作用域执行操作。项目文件夹属于项目、与是否有会话无关——
+    /// 空项目也能读写它自己的工作区。
+    func withProject<T>(
+        _ projectID: UUID,
+        operation: () throws -> T
+    ) rethrows -> T {
+        try Self.$pinnedProjectID.withValue(projectID, operation: operation)
+    }
+
+    func withProject<T>(
+        _ projectID: UUID,
+        operation: () async throws -> T
+    ) async rethrows -> T {
+        try await Self.$pinnedProjectID.withValue(projectID, operation: operation)
     }
 
     func ensureWorkspace() throws -> URL {
@@ -575,14 +593,13 @@ final class WorkspaceManager {
 
         guard deletingActiveThread else { return }
 
+        // 允许项目里没有会话：删除最后一个会话时不再自动新建替代会话。
+        // 仍有剩余会话则切到下一个；否则清空激活选中，交由上层重新解析。
         let remainingThreads = try listThreads(in: projectID)
         if let nextThread = remainingThreads.first {
             activeSelection = WorkspaceSelection(projectID: projectID, threadID: nextThread.id)
         } else {
-            let project = try readProject(at: projectDirectoryURL(for: projectID))
-            let replacementName = project.surface == .chat ? "新聊天" : "新会话"
-            let replacementThread = try createThread(named: replacementName, in: projectID)
-            activeSelection = WorkspaceSelection(projectID: projectID, threadID: replacementThread.id)
+            activeSelection = nil
         }
     }
 
@@ -594,10 +611,7 @@ final class WorkspaceManager {
         activeSelection = WorkspaceSelection(projectID: projectID, threadID: threadID)
     }
 
-    func selection(
-        for surface: WorkspaceProjectSurface,
-        createIfMissing: Bool
-    ) throws -> WorkspaceSelection? {
+    func selection(for surface: WorkspaceProjectSurface) throws -> WorkspaceSelection? {
         if let activeSelection {
             let threadURL = threadDirectoryURL(for: activeSelection.projectID, threadID: activeSelection.threadID)
             if fileManager.fileExists(atPath: threadURL.path) {
@@ -608,24 +622,16 @@ final class WorkspaceManager {
             }
         }
 
+        // 允许项目里没有会话：只挑仍持有会话的项目，不再为空项目自动新建会话。
         let projects = try listProjects(on: surface)
-        if let firstProject = projects.first {
-            let threads = try listThreads(in: firstProject.id)
+        for project in projects {
+            let threads = try listThreads(in: project.id)
             if let firstThread = threads.first {
-                return WorkspaceSelection(projectID: firstProject.id, threadID: firstThread.id)
+                return WorkspaceSelection(projectID: project.id, threadID: firstThread.id)
             }
-
-            let replacementName = surface == .chat ? "新聊天" : "新会话"
-            let thread = try createThread(named: replacementName, in: firstProject.id)
-            return WorkspaceSelection(projectID: firstProject.id, threadID: thread.id)
         }
 
-        guard createIfMissing else { return nil }
-        let fallbackName = surface == .chat ? "新聊天" : "默认项目"
-        let initialThreadName = surface == .chat ? "新聊天" : "新会话"
-        let project = try createProject(named: fallbackName, surface: surface, initialThreadName: initialThreadName)
-        let thread = try currentThread()
-        return WorkspaceSelection(projectID: project.id, threadID: thread.id)
+        return nil
     }
 
     func currentSelection() throws -> WorkspaceSelection {
@@ -644,14 +650,20 @@ final class WorkspaceManager {
             }
         }
 
-        let selection = try ensureDefaultSelection()
-        activeSelection = selection
-        return selection
+        throw AppError.invalidState("当前没有选中的工作区会话。")
     }
 
     func currentProject() throws -> WorkspaceProjectRecord {
-        let selection = try currentSelection()
-        return try readProject(at: projectDirectoryURL(for: selection.projectID))
+        let projectID = try currentProjectID()
+        return try readProject(at: projectDirectoryURL(for: projectID))
+    }
+
+    /// 当前所属项目：项目级作用域优先，否则回退到当前选中会话所属项目。
+    private func currentProjectID() throws -> UUID {
+        if let projectID = Self.pinnedProjectID {
+            return projectID
+        }
+        return try currentSelection().projectID
     }
 
     func currentThread() throws -> WorkspaceThreadRecord {
@@ -660,6 +672,10 @@ final class WorkspaceManager {
     }
 
     func currentThreadWorkspaceURL() throws -> URL {
+        // 项目工作区按项目解析：项目级作用域优先，否则回退到当前选中会话所属项目。
+        if let projectID = Self.pinnedProjectID {
+            return try ensureProjectWorkspace(for: projectID)
+        }
         let selection = try currentSelection()
         return try ensureProjectWorkspace(for: selection.projectID)
     }
@@ -725,6 +741,16 @@ final class WorkspaceManager {
             try fileManager.createDirectory(at: globalSkillsRoot, withIntermediateDirectories: true, attributes: nil)
         }
         return globalSkillsRoot
+    }
+
+    func workspaceStorageRootURL() -> URL {
+        storageRoot
+    }
+
+    func deleteAllWorkspaceData() throws {
+        activeSelection = nil
+        guard fileManager.fileExists(atPath: storageRoot.path) else { return }
+        try fileManager.removeItem(at: storageRoot)
     }
 
     func projectSkillsRootURL(for projectID: UUID) throws -> URL {
@@ -841,13 +867,6 @@ final class WorkspaceManager {
             try fileManager.createDirectory(at: projectsRoot, withIntermediateDirectories: true, attributes: nil)
         }
         return storageRoot
-    }
-
-    private func ensureDefaultSelection() throws -> WorkspaceSelection {
-        _ = try ensureWorkspaceStorage()
-        return try selection(for: .professional, createIfMissing: true) ?? {
-            throw AppError.invalidState("无法初始化默认工作区。")
-        }()
     }
 
     private func projectDirectoryURL(for projectID: UUID) -> URL {
@@ -1255,6 +1274,10 @@ final class WorkspaceManager {
     }
 
     private func touchActiveThread() throws {
+        // 项目级作用域（withProject）下没有具体会话可触碰：跳过，避免误碰别的会话。
+        if Self.pinnedProjectID != nil && Self.pinnedSelection == nil {
+            return
+        }
         guard let selection = Self.pinnedSelection ?? activeSelection else { return }
         let threadURL = threadDirectoryURL(for: selection.projectID, threadID: selection.threadID)
         var thread = try readThread(at: threadURL)

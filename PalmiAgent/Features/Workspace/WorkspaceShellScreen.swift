@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 private enum CompactWorkspaceRoute: Hashable {
     case chat
@@ -45,7 +46,14 @@ struct WorkspaceShellScreen: View {
                 regularBody
             }
         }
-        .sheet(isPresented: $isShowingWorkspaceBrowser) {
+        .sheet(
+            isPresented: $isShowingWorkspaceBrowser,
+            onDismiss: {
+                // 退出项目文件夹浏览：解除项目锁定，回到当前选中会话的视图。
+                workspaceStore.browsedProjectID = nil
+                workspaceStore.refreshCurrentThreadContents()
+            }
+        ) {
             WorkspaceBrowserSheet(store: workspaceStore)
         }
         .sheet(isPresented: $isShowingSettings) {
@@ -62,10 +70,7 @@ struct WorkspaceShellScreen: View {
             AppShellModePickerScreen(
                 currentMode: shellMode,
                 onSelect: { newMode in
-                    shellMode = newMode
-                    if newMode == .professional {
-                        compactPath = []
-                    }
+                    selectShellMode(newMode)
                     isShowingModePicker = false
                 },
                 onDismiss: { isShowingModePicker = false }
@@ -89,6 +94,21 @@ struct WorkspaceShellScreen: View {
         nonmutating set { storedShellMode = newValue.rawValue }
     }
 
+    private func selectShellMode(_ newMode: AppShellMode) {
+        shellMode = newMode
+        if newMode == .professional {
+            compactPath = []
+        }
+    }
+
+    // 从项目列表的「查看文件夹」进入：文件夹属于项目、与是否有会话无关，
+    // 直接锁定该项目工作区并弹出浏览器（空项目也能看自己的文件夹）。
+    private func browseProjectFiles(_ project: WorkspaceProjectRecord) {
+        workspaceStore.browsedProjectID = project.id
+        workspaceStore.refreshCurrentThreadContents()
+        isShowingWorkspaceBrowser = true
+    }
+
     private var regularBody: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             WorkspaceSidebar(
@@ -97,7 +117,8 @@ struct WorkspaceShellScreen: View {
                 chatStore: chatStore,
                 onOpenSettings: { isShowingSettings = true },
                 shellMode: .professional,
-                onOpenModeSwitcher: { isShowingModePicker = true }
+                onSelectMode: selectShellMode,
+                onBrowseProjectFiles: browseProjectFiles
             )
         } content: {
             WorkspaceBrowser(store: workspaceStore)
@@ -126,7 +147,7 @@ struct WorkspaceShellScreen: View {
                     chatModePath = [.conversation(project.id)]
                 },
                 onOpenSettings: { isShowingSettings = true },
-                onOpenModeSwitcher: { isShowingModePicker = true }
+                onSelectMode: selectShellMode
             )
             .navigationDestination(for: ChatModeRoute.self) { route in
                 switch route {
@@ -155,7 +176,8 @@ struct WorkspaceShellScreen: View {
                 chatStore: chatStore,
                 onOpenSettings: { isShowingSettings = true },
                 shellMode: .professional,
-                onOpenModeSwitcher: { isShowingModePicker = true }
+                onSelectMode: selectShellMode,
+                onBrowseProjectFiles: browseProjectFiles
             )
             .navigationDestination(for: CompactWorkspaceRoute.self) { route in
                 switch route {
@@ -190,16 +212,16 @@ struct WorkspaceShellScreen: View {
 }
 
 private struct WorkspaceSidebar: View {
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Bindable var store: WorkspaceStore
     let onSelectThread: () -> Void
     @Bindable var chatStore: ChatStore
     let onOpenSettings: () -> Void
     let shellMode: AppShellMode
-    let onOpenModeSwitcher: (() -> Void)?
+    let onSelectMode: (AppShellMode) -> Void
+    let onBrowseProjectFiles: (WorkspaceProjectRecord) -> Void
     @State private var expandedProjectIDs: Set<UUID> = []
-    @State private var headerAnchorMinY: CGFloat = 0
     @State private var presentedNameEditor: WorkspaceNameEditorRoute?
+    @State private var nameDraft = ""
     @State private var pendingDeletion: WorkspaceDeletionTarget?
 
     var body: some View {
@@ -210,118 +232,74 @@ private struct WorkspaceSidebar: View {
             List {
                 sidebarHeaderSpacer
 
-                Section {
-                    Button {
-                        presentedNameEditor = .createProject
-                    } label: {
-                        Label("新建项目", systemImage: "folder.badge.plus")
-                    }
-                }
-
-                Section("项目") {
-                    ForEach(store.projects) { project in
-                        WorkspaceProjectRow(
-                            project: project,
-                            threadCount: store.threadCount(for: project.id),
-                            isSelected: store.selectedProjectID == project.id,
-                            isExpanded: expandedProjectIDs.contains(project.id),
-                            threads: expandedProjectIDs.contains(project.id) ? store.threads(for: project.id) : [],
-                            selectedThreadID: store.selectedThreadID,
-                            onToggleProject: { toggleProject(project) },
-                            onCreateThread: { presentThreadCreation(for: project) },
-                            onRenameProject: { presentedNameEditor = .renameProject(project) },
-                            onDeleteProject: { pendingDeletion = .project(project) },
-                            runningBadgeText: { thread in
-                                chatStore.runningBadgeText(
-                                    for: WorkspaceSelection(projectID: project.id, threadID: thread.id)
-                                )
-                            },
-                            onSelectThread: { thread in
-                                store.selectThread(thread)
-                                onSelectThread()
-                            },
-                            onRenameThread: { presentedNameEditor = .renameThread($0) },
-                            onDeleteThread: { pendingDeletion = .thread($0) }
-                        )
+                Section("项目工作区") {
+                    if store.projects.isEmpty {
+                        HStack {
+                            Text("空")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .padding(.vertical, 32)
+                    } else {
+                        ForEach(store.projects) { project in
+                            WorkspaceProjectRow(
+                                project: project,
+                                threadCount: store.threadCount(for: project.id),
+                                isSelected: store.selectedProjectID == project.id,
+                                isExpanded: expandedProjectIDs.contains(project.id),
+                                threads: expandedProjectIDs.contains(project.id) ? store.threads(for: project.id) : [],
+                                selectedThreadID: store.selectedThreadID,
+                                onToggleProject: { toggleProject(project) },
+                                onCreateThread: { presentThreadCreation(for: project) },
+                                onRenameProject: { presentedNameEditor = .renameProject(project) },
+                                onDeleteProject: { pendingDeletion = .project(project) },
+                                onBrowseFiles: { onBrowseProjectFiles(project) },
+                                runningBadgeText: { thread in
+                                    chatStore.runningBadgeText(
+                                        for: WorkspaceSelection(projectID: project.id, threadID: thread.id)
+                                    )
+                                },
+                                onSelectThread: { thread in
+                                    store.selectThread(thread)
+                                    onSelectThread()
+                                },
+                                onRenameThread: { presentedNameEditor = .renameThread($0) },
+                                onDeleteThread: { pendingDeletion = .thread($0) }
+                            )
+                        }
                     }
                 }
             }
             .scrollContentBackground(.hidden)
             .background(Color.clear)
-            .coordinateSpace(name: "workspace-sidebar-scroll")
             .scrollDismissesKeyboard(.interactively)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                Color.clear
-                    .frame(height: 84)
-            }
-            .mask {
-                LinearGradient(
-                    stops: [
-                        .init(color: .clear, location: 0),
-                        .init(color: .black, location: 0.06),
-                        .init(color: .black, location: 0.90),
-                        .init(color: .clear, location: 1)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            }
 
             VStack(spacing: 0) {
-                WorkspaceSidebarTopFade()
+                AppShellTopFade()
                     .allowsHitTesting(false)
 
                 Spacer()
-
-                WorkspaceSidebarBottomFade()
-                    .allowsHitTesting(false)
             }
             .ignoresSafeArea()
 
-            WorkspaceSidebarHeader(
-                opacity: headerOpacity,
-                verticalOffset: headerVerticalOffset
-            )
-            .allowsHitTesting(false)
-
-            if horizontalSizeClass == .compact, let onOpenModeSwitcher {
-                VStack {
-                    HStack {
-                        Spacer()
-                        AppShellModeChip(mode: shellMode, action: onOpenModeSwitcher)
-                    }
-                    Spacer()
-                }
-                .padding(.top, 18)
-                .padding(.horizontal, 18)
-            }
-
             VStack {
-                Spacer()
-
-                HStack {
-                    Button(action: onOpenSettings) {
-                        Label("设置", systemImage: "gearshape")
-                            .font(.body.weight(.medium))
-                            .foregroundStyle(.primary)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
-                    }
-                    .buttonStyle(.plain)
-                    .glassEffect(.regular.tint(.white.opacity(0.05)), in: .capsule)
-
-                    Spacer()
-                }
+                AppShellTopBar(
+                    mode: shellMode,
+                    trailingSystemName: "folder.badge.plus",
+                    trailingAccessibilityLabel: "新增项目",
+                    onOpenSettings: onOpenSettings,
+                    onTrailingAction: { presentedNameEditor = .createProject },
+                    onSelectMode: onSelectMode
+                )
                 .padding(.horizontal, 20)
-                .padding(.bottom, 35)
+                .padding(.top, 12)
+
+                Spacer()
             }
-            .ignoresSafeArea(edges: .bottom)
         }
         .toolbar(.hidden, for: .navigationBar)
         .ignoresSafeArea(.keyboard, edges: .bottom)
-        .onPreferenceChange(WorkspaceSidebarHeaderOffsetPreferenceKey.self) { value in
-            headerAnchorMinY = value
-        }
         .confirmationDialog(
             pendingDeletion?.title ?? "",
             isPresented: Binding(
@@ -343,23 +321,35 @@ private struct WorkspaceSidebar: View {
                 Text(pendingDeletion.message)
             }
         }
-        .overlay {
+        .alert(
+            presentedNameEditor?.title ?? "",
+            isPresented: Binding(
+                get: { presentedNameEditor != nil },
+                set: { if !$0 { presentedNameEditor = nil } }
+            )
+        ) {
             if let route = presentedNameEditor {
-                WorkspaceNameEditorDialog(
-                    title: route.title,
-                    confirmTitle: route.confirmTitle,
-                    initialName: route.initialName,
-                    placeholder: route.placeholder,
-                    onDismiss: { presentedNameEditor = nil },
-                    onSubmit: { submittedName in
-                        handleNameEditorSubmit(route, name: submittedName)
-                    }
-                )
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                .zIndex(1)
+                TextField(route.placeholder, text: $nameDraft)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button("取消", role: .cancel) {
+                    presentedNameEditor = nil
+                }
+                Button(route.confirmTitle) {
+                    let trimmed = nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return }
+                    handleNameEditorSubmit(route, name: trimmed)
+                    presentedNameEditor = nil
+                }
+            }
+        } message: {
+            if presentedNameEditor != nil {
+                Text("名称会立即应用到当前项目或会话。")
             }
         }
-        .animation(.snappy(duration: 0.24), value: presentedNameEditor != nil)
+        .onChange(of: presentedNameEditor?.id) {
+            nameDraft = presentedNameEditor?.initialName ?? ""
+        }
     }
 
     private var sidebarBackground: Color {
@@ -368,27 +358,10 @@ private struct WorkspaceSidebar: View {
 
     private var sidebarHeaderSpacer: some View {
         Color.clear
-            .frame(height: 56)
+            .frame(height: 72)
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
-            .background(
-                GeometryReader { proxy in
-                    Color.clear.preference(
-                        key: WorkspaceSidebarHeaderOffsetPreferenceKey.self,
-                        value: proxy.frame(in: .named("workspace-sidebar-scroll")).minY
-                    )
-                }
-            )
-    }
-
-    private var headerOpacity: Double {
-        let progress = 1 + (headerAnchorMinY / 44)
-        return max(0, min(1, progress))
-    }
-
-    private var headerVerticalOffset: CGFloat {
-        min(0, headerAnchorMinY * 0.2)
     }
 
     private func toggleProject(_ project: WorkspaceProjectRecord) {
@@ -436,67 +409,6 @@ private struct WorkspaceSidebar: View {
     }
 }
 
-private struct WorkspaceSidebarHeader: View {
-    let opacity: Double
-    let verticalOffset: CGFloat
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Text("工作区")
-                .font(.system(size: 34, weight: .bold))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
-                .padding(.bottom, 20)
-                .opacity(opacity)
-                .offset(y: verticalOffset)
-
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-    }
-}
-
-private struct WorkspaceSidebarTopFade: View {
-    var body: some View {
-        LinearGradient(
-            colors: [
-                Color(uiColor: .systemGroupedBackground),
-                Color(uiColor: .systemGroupedBackground).opacity(0.94),
-                Color(uiColor: .systemGroupedBackground).opacity(0.78),
-                Color(uiColor: .systemGroupedBackground).opacity(0)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .frame(height: 132)
-    }
-}
-
-private struct WorkspaceSidebarBottomFade: View {
-    var body: some View {
-        LinearGradient(
-            colors: [
-                Color(uiColor: .systemGroupedBackground).opacity(0),
-                Color(uiColor: .systemGroupedBackground).opacity(0.70),
-                Color(uiColor: .systemGroupedBackground).opacity(0.92),
-                Color(uiColor: .systemGroupedBackground)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .frame(height: 110)
-    }
-}
-
-private struct WorkspaceSidebarHeaderOffsetPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
 private struct WorkspaceProjectRow: View {
     let project: WorkspaceProjectRecord
     let threadCount: Int
@@ -508,6 +420,7 @@ private struct WorkspaceProjectRow: View {
     let onCreateThread: () -> Void
     let onRenameProject: () -> Void
     let onDeleteProject: () -> Void
+    let onBrowseFiles: () -> Void
     let runningBadgeText: (WorkspaceThreadRecord) -> String?
     let onSelectThread: (WorkspaceThreadRecord) -> Void
     let onRenameThread: (WorkspaceThreadRecord) -> Void
@@ -549,6 +462,11 @@ private struct WorkspaceProjectRow: View {
                 }
 
                 Menu {
+                    Button {
+                        onBrowseFiles()
+                    } label: {
+                        Label("查看文件夹", systemImage: "folder")
+                    }
                     Button("重命名") {
                         onRenameProject()
                     }
@@ -558,7 +476,7 @@ private struct WorkspaceProjectRow: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                         .font(.title3)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.blue)
                         .frame(width: 28, height: 28)
                 }
             }
@@ -629,7 +547,7 @@ private struct WorkspaceThreadRow: View {
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .font(.body)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.blue)
                     .frame(width: 28, height: 28)
             }
         }
@@ -725,129 +643,6 @@ private enum WorkspaceDeletionTarget {
     }
 }
 
-private struct WorkspaceNameEditorDialog: View {
-    let title: String
-    let confirmTitle: String
-    let placeholder: String
-    let onDismiss: () -> Void
-    let onSubmit: (String) -> Void
-    @State private var name: String
-    @FocusState private var isFieldFocused: Bool
-
-    init(
-        title: String,
-        confirmTitle: String,
-        initialName: String,
-        placeholder: String,
-        onDismiss: @escaping () -> Void,
-        onSubmit: @escaping (String) -> Void
-    ) {
-        self.title = title
-        self.confirmTitle = confirmTitle
-        self.placeholder = placeholder
-        self.onDismiss = onDismiss
-        self.onSubmit = onSubmit
-        self._name = State(initialValue: initialName)
-    }
-
-    private var trimmedName: String {
-        name.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    var body: some View {
-        ZStack {
-            Rectangle()
-                .fill(.black.opacity(0.12))
-                .ignoresSafeArea()
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    onDismiss()
-                }
-
-            VStack(alignment: .leading, spacing: 18) {
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(title)
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(.primary)
-
-                        Text("名称会立即应用到当前项目或会话。")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer()
-
-                    Button(action: onDismiss) {
-                        Image(systemName: "xmark")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 32, height: 32)
-                            .background(.white.opacity(0.10), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                TextField(placeholder, text: $name)
-                    .focused($isFieldFocused)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .submitLabel(.done)
-                    .onSubmit {
-                        submit()
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .background(.white.opacity(0.20), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .stroke(.white.opacity(0.28), lineWidth: 1)
-                    )
-
-                HStack(spacing: 12) {
-                    Button(action: onDismiss) {
-                        Text("取消")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(Color(uiColor: .secondaryLabel))
-                            .padding(.vertical, 13)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.plain)
-                    .background(.white.opacity(0.14), in: Capsule())
-                    .overlay(
-                        Capsule()
-                            .stroke(.white.opacity(0.22), lineWidth: 1)
-                    )
-                    Button(confirmTitle) {
-                        submit()
-                    }
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 13)
-                    .background(.cyan.opacity(0.18), in: Capsule())
-                    .disabled(trimmedName.isEmpty)
-                }
-            }
-            .padding(22)
-            .frame(maxWidth: 360)
-            .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 28))
-            .padding(.horizontal, 20)
-        }
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                isFieldFocused = true
-            }
-        }
-    }
-
-    private func submit() {
-        guard !trimmedName.isEmpty else { return }
-        onSubmit(trimmedName)
-        onDismiss()
-    }
-}
-
 private struct WorkspaceBrowserRoute: Hashable {
     let relativePath: String
 }
@@ -861,6 +656,7 @@ private struct WorkspaceBrowser: View {
     @Bindable var store: WorkspaceStore
     let onClose: (() -> Void)?
     @State private var folderCreation: WorkspaceFolderCreationContext?
+    @State private var folderNameDraft = ""
     @State private var attachmentMenuBasePath: String?
     @State private var attachmentPresentation: PalmiAttachmentImportPresentation?
     @State private var navigationPath: [WorkspaceBrowserRoute] = []
@@ -901,20 +697,31 @@ private struct WorkspaceBrowser: View {
                 .overlay {
                     attachmentMenuOverlay
                 }
-                .overlay {
+                .alert(
+                    "新建文件夹",
+                    isPresented: Binding(
+                        get: { folderCreation != nil },
+                        set: { if !$0 { folderCreation = nil } }
+                    )
+                ) {
+                    TextField("文件夹名称", text: $folderNameDraft)
+                        .textInputAutocapitalization(.never)
+                    Button("取消", role: .cancel) {
+                        folderCreation = nil
+                    }
+                    Button("创建") {
+                        let trimmed = folderNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !trimmed.isEmpty else { return }
+                        createFolder(named: trimmed, basePath: folderCreation?.basePath ?? "")
+                        folderCreation = nil
+                    }
+                } message: {
                     if let folderCreation {
-                        WorkspaceFolderCreationDialog(
-                            basePath: folderCreation.basePath,
-                            onDismiss: { self.folderCreation = nil },
-                            onSubmit: { name in
-                                createFolder(named: name, basePath: folderCreation.basePath)
-                            }
-                        )
-                        .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                        let trimmedBase = folderCreation.basePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                        Text(trimmedBase.isEmpty ? "项目文件" : trimmedBase)
                     }
                 }
                 .animation(.snappy(duration: 0.22), value: attachmentMenuBasePath)
-                .animation(.snappy(duration: 0.22), value: folderCreation != nil)
         }
     }
 
@@ -932,7 +739,7 @@ private struct WorkspaceBrowser: View {
                     .padding(.bottom, 8)
             }
 
-            if store.selectedSelection == nil {
+            if !store.hasBrowsableWorkspace {
                 ContentUnavailableView("请选择一个会话", systemImage: "tray")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -950,9 +757,10 @@ private struct WorkspaceBrowser: View {
                 accessibilityLabel: "新建文件夹",
                 iconColor: .blue
             ) {
+                folderNameDraft = ""
                 folderCreation = WorkspaceFolderCreationContext(basePath: route?.relativePath ?? "")
             }
-            .disabled(store.selectedSelection == nil)
+            .disabled(!store.hasBrowsableWorkspace)
 
             workspaceBrowserActionButton(
                 systemName: "plus",
@@ -961,7 +769,7 @@ private struct WorkspaceBrowser: View {
             ) {
                 attachmentMenuBasePath = route?.relativePath ?? ""
             }
-            .disabled(store.selectedSelection == nil)
+            .disabled(!store.hasBrowsableWorkspace)
 
             workspaceBrowserActionButton(
                 systemName: "arrow.clockwise",
@@ -970,7 +778,7 @@ private struct WorkspaceBrowser: View {
             ) {
                 store.refreshCurrentThreadContents()
             }
-            .disabled(store.selectedSelection == nil)
+            .disabled(!store.hasBrowsableWorkspace)
 
             workspaceBrowserActionButton(
                 systemName: "square.and.arrow.up",
@@ -979,7 +787,7 @@ private struct WorkspaceBrowser: View {
             ) {
                 store.exportCurrentThread()
             }
-            .disabled(store.selectedSelection == nil)
+            .disabled(!store.hasBrowsableWorkspace)
 
             Spacer(minLength: 0)
 
@@ -990,7 +798,7 @@ private struct WorkspaceBrowser: View {
             ) {
                 store.toggleHiddenFilesVisibility()
             }
-            .disabled(store.selectedSelection == nil)
+            .disabled(!store.hasBrowsableWorkspace)
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
@@ -1167,118 +975,6 @@ private struct WorkspaceNodeRow: View {
     }
 }
 
-private struct WorkspaceFolderCreationDialog: View {
-    let basePath: String
-    let onDismiss: () -> Void
-    let onSubmit: (String) -> Void
-    @State private var folderName = ""
-    @FocusState private var isFocused: Bool
-
-    private var trimmedName: String {
-        folderName.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var locationTitle: String {
-        let trimmedBase = basePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        return trimmedBase.isEmpty ? "项目文件" : trimmedBase
-    }
-
-    var body: some View {
-        ZStack {
-            Rectangle()
-                .fill(.black.opacity(0.12))
-                .ignoresSafeArea()
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    onDismiss()
-                }
-
-            VStack(alignment: .leading, spacing: 18) {
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("新建文件夹")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(.primary)
-
-                        Text(locationTitle)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-
-                    Spacer()
-
-                    Button(action: onDismiss) {
-                        Image(systemName: "xmark")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 32, height: 32)
-                            .background(.white.opacity(0.10), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                TextField("文件夹名称", text: $folderName)
-                    .focused($isFocused)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .submitLabel(.done)
-                    .onSubmit {
-                        submit()
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .background(.white.opacity(0.20), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .stroke(.white.opacity(0.28), lineWidth: 1)
-                    )
-
-                HStack(spacing: 12) {
-                    Button(action: onDismiss) {
-                        Text("取消")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(Color(uiColor: .secondaryLabel))
-                            .padding(.vertical, 13)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.plain)
-                    .background(.white.opacity(0.14), in: Capsule())
-                    .overlay(
-                        Capsule()
-                            .stroke(.white.opacity(0.22), lineWidth: 1)
-                    )
-
-                    Button("创建") {
-                        submit()
-                    }
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 13)
-                    .background(.cyan.opacity(0.18), in: Capsule())
-                    .disabled(trimmedName.isEmpty)
-                }
-            }
-            .padding(22)
-            .frame(maxWidth: 360)
-            .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 28))
-            .padding(.horizontal, 20)
-        }
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                isFocused = true
-            }
-        }
-    }
-
-    private func submit() {
-        guard !trimmedName.isEmpty else { return }
-        onSubmit(trimmedName)
-        onDismiss()
-    }
-}
-
 private struct WorkspaceBrowserSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var store: WorkspaceStore
@@ -1324,40 +1020,19 @@ private struct AppSettingsScreen: View {
     var body: some View {
         NavigationStack {
             List {
-                NavigationLink {
-                    ModelConfigurationManagerScreen(store: store)
-                } label: {
-                    Label("大模型管理", systemImage: "brain.head.profile")
-                }
-
-                NavigationLink {
-                    ToolManagementOverviewScreen(
-                        permissionStore: store.toolPermissionStore,
-                        authorizationStore: store.toolAuthorizationStore,
-                        actions: store.actions
-                    )
-                } label: {
-                    Label("工具管理", systemImage: "switch.2")
-                }
-
-                NavigationLink {
-                    WebSearchProviderSettingsScreen()
-                } label: {
-                    Label("搜索源", systemImage: "magnifyingglass.circle")
-                }
-
-                NavigationLink {
-                    SkillCatalogScreen(registry: skillRegistry, mode: .global)
-                } label: {
-                    Label("技能", systemImage: "sparkles.rectangle.stack")
-                }
-
-                NavigationLink {
-                    PersonalizationSettingsScreen()
-                } label: {
-                    Label("个性化", systemImage: "paintpalette.fill")
+                ForEach(AppSettingsCatalog.sections) { section in
+                    Section(section.title) {
+                        ForEach(section.rows) { row in
+                            NavigationLink {
+                                destination(for: row.id)
+                            } label: {
+                                Label(row.title, systemImage: row.systemImageName)
+                            }
+                        }
+                    }
                 }
             }
+            .listStyle(.insetGrouped)
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1368,6 +1043,383 @@ private struct AppSettingsScreen: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func destination(for rowID: AppSettingsRowID) -> some View {
+        switch rowID {
+        case .modelManagement:
+            ModelConfigurationManagerScreen(store: store)
+        case .toolManagement:
+            ToolManagementOverviewScreen(
+                permissionStore: store.toolPermissionStore,
+                authorizationStore: store.toolAuthorizationStore,
+                actions: store.actions
+            )
+        case .searchSources:
+            WebSearchProviderSettingsScreen()
+        case .skills:
+            SkillCatalogScreen(registry: skillRegistry, mode: .global)
+        case .personalization:
+            PersonalizationSettingsScreen()
+        case .systemSettings:
+            SystemSettingsScreen(store: store)
+        case .privacyAndPolicy:
+            PrivacyAndPolicySettingsScreen()
+        }
+    }
+}
+
+private struct SystemSettingsScreen: View {
+    @Bindable var store: ManualLabStore
+
+    var body: some View {
+        List {
+            Section("通用") {
+                NavigationLink {
+                    LanguageSettingsScreen()
+                } label: {
+                    Label("语言", systemImage: "globe")
+                }
+            }
+
+            Section("数据") {
+                NavigationLink {
+                    DataManagementSettingsScreen(store: store)
+                } label: {
+                    Label("数据管理", systemImage: "externaldrive")
+                }
+            }
+
+            Section("关于") {
+                NavigationLink {
+                    SystemInformationScreen(workspaceManager: store.workspaceStore.workspaceManager)
+                } label: {
+                    Label("系统信息", systemImage: "info.circle")
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("系统设置")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct LanguageSettingsScreen: View {
+    var body: some View {
+        List {
+            Section {
+                HStack(spacing: 12) {
+                    Label("跟随系统", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.primary, Color.accentColor)
+
+                    Spacer(minLength: 12)
+
+                    Text(Locale.current.localizedString(forIdentifier: Locale.current.identifier) ?? Locale.current.identifier)
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("显示语言")
+            } footer: {
+                Text("语言切换入口已预留，具体 i18n 方案落地后启用。")
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("语言")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct DataManagementSettingsScreen: View {
+    @Bindable var store: ManualLabStore
+    @State private var usageSummary = AppDataUsageSummary.empty
+    @State private var pendingOperation: DataManagementOperation?
+    @State private var feedbackMessage: String?
+    @State private var errorMessage: String?
+
+    private enum DataManagementOperation: String, Identifiable {
+        case clearWorkspaceData
+        case clearCaches
+        case restoreFactoryState
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .clearWorkspaceData:
+                return "清理工作区数据"
+            case .clearCaches:
+                return "清理缓存"
+            case .restoreFactoryState:
+                return "恢复初始状态"
+            }
+        }
+
+        var confirmTitle: String {
+            switch self {
+            case .clearWorkspaceData:
+                return "清理工作区"
+            case .clearCaches:
+                return "清理缓存"
+            case .restoreFactoryState:
+                return "恢复初始状态"
+            }
+        }
+
+        var message: String {
+            switch self {
+            case .clearWorkspaceData:
+                return "会删除本机工作区、项目、会话和附件文件。该操作不会删除第三方模型服务商的数据。"
+            case .clearCaches:
+                return "会删除 Palmi 的本机缓存文件。"
+            case .restoreFactoryState:
+                return "会删除本机工作区、缓存、偏好设置，以及 Palmi 保存在 Keychain 中的模型凭据。第三方账号数据仍需到对应服务商处理。"
+            }
+        }
+
+        var successMessage: String {
+            switch self {
+            case .clearWorkspaceData:
+                return "已清理工作区数据。"
+            case .clearCaches:
+                return "已清理缓存。"
+            case .restoreFactoryState:
+                return "已恢复初始状态，重启 App 后所有设置会完全刷新。"
+            }
+        }
+    }
+
+    var body: some View {
+        List {
+            Section("存储") {
+                usageRow(title: "工作区与会话", byteCount: usageSummary.workspaceBytes)
+
+                Button(role: .destructive) {
+                    pendingOperation = .clearWorkspaceData
+                } label: {
+                    Label("清理工作区数据", systemImage: "trash")
+                }
+
+                usageRow(title: "缓存", byteCount: usageSummary.cacheBytes)
+
+                Button(role: .destructive) {
+                    pendingOperation = .clearCaches
+                } label: {
+                    Label("清理缓存", systemImage: "trash")
+                }
+            }
+
+            Section {
+                Button(role: .destructive) {
+                    pendingOperation = .restoreFactoryState
+                } label: {
+                    Label("恢复初始状态", systemImage: "exclamationmark.triangle")
+                }
+            } header: {
+                Text("危险操作")
+            } footer: {
+                Text("恢复初始状态会清理本机数据和 Palmi 保存的模型凭据，不能撤销。")
+            }
+
+            if let feedbackMessage {
+                Section {
+                    Text(feedbackMessage)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("数据管理")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            reloadUsageSummary()
+        }
+        .confirmationDialog(
+            pendingOperation?.title ?? "确认操作",
+            isPresented: pendingOperationBinding,
+            titleVisibility: .visible,
+            presenting: pendingOperation
+        ) { operation in
+            Button(operation.confirmTitle, role: .destructive) {
+                perform(operation)
+            }
+            Button("取消", role: .cancel) {}
+        } message: { operation in
+            Text(operation.message)
+        }
+        .alert("操作失败", isPresented: errorBinding) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
+    }
+
+    private var pendingOperationBinding: Binding<Bool> {
+        Binding(
+            get: { pendingOperation != nil },
+            set: { isPresented in
+                if !isPresented {
+                    pendingOperation = nil
+                }
+            }
+        )
+    }
+
+    private var errorBinding: Binding<Bool> {
+        Binding(
+            get: { errorMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    errorMessage = nil
+                }
+            }
+        )
+    }
+
+    private func usageRow(title: String, byteCount: Int64) -> some View {
+        LabeledContent(title) {
+            Text(AppDataManagementService.formattedByteCount(byteCount))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func perform(_ operation: DataManagementOperation) {
+        do {
+            switch operation {
+            case .clearWorkspaceData:
+                try AppDataManagementService.clearWorkspaceData(workspaceStore: store.workspaceStore)
+            case .clearCaches:
+                try AppDataManagementService.clearCaches()
+            case .restoreFactoryState:
+                try AppDataManagementService.restoreFactoryState(workspaceStore: store.workspaceStore)
+            }
+            feedbackMessage = operation.successMessage
+            reloadUsageSummary()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func reloadUsageSummary() {
+        usageSummary = AppDataManagementService.usageSummary(
+            workspaceManager: store.workspaceStore.workspaceManager
+        )
+    }
+}
+
+private struct SystemInformationScreen: View {
+    let workspaceManager: WorkspaceManager
+
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "未知"
+    }
+
+    private var buildNumber: String {
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "未知"
+    }
+
+    private var bundleIdentifier: String {
+        Bundle.main.bundleIdentifier ?? "未知"
+    }
+
+    var body: some View {
+        List {
+            Section("App") {
+                infoRow("版本", appVersion)
+                infoRow("构建", buildNumber)
+                infoRow("Bundle ID", bundleIdentifier)
+            }
+
+            Section("设备") {
+                infoRow("系统", "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)")
+                infoRow("设备", UIDevice.current.model)
+            }
+
+            Section("本机数据") {
+                infoRow("工作区目录", workspaceManager.workspaceStorageRootURL().path)
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("系统信息")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func infoRow(_ title: String, _ value: String) -> some View {
+        LabeledContent {
+            Text(value)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.trailing)
+                .textSelection(.enabled)
+        } label: {
+            Text(title)
+        }
+    }
+}
+
+private struct PrivacyAndPolicySettingsScreen: View {
+    @State private var previewedFile: WorkspacePreviewFile?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        List {
+            Section("本机数据") {
+                Label("Palmi 当前没有自有服务器", systemImage: "iphone")
+                Label("工作区、会话和配置主要保存在本机", systemImage: "internaldrive")
+                Label("API Key 保存在系统 Keychain", systemImage: "key")
+            }
+
+            Section("第三方服务") {
+                Text("云端模型、聚合平台、搜索源和系统权限的数据处理规则，以你启用的服务商官方政策为准。")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("政策文件") {
+                Button {
+                    openPrivacyPolicyPreview()
+                } label: {
+                    Label("查看完整隐私与政策", systemImage: "doc.text.magnifyingglass")
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("隐私与政策")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $previewedFile) { file in
+            WorkspaceFilePreviewSheet(file: file)
+        }
+        .alert("无法打开文件", isPresented: errorBinding) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
+    }
+
+    private var errorBinding: Binding<Bool> {
+        Binding(
+            get: { errorMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    errorMessage = nil
+                }
+            }
+        )
+    }
+
+    private func openPrivacyPolicyPreview() {
+        guard let url = Bundle.main.url(forResource: "PalmiPrivacyPolicy", withExtension: "md") else {
+            errorMessage = "没有找到隐私与政策文件。"
+            return
+        }
+
+        let preview = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        previewedFile = WorkspacePreviewFile(
+            title: "隐私与政策",
+            relativePath: "Resources/Policies/PalmiPrivacyPolicy.md",
+            url: url,
+            preview: preview,
+            kind: .markdown
+        )
     }
 }
 
@@ -3411,1009 +3463,4 @@ private struct ModelPlanPresentation: Identifiable {
 
 private func modelConfigurationErrorMessage(_ error: Error) -> String {
     (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-}
-
-private struct LegacyModelConfigurationManagerScreen: View {
-    @Bindable var store: ManualLabStore
-    @State private var presentedSheet: LegacyModelConfigurationSheetRoute?
-    @State private var pendingDeletion: APIConfigurationProfileSnapshot?
-    @State private var deletionErrorMessage: String?
-    @State private var transientProfileIDs: Set<UUID> = []
-
-    private var profiles: [APIConfigurationProfileSnapshot] {
-        // 只保留 GLM（智谱官方）与 DeepSeek（官方）两家，其余供应商不再展示。
-        APIProviderID.palmiSelectable
-            .flatMap { providerID in
-                store.profiles(for: providerID).filter(isVisibleProfile)
-            }
-            .sorted {
-                if $0.updatedAt == $1.updatedAt {
-                    return $0.profileName.localizedCompare($1.profileName) == .orderedAscending
-                }
-                return $0.updatedAt > $1.updatedAt
-            }
-    }
-
-    var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 10) {
-                if profiles.isEmpty {
-                    emptyState
-                } else {
-                    ForEach(profiles) { profile in
-                        profileRow(profile)
-                    }
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-        }
-        .background(Color(uiColor: .systemGroupedBackground))
-        .navigationTitle("大模型管理")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("新建配置") {
-                    presentedSheet = .create
-                }
-            }
-        }
-        .sheet(item: $presentedSheet) { route in
-            NavigationStack {
-                sheetContent(for: route)
-            }
-        }
-        .confirmationDialog(
-            "删除配置",
-            isPresented: deleteConfirmationBinding,
-            presenting: pendingDeletion
-        ) { profile in
-            Button("删除配置", role: .destructive) {
-                confirmDeleteProfile(profile)
-            }
-            Button("取消", role: .cancel) {}
-        } message: { profile in
-            Text("将删除 \(profile.profileName)。")
-        }
-        .alert("无法删除配置", isPresented: deletionErrorBinding) {
-            Button("知道了", role: .cancel) {}
-        } message: {
-            Text(deletionErrorMessage ?? "")
-        }
-    }
-
-    private func isVisibleProfile(_ profile: APIConfigurationProfileSnapshot) -> Bool {
-        profile.isConfigured ||
-        profile.hasAPIKey ||
-        !profile.customBaseURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-        profile.selectedServer != nil
-    }
-
-    private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Image(systemName: "key.horizontal")
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            Text("还没有模型配置")
-                .font(.headline)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .glassEffect(.regular.tint(.white.opacity(0.08)), in: .rect(cornerRadius: 24))
-    }
-
-    @ViewBuilder
-    private func sheetContent(for route: LegacyModelConfigurationSheetRoute) -> some View {
-        switch route {
-        case .create:
-            ModelConfigurationCreationScreen(initialProviderID: store.activeProviderID) { providerID in
-                let profileID = store.createProfile(for: providerID)
-                transientProfileIDs.insert(profileID)
-                presentedSheet = .edit(providerID: providerID, profileID: profileID)
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("关闭") {
-                        presentedSheet = nil
-                    }
-                }
-            }
-        case let .edit(providerID, profileID):
-            ModelConfigurationProfileEditorScreen(
-                store: store,
-                providerID: providerID,
-                profileID: profileID
-            )
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("关闭") {
-                        dismissEditor(providerID: providerID, profileID: profileID)
-                    }
-                }
-            }
-        }
-    }
-
-    private func isSelected(_ profile: APIConfigurationProfileSnapshot) -> Bool {
-        store.activeProviderID == profile.provider.id && profile.isActive
-    }
-
-    private func selectProfile(_ profile: APIConfigurationProfileSnapshot) {
-        store.activateProfile(profile.id, for: profile.provider.id)
-        store.setActiveProviderID(profile.provider.id)
-    }
-
-    private func confirmDeleteProfile(_ profile: APIConfigurationProfileSnapshot) {
-        do {
-            try store.deleteProfile(profile.id, for: profile.provider.id)
-            transientProfileIDs.remove(profile.id)
-            if case let .edit(providerID, profileID) = presentedSheet,
-               providerID == profile.provider.id,
-               profileID == profile.id {
-                presentedSheet = nil
-            }
-        } catch {
-            deletionErrorMessage = error.localizedDescription
-        }
-    }
-
-    private func dismissEditor(providerID: APIProviderID, profileID: UUID) {
-        defer {
-            presentedSheet = nil
-        }
-
-        guard transientProfileIDs.contains(profileID),
-              let profile = store.profiles(for: providerID).first(where: { $0.id == profileID }) else {
-            transientProfileIDs.remove(profileID)
-            return
-        }
-
-        if shouldDiscardTransientProfile(profile) {
-            try? store.deleteProfile(profileID, for: providerID)
-        }
-        transientProfileIDs.remove(profileID)
-    }
-
-    private func shouldDiscardTransientProfile(_ profile: APIConfigurationProfileSnapshot) -> Bool {
-        !profile.isConfigured &&
-        !profile.hasAPIKey &&
-        profile.customBaseURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        profile.selectedServer == nil
-    }
-
-    private func profileRow(_ profile: APIConfigurationProfileSnapshot) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(profile.profileName)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-
-                Text("\(profile.provider.title) · \(profile.selectedAccessMode.title)")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                presentedSheet = .edit(providerID: profile.provider.id, profileID: profile.id)
-            }
-
-            Spacer()
-
-            Button {
-                selectProfile(profile)
-            } label: {
-                ZStack {
-                    Circle()
-                        .stroke(isSelected(profile) ? Color.blue : Color.secondary.opacity(0.45), lineWidth: 1.5)
-                        .frame(width: 30, height: 30)
-
-                    if isSelected(profile) {
-                        Circle()
-                            .fill(Color.blue)
-                            .frame(width: 10, height: 10)
-                    }
-                }
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .contentShape(Rectangle())
-        .contextMenu {
-            Button(role: .destructive) {
-                pendingDeletion = profile
-            } label: {
-                Label("删除配置", systemImage: "trash")
-            }
-            .disabled(!store.canDeleteProfile(profile.id, for: profile.provider.id))
-        }
-        .glassEffect(.regular.tint(.white.opacity(0.08)), in: .rect(cornerRadius: 22))
-    }
-
-    private var deleteConfirmationBinding: Binding<Bool> {
-        Binding(
-            get: { pendingDeletion != nil },
-            set: { isPresented in
-                if !isPresented {
-                    pendingDeletion = nil
-                }
-            }
-        )
-    }
-
-    private var deletionErrorBinding: Binding<Bool> {
-        Binding(
-            get: { deletionErrorMessage != nil },
-            set: { isPresented in
-                if !isPresented {
-                    deletionErrorMessage = nil
-                }
-            }
-        )
-    }
-}
-
-private struct ModelConfigurationCreationScreen: View {
-    let onCreate: (APIProviderID) -> Void
-    @State private var selectedProviderID: APIProviderID
-
-    private struct ProviderSection: Identifiable {
-        let id: String
-        let title: String
-        let providers: [APIProviderID]
-    }
-
-    private let providerSections: [ProviderSection] = [
-        ProviderSection(
-            id: "official",
-            title: "官方直连",
-            providers: [.glm, .deepseek]
-        ),
-        ProviderSection(
-            id: "custom",
-            title: "OpenAI 兼容",
-            providers: [.customOpenAI]
-        )
-    ]
-
-    init(initialProviderID: APIProviderID, onCreate: @escaping (APIProviderID) -> Void) {
-        self.onCreate = onCreate
-        let initial = APIProviderID.palmiSelectable.contains(initialProviderID) ? initialProviderID : .glm
-        _selectedProviderID = State(initialValue: initial)
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                ForEach(providerSections) { section in
-                    providerSection(section)
-                }
-
-                Button {
-                    onCreate(selectedProviderID)
-                } label: {
-                    Text("继续")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(.cyan.opacity(0.16), in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .padding(6)
-                .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 28))
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 18)
-        }
-        .background(Color(uiColor: .systemGroupedBackground))
-        .navigationTitle("新建配置")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func providerSection(_ section: ProviderSection) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(section.title)
-                .font(.headline)
-                .padding(.horizontal, 4)
-
-            VStack(spacing: 8) {
-                ForEach(section.providers) { providerID in
-                    providerRow(providerID)
-                }
-            }
-        }
-    }
-
-    private func providerRow(_ providerID: APIProviderID) -> some View {
-        let isSelected = selectedProviderID == providerID
-        let definition = APIProviderCatalog.definition(for: providerID)
-
-        return Button {
-            selectedProviderID = providerID
-        } label: {
-            HStack(spacing: 12) {
-                Text(definition.title)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                ZStack {
-                    Circle()
-                        .stroke(isSelected ? Color.blue : Color.secondary.opacity(0.45), lineWidth: 1.5)
-                        .frame(width: 30, height: 30)
-
-                    if isSelected {
-                        Circle()
-                            .fill(Color.blue)
-                            .frame(width: 10, height: 10)
-                    }
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 14)
-            .glassEffect(.regular.tint(.white.opacity(0.08)), in: .rect(cornerRadius: 22))
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-private struct ModelConfigurationProfileEditorScreen: View {
-    @Bindable var store: ManualLabStore
-    let providerID: APIProviderID
-    let profileID: UUID
-    @State private var isShowingAPIKey = false
-    @FocusState private var isEditingInput: Bool
-
-    private var profile: APIConfigurationProfileSnapshot? {
-        store.profiles(for: providerID).first(where: { $0.id == profileID })
-    }
-
-    private var editableRoles: [APIModelRole] {
-        store.editableModelRoles(for: providerID)
-    }
-
-    var body: some View {
-        Group {
-            if let profile {
-                ZStack {
-                    Color(uiColor: .systemGroupedBackground)
-                        .ignoresSafeArea()
-                        .onTapGesture {
-                            isEditingInput = false
-                        }
-
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 14) {
-                            identityCard(profile)
-
-                            if profile.provider.endpointStrategy == .profileManaged {
-                                endpointCard()
-                            }
-
-                            apiKeyCard(profile)
-
-                            if profile.provider.supportsManualModelSelection {
-                                modelCard
-                            } else {
-                                automaticModelCard(profile)
-                            }
-
-                            actionRow(profile)
-
-                            if let feedback = store.feedback(for: providerID, profileID: profileID) {
-                                feedbackCard(feedback)
-                            }
-
-                            if let connectionFeedback = store.connectionFeedback(for: providerID, profileID: profileID) {
-                                feedbackCard(connectionFeedback)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                        .simultaneousGesture(
-                            TapGesture().onEnded {
-                                isEditingInput = false
-                            }
-                        )
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 18)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .scrollDismissesKeyboard(.interactively)
-                }
-            } else {
-                Color.clear
-            }
-        }
-        .navigationTitle(profile?.profileName ?? "配置")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func identityCard(_ profile: APIConfigurationProfileSnapshot) -> some View {
-        let accessModes = store.availableAccessModes(for: providerID)
-
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Text("自定义配置名称")
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-
-                Spacer(minLength: 12)
-
-                Text(profile.provider.title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(.white.opacity(0.08), in: Capsule())
-            }
-
-            TextField("配置名称", text: profileNameBinding)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .submitLabel(.done)
-                .focused($isEditingInput)
-                .onSubmit {
-                    isEditingInput = false
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-                .background(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(Color.white.opacity(0.24))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(Color.white.opacity(0.34), lineWidth: 1)
-                )
-
-            if accessModes.count > 1 {
-                Picker("接入方式", selection: accessModeBinding) {
-                    ForEach(accessModes) { accessMode in
-                        Text(accessMode.title).tag(accessMode.id)
-                    }
-                }
-                .pickerStyle(.segmented)
-            }
-        }
-        .padding(18)
-        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 28))
-    }
-
-    private func endpointCard() -> some View {
-        let supportsDiscovery = store.supportsServerDiscovery(for: providerID)
-        let selectedServer = store.selectedLMStudioServer(for: providerID, profileID: profileID)
-        let discoveredServers = store.discoveredLMStudioServers(for: providerID, profileID: profileID)
-
-        return VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center) {
-                Text(supportsDiscovery ? "服务器" : "Base URL")
-                    .font(.headline)
-
-                Spacer()
-
-                if supportsDiscovery {
-                    Button {
-                        isEditingInput = false
-                        store.autoConfigureLMStudio(for: providerID, profileID: profileID)
-                    } label: {
-                        HStack(spacing: 8) {
-                            if store.isDiscoveringLMStudioServers(for: providerID, profileID: profileID) {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                Image(systemName: "sparkles")
-                            }
-                            Text(store.isDiscoveringLMStudioServers(for: providerID, profileID: profileID) ? "配置中" : "自动配置")
-                        }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(.white.opacity(0.08), in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(store.isDiscoveringLMStudioServers(for: providerID, profileID: profileID))
-                }
-            }
-
-            TextField(endpointPlaceholder, text: customBaseURLBinding)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .submitLabel(.done)
-                .focused($isEditingInput)
-                .onSubmit {
-                    isEditingInput = false
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-                .background(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(Color.white.opacity(0.24))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(Color.white.opacity(0.34), lineWidth: 1)
-                )
-
-            if supportsDiscovery, let selectedServer {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(selectedServer.displayName)
-                        .font(.subheadline.weight(.semibold))
-
-                    Text(selectedServer.baseURLString)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                .padding(14)
-                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            }
-
-            if supportsDiscovery, !discoveredServers.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(discoveredServers) { server in
-                        Button {
-                            isEditingInput = false
-                            store.selectLMStudioServer(server, for: providerID, profileID: profileID)
-                        } label: {
-                            HStack(alignment: .top, spacing: 10) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(server.displayName)
-                                        .font(.subheadline.weight(.semibold))
-                                        .foregroundStyle(.primary)
-
-                                    Text(server.baseURLString)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                }
-
-                                Spacer(minLength: 8)
-
-                                Image(systemName: selectedServer?.id == server.id ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(selectedServer?.id == server.id ? .cyan : .secondary)
-                            }
-                            .padding(12)
-                            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-        }
-        .padding(18)
-        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 28))
-    }
-
-    private var modelCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center) {
-                Text("模型方案")
-                    .font(.headline)
-
-                Spacer(minLength: 12)
-
-                modelActionButtons
-            }
-
-            VStack(spacing: 10) {
-                ForEach(editableRoles) { role in
-                    modelPickerRow(role: role)
-                }
-            }
-        }
-        .padding(18)
-        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 28))
-    }
-
-    private func automaticModelCard(_ profile: APIConfigurationProfileSnapshot) -> some View {
-        let selectedServer = store.selectedLMStudioServer(for: providerID, profileID: profileID)
-
-        return VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center) {
-                Text("模型")
-                    .font(.headline)
-
-                Spacer(minLength: 12)
-
-                modelActionButtons
-            }
-
-            compactValueRow(title: "主模型", value: profile.reasoningModel.title)
-            compactValueRow(title: "多模态模型", value: profile.multimodalModel.title)
-
-            if let selectedServer {
-                compactValueRow(title: "设备", value: selectedServer.displayName)
-            }
-
-            if let selectedModelTitle = selectedServer?.selectedModelTitle {
-                compactValueRow(title: "当前模型", value: selectedModelTitle)
-            }
-        }
-        .padding(18)
-        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 28))
-    }
-
-    private func apiKeyCard(_ profile: APIConfigurationProfileSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(secretFieldTitle)
-                    .font(.headline)
-
-                Spacer()
-
-                Text(profile.hasAPIKey ? "已保存" : "未配置")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(profile.hasAPIKey ? .green : .orange)
-
-                Button(isShowingAPIKey ? "隐藏" : "显示") {
-                    isEditingInput = false
-                    isShowingAPIKey.toggle()
-                }
-                .font(.subheadline.weight(.semibold))
-                .buttonStyle(.plain)
-            }
-
-            Group {
-                if isShowingAPIKey {
-                    TextField(secretFieldPlaceholder, text: apiKeyBinding)
-                } else {
-                    SecureField(secretFieldPlaceholder, text: apiKeyBinding)
-                }
-            }
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .submitLabel(.done)
-            .focused($isEditingInput)
-            .onSubmit {
-                isEditingInput = false
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color.white.opacity(0.24))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(Color.white.opacity(0.34), lineWidth: 1)
-            )
-
-        }
-        .padding(18)
-        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 28))
-    }
-
-    private var modelActionButtons: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 10) {
-                if store.supportsRemoteModelDiscovery(for: providerID) {
-                    modelFetchButton
-                }
-                validationButton
-            }
-
-            VStack(alignment: .trailing, spacing: 8) {
-                if store.supportsRemoteModelDiscovery(for: providerID) {
-                    modelFetchButton
-                }
-                validationButton
-            }
-        }
-    }
-
-    private func actionRow(_ profile: APIConfigurationProfileSnapshot) -> some View {
-        HStack(spacing: 12) {
-            Button {
-                isEditingInput = false
-                store.saveAPIConfiguration(for: providerID, profileID: profileID)
-            } label: {
-                Text("保存")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(.cyan.opacity(0.16), in: Capsule())
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                isEditingInput = false
-                store.clearAPIKey(for: providerID, profileID: profileID)
-            } label: {
-                Text("清空 API Key")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(.red.opacity(0.10), in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(!profile.hasAPIKey)
-        }
-        .padding(6)
-        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 28))
-    }
-
-    private func feedbackCard(_ feedback: APIConfigurationFeedback) -> some View {
-        Text(feedback.message)
-            .font(.footnote.weight(.medium))
-            .foregroundStyle(feedback.isError ? .red : .green)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
-            .glassEffect(
-                .regular.tint((feedback.isError ? Color.red : Color.green).opacity(0.08)),
-                in: .rect(cornerRadius: 24)
-            )
-    }
-
-    private func modelPickerRow(role: APIModelRole) -> some View {
-        let selectedOption = selectedModelOption(for: role)
-        let validationState = store.connectionValidationState(for: providerID, role: role, profileID: profileID)
-
-        return HStack(spacing: 14) {
-            Text(role.title)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-                .frame(width: 92, alignment: .leading)
-
-            Spacer(minLength: 8)
-
-            if providerUsesManualModelName {
-                // 自定义 OpenAI 兼容：模型名手填（无预设、无候选列表）。
-                TextField("输入模型名称", text: manualModelBinding(role: role))
-                    .font(.footnote.weight(.semibold))
-                    .multilineTextAlignment(.trailing)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .submitLabel(.done)
-                    .focused($isEditingInput)
-                    .frame(width: 166, alignment: .trailing)
-            } else {
-                HStack(spacing: 10) {
-                    validationIndicator(for: validationState)
-                    modelSelectionMenu(role: role, selectedOption: selectedOption)
-                }
-                .frame(width: 166, alignment: .trailing)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-    }
-
-    private var providerUsesManualModelName: Bool {
-        providerID == .customOpenAI
-    }
-
-    private func manualModelBinding(role: APIModelRole) -> Binding<String> {
-        Binding(
-            get: {
-                let id = store.selectedModelID(for: providerID, role: role, profileID: profileID)
-                return id == APIModelSelection.automaticID ? "" : id
-            },
-            set: { store.setSelectedModelID($0, role: role, for: providerID, profileID: profileID) }
-        )
-    }
-
-    private func compactValueRow(title: String, value: String) -> some View {
-        HStack(spacing: 14) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-                .frame(width: 92, alignment: .leading)
-
-            Spacer(minLength: 8)
-
-            Text(value)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-    }
-
-    private var validationButton: some View {
-        Button {
-            isEditingInput = false
-            store.validateConnections(for: providerID, profileID: profileID)
-        } label: {
-            HStack(spacing: 8) {
-                if store.isValidatingConnections(for: providerID, profileID: profileID) {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Image(systemName: "bolt.horizontal.circle")
-                }
-                Text("联通验证")
-            }
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(.white.opacity(0.08), in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .disabled(store.isValidatingConnections(for: providerID, profileID: profileID))
-    }
-
-    private var modelFetchButton: some View {
-        Button {
-            isEditingInput = false
-            store.refreshRemoteModels(for: providerID, profileID: profileID)
-        } label: {
-            HStack(spacing: 8) {
-                if store.isFetchingRemoteModels(for: providerID, profileID: profileID) {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Image(systemName: "arrow.down.circle")
-                }
-                Text("检测模型")
-            }
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(.white.opacity(0.08), in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .disabled(store.isFetchingRemoteModels(for: providerID, profileID: profileID))
-    }
-
-    private var profileNameBinding: Binding<String> {
-        Binding(
-            get: { store.profileName(for: providerID, profileID: profileID) },
-            set: { store.setProfileName($0, for: providerID, profileID: profileID) }
-        )
-    }
-
-    private var apiKeyBinding: Binding<String> {
-        Binding(
-            get: { store.apiKeyDraft(for: providerID, profileID: profileID) },
-            set: { store.setAPIKeyDraft($0, for: providerID, profileID: profileID) }
-        )
-    }
-
-    private var accessModeBinding: Binding<APIAccessModeID> {
-        Binding(
-            get: { store.selectedAccessModeID(for: providerID, profileID: profileID) },
-            set: { store.setSelectedAccessModeID($0, for: providerID, profileID: profileID) }
-        )
-    }
-
-    private var secretFieldTitle: String {
-        "API Key"
-    }
-
-    private var secretFieldPlaceholder: String {
-        "API Key"
-    }
-
-    private var customBaseURLBinding: Binding<String> {
-        Binding(
-            get: { store.customBaseURLDraft(for: providerID, profileID: profileID) },
-            set: { store.setCustomBaseURLDraft($0, for: providerID, profileID: profileID) }
-        )
-    }
-
-    private var endpointPlaceholder: String {
-        let placeholder = store.selectedAccessMode(for: providerID, profileID: profileID).subtitle
-        return placeholder.isEmpty ? "https://api.example.com/v1" : placeholder
-    }
-
-    private func modelBinding(role: APIModelRole) -> Binding<String> {
-        Binding(
-            get: { store.selectedModelID(for: providerID, role: role, profileID: profileID) },
-            set: { store.setSelectedModelID($0, role: role, for: providerID, profileID: profileID) }
-        )
-    }
-
-    private func selectedModelOption(for role: APIModelRole) -> APIModelDefinition {
-        let selectedID = store.selectedModelID(for: providerID, role: role, profileID: profileID)
-        return store.availableModels(for: providerID, role: role, profileID: profileID)
-            .first(where: { $0.id == selectedID }) ??
-            store.selectedModel(for: providerID, role: role, profileID: profileID)
-    }
-
-    private func modelSelectionMenu(role: APIModelRole, selectedOption: APIModelDefinition) -> some View {
-        let catalogModels = store.catalogModels(for: providerID, role: role, profileID: profileID)
-        let remoteModels = store.remoteModels(for: providerID, role: role, profileID: profileID)
-
-        return Menu {
-            ForEach(catalogModels) { model in
-                modelMenuButton(model, role: role, selectedOption: selectedOption)
-            }
-
-            if !remoteModels.isEmpty {
-                Divider()
-
-                ForEach(remoteModels) { model in
-                    modelMenuButton(model, role: role, selectedOption: selectedOption)
-                }
-            }
-        } label: {
-            HStack(spacing: 8) {
-                Text(selectedOption.title)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .frame(width: 132, alignment: .center)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(.cyan.opacity(0.14), in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                isEditingInput = false
-            }
-        )
-    }
-
-    private func modelMenuButton(
-        _ model: APIModelDefinition,
-        role: APIModelRole,
-        selectedOption: APIModelDefinition
-    ) -> some View {
-        Button {
-            modelBinding(role: role).wrappedValue = model.id
-        } label: {
-            if model.id == selectedOption.id {
-                Label(model.title, systemImage: "checkmark")
-            } else {
-                Text(model.title)
-            }
-        }
-    }
-
-    private func validationIndicator(for state: APIConnectionValidationState) -> some View {
-        ZStack {
-            switch state {
-            case .idle:
-                Image(systemName: "circle.fill")
-                    .foregroundStyle(.secondary.opacity(0.22))
-            case .validating:
-                ProgressView()
-                    .controlSize(.small)
-            case .success:
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-            case .failure:
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.red)
-            }
-        }
-        .frame(width: 20, height: 20)
-    }
-}
-
-private enum LegacyModelConfigurationSheetRoute: Identifiable {
-    case create
-    case edit(providerID: APIProviderID, profileID: UUID)
-
-    var id: String {
-        switch self {
-        case .create:
-            return "create"
-        case let .edit(providerID, profileID):
-            return "\(providerID.rawValue)-\(profileID.uuidString)"
-        }
-    }
 }

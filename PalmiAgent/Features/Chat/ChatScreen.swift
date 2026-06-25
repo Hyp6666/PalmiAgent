@@ -322,7 +322,7 @@ struct ChatScreen: View {
     }
 
     private var topChromeReservedHeight: CGFloat {
-        76
+        120
     }
 
     private var topChromeControlSize: CGFloat {
@@ -379,7 +379,7 @@ struct ChatScreen: View {
         .coordinateSpace(name: "chat-root")
         .overlay(alignment: .top) {
             topChromeBar()
-                .frame(height: topChromeReservedHeight)
+                .frame(height: 90)
         }
         .overlay {
             linkActionPopoverAnchor
@@ -479,7 +479,7 @@ struct ChatScreen: View {
         GeometryReader { proxy in
             VStack(spacing: 0) {
                 ChatTopChromeVisualMask()
-                    .frame(height: proxy.safeAreaInsets.top + topChromeReservedHeight)
+                    .frame(height: proxy.safeAreaInsets.top + 90)
                     .ignoresSafeArea(edges: .top)
 
                 Spacer(minLength: 0)

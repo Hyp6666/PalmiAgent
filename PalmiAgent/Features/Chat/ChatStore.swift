@@ -77,6 +77,8 @@ final class ChatStore {
     let agentLoop: AgentLoop
     let makeAgentLoop: () -> AgentLoop
     let conversationTitleService: ConversationTitleService
+    let currentDateTimeService: CurrentDateTimeService
+    let locationService: LocationService
     let skillRegistry: SkillRegistry
     let workspaceManager: WorkspaceManager
     let workspaceStore: WorkspaceStore
@@ -159,6 +161,15 @@ final class ChatStore {
         return modelPlanStore.roleOverrides(for: thread.modelPlanOverride)
     }
 
+    private func surface(for selection: WorkspaceSelection?) -> WorkspaceProjectSurface {
+        guard let selection else {
+            return workspaceStore.selectedProject?.surface ?? .professional
+        }
+        return (workspaceStore.projects + workspaceStore.chatProjects)
+            .first { $0.id == selection.projectID }?
+            .surface ?? .professional
+    }
+
     /// 当前正在展示的会话。UI 的唯一真相直接取自 workspaceStore，
     /// 不另设镜像状态，避免“维护层”自身又产生不一致。
     private var displayedSelection: WorkspaceSelection? {
@@ -182,11 +193,19 @@ final class ChatStore {
     }
 
     private var composerActions: [ToolAction] {
+        composerActions(for: displayedSelection)
+    }
+
+    private func composerActions(for selection: WorkspaceSelection?) -> [ToolAction] {
         let toolsEnabled = UserDefaults.standard.object(forKey: Self.toolsEnabledDefaultsKey) as? Bool ?? true
         guard toolsEnabled else {
             return []
         }
-        return toolPermissionStore.enabledActions(from: actions)
+        let enabledActions = toolPermissionStore.enabledActions(from: actions)
+        return ChatModeToolFilter.actions(
+            for: surface(for: selection),
+            from: enabledActions
+        )
     }
 
     var canSend: Bool {
@@ -231,6 +250,8 @@ final class ChatStore {
         agentLoop: AgentLoop,
         makeAgentLoop: @escaping () -> AgentLoop,
         conversationTitleService: ConversationTitleService,
+        currentDateTimeService: CurrentDateTimeService,
+        locationService: LocationService,
         skillRegistry: SkillRegistry,
         workspaceManager: WorkspaceManager,
         workspaceStore: WorkspaceStore,
@@ -243,6 +264,8 @@ final class ChatStore {
         self.agentLoop = agentLoop
         self.makeAgentLoop = makeAgentLoop
         self.conversationTitleService = conversationTitleService
+        self.currentDateTimeService = currentDateTimeService
+        self.locationService = locationService
         self.skillRegistry = skillRegistry
         self.workspaceManager = workspaceManager
         self.workspaceStore = workspaceStore
@@ -266,17 +289,31 @@ final class ChatStore {
             loadMessagesForActiveThread()
         }
 
+        let turnSurface = surface(for: turnSelection)
+        let turnActions = composerActions(for: turnSelection)
+        let modelOverrides = modelRoleOverrides(for: turnSelection)
+        let runProviderID = modelOverrides.primaryProviderID ?? activeProviderID
+
         if let running = activeRuns[turnSelection] {
             guard running.loop.acceptsQueuedUserGuidance else {
                 errorMessage = "当前会话正在处理，请稍后再发送。"
                 return
             }
             enqueueQueuedUserGuidance(hiddenText)
-            running.loop.enqueueUserGuidance(hiddenText)
             inputText = ""
             pendingAttachments = []
             errorMessage = nil
             saveVisibleComposerState()
+            Task { @MainActor in
+                let modelInput = await inputWithAgentRuntimeContext(
+                    hiddenText,
+                    surface: turnSurface,
+                    selection: turnSelection,
+                    providerID: runProviderID,
+                    modelOverrides: modelOverrides
+                )
+                running.loop.enqueueUserGuidance(modelInput, visibleText: hiddenText)
+            }
             return
         }
 
@@ -290,8 +327,6 @@ final class ChatStore {
 
         let startedAt = Date()
         let runLoop = makePreparedRunLoop(for: turnSelection)
-        let modelOverrides = modelRoleOverrides(for: turnSelection)
-        let runProviderID = modelOverrides.primaryProviderID ?? activeProviderID
         let pendingAutoTitleTarget = autoTitleTargetIfNeeded(for: turnSelection, loop: runLoop)
         let activeRun = ActiveRun(selection: turnSelection, loop: runLoop)
         activeRun.eventTask = observeAgentEvents(for: turnSelection, loop: runLoop)
@@ -345,10 +380,17 @@ final class ChatStore {
         Task {
             await workspaceManager.withSelection(turnSelection) {
                 do {
-                    let result = try await runLoop.runTurn(
-                        userInput: hiddenText,
+                    let modelInput = await inputWithAgentRuntimeContext(
+                        hiddenText,
+                        surface: turnSurface,
+                        selection: turnSelection,
                         providerID: runProviderID,
-                        actions: composerActions,
+                        modelOverrides: modelOverrides
+                    )
+                    let result = try await runLoop.runTurn(
+                        userInput: modelInput,
+                        providerID: runProviderID,
+                        actions: turnActions,
                         mode: turnMode,
                         imagePaths: turnImagePaths,
                         modelOverrides: modelOverrides
@@ -531,7 +573,8 @@ final class ChatStore {
         let targetSelection = selection ?? displayedSelection
         let modelOverrides = providedModelOverrides ?? modelRoleOverrides(for: targetSelection)
         let providerID = modelOverrides.primaryProviderID ?? activeProviderID
-        let snapshot = targetLoop.currentContextCompositionSnapshot(actions: composerActions)
+        let targetActions = composerActions(for: targetSelection)
+        let snapshot = targetLoop.currentContextCompositionSnapshot(actions: targetActions)
         guard snapshot.usedRatio >= ContextCompactionConfiguration.default().triggerRatio else {
             return
         }
@@ -544,7 +587,7 @@ final class ChatStore {
         do {
             _ = try await targetLoop.compactContextIfNeeded(
                 providerID: providerID,
-                actions: composerActions,
+                actions: targetActions,
                 modelOverrides: modelOverrides
             )
             if let targetSelection {
@@ -712,6 +755,92 @@ final class ChatStore {
 
     private func visibleInputText() -> String {
         inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func inputWithAgentRuntimeContext(
+        _ input: String,
+        surface: WorkspaceProjectSurface,
+        selection: WorkspaceSelection,
+        providerID: APIProviderID,
+        modelOverrides: AgentModelRoleOverrides
+    ) async -> String {
+        let context = await agentRuntimeContext(
+            surface: surface,
+            selection: selection,
+            providerID: providerID,
+            modelOverrides: modelOverrides
+        )
+        return context.appending(to: input)
+    }
+
+    private func agentRuntimeContext(
+        surface: WorkspaceProjectSurface,
+        selection: WorkspaceSelection,
+        providerID: APIProviderID,
+        modelOverrides: AgentModelRoleOverrides
+    ) async -> AgentPromptRuntimeContext {
+        let dateTime = currentDateTimeService.snapshot()
+        let modelInfo = agentModelInfo(
+            providerID: providerID,
+            modelOverrides: modelOverrides
+        )
+        return AgentPromptRuntimeContext(
+            userAddress: await locationService.promptInjectionAddress(),
+            currentTime: compactDateTime(from: dateTime),
+            modelPlanName: modelPlanName(for: selection),
+            realModel: modelInfo.realModel,
+            modelDisplayName: modelInfo.displayName,
+            reasoningTier: ReasoningStrengthProfile
+                .resolvedProfessionalTier(for: surface)
+                .rawValue
+        )
+    }
+
+    private func agentModelInfo(
+        providerID: APIProviderID,
+        modelOverrides: AgentModelRoleOverrides
+    ) -> (realModel: String, displayName: String) {
+        if case .resolved(let resolved) = modelOverrides.override(for: .reasoningModel) {
+            return (
+                realModel: normalizedModelValue(resolved.model.id, fallback: "未知"),
+                displayName: normalizedModelValue(resolved.model.title, fallback: resolved.model.id)
+            )
+        }
+
+        let snapshot = apiConfigurationStore.chatModelSelectionSnapshot(for: providerID)
+        let overrideID = apiConfigurationStore.chatOverrideReasoningModelID(for: providerID)
+        let overrideModel = (!overrideID.isEmpty && overrideID != APIModelSelection.automaticID)
+            ? snapshot.selectedAccessMode.model(withID: overrideID)
+            : nil
+        let model = overrideModel ?? snapshot.configuredReasoningModel
+        return (
+            realModel: normalizedModelValue(model.id, fallback: "未知"),
+            displayName: normalizedModelValue(model.title, fallback: model.id)
+        )
+    }
+
+    private func modelPlanName(for selection: WorkspaceSelection) -> String {
+        let thread = workspaceStore.thread(for: selection)
+        let plan = modelPlanStore.selectedPlan(for: thread?.modelPlanOverride)
+        return normalizedModelValue(plan?.name ?? "", fallback: "默认")
+    }
+
+    private func compactDateTime(from snapshot: CurrentDateTimeSnapshot) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = snapshot.locale
+        formatter.timeZone = snapshot.timeZone
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        let compactOffset = snapshot.offsetDescription.replacingOccurrences(of: ":00", with: "")
+        return "\(formatter.string(from: snapshot.now)) \(compactOffset)"
+    }
+
+    private func normalizedModelValue(_ value: String, fallback: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return fallback.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "未知" : fallback
+        }
+        return trimmed
     }
 
     private static func previewText(for text: String) -> String {

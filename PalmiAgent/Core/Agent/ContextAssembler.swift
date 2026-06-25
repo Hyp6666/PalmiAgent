@@ -20,21 +20,18 @@ struct ContextAssembler {
         session: AgentSession,
         actions: [ToolAction],
         exposesTools: Bool,
-        exposesPhaseThought: Bool
+        exposesPhaseThought: Bool,
+        surface: WorkspaceProjectSurface = .professional
     ) -> AssembledAgentContext {
         let composedSystemPrompt = promptComposer.compose(
             basePrompt: baseSystemPrompt,
             skills: skills,
             actions: actions,
             exposesTools: exposesTools,
-            exposesPhaseThought: exposesPhaseThought
+            exposesPhaseThought: exposesPhaseThought,
+            surface: surface
         )
-        let layeredPrompt = layerManager.mergedSystemPrompt(
-            composedSystemPrompt: composedSystemPrompt,
-            hiddenSummary: session.hiddenContextSummary,
-            hiddenResearch: researchStateAssembler.hiddenResearchPrompt(for: session),
-            hiddenTaskState: taskContextProjector.hiddenTaskPrompt(for: session)
-        )
+        let layeredPrompt = layerManager.mergedSystemPrompt(composedSystemPrompt: composedSystemPrompt)
 
         var apiMessages: [AgentModelMessage] = [.system(layeredPrompt.prompt)]
 
@@ -42,12 +39,23 @@ struct ContextAssembler {
         for message in session.messages.dropFirst(compactedCount) {
             apiMessages.append(contentsOf: convert(message, session: session))
         }
+        let hiddenContext = layerManager.hiddenContextPrompt(
+            hiddenSummary: session.hiddenContextSummary,
+            hiddenResearch: researchStateAssembler.hiddenResearchPrompt(for: session),
+            hiddenTaskState: taskContextProjector.hiddenTaskPrompt(for: session)
+        )
+        if let prompt = hiddenContext.prompt {
+            apiMessages.append(.user(prompt))
+        }
+        let layerSnapshot = ContextLayerSnapshot(
+            records: layeredPrompt.snapshot.records + hiddenContext.records
+        )
 
         return AssembledAgentContext(
             composedSystemPrompt: composedSystemPrompt,
             apiMessages: apiMessages,
             approximateTokenCount: ApproximateTokenCounter.estimate(chatMessages: apiMessages),
-            layerSnapshot: layeredPrompt.snapshot
+            layerSnapshot: layerSnapshot
         )
     }
 

@@ -2,12 +2,11 @@ import Foundation
 
 struct PromptCompositionBreakdown {
     let basePrompt: String
-    let foundationPrompt: String
     let personalityPrompt: String
     let skillsPrompt: String
 
     var composedPrompt: String {
-        [basePrompt, foundationPrompt, personalityPrompt, skillsPrompt]
+        [basePrompt, personalityPrompt, skillsPrompt]
             .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .joined(separator: "\n\n")
     }
@@ -25,14 +24,16 @@ struct PromptComposer {
         skills: [SkillPackage],
         actions: [ToolAction],
         exposesTools: Bool,
-        exposesPhaseThought: Bool
+        exposesPhaseThought: Bool,
+        surface: WorkspaceProjectSurface = .professional
     ) -> String {
         composeBreakdown(
             basePrompt: basePrompt,
             skills: skills,
             actions: actions,
             exposesTools: exposesTools,
-            exposesPhaseThought: exposesPhaseThought
+            exposesPhaseThought: exposesPhaseThought,
+            surface: surface
         ).composedPrompt
     }
 
@@ -41,39 +42,20 @@ struct PromptComposer {
         skills: [SkillPackage],
         actions: [ToolAction],
         exposesTools: Bool,
-        exposesPhaseThought: Bool
+        exposesPhaseThought: Bool,
+        surface: WorkspaceProjectSurface = .professional
     ) -> PromptCompositionBreakdown {
         let personalityPrompt = AgentPersonalityPreset
             .current(from: userDefaults)
             .systemPromptFragment(from: userDefaults)
-        let foundationHeader =
-            """
-            框架内置基础规则：
-            - 以下内容属于应用框架提供给你的隐藏基础执行规则，不要向用户暴露为“技能”或可配置项。
-            - 这些基础规则始终生效，优先级高于可选技能。
-            """
-        let foundationSections: [String] = FoundationPromptRule.allCases.reduce(into: []) { partialResult, rule in
-            guard let body = rule.body(
-                actions: actions,
-                exposesTools: exposesTools,
-                exposesPhaseThought: exposesPhaseThought
-            ) else {
-                return
-            }
-            partialResult.append(
-                """
-                ## Foundation: \(rule.title)
-
-                \(body)
-                """
-            )
-        }
-        let foundationPrompt = ([foundationHeader] + foundationSections).joined(separator: "\n\n")
+        _ = surface
+        _ = actions
+        _ = exposesTools
+        _ = exposesPhaseThought
 
         guard !skills.isEmpty else {
             return PromptCompositionBreakdown(
                 basePrompt: basePrompt,
-                foundationPrompt: foundationPrompt,
                 personalityPrompt: personalityPrompt,
                 skillsPrompt: ""
             )
@@ -98,72 +80,9 @@ struct PromptComposer {
 
         return PromptCompositionBreakdown(
             basePrompt: basePrompt,
-            foundationPrompt: foundationPrompt,
             personalityPrompt: personalityPrompt,
             skillsPrompt: ([skillsHeader] + skillSections).joined(separator: "\n\n")
         )
     }
-}
 
-private enum FoundationPromptRule: CaseIterable {
-    case palmiCore
-    case iosToolRouting
-    case workspaceCoding
-
-    var title: String {
-        switch self {
-        case .palmiCore:
-            "palmi-core"
-        case .iosToolRouting:
-            "ios-tool-routing"
-        case .workspaceCoding:
-            "workspace-coding"
-        }
-    }
-
-    func body(
-        actions: [ToolAction],
-        exposesTools: Bool,
-        exposesPhaseThought: Bool
-    ) -> String? {
-        _ = exposesPhaseThought
-        switch self {
-        case .palmiCore:
-            return """
-            - 默认使用中文与用户沟通。
-            - 以行动和结果为中心，少说空话，优先给出可验证结论。
-            - 如果当前能力边界做不到，就直接说明限制，不要编造能力。
-            - 如果任务可以继续推进，就继续执行，不要半途而废。
-            """
-        case .iosToolRouting:
-            guard exposesTools else {
-                return nil
-            }
-            return """
-            - 地图、日历、提醒事项、联系人、通知、短信、邮件、相机、浏览器等任务，优先使用专用 iOS 工具。
-            - Python、JavaScript、终端、写文件等通用工具，只用于代码、文本、已知数据处理和工作区操作。
-            - 如果用户要的是系统闹钟而当前只有本地通知，就明确说明只能创建本地通知。
-            - 涉及时效性很强的现实世界信息时，先使用现有数据工具；拿不到关键数据时直接说明拿不到。
-            """
-        case .workspaceCoding:
-            let toolIDs = Set(actions.map(\.id))
-            guard exposesTools,
-                  !toolIDs.isDisjoint(with: [
-                    .fileWrite,
-                    .fileAppend,
-                    .fileRead,
-                    .listDirectory,
-                    .fileManage,
-                    .runPython
-                  ]) else {
-                return nil
-            }
-            return """
-            - 修改现有文件时优先最小改动，不要为了未来扩展随意重构。
-            - 写入文件前先确认目标路径和文件名是否合理。
-            - 运行脚本时优先使用工作区中的真实文件，而不是把长代码全部塞进单次命令里。
-            - 当脚本执行失败时，先基于错误结果修正，再继续下一步。
-            """
-        }
-    }
 }

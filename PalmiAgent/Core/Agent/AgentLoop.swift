@@ -13,6 +13,11 @@ final class AgentLoop {
     private static let phaseThoughtToolName = "phase_thought"
     private static let externalReasoningDefaultsKey = "palmi.chat.external-reasoning-enabled"
 
+    private struct PendingUserGuidance {
+        let modelText: String
+        let visibleText: String
+    }
+
     private let modelRuntime: AgentModelRuntime
     private let toolExecutor: AgentToolExecutor
     private let toolAuthorizationStore: ToolAuthorizationStore
@@ -29,12 +34,12 @@ final class AgentLoop {
 
     private(set) var session = AgentSession()
     private(set) var state: AgentState = .idle
-    private var pendingInterruptions: [String] = []
+    private var pendingInterruptions: [PendingUserGuidance] = []
     private var pendingApprovalContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
     private var pendingApprovalRequests: [UUID: AgentApprovalRequest] = [:]
 
     // 目标 / 深度研究模式：当前一轮的注入态。runTurn 进入时置位、退出时（defer）清回。
-    // 这三个只在 makeBaseSystemPrompt 里被读取并拼进系统提示，每轮迭代都会带上。
+    // 这些动态内容只追加到本轮隐藏 user 文本，不改变稳定 system prompt。
     private var activeTurnMode: AgentComposerMode = .standard
     private var activeTurnModeQuery: String = ""
     private var activeTurnDeepResearchFolder: String = ""
@@ -127,10 +132,21 @@ final class AgentLoop {
         }
     }
 
-    func enqueueUserGuidance(_ text: String) {
+    func enqueueUserGuidance(_ text: String, visibleText: String? = nil) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        pendingInterruptions.append(trimmed)
+        let trimmedVisibleText = visibleText?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayText = if let trimmedVisibleText, !trimmedVisibleText.isEmpty {
+            trimmedVisibleText
+        } else {
+            trimmed
+        }
+        pendingInterruptions.append(
+            PendingUserGuidance(
+                modelText: trimmed,
+                visibleText: displayText
+            )
+        )
     }
 
     func resolveApprovalRequest(_ id: UUID, approved: Bool) {
@@ -151,10 +167,12 @@ final class AgentLoop {
 
     func currentContextCompositionSnapshot(actions: [ToolAction]) -> ContextCompositionSnapshot {
         let runProfile = currentAgentRunProfile()
+        let surface = currentSurface()
         let baseSystemPrompt = makeBaseSystemPrompt(
             actions: actions,
             runProfile: runProfile,
-            phaseThoughtEnabled: isExternalReasoningEnabled
+            phaseThoughtEnabled: isExternalReasoningEnabled,
+            surface: surface
         )
         let activeProjectID = try? workspaceManager.currentSelection().projectID
         let activeSkills = skillRegistry.enabledSkills(for: activeProjectID)
@@ -163,12 +181,13 @@ final class AgentLoop {
             skills: activeSkills,
             actions: actions,
             exposesTools: !actions.isEmpty,
-            exposesPhaseThought: isExternalReasoningEnabled
+            exposesPhaseThought: isExternalReasoningEnabled,
+            surface: surface
         )
 
         let compactedPrefixCount = session.hiddenContextSummary?.compactedMessageCount ?? 0
         let rawMessages = Array(session.messages.dropFirst(compactedPrefixCount))
-        let systemPromptText = [breakdown.basePrompt, breakdown.foundationPrompt, breakdown.personalityPrompt]
+        let systemPromptText = [breakdown.basePrompt, breakdown.personalityPrompt]
             .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .joined(separator: "\n\n")
         let systemPromptTokens = ApproximateTokenCounter.estimate(systemPromptText)
@@ -217,10 +236,12 @@ final class AgentLoop {
         modelOverrides: AgentModelRoleOverrides = .empty
     ) async throws -> Bool {
         let runProfile = currentAgentRunProfile()
+        let surface = currentSurface()
         let baseSystemPrompt = makeBaseSystemPrompt(
             actions: actions,
             runProfile: runProfile,
-            phaseThoughtEnabled: isExternalReasoningEnabled
+            phaseThoughtEnabled: isExternalReasoningEnabled,
+            surface: surface
         )
         let activeProjectID = try? workspaceManager.currentSelection().projectID
         let activeSkills = skillRegistry.enabledSkills(for: activeProjectID)
@@ -265,10 +286,12 @@ final class AgentLoop {
         modelOverrides: AgentModelRoleOverrides = .empty
     ) async throws -> Bool {
         let runProfile = currentAgentRunProfile()
+        let surface = currentSurface()
         let baseSystemPrompt = makeBaseSystemPrompt(
             actions: actions,
             runProfile: runProfile,
-            phaseThoughtEnabled: isExternalReasoningEnabled
+            phaseThoughtEnabled: isExternalReasoningEnabled,
+            surface: surface
         )
         let activeProjectID = try? workspaceManager.currentSelection().projectID
         let activeSkills = skillRegistry.enabledSkills(for: activeProjectID)
@@ -361,7 +384,10 @@ final class AgentLoop {
                     break
                 }
             }
-            let sessionUserInput = inputWithInlineImageRecord(trimmedInput)
+            let sessionUserInput = inputWithTurnRuntimeDirectives(
+                inputWithInlineImageRecord(trimmedInput),
+                actions: actions
+            )
             session.append(.user(text: sessionUserInput))
             appendEventLog(.turnStarted, summary: "开始新一轮任务")
             let turnContext = AgentTurnContext(
@@ -398,7 +424,8 @@ final class AgentLoop {
                 let baseSystemPrompt = makeBaseSystemPrompt(
                     actions: actions,
                     runProfile: runProfile,
-                    phaseThoughtEnabled: phaseThoughtEnabled
+                    phaseThoughtEnabled: phaseThoughtEnabled,
+                    surface: surface
                 )
                 let activeProjectID = try? workspaceManager.currentSelection().projectID
                 let activeSkills = skillRegistry.enabledSkills(for: activeProjectID)
@@ -419,7 +446,8 @@ final class AgentLoop {
                     session: session,
                     actions: actions,
                     exposesTools: exposesAnyTools,
-                    exposesPhaseThought: phaseThoughtEnabled
+                    exposesPhaseThought: phaseThoughtEnabled,
+                    surface: surface
                 )
 
                 state = .thinking
@@ -907,7 +935,8 @@ final class AgentLoop {
                     let baseSystemPrompt = makeBaseSystemPrompt(
                         actions: actions,
                         runProfile: runProfile,
-                        phaseThoughtEnabled: phaseThoughtEnabled
+                        phaseThoughtEnabled: phaseThoughtEnabled,
+                        surface: surface
                     )
                     let activeProjectID = try? workspaceManager.currentSelection().projectID
                     let activeSkills = skillRegistry.enabledSkills(for: activeProjectID)
@@ -925,7 +954,8 @@ final class AgentLoop {
                         session: session,
                         actions: actions,
                         exposesTools: false,
-                        exposesPhaseThought: phaseThoughtEnabled
+                        exposesPhaseThought: phaseThoughtEnabled,
+                        surface: surface
                     )
                     state = .summarizing
                     let summaryResponse: AgentModelResponse
@@ -1028,14 +1058,14 @@ final class AgentLoop {
             session.messages.removeLast()
         }
 
-        let queuedMessages = pendingInterruptions
+        let queuedGuidance = pendingInterruptions
         pendingInterruptions.removeAll()
 
-        for message in queuedMessages {
-            session.append(.user(text: message))
+        for guidance in queuedGuidance {
+            session.append(.user(text: guidance.modelText))
         }
 
-        emit(.queuedUserGuidanceInjected(messages: queuedMessages))
+        emit(.queuedUserGuidanceInjected(messages: queuedGuidance.map(\.visibleText)))
 
         return true
     }
@@ -1456,31 +1486,29 @@ final class AgentLoop {
     }
 
     private func currentAgentRunProfile() -> AgentRunProfile {
-        let surface = (try? workspaceManager.currentProject().surface) ?? .professional
         return AgentRunProfile.current(
-            for: surface,
+            for: currentSurface(),
             userDefaults: configuration.userDefaults
         )
+    }
+
+    private func currentSurface() -> WorkspaceProjectSurface {
+        (try? workspaceManager.currentProject().surface) ?? .professional
     }
 
     private func makeBaseSystemPrompt(
         actions: [ToolAction],
         runProfile: AgentRunProfile,
-        phaseThoughtEnabled: Bool
+        phaseThoughtEnabled: Bool,
+        surface: WorkspaceProjectSurface
     ) -> String {
-        var prompt = promptBuilder.build(
+        promptBuilder.build(
             actions: actions,
             tier: runProfile.professionalTier,
             exposesTools: !actions.isEmpty,
-            exposesPhaseThought: phaseThoughtEnabled
+            exposesPhaseThought: phaseThoughtEnabled,
+            surface: surface
         )
-        if let modeLayer = composerModeInstructionLayer() {
-            prompt += "\n\n" + modeLayer
-        }
-        if let multimodalLayer = multimodalRoutingInstructionLayer(actions: actions) {
-            prompt += "\n\n" + multimodalLayer
-        }
-        return prompt
     }
 
     private func multimodalRoutingInstructionLayer(actions: [ToolAction]) -> String? {
@@ -1511,7 +1539,7 @@ final class AgentLoop {
         }
     }
 
-    // 目标 / 深度研究模式注入层：纯提示词，随每轮迭代拼进系统提示。standard 时返回 nil。
+    // 目标 / 深度研究模式注入层：纯提示词，随本轮 user 文本入历史。standard 时返回 nil。
     private func composerModeInstructionLayer() -> String? {
         switch activeTurnMode {
         case .standard:
@@ -1553,6 +1581,18 @@ final class AgentLoop {
         guard !activeTurnImageDataURLs.isEmpty else { return input }
         let record = "【视觉输入记录】本轮有 \(activeTurnImageDataURLs.count) 张用户上传图片已作为真实图像输入发送给支持视觉的主模型；后续即使切换到非视觉模型，也应把紧随其后的图像分析视为基于真实图片的历史结论，而不是臆测。附件路径见本消息的“附件：”块。"
         return "\(input)\n\n\(record)"
+    }
+
+    private func inputWithTurnRuntimeDirectives(_ input: String, actions: [ToolAction]) -> String {
+        let layers = [
+            composerModeInstructionLayer(),
+            multimodalRoutingInstructionLayer(actions: actions)
+        ].compactMap { layer in
+            layer?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.filter { !$0.isEmpty }
+
+        guard !layers.isEmpty else { return input }
+        return "\(input)\n\n【turn】\n\(layers.joined(separator: "\n\n"))"
     }
 
     private func appendInlineImageOCRSuppressionResultIfNeeded(
@@ -1727,11 +1767,12 @@ final class AgentLoop {
             function: AgentModelFunctionDefinition(
                 name: Self.phaseThoughtToolName,
                 description: """
-                [Agent 内部动作] 阶段思考：把当前一步的判断、取舍或下一步决策显式展示给用户，然后继续后续循环。
-                选择规则：
-                - 只在你确实需要把阶段性分析公开展示时使用。
-                - 它不是最终答复，也不是外部工具。
-                - 每次控制在 1 到 5 句，不要连续调用超过 2 次。
+                [Agent 内部动作] 阶段思考：把当前这一步的判断、取舍或下一步决策作为一次已提交的检查点显式展示给用户，然后继续后续循环。
+                使用规则：
+                - 它是思考外显，不是最终答复，也不是外部工具。
+                - 你在同一个 assistant turn 里发出的所有 tool call 都来自同一次前向推理；所以同一个 turn 里最多调用 1 次本工具，在同一个 turn 连续调用多个只会把已经想完的整段答案拆开誊抄，不是真分段。下一段要等本轮结束、结果返回后的下一个 turn 再发。此限制只针对本工具，不影响同一轮一并调用其他互不依赖的真实工具。
+                - 内容必须是当下这一步的真实推理（1 到 5 句），下一段须承接并推进上一段，构成真增量；不得把已经想完的整段答案拆开誊抄。
+                - 调用与否、调用多少，由任务的客观复杂度与当前档位共同决定，不规定段数。
                 - 调完后你仍需继续决定：下一步是调用工具，还是直接结束。
                 """,
                 parameters: ToolJSONSchema.object(

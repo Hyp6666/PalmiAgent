@@ -24,6 +24,13 @@ final class WorkspaceStore {
     var sharePayload: SharePayload?
     var statusMessage: String?
     var showsHiddenFiles = false
+    // 正在浏览的项目（与是否有会话无关）。非空时文件操作按该项目作用域执行。
+    var browsedProjectID: UUID?
+
+    /// 当前是否存在可浏览的工作区：正在浏览某项目，或存在已选中的会话。
+    var hasBrowsableWorkspace: Bool {
+        browsedProjectID != nil || selectedSelection != nil
+    }
 
     private var threadCounts: [UUID: Int] = [:]
     private var threadsByProject: [UUID: [WorkspaceThreadRecord]] = [:]
@@ -121,7 +128,14 @@ final class WorkspaceStore {
                 statusMessage = "该项目属于聊天模式。"
                 return
             }
-            let selectedThread = try ensurePrimaryThread(in: project.id, fallbackName: Self.defaultProfessionalThreadName)
+            // 只解析、不新建：空项目进入合法的 0 会话态，绝不再兜底建会话。
+            guard let selectedThread = try primaryThread(in: project.id) else {
+                selectedProfessionalProjectID = project.id
+                selectedProfessionalThreadID = nil
+                clearActiveSelection()
+                statusMessage = nil
+                return
+            }
             try workspaceManager.activateThread(projectID: project.id, threadID: selectedThread.id)
             updateProfessionalSelection(projectID: project.id, threadID: selectedThread.id)
             applyActiveSelection(projectID: project.id, threadID: selectedThread.id)
@@ -136,10 +150,12 @@ final class WorkspaceStore {
             let selection = try resolvedSelection(
                 preferredProjectID: selectedProfessionalProjectID,
                 preferredThreadID: selectedProfessionalThreadID,
-                surface: .professional,
-                createIfMissing: true
-            )
-            guard let selection else { return }
+                surface: .professional            )
+            guard let selection else {
+                clearActiveSelection()
+                statusMessage = nil
+                return
+            }
             try workspaceManager.activateThread(projectID: selection.projectID, threadID: selection.threadID)
             updateProfessionalSelection(projectID: selection.projectID, threadID: selection.threadID)
             applyActiveSelection(projectID: selection.projectID, threadID: selection.threadID)
@@ -154,9 +170,7 @@ final class WorkspaceStore {
             let selection = try resolvedSelection(
                 preferredProjectID: selectedChatProjectID,
                 preferredThreadID: selectedChatThreadID,
-                surface: .chat,
-                createIfMissing: false
-            )
+                surface: .chat            )
             guard let selection else {
                 clearActiveSelection()
                 statusMessage = nil
@@ -177,7 +191,14 @@ final class WorkspaceStore {
                 statusMessage = "该聊天不属于聊天模式。"
                 return
             }
-            let selectedThread = try ensurePrimaryThread(in: project.id, fallbackName: Self.defaultChatConversationName)
+            // 只解析、不新建：空聊天项目进入合法的 0 会话态，绝不再兜底建会话。
+            guard let selectedThread = try primaryThread(in: project.id) else {
+                selectedChatProjectID = project.id
+                selectedChatThreadID = nil
+                clearActiveSelection()
+                statusMessage = nil
+                return
+            }
             try workspaceManager.activateThread(projectID: project.id, threadID: selectedThread.id)
             updateChatSelection(projectID: project.id, threadID: selectedThread.id)
             applyActiveSelection(projectID: project.id, threadID: selectedThread.id)
@@ -395,9 +416,20 @@ final class WorkspaceStore {
     }
 
     func deleteThread(_ thread: WorkspaceThreadRecord) {
+        let projectSurface = (projects + chatProjects)
+            .first { $0.id == thread.projectID }?
+            .surface ?? .professional
+
         do {
             try workspaceManager.deleteThread(projectID: thread.projectID, threadID: thread.id)
             reload()
+            // 删除后重新解析激活选中：有剩余会话则切到下一个，没有则清空，
+            // 与 deleteProject 保持一致，避免停留在已删除的会话上。
+            if projectSurface == .chat {
+                activateChatSurface()
+            } else {
+                activateProfessionalSurface()
+            }
             statusMessage = "已删除会话：\(thread.name)"
         } catch {
             statusMessage = error.localizedDescription
@@ -405,13 +437,13 @@ final class WorkspaceStore {
     }
 
     func createFolder(at relativePath: String) {
-        guard let selection = selectedSelection else {
-            statusMessage = "请先选择一个会话。"
+        guard hasBrowsableWorkspace else {
+            statusMessage = "请先选择一个会话或项目。"
             return
         }
 
         do {
-            _ = try workspaceManager.withSelection(selection) {
+            _ = try withActiveWorkspace {
                 try workspaceManager.createDirectory(at: relativePath)
             }
             refreshCurrentThreadContents()
@@ -422,11 +454,7 @@ final class WorkspaceStore {
     }
 
     func importAttachmentsToHiddenFiles(_ attachments: [WorkspaceImportedAttachment]) throws -> WorkspaceAttachmentBatch {
-        guard let selection = selectedSelection else {
-            throw AppError.invalidState("请先选择一个会话。")
-        }
-
-        let batch = try workspaceManager.withSelection(selection) {
+        let batch = try withActiveWorkspace {
             try workspaceManager.importAttachmentsToHiddenFiles(attachments)
         }
         refreshCurrentThreadContents()
@@ -438,11 +466,7 @@ final class WorkspaceStore {
         _ attachments: [WorkspaceImportedAttachment],
         toDirectory relativePath: String
     ) throws -> [WorkspaceStoredAttachment] {
-        guard let selection = selectedSelection else {
-            throw AppError.invalidState("请先选择一个会话。")
-        }
-
-        let stored = try workspaceManager.withSelection(selection) {
+        let stored = try withActiveWorkspace {
             try workspaceManager.importAttachments(attachments, toDirectory: relativePath)
         }
         refreshCurrentThreadContents()
@@ -456,7 +480,7 @@ final class WorkspaceStore {
     }
 
     func refreshCurrentThreadContents() {
-        guard let selection = selectedSelection else {
+        guard hasBrowsableWorkspace else {
             fileTree = []
             selectedNode = nil
             selectedNodePreview = nil
@@ -464,14 +488,17 @@ final class WorkspaceStore {
         }
 
         do {
-            try refreshThreads(for: selection.projectID)
-            fileTree = try workspaceManager.withSelection(selection) {
+            // 仅在「按选中会话」浏览时刷新会话列表；按项目浏览时与具体会话无关。
+            if browsedProjectID == nil, let selection = selectedSelection {
+                try refreshThreads(for: selection.projectID)
+            }
+            fileTree = try withActiveWorkspace {
                 try workspaceManager.listFileTree(showHiddenFiles: showsHiddenFiles)
             }
             if let currentNode = selectedNode {
                 self.selectedNode = findNode(withID: currentNode.id, in: fileTree)
                 if let refreshedNode = self.selectedNode {
-                    try workspaceManager.withSelection(selection) {
+                    try withActiveWorkspace {
                         try loadPreview(for: refreshedNode)
                     }
                 } else {
@@ -488,15 +515,15 @@ final class WorkspaceStore {
     }
 
     func selectNode(_ node: WorkspaceFileNode) {
-        guard let selection = selectedSelection else {
-            statusMessage = "请先选择一个会话。"
+        guard hasBrowsableWorkspace else {
+            statusMessage = "请先选择一个会话或项目。"
             selectedNodePreview = nil
             return
         }
 
         do {
             selectedNode = node
-            try workspaceManager.withSelection(selection) {
+            try withActiveWorkspace {
                 try loadPreview(for: node)
             }
             statusMessage = nil
@@ -507,13 +534,13 @@ final class WorkspaceStore {
     }
 
     func exportCurrentThread() {
-        guard let selection = selectedSelection else {
-            statusMessage = "请先选择一个会话。"
+        guard hasBrowsableWorkspace else {
+            statusMessage = "请先选择一个会话或项目。"
             return
         }
 
         do {
-            sharePayload = try workspaceManager.withSelection(selection) {
+            sharePayload = try withActiveWorkspace {
                 SharePayload(url: try workspaceManager.exportArchiveForCurrentThread())
             }
             statusMessage = nil
@@ -523,13 +550,13 @@ final class WorkspaceStore {
     }
 
     func exportNode(_ node: WorkspaceFileNode) {
-        guard let selection = selectedSelection else {
-            statusMessage = "请先选择一个会话。"
+        guard hasBrowsableWorkspace else {
+            statusMessage = "请先选择一个会话或项目。"
             return
         }
 
         do {
-            sharePayload = try workspaceManager.withSelection(selection) {
+            sharePayload = try withActiveWorkspace {
                 SharePayload(url: try workspaceManager.exportableURL(at: node.relativePath))
             }
             statusMessage = nil
@@ -539,19 +566,13 @@ final class WorkspaceStore {
     }
 
     func workspaceURL(for relativePath: String) throws -> URL {
-        guard let selection = selectedSelection else {
-            throw AppError.invalidState("请先选择一个会话。")
-        }
-        return try workspaceManager.withSelection(selection) {
+        try withActiveWorkspace {
             try workspaceManager.url(for: relativePath)
         }
     }
 
     func previewText(at relativePath: String) throws -> String? {
-        guard let selection = selectedSelection else {
-            throw AppError.invalidState("请先选择一个会话。")
-        }
-        return try workspaceManager.withSelection(selection) {
+        try withActiveWorkspace {
             try workspaceManager.previewText(at: relativePath)
         }
     }
@@ -577,25 +598,33 @@ final class WorkspaceStore {
     }
 
     private func restoreSelections() throws {
-        let activeSelection = try workspaceManager.currentSelection()
-        let allProjects = projects + chatProjects
-        let activeProject = allProjects.first { $0.id == activeSelection.projectID }
+        let activeSelection = try? workspaceManager.currentSelection()
 
-        if activeProject?.surface == .chat {
-            selectedChatProjectID = activeSelection.projectID
-            selectedChatThreadID = activeSelection.threadID
+        if let activeSelection {
+            let allProjects = projects + chatProjects
+            let activeProject = allProjects.first { $0.id == activeSelection.projectID }
+
+            if activeProject?.surface == .chat {
+                selectedChatProjectID = activeSelection.projectID
+                selectedChatThreadID = activeSelection.threadID
+            } else {
+                selectedProfessionalProjectID = activeSelection.projectID
+                selectedProfessionalThreadID = activeSelection.threadID
+            }
+
+            applyActiveSelection(projectID: activeSelection.projectID, threadID: activeSelection.threadID)
         } else {
-            selectedProfessionalProjectID = activeSelection.projectID
-            selectedProfessionalThreadID = activeSelection.threadID
+            selectedProfessionalProjectID = nil
+            selectedProfessionalThreadID = nil
+            selectedChatProjectID = nil
+            selectedChatThreadID = nil
         }
 
         if selectedProfessionalProjectID == nil || selectedProfessionalThreadID == nil {
             if let selection = try resolvedSelection(
                 preferredProjectID: nil,
                 preferredThreadID: nil,
-                surface: .professional,
-                createIfMissing: true
-            ) {
+                surface: .professional            ) {
                 selectedProfessionalProjectID = selection.projectID
                 selectedProfessionalThreadID = selection.threadID
             }
@@ -605,22 +634,17 @@ final class WorkspaceStore {
             if let selection = try resolvedSelection(
                 preferredProjectID: nil,
                 preferredThreadID: nil,
-                surface: .chat,
-                createIfMissing: false
-            ) {
+                surface: .chat            ) {
                 selectedChatProjectID = selection.projectID
                 selectedChatThreadID = selection.threadID
             }
         }
-
-        applyActiveSelection(projectID: activeSelection.projectID, threadID: activeSelection.threadID)
     }
 
     private func resolvedSelection(
         preferredProjectID: UUID?,
         preferredThreadID: UUID?,
-        surface: WorkspaceProjectSurface,
-        createIfMissing: Bool
+        surface: WorkspaceProjectSurface
     ) throws -> WorkspaceSelection? {
         let availableProjects = surface == .professional ? projects : chatProjects
 
@@ -636,26 +660,16 @@ final class WorkspaceStore {
             }
         }
 
-        return try workspaceManager.selection(for: surface, createIfMissing: createIfMissing)
+        return try workspaceManager.selection(for: surface)
     }
 
-    private func ensurePrimaryThread(
-        in projectID: UUID,
-        fallbackName: String
-    ) throws -> WorkspaceThreadRecord {
+    /// 解析项目下用于激活的首个会话。空项目返回 nil，**绝不新建**。
+    /// 仅同步该项目会话缓存，保持侧栏计数/列表一致。
+    private func primaryThread(in projectID: UUID) throws -> WorkspaceThreadRecord? {
         let projectThreads = try workspaceManager.listThreads(in: projectID)
         threadsByProject[projectID] = projectThreads
         threadCounts[projectID] = projectThreads.count
-
-        if let firstThread = projectThreads.first {
-            return firstThread
-        }
-
-        let createdThread = try workspaceManager.createThread(named: fallbackName, in: projectID)
-        let refreshedThreads = try workspaceManager.listThreads(in: projectID)
-        threadsByProject[projectID] = refreshedThreads
-        threadCounts[projectID] = refreshedThreads.count
-        return createdThread
+        return projectThreads.first
     }
 
     private func updateProfessionalSelection(projectID: UUID, threadID: UUID) {
@@ -698,6 +712,18 @@ final class WorkspaceStore {
             }
             return lhs.createdAt > rhs.createdAt
         }
+    }
+
+    /// 把文件操作作用域解析到「正在浏览的项目」或「当前选中会话所属项目」。
+    /// 文件夹属于项目，与是否有会话无关——空项目也能读写自己的工作区。
+    private func withActiveWorkspace<T>(_ operation: () throws -> T) throws -> T {
+        if let browsedProjectID {
+            return try workspaceManager.withProject(browsedProjectID, operation: operation)
+        }
+        guard let selection = selectedSelection else {
+            throw AppError.invalidState("请先选择一个会话或项目。")
+        }
+        return try workspaceManager.withSelection(selection, operation: operation)
     }
 
     private func clearActiveSelection() {

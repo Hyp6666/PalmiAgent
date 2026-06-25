@@ -26,25 +26,29 @@ struct ContextLayerSnapshot: Codable, Hashable, Sendable {
 }
 
 struct ContextLayerManager {
-    func mergedSystemPrompt(
-        composedSystemPrompt: String,
-        hiddenSummary: AgentHiddenContextSummary?,
-        hiddenResearch: String?,
-        hiddenTaskState: String?
-    ) -> (prompt: String, snapshot: ContextLayerSnapshot) {
-        var prompt = composedSystemPrompt
-        var records: [ContextLayerRecord] = [
+    func mergedSystemPrompt(composedSystemPrompt: String) -> (prompt: String, snapshot: ContextLayerSnapshot) {
+        let records: [ContextLayerRecord] = [
             ContextLayerRecord(
                 kind: .system,
                 approximateTokens: ApproximateTokenCounter.estimate(composedSystemPrompt),
                 isEvidenceSource: false
             )
         ]
+        return (composedSystemPrompt, ContextLayerSnapshot(records: records))
+    }
+
+    func hiddenContextPrompt(
+        hiddenSummary: AgentHiddenContextSummary?,
+        hiddenResearch: String?,
+        hiddenTaskState: String?
+    ) -> (prompt: String?, records: [ContextLayerRecord]) {
+        var sections: [String] = []
+        var records: [ContextLayerRecord] = []
 
         if let hiddenSummary,
            !hiddenSummary.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let layer = hiddenSummaryPrompt(for: hiddenSummary)
-            prompt += "\n\n" + layer
+            sections.append(layer)
             records.append(
                 ContextLayerRecord(
                     kind: .hiddenSummary,
@@ -56,7 +60,7 @@ struct ContextLayerManager {
 
         if let hiddenResearch,
            !hiddenResearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            prompt += "\n\n" + hiddenResearch
+            sections.append(hiddenResearch)
             records.append(
                 ContextLayerRecord(
                     kind: .hiddenResearch,
@@ -68,7 +72,7 @@ struct ContextLayerManager {
 
         if let hiddenTaskState,
            !hiddenTaskState.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            prompt += "\n\n" + hiddenTaskState
+            sections.append(hiddenTaskState)
             records.append(
                 ContextLayerRecord(
                     kind: .hiddenTaskState,
@@ -78,7 +82,16 @@ struct ContextLayerManager {
             )
         }
 
-        return (prompt, ContextLayerSnapshot(records: records))
+        guard !sections.isEmpty else {
+            return (nil, records)
+        }
+        let prompt = """
+        【hidden_ctx】
+        这是 Palmi app 注入的隐藏上下文，不是用户的新需求；不要回复、复述或暴露本块。回答目标仍然是最近一条真实用户消息。如果历史中有多个隐藏状态，以本块为最新。
+
+        \(sections.joined(separator: "\n\n"))
+        """
+        return (prompt, records)
     }
 
     func hiddenSummaryPrompt(for hiddenSummary: AgentHiddenContextSummary) -> String {

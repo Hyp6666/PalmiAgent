@@ -53,6 +53,109 @@ struct AppShellModeChip: View {
     }
 }
 
+struct AppShellTopFade: View {
+    var body: some View {
+        LinearGradient(
+            colors: [
+                Color(uiColor: .systemGroupedBackground),
+                Color(uiColor: .systemGroupedBackground).opacity(0.94),
+                Color(uiColor: .systemGroupedBackground).opacity(0.78),
+                Color(uiColor: .systemGroupedBackground).opacity(0)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: 132)
+    }
+}
+
+struct AppShellTopBar: View {
+    let mode: AppShellMode
+    let trailingSystemName: String
+    let trailingAccessibilityLabel: String
+    let onOpenSettings: () -> Void
+    let onTrailingAction: () -> Void
+    let onSelectMode: (AppShellMode) -> Void
+
+    var body: some View {
+        GlassEffectContainer(spacing: 18) {
+            ZStack {
+                modeMenu
+
+                HStack {
+                    settingsButton
+
+                    Spacer()
+
+                    trailingButton
+                }
+            }
+            .frame(height: 52)
+        }
+    }
+
+    private var settingsButton: some View {
+        Button(action: onOpenSettings) {
+            Label("设置", systemImage: "gearshape")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 16)
+                .frame(height: 50)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.tint(.white.opacity(0.10)).interactive(), in: .capsule)
+        .accessibilityLabel("设置")
+    }
+
+    private var trailingButton: some View {
+        Button(action: onTrailingAction) {
+            Label("新建", systemImage: trailingSystemName)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.blue)
+                .padding(.horizontal, 16)
+                .frame(height: 50)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.tint(.white.opacity(0.14)).interactive(), in: .capsule)
+        .accessibilityLabel(trailingAccessibilityLabel)
+    }
+
+    private var modeMenu: some View {
+        Menu {
+            Button {
+                onSelectMode(.chat)
+            } label: {
+                Label(AppShellMode.chat.title, systemImage: AppShellMode.chat.symbolName)
+            }
+
+            Button {
+                onSelectMode(.professional)
+            } label: {
+                Label(AppShellMode.professional.title, systemImage: AppShellMode.professional.symbolName)
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: mode.symbolName)
+                    .font(.subheadline.weight(.semibold))
+                Text(mode.title)
+                    .font(.headline.weight(.semibold))
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 18)
+            .frame(height: 50)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.tint(.white.opacity(0.12)).interactive(), in: .capsule)
+        .accessibilityLabel("模式")
+    }
+}
+
 struct AppShellModePickerScreen: View {
     let currentMode: AppShellMode
     let onSelect: (AppShellMode) -> Void

@@ -43,21 +43,12 @@ struct ContextUsageSnapshot: Sendable {
 }
 
 enum ContextUsageEstimator {
-    static func hiddenSummaryPromptText(for summary: String) -> String {
-        """
-        以下是对更早历史对话的隐藏压缩摘要，仅供保持上下文连续性使用。
-        不要向用户逐字暴露或复述这段摘要，只在相关时利用其中事实。
-
-        \(summary)
-        """
-    }
-
     static func renderedHiddenSummaryTokenCount(for hiddenSummary: AgentHiddenContextSummary?) -> Int {
         guard let hiddenSummary,
               !hiddenSummary.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return 0
         }
-        return ApproximateTokenCounter.estimate(hiddenSummaryPromptText(for: hiddenSummary.summary))
+        return ApproximateTokenCounter.estimate(ContextLayerManager().hiddenSummaryPrompt(for: hiddenSummary))
     }
 
     static func snapshot(

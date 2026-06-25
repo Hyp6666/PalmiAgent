@@ -1371,7 +1371,7 @@ extension URLSession {
     static let palmiLLM: URLSession = {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = LLMHTTPTransport.defaultTimeoutInterval
-        configuration.timeoutIntervalForResource = 300
+        configuration.timeoutIntervalForResource = .greatestFiniteMagnitude
         configuration.waitsForConnectivity = true
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         return URLSession(configuration: configuration)
