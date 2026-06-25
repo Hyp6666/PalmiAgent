@@ -644,6 +644,7 @@ struct ChatScreen: View {
                     ToolCallCard(
                         messageID: message.id,
                         toolCall: toolCall,
+                        liveReasoningBuffer: store.liveReasoningBuffer(for: message.id),
                         isExpanded: expandedToolMessageIDs.contains(message.id)
                     ) {
                         toggleToolExpansion(message.id)
@@ -2961,9 +2962,355 @@ private struct BottomStreamingIndicator: View {
     }
 }
 
+private struct ReasoningTextView: UIViewRepresentable {
+    let streamID: UUID
+    let staticText: String
+    let liveBuffer: LiveReasoningBuffer?
+    let revision: Int
+    var textColor: UIColor = .label
+    var tintColor: UIColor = .systemBlue
+    var font: UIFont = .preferredFont(forTextStyle: .body)
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> UITextView {
+        let textView = UITextView()
+        textView.backgroundColor = .clear
+        textView.isOpaque = false
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isScrollEnabled = false
+        textView.showsVerticalScrollIndicator = false
+        textView.showsHorizontalScrollIndicator = false
+        textView.adjustsFontForContentSizeCategory = true
+        textView.textContainerInset = .zero
+        textView.textContainer.lineFragmentPadding = 0
+        textView.textContainer.maximumNumberOfLines = 0
+        textView.textContainer.lineBreakMode = .byWordWrapping
+        textView.textContainer.widthTracksTextView = true
+        textView.textContainer.heightTracksTextView = false
+        textView.textDragInteraction?.isEnabled = false
+        textView.dataDetectorTypes = []
+        textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        textView.setContentHuggingPriority(.required, for: .vertical)
+        applyVisualConfiguration(to: textView)
+        context.coordinator.apply(
+            streamID: streamID,
+            staticText: staticText,
+            liveBuffer: liveBuffer,
+            revision: revision,
+            textColor: textColor,
+            font: font,
+            to: textView
+        )
+        return textView
+    }
+
+    func updateUIView(_ textView: UITextView, context: Context) {
+        _ = revision
+        applyVisualConfiguration(to: textView)
+        context.coordinator.apply(
+            streamID: streamID,
+            staticText: staticText,
+            liveBuffer: liveBuffer,
+            revision: revision,
+            textColor: textColor,
+            font: font,
+            to: textView
+        )
+    }
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        uiView: UITextView,
+        context: Context
+    ) -> CGSize? {
+        guard let width = proposal.width else {
+            return nil
+        }
+        let availableWidth = max(1, width)
+        let height = context.coordinator.height(
+            for: availableWidth,
+            in: uiView
+        )
+        return CGSize(
+            width: availableWidth,
+            height: height
+        )
+    }
+
+    private func applyVisualConfiguration(to textView: UITextView) {
+        textView.backgroundColor = .clear
+        textView.tintColor = tintColor
+        textView.linkTextAttributes = [
+            .foregroundColor: tintColor
+        ]
+    }
+
+    final class Coordinator {
+        private var currentStreamID: UUID?
+        private var consumedChunkCount = 0
+        private var appendedUTF16Length = 0
+        private var currentFont: UIFont?
+        private var currentTextColor: UIColor?
+        private var wasLive = false
+        private var knownLayoutWidth: CGFloat?
+        private var cachedHeight: CGFloat?
+
+        func apply(
+            streamID: UUID,
+            staticText: String,
+            liveBuffer: LiveReasoningBuffer?,
+            revision: Int,
+            textColor: UIColor,
+            font: UIFont,
+            to textView: UITextView
+        ) {
+            _ = revision
+
+            let isLive = liveBuffer != nil
+            let hasSameStream = currentStreamID == streamID
+            let hasSameStyle =
+                currentFont?.isEqual(font) == true &&
+                currentTextColor?.isEqual(textColor) == true
+            let storageMatchesRecordedLength = textView.textStorage.length == appendedUTF16Length
+
+            guard hasSameStream, hasSameStyle, storageMatchesRecordedLength else {
+                if let liveBuffer {
+                    replaceAll(
+                        streamID: streamID,
+                        text: liveBuffer.snapshot(),
+                        consumedChunkCount: liveBuffer.chunkCount,
+                        isLive: true,
+                        textColor: textColor,
+                        font: font,
+                        in: textView
+                    )
+                } else {
+                    replaceAll(
+                        streamID: streamID,
+                        text: staticText,
+                        consumedChunkCount: 0,
+                        isLive: false,
+                        textColor: textColor,
+                        font: font,
+                        in: textView
+                    )
+                }
+                return
+            }
+
+            if let liveBuffer {
+                if !wasLive {
+                    replaceAll(
+                        streamID: streamID,
+                        text: liveBuffer.snapshot(),
+                        consumedChunkCount: liveBuffer.chunkCount,
+                        isLive: true,
+                        textColor: textColor,
+                        font: font,
+                        in: textView
+                    )
+                    return
+                }
+                appendLiveChunks(
+                    liveBuffer.chunks(from: consumedChunkCount),
+                    textColor: textColor,
+                    font: font,
+                    to: textView
+                )
+                consumedChunkCount = liveBuffer.chunkCount
+                wasLive = isLive
+                return
+            }
+
+            if wasLive {
+                wasLive = false
+                return
+            }
+        }
+
+        func height(for width: CGFloat, in textView: UITextView) -> CGFloat {
+            if let knownLayoutWidth,
+               let cachedHeight,
+               abs(knownLayoutWidth - width) <= 0.5 {
+                return cachedHeight
+            }
+
+            knownLayoutWidth = width
+            let measuredHeight = measureHeight(in: textView, width: width)
+            cachedHeight = measuredHeight
+            return measuredHeight
+        }
+
+        private func appendLiveChunks(
+            _ chunks: [String],
+            textColor: UIColor,
+            font: UIFont,
+            to textView: UITextView
+        ) {
+            guard !chunks.isEmpty else {
+                return
+            }
+
+            let selectedRange = textView.selectedRange
+            textView.textStorage.beginEditing()
+            for chunk in chunks {
+                textView.textStorage.append(
+                    NSAttributedString(
+                        string: chunk,
+                        attributes: attributes(
+                            font: font,
+                            textColor: textColor
+                        )
+                    )
+                )
+                appendedUTF16Length += chunk.utf16.count
+            }
+            textView.textStorage.endEditing()
+            restoreSelection(selectedRange, in: textView)
+            updateCachedHeightIfNeeded(for: textView)
+        }
+
+        private func replaceAll(
+            streamID: UUID,
+            text: String,
+            consumedChunkCount: Int,
+            isLive: Bool,
+            textColor: UIColor,
+            font: UIFont,
+            in textView: UITextView
+        ) {
+            let shouldPreserveSelection = currentStreamID == streamID
+            let selectedRange = shouldPreserveSelection
+                ? textView.selectedRange
+                : NSRange(location: 0, length: 0)
+            textView.textStorage.setAttributedString(
+                NSAttributedString(
+                    string: text,
+                    attributes: attributes(
+                        font: font,
+                        textColor: textColor
+                    )
+                )
+            )
+            currentStreamID = streamID
+            self.consumedChunkCount = consumedChunkCount
+            appendedUTF16Length = textView.textStorage.length
+            currentFont = font
+            currentTextColor = textColor
+            wasLive = isLive
+            restoreSelection(selectedRange, in: textView)
+            updateCachedHeightIfNeeded(for: textView, forceInvalidation: true)
+        }
+
+        private func updateCachedHeightIfNeeded(
+            for textView: UITextView,
+            forceInvalidation: Bool = false
+        ) {
+            guard let knownLayoutWidth else {
+                cachedHeight = nil
+                return
+            }
+
+            let measuredHeight = measureHeight(in: textView, width: knownLayoutWidth)
+            let oldHeight = cachedHeight
+            cachedHeight = measuredHeight
+
+            guard forceInvalidation ||
+                  oldHeight == nil ||
+                  abs((oldHeight ?? 0) - measuredHeight) > 0.5 else {
+                return
+            }
+
+            textView.invalidateIntrinsicContentSize()
+            textView.setNeedsLayout()
+        }
+
+        private func measureHeight(
+            in textView: UITextView,
+            width: CGFloat
+        ) -> CGFloat {
+            let horizontalMargins =
+                textView.textContainerInset.left +
+                textView.textContainerInset.right +
+                textView.textContainer.lineFragmentPadding * 2
+            let containerWidth = max(1, width - horizontalMargins)
+            textView.textContainer.size = CGSize(
+                width: containerWidth,
+                height: .greatestFiniteMagnitude
+            )
+            textView.layoutManager.ensureLayout(for: textView.textContainer)
+            let usedRect = textView.layoutManager.usedRect(for: textView.textContainer)
+            let verticalInsets = textView.textContainerInset.top + textView.textContainerInset.bottom
+            return ceil(usedRect.height + verticalInsets)
+        }
+
+        private func attributes(
+            font: UIFont,
+            textColor: UIColor
+        ) -> [NSAttributedString.Key: Any] {
+            [
+                .font: font,
+                .foregroundColor: textColor
+            ]
+        }
+
+        private func restoreSelection(
+            _ selectedRange: NSRange,
+            in textView: UITextView
+        ) {
+            guard selectedRange.location != NSNotFound else {
+                return
+            }
+            let textLength = textView.textStorage.length
+            let location = min(selectedRange.location, textLength)
+            let maximumLength = textLength - location
+            let length = min(selectedRange.length, maximumLength)
+            textView.selectedRange = NSRange(
+                location: location,
+                length: length
+            )
+        }
+    }
+}
+
+private struct ReasoningTextBody: View {
+    let messageID: UUID
+    let staticText: String
+    let liveBuffer: LiveReasoningBuffer?
+    var textColor: UIColor = .secondaryLabel
+    var font: UIFont = .preferredFont(forTextStyle: .caption1)
+
+    var body: some View {
+        if let liveBuffer {
+            let revision = liveBuffer.revision
+            ReasoningTextView(
+                streamID: messageID,
+                staticText: staticText,
+                liveBuffer: liveBuffer,
+                revision: revision,
+                textColor: textColor,
+                font: font
+            )
+        } else {
+            ReasoningTextView(
+                streamID: messageID,
+                staticText: staticText,
+                liveBuffer: nil,
+                revision: 0,
+                textColor: textColor,
+                font: font
+            )
+        }
+    }
+}
+
 private struct ToolCallCard: View {
     let messageID: UUID
     let toolCall: PalmiToolCallCard
+    let liveReasoningBuffer: LiveReasoningBuffer?
     let isExpanded: Bool
     let onToggle: () -> Void
 
@@ -2981,6 +3328,12 @@ private struct ToolCallCard: View {
     // 模型原生 thinking：小字灰字的单行触发，可独立展开/收起显示完整内容。
     @ViewBuilder
     private var modelThinkBody: some View {
+        let summary = liveReasoningBuffer?.summary ?? toolCall.summary
+        let hasVisibleDetails = liveReasoningBuffer?.hasVisibleContent
+            ?? (toolCall.details.rangeOfCharacter(
+                from: CharacterSet.whitespacesAndNewlines.inverted
+            ) != nil)
+
         VStack(alignment: .leading, spacing: 6) {
             Button(action: onToggle) {
                 HStack(spacing: 6) {
@@ -2998,7 +3351,7 @@ private struct ToolCallCard: View {
                         .foregroundStyle(.secondary.opacity(0.8))
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
 
-                    Text(toolCall.summary)
+                    Text(summary)
                         .font(.caption)
                         .foregroundStyle(.secondary.opacity(0.85))
                         .lineLimit(1)
@@ -3009,12 +3362,11 @@ private struct ToolCallCard: View {
             }
             .buttonStyle(.plain)
 
-            if isExpanded,
-               !toolCall.details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                SelectablePlainTextView(
-                    text: toolCall.details,
-                    textColor: .secondaryLabel,
-                    font: .preferredFont(forTextStyle: .caption1)
+            if isExpanded, hasVisibleDetails {
+                ReasoningTextBody(
+                    messageID: messageID,
+                    staticText: toolCall.details,
+                    liveBuffer: liveReasoningBuffer
                 )
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, 16)

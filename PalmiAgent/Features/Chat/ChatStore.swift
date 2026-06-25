@@ -2,6 +2,108 @@ import Foundation
 
 @MainActor
 @Observable
+final class LiveReasoningBuffer {
+    private final class Storage {
+        let text = NSMutableString()
+        var deltas: [String] = []
+        var summarySegmentStarted = false
+        var summarySegmentClosed = false
+        var summarySawVisibleCharacter = false
+        var summaryCore = ""
+        var summaryPendingWhitespace = ""
+    }
+
+    private let storage = Storage()
+
+    private(set) var revision = 0
+    private(set) var summary = "思考"
+    private(set) var hasVisibleContent = false
+
+    var chunkCount: Int {
+        storage.deltas.count
+    }
+
+    init(initialText: String = "") {
+        append(initialText)
+    }
+
+    func append(_ delta: String) {
+        guard !delta.isEmpty else { return }
+
+        storage.text.append(delta)
+        storage.deltas.append(delta)
+        updateDerivedState(with: delta)
+        revision += 1
+    }
+
+    func chunks(from consumedCount: Int) -> [String] {
+        guard consumedCount > 0 else {
+            return storage.deltas
+        }
+        guard consumedCount < storage.deltas.count else {
+            return []
+        }
+        return Array(storage.deltas[consumedCount...])
+    }
+
+    func snapshot() -> String {
+        storage.text as String
+    }
+
+    private func updateDerivedState(with delta: String) {
+        for character in delta {
+            if !hasVisibleContent, !character.isWhitespace {
+                hasVisibleContent = true
+            }
+            updateSummary(with: character)
+        }
+    }
+
+    private func updateSummary(with character: Character) {
+        guard !storage.summarySegmentClosed else {
+            return
+        }
+
+        if character.isNewline {
+            if storage.summarySegmentStarted {
+                storage.summarySegmentClosed = true
+            }
+            publishSummaryIfNeeded()
+            return
+        }
+
+        storage.summarySegmentStarted = true
+
+        if character.isWhitespace {
+            guard storage.summarySawVisibleCharacter else {
+                publishSummaryIfNeeded()
+                return
+            }
+            storage.summaryPendingWhitespace.append(character)
+            publishSummaryIfNeeded()
+            return
+        }
+
+        if storage.summarySawVisibleCharacter,
+           !storage.summaryPendingWhitespace.isEmpty {
+            storage.summaryCore.append(contentsOf: storage.summaryPendingWhitespace)
+            storage.summaryPendingWhitespace.removeAll(keepingCapacity: true)
+        }
+        storage.summaryCore.append(character)
+        storage.summarySawVisibleCharacter = true
+        publishSummaryIfNeeded()
+    }
+
+    private func publishSummaryIfNeeded() {
+        let nextSummary = storage.summaryCore.isEmpty ? "思考" : storage.summaryCore
+        if summary != nextSummary {
+            summary = nextSummary
+        }
+    }
+}
+
+@MainActor
+@Observable
 final class ChatStore {
     private static let toolsEnabledDefaultsKey = "palmi.chat.tools-enabled"
 
@@ -99,9 +201,9 @@ final class ChatStore {
     private var activeSessionHeaderID: UUID?
     private var activeToolMessageIDs: [UUID: UUID] = [:]
     private var activeStreamingMessageID: UUID?
-    // 实时「思考」卡：本段 reasoning 流式累积的目标消息 + 累积文本。
+    // 实时「思考」卡：当前显示会话使用引用型 buffer 承接高频 reasoning 增量。
     private var activeStreamingReasoningMessageID: UUID?
-    private var streamingReasoningText = ""
+    private var activeStreamingReasoningBuffer: LiveReasoningBuffer?
     private var activeContextCompactionMessageID: UUID?
     private var activeRuns: [WorkspaceSelection: ActiveRun] = [:]
     private var agentEventTask: Task<Void, Never>?
@@ -1162,7 +1264,15 @@ final class ChatStore {
     }
 
     private func currentActiveSessionViewState() -> ActiveSessionViewState {
-        ActiveSessionViewState(
+        let streamingReasoningText: String
+        if activeStreamingReasoningMessageID != nil,
+           let activeStreamingReasoningBuffer {
+            streamingReasoningText = activeStreamingReasoningBuffer.snapshot()
+        } else {
+            streamingReasoningText = ""
+        }
+
+        return ActiveSessionViewState(
             activeSessionHeaderID: activeSessionHeaderID,
             activeToolMessageIDs: activeToolMessageIDs,
             activeStreamingMessageID: activeStreamingMessageID,
@@ -1177,8 +1287,20 @@ final class ChatStore {
         activeToolMessageIDs = state.activeToolMessageIDs
         activeStreamingMessageID = state.activeStreamingMessageID
         activeStreamingReasoningMessageID = state.activeStreamingReasoningMessageID
-        streamingReasoningText = state.streamingReasoningText
+        if state.activeStreamingReasoningMessageID != nil,
+           !state.streamingReasoningText.isEmpty {
+            activeStreamingReasoningBuffer = LiveReasoningBuffer(initialText: state.streamingReasoningText)
+        } else {
+            activeStreamingReasoningBuffer = nil
+        }
         activeContextCompactionMessageID = state.activeContextCompactionMessageID
+    }
+
+    func liveReasoningBuffer(for messageID: UUID) -> LiveReasoningBuffer? {
+        guard messageID == activeStreamingReasoningMessageID else {
+            return nil
+        }
+        return activeStreamingReasoningBuffer
     }
 
     private func inferredActiveSessionViewState(from messages: [PalmiChatMessage]) -> ActiveSessionViewState {
@@ -1253,6 +1375,9 @@ final class ChatStore {
         _ = applyAgentMessageEvent(event, shouldPersist: true, shouldPresentBrowser: true)
         if case .queuedUserGuidanceInjected = event {
             saveVisibleComposerState()
+        }
+        if case .reasoningDelta = event {
+            return
         }
         saveActiveSessionViewState(for: selection)
     }
@@ -1937,22 +2062,62 @@ final class ChatStore {
 
     // 实时思考：把 reasoning 增量累积进一张 modelThink 卡，逐字增长（卡片在首个增量到达时即出现）。
     private func appendOrExtendStreamingReasoning(text: String) {
-        streamingReasoningText += text
-        let card = makeStreamingReasoningCard(details: streamingReasoningText)
-        if let id = activeStreamingReasoningMessageID,
-           let index = messages.firstIndex(where: { $0.id == id }) {
-            messages[index] = rebuildMessage(from: messages[index], toolCall: card)
-        } else {
-            let message = PalmiChatMessage(role: .agent, kind: .toolCall, content: "", toolCall: card)
-            activeStreamingReasoningMessageID = message.id
-            messages.append(message)
+        guard !text.isEmpty else { return }
+
+        if let activeStreamingReasoningBuffer {
+            activeStreamingReasoningBuffer.append(text)
+            return
         }
+
+        let buffer = LiveReasoningBuffer()
+        buffer.append(text)
+        let card = PalmiToolCallCard(
+            cardKind: .modelThink,
+            toolTitle: "思考",
+            toolName: "model_think",
+            presentationKind: .data,
+            status: .success,
+            summary: buffer.summary,
+            details: text,
+            argumentsJSON: "",
+            requiresUserInteraction: false,
+            isRunning: false
+        )
+        let message = PalmiChatMessage(role: .agent, kind: .toolCall, content: "", toolCall: card)
+        activeStreamingReasoningMessageID = message.id
+        activeStreamingReasoningBuffer = buffer
+        messages.append(message)
     }
 
     // 定格当前实时思考卡：停止增长、清空累积。卡片本体留在消息流里。
     private func finalizeStreamingReasoning() {
+        materializeActiveStreamingReasoningIntoMessageIfNeeded()
         activeStreamingReasoningMessageID = nil
-        streamingReasoningText = ""
+        activeStreamingReasoningBuffer = nil
+    }
+
+    private func materializeActiveStreamingReasoningIntoMessageIfNeeded() {
+        guard let messageID = activeStreamingReasoningMessageID,
+              let activeStreamingReasoningBuffer else {
+            return
+        }
+
+        let details = activeStreamingReasoningBuffer.snapshot()
+        let card = PalmiToolCallCard(
+            cardKind: .modelThink,
+            toolTitle: "思考",
+            toolName: "model_think",
+            presentationKind: .data,
+            status: .success,
+            summary: activeStreamingReasoningBuffer.summary,
+            details: details,
+            argumentsJSON: "",
+            requiresUserInteraction: false,
+            isRunning: false
+        )
+        updateMessage(id: messageID) { message in
+            rebuildMessage(from: message, toolCall: card)
+        }
     }
 
     private func makeStreamingReasoningCard(details: String) -> PalmiToolCallCard {
@@ -2152,6 +2317,7 @@ final class ChatStore {
     }
 
     private func finalizeActiveSession(outputTokens: Int? = nil) {
+        finalizeStreamingReasoning()
         updateSessionHeader(outputTokens: outputTokens, finishedAt: .now)
         persistMessages()
     }
@@ -2235,6 +2401,7 @@ final class ChatStore {
     }
 
     private func closeDanglingSessions(finishedAt: Date) {
+        materializeActiveStreamingReasoningIntoMessageIfNeeded()
         var didChange = false
 
         messages = messages.map { message in
@@ -2263,7 +2430,7 @@ final class ChatStore {
         activeToolMessageIDs = [:]
         activeStreamingMessageID = nil
         activeStreamingReasoningMessageID = nil
-        streamingReasoningText = ""
+        activeStreamingReasoningBuffer = nil
         activeContextCompactionMessageID = nil
     }
 
@@ -2274,6 +2441,7 @@ final class ChatStore {
 
     private func persistMessages() {
         do {
+            materializeActiveStreamingReasoningIntoMessageIfNeeded()
             let normalized = normalizeMessages(messages)
             messages = normalized
             try withMessagePersistenceSelection {
@@ -2286,6 +2454,7 @@ final class ChatStore {
 
     private func persistMessages(for selection: WorkspaceSelection) {
         do {
+            materializeActiveStreamingReasoningIntoMessageIfNeeded()
             let normalized = normalizeMessages(messages)
             messages = normalized
             try workspaceManager.withSelection(selection) {
