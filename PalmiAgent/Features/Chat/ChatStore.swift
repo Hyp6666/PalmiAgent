@@ -299,13 +299,16 @@ final class ChatStore {
     }
 
     private func composerActions(for selection: WorkspaceSelection?) -> [ToolAction] {
-        let toolsEnabled = UserDefaults.standard.object(forKey: Self.toolsEnabledDefaultsKey) as? Bool ?? true
-        guard toolsEnabled else {
-            return []
+        let surface = surface(for: selection)
+        if surface == .professional {
+            let toolsEnabled = UserDefaults.standard.object(forKey: Self.toolsEnabledDefaultsKey) as? Bool ?? true
+            guard toolsEnabled else {
+                return []
+            }
         }
         let enabledActions = toolPermissionStore.enabledActions(from: actions)
         return ChatModeToolFilter.actions(
-            for: surface(for: selection),
+            for: surface,
             from: enabledActions
         )
     }
@@ -419,7 +422,7 @@ final class ChatStore {
             return
         }
 
-        // 在清空输入前捕获本轮模式；聊天模式固定走纯聊天快车道，不启用目标/深度研究注入。
+        // 在清空输入前捕获本轮模式；聊天模式不启用目标/深度研究注入。
         let turnMode: AgentComposerMode = turnSurface == .chat ? .standard : composerMode
         // 本轮图片附件（相对路径）交给 AgentLoop；主模型支持视觉时会内联发原图，附件路径仍留在隐藏输入里供工具按需使用。
         let turnImagePaths = pendingAttachments

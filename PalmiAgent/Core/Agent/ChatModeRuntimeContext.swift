@@ -1,15 +1,25 @@
 import Foundation
 
 struct ChatModeToolFilter {
+    static let chatWebToolsEnabledStorageKey = "palmi.chat.web-tools-enabled"
+    static let chatVisionToolsEnabledStorageKey = "palmi.chat.vision-tools-enabled"
+
     static func actions(
         for surface: WorkspaceProjectSurface,
         from actions: [ToolAction]
     ) -> [ToolAction] {
         switch surface {
-        case .chat:
-            return []
         case .professional:
             return actions
+        case .chat:
+            var allowed = Set<ToolActionID>()
+            if UserDefaults.standard.bool(forKey: chatWebToolsEnabledStorageKey) {
+                allowed.formUnion([.searchWeb, .fetchStaticWebPage])
+            }
+            if UserDefaults.standard.bool(forKey: chatVisionToolsEnabledStorageKey) {
+                allowed.formUnion([.scanImageWithMultimodalModel, .recognizeImageText])
+            }
+            return actions.filter { allowed.contains($0.id) }
         }
     }
 }

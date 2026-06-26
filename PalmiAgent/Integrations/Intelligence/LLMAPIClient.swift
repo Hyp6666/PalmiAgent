@@ -563,8 +563,8 @@ final class LLMAPIClient: AgentModelRuntime {
                     .assistant(
                         content.isEmpty ? nil : content,
                         toolCalls: toolCalls.isEmpty ? nil : toolCalls,
-                        reasoningContent: agentMessage.nativeReasoning?.reasoningContent,
-                        reasoningDetails: agentMessage.nativeReasoning?.reasoningDetails
+                        reasoningContent: nil,
+                        reasoningDetails: nil
                     )
                 )
 

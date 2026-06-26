@@ -113,6 +113,9 @@ final class AgentLoop {
     }
 
     private func refreshTaskSnapshotFromDiskIfAvailable() {
+        guard (try? workspaceManager.currentProject().surface) == .professional else {
+            return
+        }
         guard let selection = try? workspaceManager.currentSelection() else {
             return
         }
@@ -369,13 +372,13 @@ final class AgentLoop {
             activeTurnHasImageAttachments = false
             activeTurnMultimodalScannerAvailable = false
         }
-        let runProfile = currentAgentRunProfile()
-        activeTurnHasImageAttachments = !imagePaths.isEmpty
-        activeTurnMultimodalScannerAvailable = multimodalScannerAvailable(modelOverrides: modelOverrides)
         let selection = try workspaceManager.currentSelection()
         let surface = (try? workspaceManager.currentProject().surface) ?? .professional
+        let runProfile = surface == .chat ? AgentRunProfile.profile(for: .speed) : currentAgentRunProfile()
+        activeTurnHasImageAttachments = !imagePaths.isEmpty
+        activeTurnMultimodalScannerAvailable = multimodalScannerAvailable(modelOverrides: modelOverrides)
 
-        if surface == .chat {
+        if surface == .chat && actions.isEmpty {
             return try await runPlainChatTurn(
                 userInput: trimmedInput,
                 providerID: providerID,
@@ -402,7 +405,7 @@ final class AgentLoop {
         let toolPlanner = ToolExecutionPlanner()
         let runVerifier = RunVerifier()
         let contextCompactionConfiguration = runProfile.contextCompaction
-        let phaseThoughtEnabled = isExternalReasoningEnabled
+        let phaseThoughtEnabled = surface == .chat ? false : isExternalReasoningEnabled
         let taskIdentity = AgentTaskStateIdentity(
             projectID: selection.projectID,
             threadID: selection.threadID,
@@ -411,11 +414,13 @@ final class AgentLoop {
         )
 
         do {
-            taskStateRuntime.beginTurn()
-            session.taskStateSnapshot = taskStateRuntime.loadSnapshot(
-                identity: taskIdentity,
-                fallback: session.taskStateSnapshot
-            )
+            if surface == .professional {
+                taskStateRuntime.beginTurn()
+                session.taskStateSnapshot = taskStateRuntime.loadSnapshot(
+                    identity: taskIdentity,
+                    fallback: session.taskStateSnapshot
+                )
+            }
             pendingInterruptions = []
             defer {
                 switch state {
@@ -443,7 +448,7 @@ final class AgentLoop {
             )
 
             let actionToolDefinitions = LLMToolDefinitionBuilder.makeToolDefinitions(for: actions)
-            var exposesTaskStateTool = taskToolExposurePolicy.shouldExpose(
+            var exposesTaskStateTool = surface == .chat ? false : taskToolExposurePolicy.shouldExpose(
                 userInput: trimmedInput,
                 session: session,
                 surface: surface
@@ -472,14 +477,16 @@ final class AgentLoop {
                 )
                 let activeProjectID = try? workspaceManager.currentSelection().projectID
                 let activeSkills = skillRegistry.enabledSkills(for: activeProjectID)
-                _ = await maybeCompactContext(
-                    providerID: providerID,
-                    modelOverrides: modelOverrides,
-                    baseSystemPrompt: baseSystemPrompt,
-                    skills: activeSkills,
-                    protectedRecentMessageCount: session.messages.count - turnContext.turnStartMessageIndex,
-                    configuration: contextCompactionConfiguration
-                )
+                if surface == .professional {
+                    _ = await maybeCompactContext(
+                        providerID: providerID,
+                        modelOverrides: modelOverrides,
+                        baseSystemPrompt: baseSystemPrompt,
+                        skills: activeSkills,
+                        protectedRecentMessageCount: session.messages.count - turnContext.turnStartMessageIndex,
+                        configuration: contextCompactionConfiguration
+                    )
+                }
                 if consumePendingInterruptions() {
                     continue
                 }
@@ -732,7 +739,8 @@ final class AgentLoop {
                                     isError: executionStep.result.status == .failure
                                 )
                             )
-                            if let hiddenArtifacts = await toolArtifactPipeline.ingest(
+                            if surface == .professional,
+                               let hiddenArtifacts = await toolArtifactPipeline.ingest(
                                 session: session,
                                 toolResult: AgentToolResultRecord(
                                     toolUseID: completed.toolUse.id,
@@ -759,6 +767,17 @@ final class AgentLoop {
                     for routedCall in batch.calls {
                         let toolUse = routedCall.toolUse
                         if case .progress = routedCall.kind {
+                            guard phaseThoughtEnabled else {
+                                session.append(
+                                    .toolResult(
+                                        toolUseID: toolUse.id,
+                                        toolName: toolUse.name,
+                                        output: "当前模式不支持阶段思考工具。",
+                                        isError: true
+                                    )
+                                )
+                                continue
+                            }
                             let thoughtOutput = handlePhaseThoughtTool(toolUse)
                             taskStateRuntime.recordNonTaskProgress()
                             session.append(
@@ -773,6 +792,17 @@ final class AgentLoop {
                         }
 
                         if case .taskState = routedCall.kind {
+                            guard surface == .professional else {
+                                session.append(
+                                    .toolResult(
+                                        toolUseID: toolUse.id,
+                                        toolName: toolUse.name,
+                                        output: "聊天模式不支持任务状态工具。",
+                                        isError: true
+                                    )
+                                )
+                                continue
+                            }
                             let update = taskStateRuntime.handleUpdateTool(
                                 input: toolUse.input,
                                 identity: taskIdentity,
@@ -947,7 +977,8 @@ final class AgentLoop {
                                 isError: executionStep.result.status == .failure
                             )
                         )
-                        if let hiddenArtifacts = await toolArtifactPipeline.ingest(
+                        if surface == .professional,
+                           let hiddenArtifacts = await toolArtifactPipeline.ingest(
                             session: session,
                             toolResult: AgentToolResultRecord(
                                 toolUseID: toolUse.id,
@@ -997,7 +1028,8 @@ final class AgentLoop {
                     )
                     let activeProjectID = try? workspaceManager.currentSelection().projectID
                     let activeSkills = skillRegistry.enabledSkills(for: activeProjectID)
-                    _ = await maybeCompactContext(
+                    if surface == .professional {
+                        _ = await maybeCompactContext(
                             providerID: providerID,
                             modelOverrides: modelOverrides,
                             baseSystemPrompt: baseSystemPrompt,
@@ -1005,6 +1037,7 @@ final class AgentLoop {
                             protectedRecentMessageCount: session.messages.count - turnContext.turnStartMessageIndex,
                             configuration: contextCompactionConfiguration
                         )
+                    }
                     let assembledContext = contextAssembler.assemble(
                         baseSystemPrompt: baseSystemPrompt,
                         skills: activeSkills,
@@ -1757,11 +1790,20 @@ final class AgentLoop {
         runProfile: AgentRunProfile,
         surface: WorkspaceProjectSurface
     ) -> String {
-        let layers: [String?] = [
-            tierInstructionLayer(runProfile: runProfile, surface: surface),
-            composerModeInstructionLayer(),
-            multimodalRoutingInstructionLayer(actions: actions)
-        ]
+        let layers: [String?]
+        switch surface {
+        case .chat:
+            layers = [
+                chatToolInstructionLayer(actions: actions),
+                multimodalRoutingInstructionLayer(actions: actions)
+            ]
+        case .professional:
+            layers = [
+                tierInstructionLayer(runProfile: runProfile, surface: surface),
+                composerModeInstructionLayer(),
+                multimodalRoutingInstructionLayer(actions: actions)
+            ]
+        }
 
         let normalizedLayers = layers.compactMap { layer in
             layer?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1778,6 +1820,22 @@ final class AgentLoop {
 
         \(normalizedLayers.joined(separator: "\n\n"))
         """
+    }
+
+    private func chatToolInstructionLayer(actions: [ToolAction]) -> String? {
+        guard !actions.isEmpty else { return nil }
+        let toolIDs = Set(actions.map(\.id))
+        var lines: [String] = [
+            "【chat_tools】聊天模式已临时开启少量工具；只有用户明确需要联网、读取网页或识别附件图片时才使用，否则直接自然回答。"
+        ]
+        if toolIDs.contains(.searchWeb) || toolIDs.contains(.fetchStaticWebPage) {
+            lines.append("联网：未知网址或当前事实先用网页搜索找候选；用户给出明确 URL 时直接网页浏览；关键事实以网页浏览正文为准。")
+        }
+        if toolIDs.contains(.scanImageWithMultimodalModel) || toolIDs.contains(.recognizeImageText) {
+            lines.append("图片：主模型看不到图或需要识别附件内容时，优先用多模态扫描；只提取文字时用 OCR。工具失败就如实说明。")
+        }
+        lines.append("工具完成后用聊天口吻回答，不输出研究报告式结构，不提内部工具策略。")
+        return lines.joined(separator: "\n")
     }
 
     private func tierInstructionLayer(

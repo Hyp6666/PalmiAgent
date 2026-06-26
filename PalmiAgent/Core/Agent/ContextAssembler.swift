@@ -39,16 +39,20 @@ struct ContextAssembler {
         for message in session.messages.dropFirst(compactedCount) {
             apiMessages.append(contentsOf: convert(message, session: session))
         }
-        let hiddenContext = layerManager.hiddenContextPrompt(
-            hiddenSummary: session.hiddenContextSummary,
-            hiddenResearch: researchStateAssembler.hiddenResearchPrompt(for: session),
-            hiddenTaskState: taskContextProjector.hiddenTaskPrompt(for: session)
-        )
-        if let prompt = hiddenContext.prompt {
-            apiMessages.append(.user(prompt))
+        var hiddenContextRecords: [ContextLayerRecord] = []
+        if surface == .professional {
+            let hiddenContext = layerManager.hiddenContextPrompt(
+                hiddenSummary: session.hiddenContextSummary,
+                hiddenResearch: researchStateAssembler.hiddenResearchPrompt(for: session),
+                hiddenTaskState: taskContextProjector.hiddenTaskPrompt(for: session)
+            )
+            if let prompt = hiddenContext.prompt {
+                apiMessages.append(.user(prompt))
+            }
+            hiddenContextRecords = hiddenContext.records
         }
         let layerSnapshot = ContextLayerSnapshot(
-            records: layeredPrompt.snapshot.records + hiddenContext.records
+            records: layeredPrompt.snapshot.records + hiddenContextRecords
         )
 
         return AssembledAgentContext(
@@ -126,8 +130,8 @@ struct ContextAssembler {
                 .assistant(
                     content.isEmpty ? nil : content,
                     toolCalls: toolCalls.isEmpty ? nil : toolCalls,
-                    reasoningContent: agentMessage.nativeReasoning?.reasoningContent,
-                    reasoningDetails: agentMessage.nativeReasoning?.reasoningDetails
+                    reasoningContent: nil,
+                    reasoningDetails: nil
                 )
             ]
         case .tool:

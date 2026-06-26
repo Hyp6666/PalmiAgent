@@ -102,7 +102,8 @@ struct ChatScreen: View {
 
     @AppStorage(APIConfigurationStore.activeProviderStorageKey) private var activeProviderRaw = APIProviderID.glm.rawValue
     @AppStorage(ProfessionalReasoningTier.storageKey) private var professionalReasoningTierRaw = ProfessionalReasoningTier.balanced.rawValue
-    @AppStorage(ChatReasoningTier.storageKey) private var chatReasoningTierRaw = ChatReasoningTier.normal.rawValue
+    @AppStorage(ChatModeToolFilter.chatWebToolsEnabledStorageKey) private var areChatWebToolsEnabled = false
+    @AppStorage(ChatModeToolFilter.chatVisionToolsEnabledStorageKey) private var areChatVisionToolsEnabled = false
     @AppStorage("palmi.chat.tools-enabled") private var areToolsEnabled = true
     @AppStorage("palmi.chat.external-reasoning-enabled") private var isExternalReasoningEnabled = true
 
@@ -236,19 +237,22 @@ struct ChatScreen: View {
 
     private var selectedReasoningTitle: String {
         if isChatSurface {
-            return ChatReasoningTier.resolved(rawValue: chatReasoningTierRaw).title
+            return "聊天工具"
         }
         return ProfessionalReasoningTier.resolved(rawValue: professionalReasoningTierRaw).title
     }
 
     private var isExtremeCapabilitySelected: Bool {
         if isChatSurface {
-            return ChatReasoningTier.resolved(rawValue: chatReasoningTierRaw) == .expert
+            return false
         }
         return ProfessionalReasoningTier.resolved(rawValue: professionalReasoningTierRaw) == .infinite
     }
 
     private var selectedCapabilityAccent: Color {
+        if isChatSurface {
+            return areChatToolsEnabled ? Color.accentColor : Color.secondary
+        }
         switch selectedReasoningTitle {
         case "极致":
             return extremeCapabilityAccent
@@ -257,6 +261,10 @@ struct ChatScreen: View {
         default:
             return Color.accentColor
         }
+    }
+
+    private var areChatToolsEnabled: Bool {
+        areChatWebToolsEnabled || areChatVisionToolsEnabled
     }
 
     private var selectedModelReasoningOptions: [ModelReasoningControlOption] {
@@ -1214,25 +1222,10 @@ struct ChatScreen: View {
 
     @ViewBuilder
     private func taskReasoningMenuContent(showsSelection: Bool, usesCompactWidth: Bool = false) -> some View {
-        let selectedChatTier = ChatReasoningTier.resolved(rawValue: chatReasoningTierRaw)
         let selectedProfessionalTier = ProfessionalReasoningTier.resolved(rawValue: professionalReasoningTierRaw)
 
         if isChatSurface {
-            ForEach(Array(ChatReasoningTier.allCases.reversed())) { tier in
-                Button {
-                    performQuickSettingsMutation {
-                        chatReasoningTierRaw = tier.rawValue
-                    }
-                } label: {
-                    taskReasoningMenuLabel(
-                        title: tier.title,
-                        isSelected: tier == selectedChatTier,
-                        showsSelection: showsSelection,
-                        usesCompactWidth: usesCompactWidth
-                    )
-                }
-                .disabled(store.isLoading)
-            }
+            chatToolMenuContent
         } else {
             ForEach(Array(ProfessionalReasoningTier.allCases.reversed())) { tier in
                 Button {
@@ -1265,6 +1258,65 @@ struct ChatScreen: View {
         } else {
             Text(title)
                 .frame(width: usesCompactWidth ? 96 : nil, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder
+    private var chatToolMenuContent: some View {
+        Button {
+            performQuickSettingsMutation {
+                areChatWebToolsEnabled.toggle()
+            }
+        } label: {
+            menuSelectionLabel("网页工具", isSelected: areChatWebToolsEnabled)
+        }
+        .disabled(store.isLoading)
+
+        Button {
+            performQuickSettingsMutation {
+                areChatVisionToolsEnabled.toggle()
+            }
+        } label: {
+            menuSelectionLabel("视觉工具", isSelected: areChatVisionToolsEnabled)
+        }
+        .disabled(store.isLoading)
+    }
+
+    @ViewBuilder
+    private var chatWebToolsMenuContent: some View {
+        Button {
+            performQuickSettingsMutation {
+                areChatWebToolsEnabled = true
+            }
+        } label: {
+            menuSelectionLabel("开启", isSelected: areChatWebToolsEnabled)
+        }
+
+        Button {
+            performQuickSettingsMutation {
+                areChatWebToolsEnabled = false
+            }
+        } label: {
+            menuSelectionLabel("关闭", isSelected: !areChatWebToolsEnabled)
+        }
+    }
+
+    @ViewBuilder
+    private var chatVisionToolsMenuContent: some View {
+        Button {
+            performQuickSettingsMutation {
+                areChatVisionToolsEnabled = true
+            }
+        } label: {
+            menuSelectionLabel("开启", isSelected: areChatVisionToolsEnabled)
+        }
+
+        Button {
+            performQuickSettingsMutation {
+                areChatVisionToolsEnabled = false
+            }
+        } label: {
+            menuSelectionLabel("关闭", isSelected: !areChatVisionToolsEnabled)
         }
     }
 
@@ -1420,42 +1472,60 @@ struct ChatScreen: View {
 
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(alignment: .leading, spacing: 28) {
-                            configurationCard(isExtreme: isExtreme) {
-                                configurationMenuRow(
-                                    title: "能力",
-                                    value: selectedReasoningTitle,
-                                    isExtreme: isExtreme,
-                                    valueAccent: selectedCapabilityAccent,
-                                    tracksValueCenter: isExtreme
-                                ) {
-                                    taskReasoningMenuContent(showsSelection: true)
-                                }
-                            }
+                            if isChatSurface {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    configurationCard(isExtreme: isExtreme) {
+                                        configurationMenuRow(title: "网页工具", value: areChatWebToolsEnabled ? "开启" : "关闭", isExtreme: isExtreme) {
+                                            chatWebToolsMenuContent
+                                        }
 
-                            VStack(alignment: .leading, spacing: 10) {
+                                        configurationDivider(isExtreme: isExtreme)
+
+                                        configurationMenuRow(title: "视觉工具", value: areChatVisionToolsEnabled ? "开启" : "关闭", isExtreme: isExtreme) {
+                                            chatVisionToolsMenuContent
+                                        }
+                                    }
+
+                                    configurationCaption("默认纯聊天；开启后仅允许聊天模式临时使用网页和视觉工具。", isExtreme: isExtreme)
+                                }
+                            } else {
                                 configurationCard(isExtreme: isExtreme) {
-                                    configurationMenuRow(title: "工具", value: areToolsEnabled ? "开启" : "关闭", isExtreme: isExtreme) {
-                                        toolEnabledMenuContent
-                                    }
-
-                                    configurationDivider(isExtreme: isExtreme)
-
-                                    configurationMenuRow(title: "工具授权", value: store.toolAuthorizationStore.mode.title, isExtreme: isExtreme) {
-                                        toolAuthorizationMenuContent
-                                    }
-                                }
-
-                                configurationCaption("需开启工具以允许Palmi发挥更多的功能", isExtreme: isExtreme)
-                            }
-
-                            VStack(alignment: .leading, spacing: 10) {
-                                configurationCard(isExtreme: isExtreme) {
-                                    configurationMenuRow(title: "阶段思考", value: isExternalReasoningEnabled ? "开启" : "关闭", isExtreme: isExtreme) {
-                                        externalReasoningMenuContent
+                                    configurationMenuRow(
+                                        title: "能力",
+                                        value: selectedReasoningTitle,
+                                        isExtreme: isExtreme,
+                                        valueAccent: selectedCapabilityAccent,
+                                        tracksValueCenter: isExtreme
+                                    ) {
+                                        taskReasoningMenuContent(showsSelection: true)
                                     }
                                 }
 
-                                configurationCaption("允许Palmi以类似工具调用的形式进行阶段性总结来进一步增大Palmi的能力", isExtreme: isExtreme)
+                                VStack(alignment: .leading, spacing: 10) {
+                                    configurationCard(isExtreme: isExtreme) {
+                                        configurationMenuRow(title: "工具", value: areToolsEnabled ? "开启" : "关闭", isExtreme: isExtreme) {
+                                            toolEnabledMenuContent
+                                        }
+
+                                        configurationDivider(isExtreme: isExtreme)
+
+                                        configurationMenuRow(title: "工具授权", value: store.toolAuthorizationStore.mode.title, isExtreme: isExtreme) {
+                                            toolAuthorizationMenuContent
+                                        }
+                                    }
+
+                                    configurationCaption("需开启工具以允许Palmi发挥更多的功能", isExtreme: isExtreme)
+                                }
+
+                                VStack(alignment: .leading, spacing: 10) {
+                                    configurationCard(isExtreme: isExtreme) {
+                                        configurationMenuRow(title: "阶段思考", value: isExternalReasoningEnabled ? "开启" : "关闭", isExtreme: isExtreme) {
+                                            externalReasoningMenuContent
+                                        }
+                                    }
+
+                                    configurationCaption("允许Palmi以类似工具调用的形式进行阶段性总结来进一步增大Palmi的能力", isExtreme: isExtreme)
+                                }
                             }
 
                             VStack(alignment: .leading, spacing: 10) {
@@ -1623,7 +1693,7 @@ struct ChatScreen: View {
         }
         .buttonStyle(.plain)
         .menuOrder(.fixed)
-        .accessibilityLabel("能力")
+        .accessibilityLabel(isChatSurface ? "聊天工具" : "能力")
         .simultaneousGesture(
             TapGesture().onEnded {
                 scheduleQuickSettingsPreparation()
@@ -1933,23 +2003,29 @@ struct ChatScreen: View {
     }
 
     private var reasoningSelectionPanel: some View {
-        let selectedChatTier = ChatReasoningTier.resolved(rawValue: chatReasoningTierRaw)
         let selectedProfessionalTier = ProfessionalReasoningTier.resolved(rawValue: professionalReasoningTierRaw)
 
         return FloatingGlassPanel(
-            title: "能力",
-            subtitle: isChatSurface ? "聊天模式" : "专业模式"
+            title: isChatSurface ? "聊天工具" : "能力",
+            subtitle: isChatSurface ? "默认纯聊天" : "专业模式"
         ) {
             if isChatSurface {
-                ForEach(Array(ChatReasoningTier.allCases.reversed())) { tier in
-                    ComposerOptionRow(
-                        title: tier.title,
-                        subtitle: tier.description,
-                        badge: nil,
-                        isSelected: tier == selectedChatTier
-                    ) {
-                        chatReasoningTierRaw = tier.rawValue
-                    }
+                ComposerOptionRow(
+                    title: "网页工具",
+                    subtitle: "搜索网页或读取明确 URL。",
+                    badge: nil,
+                    isSelected: areChatWebToolsEnabled
+                ) {
+                    areChatWebToolsEnabled.toggle()
+                }
+
+                ComposerOptionRow(
+                    title: "视觉工具",
+                    subtitle: "识别附件图片或提取图片文字。",
+                    badge: nil,
+                    isSelected: areChatVisionToolsEnabled
+                ) {
+                    areChatVisionToolsEnabled.toggle()
                 }
             } else {
                 ForEach(Array(ProfessionalReasoningTier.allCases.reversed())) { tier in
@@ -1968,19 +2044,24 @@ struct ChatScreen: View {
     }
 
     private var compactReasoningSelectionContent: some View {
-        let selectedChatTier = ChatReasoningTier.resolved(rawValue: chatReasoningTierRaw)
         let selectedProfessionalTier = ProfessionalReasoningTier.resolved(rawValue: professionalReasoningTierRaw)
 
         return CompactGlassList {
             if isChatSurface {
-                ForEach(Array(ChatReasoningTier.allCases.reversed())) { tier in
-                    CompactSelectionRow(
-                        title: tier.title,
-                        trailingText: nil,
-                        isSelected: tier == selectedChatTier
-                    ) {
-                        chatReasoningTierRaw = tier.rawValue
-                    }
+                CompactSelectionRow(
+                    title: "网页工具",
+                    trailingText: nil,
+                    isSelected: areChatWebToolsEnabled
+                ) {
+                    areChatWebToolsEnabled.toggle()
+                }
+
+                CompactSelectionRow(
+                    title: "视觉工具",
+                    trailingText: nil,
+                    isSelected: areChatVisionToolsEnabled
+                ) {
+                    areChatVisionToolsEnabled.toggle()
                 }
             } else {
                 ForEach(Array(ProfessionalReasoningTier.allCases.reversed())) { tier in
