@@ -387,14 +387,19 @@ final class AgentLoop {
             )
         }
 
-        // 仅当主模型本身支持视觉时，才把图片附件降采样转 JPEG 内联进来；同轮 OCR 会在执行层被跳过，避免模型绕回 OCR 路线。
-        // 多模态模型槽位只属于 scanImageWithMultimodalModel 工具，不能替代主模型驱动本轮对话。
-        let inlineImages = await loadInlineImagesIfVisionSupported(
-            imagePaths,
-            providerID: providerID,
-            runProfile: runProfile,
-            modelOverrides: modelOverrides
-        )
+        // 聊天模式不把图片内联给主模型；图片理解必须走多模态扫描 / OCR 工具链。
+        // 专业模式仍按原路由，在主模型支持视觉时把附件降采样转 JPEG 内联。
+        let inlineImages: [(path: String, dataURL: String)]
+        if surface == .chat {
+            inlineImages = []
+        } else {
+            inlineImages = await loadInlineImagesIfVisionSupported(
+                imagePaths,
+                providerID: providerID,
+                runProfile: runProfile,
+                modelOverrides: modelOverrides
+            )
+        }
         activeTurnImageDataURLs = inlineImages.map { $0.dataURL }
         activeTurnInlineImagePaths = Set(inlineImages.map { $0.path })
         let turnRequestRole: APIModelRole = .reasoningModel
@@ -490,15 +495,23 @@ final class AgentLoop {
                 if consumePendingInterruptions() {
                     continue
                 }
-                let assembledContext = contextAssembler.assemble(
-                    baseSystemPrompt: baseSystemPrompt,
-                    skills: activeSkills,
-                    session: session,
-                    actions: actions,
-                    exposesTools: exposesAnyTools,
-                    exposesPhaseThought: phaseThoughtEnabled,
-                    surface: surface
-                )
+                let assembledContext: AssembledAgentContext
+                if surface == .chat {
+                    assembledContext = contextAssembler.assembleChatTool(
+                        baseSystemPrompt: baseSystemPrompt,
+                        session: session
+                    )
+                } else {
+                    assembledContext = contextAssembler.assemble(
+                        baseSystemPrompt: baseSystemPrompt,
+                        skills: activeSkills,
+                        session: session,
+                        actions: actions,
+                        exposesTools: exposesAnyTools,
+                        exposesPhaseThought: phaseThoughtEnabled,
+                        surface: surface
+                    )
+                }
 
                 state = .thinking
                 let response: AgentModelResponse
@@ -1038,15 +1051,23 @@ final class AgentLoop {
                             configuration: contextCompactionConfiguration
                         )
                     }
-                    let assembledContext = contextAssembler.assemble(
-                        baseSystemPrompt: baseSystemPrompt,
-                        skills: activeSkills,
-                        session: session,
-                        actions: actions,
-                        exposesTools: false,
-                        exposesPhaseThought: phaseThoughtEnabled,
-                        surface: surface
-                    )
+                    let assembledContext: AssembledAgentContext
+                    if surface == .chat {
+                        assembledContext = contextAssembler.assembleChatTool(
+                            baseSystemPrompt: baseSystemPrompt,
+                            session: session
+                        )
+                    } else {
+                        assembledContext = contextAssembler.assemble(
+                            baseSystemPrompt: baseSystemPrompt,
+                            skills: activeSkills,
+                            session: session,
+                            actions: actions,
+                            exposesTools: false,
+                            exposesPhaseThought: phaseThoughtEnabled,
+                            surface: surface
+                        )
+                    }
                     state = .summarizing
                     let summaryResponse: AgentModelResponse
                     let baseSummaryTokens = outputTokens
@@ -1116,15 +1137,9 @@ final class AgentLoop {
         imagePaths: [String],
         modelOverrides: AgentModelRoleOverrides
     ) async throws -> AgentTurnResult {
-        let plainRunProfile = AgentRunProfile.profile(for: .speed)
-        let inlineImages = await loadInlineImagesIfVisionSupported(
-            imagePaths,
-            providerID: providerID,
-            runProfile: plainRunProfile,
-            modelOverrides: modelOverrides
-        )
-        activeTurnImageDataURLs = inlineImages.map { $0.dataURL }
-        activeTurnInlineImagePaths = Set(inlineImages.map { $0.path })
+        _ = imagePaths
+        activeTurnImageDataURLs = []
+        activeTurnInlineImagePaths = []
 
         let input = inputWithInlineImageRecord(userInput)
         session.append(.user(text: input))
@@ -1816,8 +1831,6 @@ final class AgentLoop {
 
         return """
         \(input)
-
-
         \(normalizedLayers.joined(separator: "\n\n"))
         """
     }
@@ -1826,15 +1839,21 @@ final class AgentLoop {
         guard !actions.isEmpty else { return nil }
         let toolIDs = Set(actions.map(\.id))
         var lines: [String] = [
-            "【chat_tools】聊天模式已临时开启少量工具；只有用户明确需要联网、读取网页或识别附件图片时才使用，否则直接自然回答。"
+            "【chat_tools】聊天模式只提供少量辅助工具。日常对话直接回答；只有明确需要当前时间、定位、联网搜索、网页读取或图片识别时才调用工具。"
         ]
-        if toolIDs.contains(.searchWeb) || toolIDs.contains(.fetchStaticWebPage) {
-            lines.append("联网：未知网址或当前事实先用网页搜索找候选；用户给出明确 URL 时直接网页浏览；关键事实以网页浏览正文为准。")
+        if toolIDs.contains(.getCurrentDateTime) {
+            lines.append("时间：涉及今天、明天、现在、几点、日期换算或相对时间时，先调用当前时间工具确认。")
+        }
+        if toolIDs.contains(.requestLocation) {
+            lines.append("定位：涉及我的位置、我的地址、附近、本地、离我最近等依赖当前位置的问题时，调用定位并反查；未授权或失败时如实说明。")
         }
         if toolIDs.contains(.scanImageWithMultimodalModel) || toolIDs.contains(.recognizeImageText) {
-            lines.append("图片：主模型看不到图或需要识别附件内容时，优先用多模态扫描；只提取文字时用 OCR。工具失败就如实说明。")
+            lines.append("图片：用户上传图片且需要理解内容时，优先调用多模态扫描；如果不可用或失败，或任务只需要文字，则调用 OCR。不要声称自己直接看到了未通过工具读取的图片。")
         }
-        lines.append("工具完成后用聊天口吻回答，不输出研究报告式结构，不提内部工具策略。")
+        if toolIDs.contains(.searchWeb) || toolIDs.contains(.fetchStaticWebPage) {
+            lines.append("联网搜索：需要当前网页事实、未知网址或 URL 正文时使用。未知网址先搜索候选；用户给出明确 URL 时直接网页浏览；关键事实以网页浏览正文为准。")
+        }
+        lines.append("工具完成后仍用聊天口吻简短回答，不写研究报告，不提内部工具策略。")
         return lines.joined(separator: "\n")
     }
 

@@ -106,6 +106,64 @@ struct ContextAssembler {
         )
     }
 
+    func assembleChatTool(
+        baseSystemPrompt: String,
+        session: AgentSession
+    ) -> AssembledAgentContext {
+        let trimmedSystemPrompt = baseSystemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        var apiMessages: [AgentModelMessage] = [.system(trimmedSystemPrompt)]
+
+        let compactedCount = session.hiddenContextSummary?.compactedMessageCount ?? 0
+        for message in session.messages.dropFirst(compactedCount) {
+            switch message.role {
+            case .user:
+                let text = message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !text.isEmpty {
+                    apiMessages.append(.user(text))
+                }
+
+            case .assistant:
+                let toolCalls = message.toolUses.map { toolUse in
+                    AgentModelToolCall(
+                        id: toolUse.id,
+                        type: "function",
+                        function: AgentModelToolFunction(name: toolUse.name, arguments: toolUse.input)
+                    )
+                }
+                let content = message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
+                apiMessages.append(
+                    .assistant(
+                        content.isEmpty ? nil : content,
+                        toolCalls: toolCalls.isEmpty ? nil : toolCalls,
+                        reasoningContent: nil,
+                        reasoningDetails: nil
+                    )
+                )
+
+            case .tool:
+                apiMessages.append(contentsOf: message.toolResultRecords.map { result in
+                    .tool(
+                        toolContextProjector.projectedToolContent(for: result, session: session),
+                        toolCallID: result.toolUseID
+                    )
+                })
+            }
+        }
+
+        let systemRecord = ContextLayerRecord(
+            kind: .system,
+            approximateTokens: ApproximateTokenCounter.estimate(trimmedSystemPrompt),
+            isEvidenceSource: false
+        )
+
+        return AssembledAgentContext(
+            composedSystemPrompt: trimmedSystemPrompt,
+            apiMessages: apiMessages,
+            approximateTokenCount: ApproximateTokenCounter.estimate(chatMessages: apiMessages),
+            layerSnapshot: ContextLayerSnapshot(records: [systemRecord])
+        )
+    }
+
     func hiddenSummaryPrompt(for hiddenSummary: AgentHiddenContextSummary) -> String {
         layerManager.hiddenSummaryPrompt(for: hiddenSummary)
     }

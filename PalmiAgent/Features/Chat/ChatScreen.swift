@@ -103,7 +103,6 @@ struct ChatScreen: View {
     @AppStorage(APIConfigurationStore.activeProviderStorageKey) private var activeProviderRaw = APIProviderID.glm.rawValue
     @AppStorage(ProfessionalReasoningTier.storageKey) private var professionalReasoningTierRaw = ProfessionalReasoningTier.balanced.rawValue
     @AppStorage(ChatModeToolFilter.chatWebToolsEnabledStorageKey) private var areChatWebToolsEnabled = false
-    @AppStorage(ChatModeToolFilter.chatVisionToolsEnabledStorageKey) private var areChatVisionToolsEnabled = false
     @AppStorage("palmi.chat.tools-enabled") private var areToolsEnabled = true
     @AppStorage("palmi.chat.external-reasoning-enabled") private var isExternalReasoningEnabled = true
 
@@ -237,7 +236,7 @@ struct ChatScreen: View {
 
     private var selectedReasoningTitle: String {
         if isChatSurface {
-            return "聊天工具"
+            return areChatWebToolsEnabled ? "联网搜索" : "聊天"
         }
         return ProfessionalReasoningTier.resolved(rawValue: professionalReasoningTierRaw).title
     }
@@ -251,7 +250,7 @@ struct ChatScreen: View {
 
     private var selectedCapabilityAccent: Color {
         if isChatSurface {
-            return areChatToolsEnabled ? Color.accentColor : Color.secondary
+            return areChatWebToolsEnabled ? Color.accentColor : Color.secondary
         }
         switch selectedReasoningTitle {
         case "极致":
@@ -261,10 +260,6 @@ struct ChatScreen: View {
         default:
             return Color.accentColor
         }
-    }
-
-    private var areChatToolsEnabled: Bool {
-        areChatWebToolsEnabled || areChatVisionToolsEnabled
     }
 
     private var selectedModelReasoningOptions: [ModelReasoningControlOption] {
@@ -981,46 +976,48 @@ struct ChatScreen: View {
             }
             .buttonStyle(.plain)
 
-            Divider()
-                .padding(.horizontal, 14)
-                .padding(.vertical, 2)
+            if !isChatSurface {
+                Divider()
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 2)
 
-            // 规划：嵌套原生 Menu。label 随当前模式变名字/图标/颜色，与模式芯片同一套配色。
-            Menu {
-                Button {
-                    isShowingPlusMenu = false
-                    store.composerMode = .goal
-                } label: {
-                    Label("目标", systemImage: "target")
-                }
+                // 规划：嵌套原生 Menu。label 随当前模式变名字/图标/颜色，与模式芯片同一套配色。
+                Menu {
+                    Button {
+                        isShowingPlusMenu = false
+                        store.composerMode = .goal
+                    } label: {
+                        Label("目标", systemImage: "target")
+                    }
 
-                Button {
-                    isShowingPlusMenu = false
-                    store.composerMode = .deepResearch
-                } label: {
-                    Label("深度研究", systemImage: "magnifyingglass")
-                }
+                    Button {
+                        isShowingPlusMenu = false
+                        store.composerMode = .deepResearch
+                    } label: {
+                        Label("深度研究", systemImage: "magnifyingglass")
+                    }
 
-                // 已选模式时，用分隔线隔出一个「取消」用于退出该模式。
-                if store.composerMode != .standard {
-                    Section {
-                        Button(role: .destructive) {
-                            isShowingPlusMenu = false
-                            store.composerMode = .standard
-                        } label: {
-                            Label("取消", systemImage: "xmark.circle")
+                    // 已选模式时，用分隔线隔出一个「取消」用于退出该模式。
+                    if store.composerMode != .standard {
+                        Section {
+                            Button(role: .destructive) {
+                                isShowingPlusMenu = false
+                                store.composerMode = .standard
+                            } label: {
+                                Label("取消", systemImage: "xmark.circle")
+                            }
                         }
                     }
+                } label: {
+                    plusMenuRow(
+                        title: composerPlanTitle,
+                        systemImage: composerPlanIcon,
+                        tint: composerPlanTint,
+                        showsChevron: true
+                    )
                 }
-            } label: {
-                plusMenuRow(
-                    title: composerPlanTitle,
-                    systemImage: composerPlanIcon,
-                    tint: composerPlanTint,
-                    showsChevron: true
-                )
+                .menuOrder(.fixed)
             }
-            .menuOrder(.fixed)
         }
         .padding(.vertical, 6)
         .frame(width: 250)
@@ -1268,16 +1265,7 @@ struct ChatScreen: View {
                 areChatWebToolsEnabled.toggle()
             }
         } label: {
-            menuSelectionLabel("网页工具", isSelected: areChatWebToolsEnabled)
-        }
-        .disabled(store.isLoading)
-
-        Button {
-            performQuickSettingsMutation {
-                areChatVisionToolsEnabled.toggle()
-            }
-        } label: {
-            menuSelectionLabel("视觉工具", isSelected: areChatVisionToolsEnabled)
+            menuSelectionLabel("联网搜索", isSelected: areChatWebToolsEnabled)
         }
         .disabled(store.isLoading)
     }
@@ -1298,25 +1286,6 @@ struct ChatScreen: View {
             }
         } label: {
             menuSelectionLabel("关闭", isSelected: !areChatWebToolsEnabled)
-        }
-    }
-
-    @ViewBuilder
-    private var chatVisionToolsMenuContent: some View {
-        Button {
-            performQuickSettingsMutation {
-                areChatVisionToolsEnabled = true
-            }
-        } label: {
-            menuSelectionLabel("开启", isSelected: areChatVisionToolsEnabled)
-        }
-
-        Button {
-            performQuickSettingsMutation {
-                areChatVisionToolsEnabled = false
-            }
-        } label: {
-            menuSelectionLabel("关闭", isSelected: !areChatVisionToolsEnabled)
         }
     }
 
@@ -1475,18 +1444,12 @@ struct ChatScreen: View {
                             if isChatSurface {
                                 VStack(alignment: .leading, spacing: 10) {
                                     configurationCard(isExtreme: isExtreme) {
-                                        configurationMenuRow(title: "网页工具", value: areChatWebToolsEnabled ? "开启" : "关闭", isExtreme: isExtreme) {
+                                        configurationMenuRow(title: "联网搜索", value: areChatWebToolsEnabled ? "开启" : "关闭", isExtreme: isExtreme) {
                                             chatWebToolsMenuContent
-                                        }
-
-                                        configurationDivider(isExtreme: isExtreme)
-
-                                        configurationMenuRow(title: "视觉工具", value: areChatVisionToolsEnabled ? "开启" : "关闭", isExtreme: isExtreme) {
-                                            chatVisionToolsMenuContent
                                         }
                                     }
 
-                                    configurationCaption("默认纯聊天；开启后仅允许聊天模式临时使用网页和视觉工具。", isExtreme: isExtreme)
+                                    configurationCaption("聊天模式始终可用时间、定位和图片识别工具；此开关只控制联网搜索。", isExtreme: isExtreme)
                                 }
                             } else {
                                 configurationCard(isExtreme: isExtreme) {
@@ -2006,26 +1969,17 @@ struct ChatScreen: View {
         let selectedProfessionalTier = ProfessionalReasoningTier.resolved(rawValue: professionalReasoningTierRaw)
 
         return FloatingGlassPanel(
-            title: isChatSurface ? "聊天工具" : "能力",
+            title: isChatSurface ? "联网搜索" : "能力",
             subtitle: isChatSurface ? "默认纯聊天" : "专业模式"
         ) {
             if isChatSurface {
                 ComposerOptionRow(
-                    title: "网页工具",
+                    title: "联网搜索",
                     subtitle: "搜索网页或读取明确 URL。",
                     badge: nil,
                     isSelected: areChatWebToolsEnabled
                 ) {
                     areChatWebToolsEnabled.toggle()
-                }
-
-                ComposerOptionRow(
-                    title: "视觉工具",
-                    subtitle: "识别附件图片或提取图片文字。",
-                    badge: nil,
-                    isSelected: areChatVisionToolsEnabled
-                ) {
-                    areChatVisionToolsEnabled.toggle()
                 }
             } else {
                 ForEach(Array(ProfessionalReasoningTier.allCases.reversed())) { tier in
@@ -2049,19 +2003,11 @@ struct ChatScreen: View {
         return CompactGlassList {
             if isChatSurface {
                 CompactSelectionRow(
-                    title: "网页工具",
+                    title: "联网搜索",
                     trailingText: nil,
                     isSelected: areChatWebToolsEnabled
                 ) {
                     areChatWebToolsEnabled.toggle()
-                }
-
-                CompactSelectionRow(
-                    title: "视觉工具",
-                    trailingText: nil,
-                    isSelected: areChatVisionToolsEnabled
-                ) {
-                    areChatVisionToolsEnabled.toggle()
                 }
             } else {
                 ForEach(Array(ProfessionalReasoningTier.allCases.reversed())) { tier in
