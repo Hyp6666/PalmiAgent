@@ -372,6 +372,18 @@ final class AgentLoop {
         let runProfile = currentAgentRunProfile()
         activeTurnHasImageAttachments = !imagePaths.isEmpty
         activeTurnMultimodalScannerAvailable = multimodalScannerAvailable(modelOverrides: modelOverrides)
+        let selection = try workspaceManager.currentSelection()
+        let surface = (try? workspaceManager.currentProject().surface) ?? .professional
+
+        if surface == .chat {
+            return try await runPlainChatTurn(
+                userInput: trimmedInput,
+                providerID: providerID,
+                imagePaths: imagePaths,
+                modelOverrides: modelOverrides
+            )
+        }
+
         // 仅当主模型本身支持视觉时，才把图片附件降采样转 JPEG 内联进来；同轮 OCR 会在执行层被跳过，避免模型绕回 OCR 路线。
         // 多模态模型槽位只属于 scanImageWithMultimodalModel 工具，不能替代主模型驱动本轮对话。
         let inlineImages = await loadInlineImagesIfVisionSupported(
@@ -391,8 +403,6 @@ final class AgentLoop {
         let runVerifier = RunVerifier()
         let contextCompactionConfiguration = runProfile.contextCompaction
         let phaseThoughtEnabled = isExternalReasoningEnabled
-        let selection = try workspaceManager.currentSelection()
-        let surface = (try? workspaceManager.currentProject().surface) ?? .professional
         let taskIdentity = AgentTaskStateIdentity(
             projectID: selection.projectID,
             threadID: selection.threadID,
@@ -585,7 +595,8 @@ final class AgentLoop {
                     return AgentTurnResult(
                         finalReply: finalReply,
                         outputTokens: outputTokens,
-                        iterations: iterations
+                        iterations: iterations,
+                        tokenUsage: response.tokenUsage
                     )
                 }
 
@@ -1055,10 +1066,88 @@ final class AgentLoop {
                     return AgentTurnResult(
                         finalReply: resolvedFinalReply,
                         outputTokens: outputTokens,
-                        iterations: iterations
+                        iterations: iterations,
+                        tokenUsage: summaryResponse.tokenUsage
                     )
                 }
             }
+        } catch {
+            state = .failed((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+            throw error
+        }
+    }
+
+    private func runPlainChatTurn(
+        userInput: String,
+        providerID: APIProviderID,
+        imagePaths: [String],
+        modelOverrides: AgentModelRoleOverrides
+    ) async throws -> AgentTurnResult {
+        let plainRunProfile = AgentRunProfile.profile(for: .speed)
+        let inlineImages = await loadInlineImagesIfVisionSupported(
+            imagePaths,
+            providerID: providerID,
+            runProfile: plainRunProfile,
+            modelOverrides: modelOverrides
+        )
+        activeTurnImageDataURLs = inlineImages.map { $0.dataURL }
+        activeTurnInlineImagePaths = Set(inlineImages.map { $0.path })
+
+        let input = inputWithInlineImageRecord(userInput)
+        session.append(.user(text: input))
+        appendEventLog(.turnStarted, summary: "开始聊天")
+
+        let baseSystemPrompt = promptBuilder.build(
+            actions: [],
+            tier: .speed,
+            exposesTools: false,
+            exposesPhaseThought: false,
+            surface: .chat
+        )
+        let assembledContext = contextAssembler.assemblePlainChat(
+            baseSystemPrompt: baseSystemPrompt,
+            session: session
+        )
+
+        state = .thinking
+        appendEventLog(.modelRequest, summary: "请求聊天模型")
+
+        do {
+            let response = try await modelRuntime.stream(
+                AgentModelStreamingRequest(
+                    selection: AgentModelSelection(
+                        providerID: providerID,
+                        modelRole: .reasoningModel,
+                        reasoning: .disabled,
+                        configurationOverride: modelOverrides.override(for: .reasoningModel)
+                    ),
+                    apiMessages: attachingTurnImagesIfNeeded(to: assembledContext.apiMessages),
+                    tools: [],
+                    toolIntent: .none,
+                    onDelta: { text in
+                        self.emit(.streamingDelta(text: text))
+                    },
+                    onReasoningDelta: { _ in }
+                )
+            )
+
+            session.cumulativeUsage.add(totalTokens: response.totalTokens)
+            session.append(response.message)
+            emit(.tokenUpdate(totalTokens: response.totalTokens))
+
+            let finalReply = LLMGuardrails.sanitizeUserFacingReply(
+                response.message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+
+            state = .completed
+            appendEventLog(.finalReply, summary: "已完成聊天回复")
+
+            return AgentTurnResult(
+                finalReply: finalReply,
+                outputTokens: response.totalTokens,
+                iterations: 1,
+                tokenUsage: response.tokenUsage
+            )
         } catch {
             state = .failed((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
             throw error

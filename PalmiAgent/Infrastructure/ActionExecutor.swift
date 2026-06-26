@@ -455,7 +455,10 @@ final class ActionExecutor {
                 let retrievalProfile = currentRetrievalQualityProfile()
                 let query = try arguments.requiredString("query")
                 let providerID = try selectedSearchProvider(from: arguments)
-                let maxResults = retrievalProfile.webSearch.maxResults
+                let maxResults = effectiveSearchWebMaxResults(
+                    from: arguments,
+                    profile: retrievalProfile.webSearch
+                )
                 let results = try await webResearchService.search(
                     query: query,
                     maxResults: maxResults,
@@ -465,8 +468,8 @@ final class ActionExecutor {
                 let details = results.enumerated().map { index, result in
                     """
                     \(index + 1). \(result.title)
-                    \(result.url.absoluteString)
-                    \(result.snippet)
+                    URL：\(result.url.absoluteString)
+                    摘要：\(result.snippet)
                     """
                 }.joined(separator: "\n\n")
                 return success(
@@ -489,6 +492,10 @@ final class ActionExecutor {
             case .fetchStaticWebPage:
                 let retrievalProfile = currentRetrievalQualityProfile()
                 let maxChars = effectiveFetchStaticWebPageMaxCharacters(from: arguments, profile: retrievalProfile.webContent)
+                let focus = arguments.string("focus")?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let normalizedFocus = focus?.isEmpty == false ? focus : nil
+                let includeLinks = arguments.bool("include_links") ?? true
                 let requestedURLs = try webPageURLs(from: arguments)
                 let uniqueURLs = uniqueURLs(requestedURLs)
                 let maxURLs = retrievalProfile.webContent.fetchStaticWebPageMaxURLs
@@ -497,6 +504,8 @@ final class ActionExecutor {
                 let attempts = await webResearchService.fetchSummaries(
                     urls: urls,
                     maxBodyCharacters: maxChars,
+                    focus: normalizedFocus,
+                    includeLinks: includeLinks,
                     maxConcurrentRequests: retrievalProfile.webContent.fetchStaticWebPageMaxConcurrentRequests,
                     requestTimeoutSeconds: retrievalProfile.webContent.fetchStaticWebPageRequestTimeoutSeconds,
                     totalTimeoutSeconds: retrievalProfile.webContent.fetchStaticWebPageTotalTimeoutSeconds
@@ -505,11 +514,31 @@ final class ActionExecutor {
                 let unfinishedCount = max(0, urls.count - attempts.count)
                 let details = attempts.enumerated().map { index, attempt in
                     if let summary = attempt.summary {
+                        let relatedLinks: String
+                        if includeLinks {
+                            let links = summary.links.prefix(20).map { "- [\($0.title)](\($0.url.absoluteString))" }
+                                .joined(separator: "\n")
+                            relatedLinks = links.isEmpty ? "无" : links
+                        } else {
+                            relatedLinks = "未请求"
+                        }
                         return """
                         \(index + 1). \(summary.title)
-                        \(summary.url.absoluteString)
-                        字节数：\(summary.byteCount)
-                        正文片段：\(summary.bodyText)
+                        请求 URL：\(summary.requestedURL.absoluteString)
+                        最终 URL：\(summary.finalURL.absoluteString)
+                        Canonical：\(summary.canonicalURL?.absoluteString ?? "无")
+                        站点：\(summary.siteName ?? "无")
+                        作者：\(summary.author ?? "无")
+                        发布日期：\(summary.publishedAt ?? "无")
+                        Content-Type：\(summary.contentType)
+                        提取模式：\(summary.extractionMode.rawValue)
+                        下载字节：\(summary.byteCount)
+                        正文字符：\(summary.bodyText.count)
+                        已截断：\(summary.isTruncated ? "是" : "否")
+                        相关链接：
+                        \(relatedLinks)
+                        正文：
+                        \(summary.bodyText)
                         """
                     }
                     return """
@@ -1471,10 +1500,24 @@ final class ActionExecutor {
         from arguments: ToolArguments,
         profile: WebContentStrengthConfiguration
     ) -> Int {
-        guard let requestedMaxCharacters = arguments.int("max_chars"), requestedMaxCharacters > 0 else {
-            return profile.fetchStaticWebPageAbsoluteMaxCharacters
+        guard let requestedMaxCharacters = arguments.int("max_chars") else {
+            return profile.fetchStaticWebPageRecommendedMaxCharacters
         }
-        return min(requestedMaxCharacters, profile.fetchStaticWebPageAbsoluteMaxCharacters)
+        return min(max(1, requestedMaxCharacters), profile.fetchStaticWebPageAbsoluteMaxCharacters)
+    }
+
+    private func effectiveSearchWebMaxResults(
+        from arguments: ToolArguments,
+        profile: WebSearchStrengthConfiguration
+    ) -> Int {
+        guard let requested = arguments.int("max_results") else {
+            return profile.maxResults
+        }
+        return min(max(1, requested), profile.maxResults)
+    }
+
+    private func requiredWebURL(_ rawValue: String) throws -> URL {
+        try WebURLPolicy.normalized(rawValue: rawValue)
     }
 
     private func webPageURLs(from arguments: ToolArguments) throws -> [URL] {
@@ -1488,7 +1531,7 @@ final class ActionExecutor {
         let urls = try rawValues
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-            .map(requiredURL)
+            .map(requiredWebURL)
         guard !urls.isEmpty else {
             throw AppError.invalidState("网页浏览需要提供 url 或 urls。")
         }
@@ -1499,7 +1542,7 @@ final class ActionExecutor {
         var seen: Set<String> = []
         var unique: [URL] = []
         for url in urls {
-            let key = url.absoluteString
+            let key = (try? WebURLPolicy.normalizedKey(for: url)) ?? url.absoluteString
             guard !seen.contains(key) else {
                 continue
             }
@@ -1525,8 +1568,12 @@ final class ActionExecutor {
 
         case .searchWeb:
             let selectedSource = (try? selectedSearchProvider(from: arguments)) ?? enabledSearchProviderIDs().first ?? WebSearchProviderSettings.defaultProviderID
+            let maxResults = effectiveSearchWebMaxResults(
+                from: arguments,
+                profile: retrievalProfile.webSearch
+            )
             var payload: [String: Any] = [
-                "max_results": retrievalProfile.webSearch.maxResults,
+                "max_results": maxResults,
                 "source": selectedSource.rawValue,
                 "timeout_seconds": Int(retrievalProfile.webSearch.timeoutSeconds)
             ]
@@ -1540,6 +1587,7 @@ final class ActionExecutor {
             let maxChars = effectiveFetchStaticWebPageMaxCharacters(from: arguments, profile: retrievalProfile.webContent)
             var payload: [String: Any] = [
                 "max_chars": maxChars,
+                "include_links": arguments.bool("include_links") ?? true,
                 "recommended_max_chars": retrievalProfile.webContent.fetchStaticWebPageRecommendedMaxCharacters,
                 "absolute_max_chars": retrievalProfile.webContent.fetchStaticWebPageAbsoluteMaxCharacters,
                 "recommended_urls": retrievalProfile.webContent.fetchStaticWebPageRecommendedURLCount,
@@ -1554,6 +1602,10 @@ final class ActionExecutor {
             }
             if let urls = arguments.stringArray("urls"), !urls.isEmpty {
                 payload["urls"] = urls
+            }
+            if let focus = arguments.string("focus")?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !focus.isEmpty {
+                payload["focus"] = focus
             }
             return normalizedArgumentsJSONString(payload, fallback: arguments.normalizedJSONString())
 

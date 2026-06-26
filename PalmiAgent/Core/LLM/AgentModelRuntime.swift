@@ -230,9 +230,64 @@ struct AgentModelStreamingRequest {
     }
 }
 
+enum AgentTokenUsageSource: String, Codable, Sendable, Hashable {
+    case api
+    case estimated
+}
+
+struct AgentModelTokenUsage: Codable, Sendable, Hashable {
+    var inputTokens: Int?
+    var outputTokens: Int?
+    var totalTokens: Int?
+    var cachedInputTokens: Int?
+    var uncachedInputTokens: Int?
+    var reasoningOutputTokens: Int?
+    var source: AgentTokenUsageSource
+
+    static let empty = AgentModelTokenUsage(
+        inputTokens: nil,
+        outputTokens: nil,
+        totalTokens: nil,
+        cachedInputTokens: nil,
+        uncachedInputTokens: nil,
+        reasoningOutputTokens: nil,
+        source: .estimated
+    )
+
+    var displayedInputTokens: Int {
+        if let uncachedInputTokens {
+            return max(0, uncachedInputTokens)
+        }
+        return max(0, inputTokens ?? 0)
+    }
+
+    var displayedOutputTokens: Int {
+        max(0, outputTokens ?? 0)
+    }
+
+    var displayedTotalTokens: Int {
+        displayedInputTokens + displayedOutputTokens
+    }
+
+    var supportsCacheBreakdown: Bool {
+        cachedInputTokens != nil || uncachedInputTokens != nil
+    }
+}
+
 struct AgentModelResponse: Sendable {
     let message: AgentMessage
     let totalTokens: Int
+    let tokenUsage: AgentModelTokenUsage
+
+    init(
+        message: AgentMessage,
+        totalTokens: Int,
+        tokenUsage: AgentModelTokenUsage = .empty
+    ) {
+        self.message = message
+        self.totalTokens = totalTokens
+        self.tokenUsage = tokenUsage
+    }
 }
 
 @MainActor

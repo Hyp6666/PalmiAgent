@@ -7,6 +7,7 @@ struct OpenAIChatCompletionRequest: Encodable {
     let toolChoice: String?
     let temperature: Double?
     let stream: Bool?
+    let streamOptions: OpenAIChatStreamOptions?
     let reasoningEffort: String?
     let thinking: OpenAIChatThinkingConfig?
     let enableThinking: Bool?
@@ -22,6 +23,7 @@ struct OpenAIChatCompletionRequest: Encodable {
         toolChoice: String?,
         temperature: Double?,
         stream: Bool?,
+        streamOptions: OpenAIChatStreamOptions? = nil,
         reasoningEffort: String? = nil,
         thinking: OpenAIChatThinkingConfig? = nil,
         enableThinking: Bool? = nil,
@@ -36,6 +38,7 @@ struct OpenAIChatCompletionRequest: Encodable {
         self.toolChoice = toolChoice
         self.temperature = temperature
         self.stream = stream
+        self.streamOptions = stream == true ? (streamOptions ?? OpenAIChatStreamOptions(includeUsage: true)) : nil
         self.reasoningEffort = reasoningEffort
         self.thinking = thinking
         self.enableThinking = enableThinking
@@ -52,6 +55,7 @@ struct OpenAIChatCompletionRequest: Encodable {
         case toolChoice = "tool_choice"
         case temperature
         case stream
+        case streamOptions = "stream_options"
         case reasoningEffort = "reasoning_effort"
         case thinking
         case enableThinking = "enable_thinking"
@@ -59,6 +63,14 @@ struct OpenAIChatCompletionRequest: Encodable {
         case reasoningSplit = "reasoning_split"
         case reasoningFormat = "reasoning_format"
         case reasoning
+    }
+}
+
+struct OpenAIChatStreamOptions: Encodable {
+    let includeUsage: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case includeUsage = "include_usage"
     }
 }
 
@@ -105,11 +117,35 @@ struct OpenAIChatUsage: Decodable {
     let promptTokens: Int?
     let completionTokens: Int?
     let totalTokens: Int?
+    let promptCacheHitTokens: Int?
+    let promptCacheMissTokens: Int?
+    let promptTokensDetails: OpenAIChatPromptTokensDetails?
+    let completionTokensDetails: OpenAIChatCompletionTokensDetails?
 
     enum CodingKeys: String, CodingKey {
         case promptTokens = "prompt_tokens"
         case completionTokens = "completion_tokens"
         case totalTokens = "total_tokens"
+        case promptCacheHitTokens = "prompt_cache_hit_tokens"
+        case promptCacheMissTokens = "prompt_cache_miss_tokens"
+        case promptTokensDetails = "prompt_tokens_details"
+        case completionTokensDetails = "completion_tokens_details"
+    }
+}
+
+struct OpenAIChatPromptTokensDetails: Decodable {
+    let cachedTokens: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case cachedTokens = "cached_tokens"
+    }
+}
+
+struct OpenAIChatCompletionTokensDetails: Decodable {
+    let reasoningTokens: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case reasoningTokens = "reasoning_tokens"
     }
 }
 

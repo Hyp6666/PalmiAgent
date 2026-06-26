@@ -232,9 +232,11 @@ final class LLMAPIClient: AgentModelRuntime {
             from: message,
             providerID: configuration.provider.id
         )
+        let tokenUsage = modelTokenUsage(from: envelope.usage)
         return LLMAPIClientResponse(
             message: .assistant(text: message.content, toolUses: toolUses, nativeReasoning: nativeReasoning),
-            totalTokens: reportedTokenCount(from: envelope.usage)
+            totalTokens: tokenUsage.totalTokens ?? reportedTokenCount(from: envelope.usage),
+            tokenUsage: tokenUsage
         )
     }
 
@@ -348,7 +350,8 @@ final class LLMAPIClient: AgentModelRuntime {
             }
             return LLMAPIClientResponse(
                 message: .assistant(text: result.fullContent, toolUses: toolUses, nativeReasoning: nativeReasoning),
-                totalTokens: result.totalTokens
+                totalTokens: result.tokenUsage.totalTokens ?? result.totalTokens,
+                tokenUsage: result.tokenUsage
             )
         } catch let error as LLMHTTPTransportError {
             switch error {
@@ -489,7 +492,8 @@ final class LLMAPIClient: AgentModelRuntime {
             }
             return LLMAPIClientResponse(
                 message: .assistant(text: result.fullContent, toolUses: [], nativeReasoning: nativeReasoning),
-                totalTokens: result.totalTokens
+                totalTokens: result.tokenUsage.totalTokens ?? result.totalTokens,
+                tokenUsage: result.tokenUsage
             )
         } catch let error as LLMHTTPTransportError {
             switch error {
@@ -625,6 +629,67 @@ final class LLMAPIClient: AgentModelRuntime {
             return promptTokens + completionTokens
         }
         return usage?.completionTokens ?? 0
+    }
+
+    private func modelTokenUsage(from usage: OpenAIChatUsage?) -> AgentModelTokenUsage {
+        guard let usage else {
+            return .empty
+        }
+
+        let cache = Self.cachedInputTokens(
+            promptCacheHitTokens: usage.promptCacheHitTokens,
+            promptCacheMissTokens: usage.promptCacheMissTokens,
+            promptTokensDetailsCachedTokens: usage.promptTokensDetails?.cachedTokens,
+            promptTokens: usage.promptTokens
+        )
+        return AgentModelTokenUsage(
+            inputTokens: usage.promptTokens,
+            outputTokens: usage.completionTokens,
+            totalTokens: usage.totalTokens,
+            cachedInputTokens: cache.cached,
+            uncachedInputTokens: cache.uncached,
+            reasoningOutputTokens: usage.completionTokensDetails?.reasoningTokens,
+            source: usage.promptTokens != nil || usage.completionTokens != nil || usage.totalTokens != nil ? .api : .estimated
+        )
+    }
+
+    fileprivate static func modelTokenUsage(from usage: SSEUsage?) -> AgentModelTokenUsage {
+        guard let usage else {
+            return .empty
+        }
+
+        let cache = cachedInputTokens(
+            promptCacheHitTokens: usage.promptCacheHitTokens,
+            promptCacheMissTokens: usage.promptCacheMissTokens,
+            promptTokensDetailsCachedTokens: usage.promptTokensDetails?.cachedTokens,
+            promptTokens: usage.promptTokens
+        )
+        return AgentModelTokenUsage(
+            inputTokens: usage.promptTokens,
+            outputTokens: usage.completionTokens,
+            totalTokens: usage.totalTokens,
+            cachedInputTokens: cache.cached,
+            uncachedInputTokens: cache.uncached,
+            reasoningOutputTokens: usage.completionTokensDetails?.reasoningTokens,
+            source: usage.promptTokens != nil || usage.completionTokens != nil || usage.totalTokens != nil ? .api : .estimated
+        )
+    }
+
+    private static func cachedInputTokens(
+        promptCacheHitTokens: Int?,
+        promptCacheMissTokens: Int?,
+        promptTokensDetailsCachedTokens: Int?,
+        promptTokens: Int?
+    ) -> (cached: Int?, uncached: Int?) {
+        if let hit = promptCacheHitTokens,
+           let miss = promptCacheMissTokens {
+            return (max(0, hit), max(0, miss))
+        }
+        if let cached = promptTokensDetailsCachedTokens,
+           let prompt = promptTokens {
+            return (max(0, cached), max(0, prompt - cached))
+        }
+        return (nil, nil)
     }
 
     private func resolvedInteractiveTemperature(override: Double?) -> Double {
@@ -1035,6 +1100,7 @@ enum LLMHTTPTransport {
         let reasoningDetails: JSONRuntimeValue?
         let toolCalls: [StreamedToolCall]
         let totalTokens: Int
+        let tokenUsage: AgentModelTokenUsage
         let response: HTTPURLResponse
     }
 
@@ -1086,6 +1152,7 @@ enum LLMHTTPTransport {
                 var reasoningContent = ""
                 var reasoningDetails: JSONRuntimeValue?
                 var totalTokens = 0
+                var finalUsage: SSEUsage?
                 // 按 index 累积 tool_calls 分片（id/name 取首个非空，arguments 持续拼接）。
                 var toolCallOrder: [Int] = []
                 var toolCallAccumulators: [Int: (id: String, name: String, arguments: String)] = [:]
@@ -1152,6 +1219,7 @@ enum LLMHTTPTransport {
                     }
 
                     if let usage = chunk.usage {
+                        finalUsage = usage
                         totalTokens = usage.totalTokens
                             ?? (usage.promptTokens ?? 0) + (usage.completionTokens ?? 0)
                     }
@@ -1174,6 +1242,7 @@ enum LLMHTTPTransport {
                     reasoningDetails: reasoningDetails,
                     toolCalls: accumulatedToolCalls,
                     totalTokens: totalTokens,
+                    tokenUsage: LLMAPIClient.modelTokenUsage(from: finalUsage),
                     response: httpResponse
                 )
             } catch let error as LLMHTTPTransportError {
@@ -1358,11 +1427,19 @@ private struct SSEUsage: Decodable {
     let promptTokens: Int?
     let completionTokens: Int?
     let totalTokens: Int?
+    let promptCacheHitTokens: Int?
+    let promptCacheMissTokens: Int?
+    let promptTokensDetails: OpenAIChatPromptTokensDetails?
+    let completionTokensDetails: OpenAIChatCompletionTokensDetails?
 
     enum CodingKeys: String, CodingKey {
         case promptTokens = "prompt_tokens"
         case completionTokens = "completion_tokens"
         case totalTokens = "total_tokens"
+        case promptCacheHitTokens = "prompt_cache_hit_tokens"
+        case promptCacheMissTokens = "prompt_cache_miss_tokens"
+        case promptTokensDetails = "prompt_tokens_details"
+        case completionTokensDetails = "completion_tokens_details"
     }
 }
 

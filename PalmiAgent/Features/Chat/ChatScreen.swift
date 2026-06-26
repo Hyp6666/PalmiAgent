@@ -2862,13 +2862,9 @@ private struct SessionHeaderStrip: View {
 
                     Spacer(minLength: 12)
 
-                    HStack(spacing: 6) {
-                        Text("Token")
-                        Text(header.outputTokens.formatted())
-                            .contentTransition(.numericText())
-                    }
-                    .font(.caption.monospacedDigit().weight(.medium))
-                    .foregroundStyle(.secondary)
+                    Text(compactTokenText)
+                        .font(.caption.monospacedDigit().weight(.medium))
+                        .foregroundStyle(.secondary)
 
                     Image(systemName: "chevron.down")
                         .font(.caption.weight(.semibold))
@@ -2879,10 +2875,50 @@ private struct SessionHeaderStrip: View {
                 Capsule()
                     .fill(Color.black.opacity(0.08))
                     .frame(height: 1)
+
+                if !isCollapsed {
+                    tokenDetails
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.plain)
+    }
+
+    private var compactTokenText: String {
+        if let usage = header.tokenUsage {
+            return "↑ \(PalmiTokenCountFormatter.compact(usage.inputTokens))  ↓ \(PalmiTokenCountFormatter.compact(usage.outputTokens))"
+        }
+        return "Token \(header.outputTokens.formatted())"
+    }
+
+    @ViewBuilder
+    private var tokenDetails: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let usage = header.tokenUsage {
+                tokenDetailRow("输入", usage.inputTokens)
+                tokenDetailRow("输出", usage.outputTokens)
+                if let cached = usage.cachedInputTokens {
+                    tokenDetailRow("缓存命中", cached)
+                } else {
+                    Text("缓存命中：不支持")
+                }
+                Text("计量来源：\(usage.source == .api ? "API" : "估算")")
+                if let warning = usage.cacheWarning {
+                    Divider()
+                    Text("缓存可能已失效。新开会话预计可少发送约 \(PalmiTokenCountFormatter.compact(warning.estimatedSavingsTokens)) 输入 token。")
+                }
+            } else {
+                Text("Token：\(header.outputTokens.formatted())")
+            }
+        }
+        .font(.caption2.monospacedDigit())
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.leading)
+    }
+
+    private func tokenDetailRow(_ title: String, _ value: Int) -> Text {
+        Text("\(title)：\(PalmiTokenCountFormatter.compact(value))")
     }
 
     private func statusText(referenceDate: Date) -> String {

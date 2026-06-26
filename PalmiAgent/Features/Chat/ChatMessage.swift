@@ -4,15 +4,71 @@ struct PalmiChatSessionHeader: Codable, Sendable {
     let startedAt: Date
     let finishedAt: Date?
     let outputTokens: Int
+    var tokenUsage: PalmiTokenUsageSnapshot?
 
     init(
         startedAt: Date,
         finishedAt: Date? = nil,
-        outputTokens: Int = 0
+        outputTokens: Int = 0,
+        tokenUsage: PalmiTokenUsageSnapshot? = nil
     ) {
         self.startedAt = startedAt
         self.finishedAt = finishedAt
         self.outputTokens = outputTokens
+        self.tokenUsage = tokenUsage
+    }
+}
+
+struct PalmiTokenUsageSnapshot: Codable, Equatable, Sendable {
+    var inputTokens: Int
+    var outputTokens: Int
+    var cachedInputTokens: Int?
+    var totalTokens: Int
+    var source: AgentTokenUsageSource
+    var cacheWarning: PalmiTokenCacheWarning?
+
+    init(
+        inputTokens: Int,
+        outputTokens: Int,
+        cachedInputTokens: Int?,
+        totalTokens: Int,
+        source: AgentTokenUsageSource,
+        cacheWarning: PalmiTokenCacheWarning? = nil
+    ) {
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.cachedInputTokens = cachedInputTokens
+        self.totalTokens = totalTokens
+        self.source = source
+        self.cacheWarning = cacheWarning
+    }
+
+    init(modelUsage: AgentModelTokenUsage, fallbackTotalTokens: Int?) {
+        let input = modelUsage.displayedInputTokens
+        let output = modelUsage.displayedOutputTokens
+        let total = input + output
+
+        self.inputTokens = input
+        self.outputTokens = output
+        self.cachedInputTokens = modelUsage.cachedInputTokens
+        self.totalTokens = total > 0 ? total : max(0, fallbackTotalTokens ?? 0)
+        self.source = modelUsage.source
+        self.cacheWarning = nil
+    }
+}
+
+struct PalmiTokenCacheWarning: Codable, Equatable, Sendable {
+    var estimatedSavingsTokens: Int
+}
+
+enum PalmiTokenCountFormatter {
+    static func compact(_ value: Int) -> String {
+        let value = max(0, value)
+        if value < 1_000 {
+            return "\(value)"
+        }
+        let number = Double(value) / 1_000.0
+        return String(format: "%.1fk", number)
     }
 }
 

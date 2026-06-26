@@ -419,8 +419,8 @@ final class ChatStore {
             return
         }
 
-        // 在清空输入前捕获本轮模式；模式注入需要用到「发送时」的 query 与开关状态。
-        let turnMode = composerMode
+        // 在清空输入前捕获本轮模式；聊天模式固定走纯聊天快车道，不启用目标/深度研究注入。
+        let turnMode: AgentComposerMode = turnSurface == .chat ? .standard : composerMode
         // 本轮图片附件（相对路径）交给 AgentLoop；主模型支持视觉时会内联发原图，附件路径仍留在隐藏输入里供工具按需使用。
         let turnImagePaths = pendingAttachments
             .filter { isImageAttachment($0) }
@@ -504,12 +504,23 @@ final class ChatStore {
                                 appendParsedAssistantContent(result.finalReply, preferSummaryForTrailingText: true)
                             }
                         }
-                        finalizeActiveSession(outputTokens: result.outputTokens)
+                        let tokenUsage = tokenUsageSnapshot(
+                            for: result,
+                            session: runLoop.currentSessionSnapshot()
+                        )
+                        finalizeActiveSession(
+                            outputTokens: result.outputTokens,
+                            tokenUsage: tokenUsage
+                        )
                     } else {
                         appendPersistedBackgroundResult(
                             for: turnSelection,
                             finalReply: result.finalReply,
                             outputTokens: result.outputTokens,
+                            tokenUsage: tokenUsageSnapshot(
+                                for: result,
+                                session: runLoop.currentSessionSnapshot()
+                            ),
                             errorMessage: nil
                         )
                     }
@@ -866,6 +877,10 @@ final class ChatStore {
         providerID: APIProviderID,
         modelOverrides: AgentModelRoleOverrides
     ) async -> String {
+        if surface == .chat {
+            return input
+        }
+
         let context = await agentRuntimeContext(
             surface: surface,
             selection: selection,
@@ -969,6 +984,7 @@ final class ChatStore {
         for selection: WorkspaceSelection,
         finalReply: String,
         outputTokens: Int?,
+        tokenUsage: PalmiTokenUsageSnapshot? = nil,
         errorMessage: String?
     ) {
         do {
@@ -979,6 +995,7 @@ final class ChatStore {
                 storedMessages = finalizedDanglingSessionMessages(
                     storedMessages,
                     outputTokens: outputTokens,
+                    tokenUsage: tokenUsage,
                     finishedAt: .now
                 )
                 let trimmedFinalReply = finalReply.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1013,9 +1030,58 @@ final class ChatStore {
         }
     }
 
+    private func tokenUsageSnapshot(
+        for result: AgentTurnResult,
+        session: AgentSession
+    ) -> PalmiTokenUsageSnapshot? {
+        let usage = result.tokenUsage
+        let hasUsage = usage.inputTokens != nil ||
+            usage.outputTokens != nil ||
+            usage.totalTokens != nil ||
+            usage.cachedInputTokens != nil ||
+            usage.uncachedInputTokens != nil
+        guard hasUsage else {
+            return nil
+        }
+
+        var snapshot = PalmiTokenUsageSnapshot(
+            modelUsage: usage,
+            fallbackTotalTokens: result.outputTokens
+        )
+        snapshot.cacheWarning = tokenCacheWarning(for: usage, in: session)
+        return snapshot
+    }
+
+    private func tokenCacheWarning(
+        for usage: AgentModelTokenUsage,
+        in session: AgentSession
+    ) -> PalmiTokenCacheWarning? {
+        guard usage.supportsCacheBreakdown,
+              (usage.inputTokens ?? 0) >= 8_000,
+              (usage.cachedInputTokens ?? 0) == 0 else {
+            return nil
+        }
+
+        let hadPreviousCacheHit = messages.contains { message in
+            (message.sessionHeader?.tokenUsage?.cachedInputTokens ?? 0) >= 1_024
+        }
+        guard hadPreviousCacheHit else {
+            return nil
+        }
+
+        let inputTokens = usage.inputTokens ?? 0
+        let directSavings = max(0, inputTokens - usage.displayedInputTokens)
+        let estimatedSavings = directSavings > 0 ? directSavings : max(0, inputTokens - 2_000)
+        guard estimatedSavings >= 1_024 else {
+            return nil
+        }
+        return PalmiTokenCacheWarning(estimatedSavingsTokens: estimatedSavings)
+    }
+
     private func finalizedDanglingSessionMessages(
         _ storedMessages: [PalmiChatMessage],
         outputTokens: Int?,
+        tokenUsage: PalmiTokenUsageSnapshot? = nil,
         finishedAt: Date
     ) -> [PalmiChatMessage] {
         storedMessages.map { message in
@@ -1029,7 +1095,8 @@ final class ChatStore {
                 sessionHeader: PalmiChatSessionHeader(
                     startedAt: header.startedAt,
                     finishedAt: finishedAt,
-                    outputTokens: outputTokens ?? header.outputTokens
+                    outputTokens: tokenUsage?.totalTokens ?? outputTokens ?? header.outputTokens,
+                    tokenUsage: tokenUsage ?? header.tokenUsage
                 )
             )
         }
@@ -1778,6 +1845,7 @@ final class ChatStore {
 
     private func updateSessionHeader(
         outputTokens: Int?,
+        tokenUsage: PalmiTokenUsageSnapshot? = nil,
         messages: inout [PalmiChatMessage],
         viewState: ActiveSessionViewState
     ) {
@@ -1792,7 +1860,8 @@ final class ChatStore {
             sessionHeader: PalmiChatSessionHeader(
                 startedAt: currentHeader.startedAt,
                 finishedAt: currentHeader.finishedAt,
-                outputTokens: outputTokens ?? currentHeader.outputTokens
+                outputTokens: tokenUsage?.totalTokens ?? outputTokens ?? currentHeader.outputTokens,
+                tokenUsage: tokenUsage ?? currentHeader.tokenUsage
             )
         )
     }
@@ -2301,7 +2370,11 @@ final class ChatStore {
         return true
     }
 
-    private func updateSessionHeader(outputTokens: Int? = nil, finishedAt: Date? = nil) {
+    private func updateSessionHeader(
+        outputTokens: Int? = nil,
+        tokenUsage: PalmiTokenUsageSnapshot? = nil,
+        finishedAt: Date? = nil
+    ) {
         guard let headerID = activeSessionHeaderID else { return }
         updateMessage(id: headerID) { message in
             let currentHeader = message.sessionHeader ?? PalmiChatSessionHeader(startedAt: message.timestamp)
@@ -2310,15 +2383,19 @@ final class ChatStore {
                 sessionHeader: PalmiChatSessionHeader(
                     startedAt: currentHeader.startedAt,
                     finishedAt: finishedAt ?? currentHeader.finishedAt,
-                    outputTokens: outputTokens ?? currentHeader.outputTokens
+                    outputTokens: tokenUsage?.totalTokens ?? outputTokens ?? currentHeader.outputTokens,
+                    tokenUsage: tokenUsage ?? currentHeader.tokenUsage
                 )
             )
         }
     }
 
-    private func finalizeActiveSession(outputTokens: Int? = nil) {
+    private func finalizeActiveSession(
+        outputTokens: Int? = nil,
+        tokenUsage: PalmiTokenUsageSnapshot? = nil
+    ) {
         finalizeStreamingReasoning()
-        updateSessionHeader(outputTokens: outputTokens, finishedAt: .now)
+        updateSessionHeader(outputTokens: outputTokens, tokenUsage: tokenUsage, finishedAt: .now)
         persistMessages()
     }
 
@@ -2417,7 +2494,8 @@ final class ChatStore {
                 sessionHeader: PalmiChatSessionHeader(
                     startedAt: header.startedAt,
                     finishedAt: finishedAt,
-                    outputTokens: header.outputTokens
+                    outputTokens: header.outputTokens,
+                    tokenUsage: header.tokenUsage
                 )
             )
         }

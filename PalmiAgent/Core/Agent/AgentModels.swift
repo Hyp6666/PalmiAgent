@@ -339,4 +339,17 @@ struct AgentTurnResult: Sendable {
     let finalReply: String
     let outputTokens: Int
     let iterations: Int
+    let tokenUsage: AgentModelTokenUsage
+
+    init(
+        finalReply: String,
+        outputTokens: Int,
+        iterations: Int,
+        tokenUsage: AgentModelTokenUsage = .empty
+    ) {
+        self.finalReply = finalReply
+        self.outputTokens = outputTokens
+        self.iterations = iterations
+        self.tokenUsage = tokenUsage
+    }
 }

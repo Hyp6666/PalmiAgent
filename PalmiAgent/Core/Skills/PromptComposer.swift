@@ -49,7 +49,14 @@ struct PromptComposer {
         _ = actions
         _ = exposesTools
         _ = exposesPhaseThought
-        _ = surface
+
+        if surface == .chat {
+            return PromptCompositionBreakdown(
+                basePrompt: basePrompt.trimmingCharacters(in: .whitespacesAndNewlines),
+                personalityPrompt: "",
+                skillsPrompt: ""
+            )
+        }
 
         let rawPersonality = AgentPersonalityPreset
             .current(from: userDefaults)

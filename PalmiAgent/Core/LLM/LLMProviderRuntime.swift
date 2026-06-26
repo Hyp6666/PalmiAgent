@@ -48,10 +48,31 @@ struct LLMModelCapabilities: Codable, Hashable, Sendable {
     var supportsJSONMode: Bool
     var supportsStreaming: Bool
     var supportsReasoningReplay: Bool
+    var supportsPromptCacheUsage: Bool
     var nativeReasoning: LLMNativeReasoningEncoding
 
     var supportsMultimodal: Bool {
         supportsVision
+    }
+
+    init(
+        supportsToolCalls: Bool,
+        supportsRequiredToolChoice: Bool,
+        supportsVision: Bool,
+        supportsJSONMode: Bool,
+        supportsStreaming: Bool,
+        supportsReasoningReplay: Bool,
+        supportsPromptCacheUsage: Bool = false,
+        nativeReasoning: LLMNativeReasoningEncoding
+    ) {
+        self.supportsToolCalls = supportsToolCalls
+        self.supportsRequiredToolChoice = supportsRequiredToolChoice
+        self.supportsVision = supportsVision
+        self.supportsJSONMode = supportsJSONMode
+        self.supportsStreaming = supportsStreaming
+        self.supportsReasoningReplay = supportsReasoningReplay
+        self.supportsPromptCacheUsage = supportsPromptCacheUsage
+        self.nativeReasoning = nativeReasoning
     }
 
     static let standardText = LLMModelCapabilities(
@@ -110,7 +131,13 @@ enum LLMProviderRuntimeResolver {
             for: configuration.provider.id,
             model: model
         )
-        let capabilities = integrationSpec.capabilities
+        var capabilities = integrationSpec.capabilities
+        switch configuration.provider.id {
+        case .openai, .deepseek:
+            capabilities.supportsPromptCacheUsage = true
+        default:
+            break
+        }
         return LLMProviderRuntimeProfile(
             providerID: configuration.provider.id,
             providerName: configuration.provider.title,

@@ -35,7 +35,16 @@ final class ToolArtifactPipeline {
 
         switch actionID {
         case .searchWeb:
-            break
+            if let artifact = await makeSearchSelection(
+                payload: payload,
+                toolUseID: toolResult.toolUseID,
+                providerID: providerID,
+                modelOverrides: modelOverrides,
+                queryGoal: goal,
+                existingArtifacts: updatedArtifacts
+            ) {
+                updatedArtifacts.upsert(artifact)
+            }
 
         case .fetchStaticWebPage:
             if let artifact = await makeSourceDigest(

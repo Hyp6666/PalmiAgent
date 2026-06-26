@@ -5,8 +5,12 @@ struct ChatModeToolFilter {
         for surface: WorkspaceProjectSurface,
         from actions: [ToolAction]
     ) -> [ToolAction] {
-        _ = surface
-        return actions
+        switch surface {
+        case .chat:
+            return []
+        case .professional:
+            return actions
+        }
     }
 }
 

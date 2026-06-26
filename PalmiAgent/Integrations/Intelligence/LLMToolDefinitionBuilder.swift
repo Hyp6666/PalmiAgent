@@ -66,9 +66,9 @@ enum LLMToolDefinitionBuilder {
         case .detectWebSearchProviders:
             return "只在用户明确要求检测网络/搜索源，或上一次搜索失败后使用。它不返回搜索结果，只返回环境探测。"
         case .searchWeb:
-            return "涉及当前事实、票价、时刻表、在线信息时优先考虑它，而不是 Python。它只找候选标题、URL 和摘要，不读取正文；需要更多信息时可以换关键词多次搜索，拿到候选后再自行选择少量 URL 调用网页浏览。"
+            return "用于发现候选来源，只返回标题、规范化 URL 和摘要，不读取正文。涉及当前事实或未知网址时先搜索；得到候选后选择少量高价值来源调用网页浏览。不要把搜索摘要当作关键事实的最终证据。"
         case .fetchStaticWebPage:
-            return "用于读取已知 URL 的正文。可传单个 url 或 urls 数组；需要更长正文时主动传 max_chars，未传时按 100000 字符处理，超过 100000 会降至 100000；单次调用技术上限 10 个 URL，时间到后返回已完成结果。"
+            return "用于读取已知 URL 的实际内容。内部会根据 Content-Type 处理 HTML、JavaScript 页面、PDF、纯文本、JSON 和 XML，并返回最终重定向 URL、元数据和结构化正文。用户已给出 URL 时直接调用，不要先重复搜索。"
         case .openInAppBrowser:
             return "用于把外部网页或刚生成的工作区 HTML 交给用户继续交互。生成小游戏、交互式海报、可视化网页等作品时，除非用户或技能指定路径，推荐把入口放在 artifacts/<短名称>/index.html，图片/CSS/JS 等资源放同目录子目录；调用时传工作区相对路径和可读 title，最终回复也给出入口文件的 Markdown 链接。"
         case .openMapsRoute:
@@ -170,17 +170,38 @@ enum LLMToolDefinitionBuilder {
         case .searchWeb:
             return ToolJSONSchema.object(
                 properties: [
-                    "query": ToolJSONSchema.string(description: "必填。要搜索的关键词或自然语言查询。只返回候选标题、URL 和摘要，不读取正文。结果数和搜索超时按当前档位生效。"),
-                    "source": ToolJSONSchema.string(description: "可选。搜索源；只能填写当前设置中开启的值。不填时 app 使用开启列表中的默认源。", enumValues: enabledWebSearchProviderEnumValues())
+                    "query": ToolJSONSchema.string(
+                        description: "必填。用于发现候选来源的关键词或自然语言查询。只返回标题、URL 和摘要。"
+                    ),
+                    "source": ToolJSONSchema.string(
+                        description: "可选。搜索源；只能填写当前设置中开启的值。不填时使用默认搜索源。",
+                        enumValues: enabledWebSearchProviderEnumValues()
+                    ),
+                    "max_results": ToolJSONSchema.integer(
+                        description: "可选。希望返回的候选数，最小 1；超过当前 Agent 档位上限时自动降至档位上限。"
+                    )
                 ],
                 required: ["query"]
             )
         case .fetchStaticWebPage:
             return ToolJSONSchema.object(
                 properties: [
-                    "url": ToolJSONSchema.string(description: "可选。要浏览的单个网页 URL。和 urls 二选一。", format: "uri"),
-                    "urls": ToolJSONSchema.stringArray(description: "可选。要浏览的多个网页 URL。单次调用最多 10 个 URL，执行层会并行抓取并在总时间上限内返回已完成结果。"),
-                    "max_chars": ToolJSONSchema.integer(description: "可选。希望返回的网页正文字符数；未传时按 100000 处理，超过 100000 会自动降至 100000。")
+                    "url": ToolJSONSchema.string(
+                        description: "可选。要读取的单个 http/https URL。和 urls 二选一。",
+                        format: "uri"
+                    ),
+                    "urls": ToolJSONSchema.stringArray(
+                        description: "可选。要读取的多个 http/https URL。单次最多 10 个。"
+                    ),
+                    "max_chars": ToolJSONSchema.integer(
+                        description: "可选。每个网页希望返回的正文字符上限。未传时使用当前档位建议值，绝对上限 100000。"
+                    ),
+                    "focus": ToolJSONSchema.string(
+                        description: "可选。需要重点查找的问题、关键词或主题。提供后会优先返回相关正文块及上下文。"
+                    ),
+                    "include_links": ToolJSONSchema.bool(
+                        description: "可选。是否返回正文中的相关链接，默认 true。"
+                    )
                 ]
             )
         case .fetchWebBatch, .saveWebPageToWorkspace:
