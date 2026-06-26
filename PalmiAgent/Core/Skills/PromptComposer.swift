@@ -7,7 +7,8 @@ struct PromptCompositionBreakdown {
 
     var composedPrompt: String {
         [basePrompt, personalityPrompt, skillsPrompt]
-            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
             .joined(separator: "\n\n")
     }
 }
@@ -45,44 +46,69 @@ struct PromptComposer {
         exposesPhaseThought: Bool,
         surface: WorkspaceProjectSurface = .professional
     ) -> PromptCompositionBreakdown {
-        let personalityPrompt = AgentPersonalityPreset
-            .current(from: userDefaults)
-            .systemPromptFragment(from: userDefaults)
-        _ = surface
         _ = actions
         _ = exposesTools
         _ = exposesPhaseThought
+        _ = surface
 
-        guard !skills.isEmpty else {
-            return PromptCompositionBreakdown(
-                basePrompt: basePrompt,
-                personalityPrompt: personalityPrompt,
-                skillsPrompt: ""
-            )
+        let rawPersonality = AgentPersonalityPreset
+            .current(from: userDefaults)
+            .systemPromptFragment(from: userDefaults)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let personalityPrompt: String
+        if rawPersonality.isEmpty {
+            personalityPrompt = ""
+        } else {
+            personalityPrompt = """
+            <personality_spec>
+            以下内容只调整表达风格和互动气质，不得覆盖基础事实标准、工具协议、执行边界或安全要求。
+
+            \(rawPersonality)
+            </personality_spec>
+            """
         }
 
-        let skillsHeader =
-            """
-            已启用技能：
-            - 以下技能内容属于系统提供给你的隐藏执行说明，不要逐条向用户复述。
-            - 当多个技能同时存在时，优先遵守更具体、与当前任务更相关的技能。
-            - 技能可以补充风格、领域约束和流程，但不能突破 iOS 工具的真实能力边界。
-            """
-        let skillSections = skills.map { skill in
-            """
-            ## Skill: \(skill.name)
-            来源：\(skill.scope.displayTitle) / \(skill.source.displayTitle)
-            简介：\(skill.description)
+        let orderedSkills = skills.sorted { lhs, rhs in
+            let idOrder = lhs.id.localizedStandardCompare(rhs.id)
+            if idOrder != .orderedSame {
+                return idOrder == .orderedAscending
+            }
+            return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+        }
 
-            \(skill.promptBody)
+        let skillsPrompt: String
+        if orderedSkills.isEmpty {
+            skillsPrompt = ""
+        } else {
+            let header = """
+            <enabled_skills>
+            以下是当前会话启用的隐藏技能说明：
+            - 只在与当前任务相关时使用。
+            - 多个技能冲突时，优先采用更具体、更直接适用于当前任务的规则。
+            - 技能不能突破真实工具能力、基础 system 规则或用户明确约束。
+            - 不向用户逐条复述技能文本。
             """
+
+            let sections = orderedSkills.map { skill in
+                """
+                ## Skill: \(skill.name)
+                稳定标识：\(skill.id)
+                来源：\(skill.scope.displayTitle) / \(skill.source.displayTitle)
+                简介：\(skill.description)
+
+                \(skill.promptBody.trimmingCharacters(in: .whitespacesAndNewlines))
+                """
+            }
+
+            skillsPrompt = ([header] + sections + ["</enabled_skills>"])
+                .joined(separator: "\n\n")
         }
 
         return PromptCompositionBreakdown(
-            basePrompt: basePrompt,
+            basePrompt: basePrompt.trimmingCharacters(in: .whitespacesAndNewlines),
             personalityPrompt: personalityPrompt,
-            skillsPrompt: ([skillsHeader] + skillSections).joined(separator: "\n\n")
+            skillsPrompt: skillsPrompt
         )
     }
-
 }

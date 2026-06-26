@@ -18,6 +18,12 @@ final class AgentLoop {
         let visibleText: String
     }
 
+    private struct PhaseCheckpointAdmission {
+        let message: AgentMessage
+        let droppedToolCallCount: Int
+        let droppedAssistantText: Bool
+    }
+
     private let modelRuntime: AgentModelRuntime
     private let toolExecutor: AgentToolExecutor
     private let toolAuthorizationStore: ToolAuthorizationStore
@@ -39,9 +45,8 @@ final class AgentLoop {
     private var pendingApprovalRequests: [UUID: AgentApprovalRequest] = [:]
 
     // 目标 / 深度研究模式：当前一轮的注入态。runTurn 进入时置位、退出时（defer）清回。
-    // 这些动态内容只追加到本轮隐藏 user 文本，不改变稳定 system prompt。
+    // 这些动态内容只追加到本轮隐藏 user 文本，不改变稳定 system prompt，也不重复保存完整用户输入。
     private var activeTurnMode: AgentComposerMode = .standard
-    private var activeTurnModeQuery: String = ""
     private var activeTurnDeepResearchFolder: String = ""
     // 当轮要内联给主模型的图片（已降采样转 JPEG 的 data URL）。仅当主模型支持视觉时才非空；
     // 在 runTurn 进入时按能力加载、退出时清空——保证图片只活在本轮、不持久化。
@@ -313,6 +318,34 @@ final class AgentLoop {
         )
     }
 
+    private func admittingSinglePhaseCheckpoint(
+        from message: AgentMessage
+    ) -> PhaseCheckpointAdmission {
+        guard let firstPhaseCall = message.toolUses.first(where: {
+            $0.name == Self.phaseThoughtToolName
+        }) else {
+            return PhaseCheckpointAdmission(
+                message: message,
+                droppedToolCallCount: 0,
+                droppedAssistantText: false
+            )
+        }
+
+        let hadAssistantText = !message.textContent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
+
+        return PhaseCheckpointAdmission(
+            message: .assistant(
+                text: nil,
+                toolUses: [firstPhaseCall],
+                nativeReasoning: message.nativeReasoning
+            ),
+            droppedToolCallCount: max(0, message.toolUses.count - 1),
+            droppedAssistantText: hadAssistantText
+        )
+    }
+
     func runTurn(
         userInput: String,
         providerID: APIProviderID,
@@ -327,11 +360,9 @@ final class AgentLoop {
         }
         // 置位本轮模式注入态；无论正常返回还是抛错，结束时（defer）都清回标准态。
         activeTurnMode = mode
-        activeTurnModeQuery = trimmedInput
         activeTurnDeepResearchFolder = (mode == .deepResearch) ? Self.makeDeepResearchFolderPath() : ""
         defer {
             activeTurnMode = .standard
-            activeTurnModeQuery = ""
             activeTurnDeepResearchFolder = ""
             activeTurnImageDataURLs = []
             activeTurnInlineImagePaths = []
@@ -386,7 +417,9 @@ final class AgentLoop {
             }
             let sessionUserInput = inputWithTurnRuntimeDirectives(
                 inputWithInlineImageRecord(trimmedInput),
-                actions: actions
+                actions: actions,
+                runProfile: runProfile,
+                surface: surface
             )
             session.append(.user(text: sessionUserInput))
             appendEventLog(.turnStarted, summary: "开始新一轮任务")
@@ -498,10 +531,23 @@ final class AgentLoop {
                 let baseOutputTokens = outputTokens
                 outputTokens += response.totalTokens
                 session.cumulativeUsage.add(totalTokens: response.totalTokens)
-                session.append(response.message)
+
+                let phaseAdmission = admittingSinglePhaseCheckpoint(
+                    from: response.message
+                )
+                let admittedMessage = phaseAdmission.message
+                session.append(admittedMessage)
+
+                var responseSummary = "模型返回 \(response.totalTokens) tokens，接纳工具调用 \(admittedMessage.toolUses.count) 个"
+                if phaseAdmission.droppedToolCallCount > 0 || phaseAdmission.droppedAssistantText {
+                    responseSummary += "；phase_thought 严格边界丢弃同轮其他工具 \(phaseAdmission.droppedToolCallCount) 个"
+                    if phaseAdmission.droppedAssistantText {
+                        responseSummary += "及普通正文"
+                    }
+                }
                 appendEventLog(
                     .modelResponse,
-                    summary: "模型返回 \(response.totalTokens) tokens，工具调用 \(response.message.toolUses.count) 个"
+                    summary: responseSummary
                 )
 
                 if consumePendingInterruptions(discardLastAssistantMessage: true) {
@@ -509,9 +555,9 @@ final class AgentLoop {
                 }
 
                 let assistantText = LLMGuardrails.sanitizeUserFacingReply(
-                    response.message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
+                    admittedMessage.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
                 )
-                let toolUses = response.message.toolUses
+                let toolUses = admittedMessage.toolUses
 
                 if toolUses.isEmpty {
                     if consumePendingInterruptions() {
@@ -1544,14 +1590,21 @@ final class AgentLoop {
         switch activeTurnMode {
         case .standard:
             return nil
+
         case .goal:
-            let goal = activeTurnModeQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-            return "【目标模式】请仔细思考，在绝对保证全部完成目标之前，不要停止思考或急于总结，"
-                + "每当你认为需要停止思考或无须调用工具的时候，你必须至少再调用一次阶段思考的工具。"
-                + "我们的目标是：\(goal)"
+            return """
+            【目标模式】
+            把最近一条真实用户消息视为本轮完成合同：
+            - 识别其中明确要求的交付物、约束和可验证完成条件。
+            - 在执行过程中持续检查是否仍有未完成项。
+            - 只要信息和工具足够，就继续完成，不因任务较长而提前给半成品总结。
+            - phase_thought 只在真实阶段边界使用，不得为了拖延最终答复而调用。
+            - 当所有可验证要求已经满足时立即最终答复。
+            - 如果存在无法绕过的真实阻塞，明确说明已完成部分、阻塞证据和唯一必要的用户动作，不伪造完成状态。
+            """
+
         case .deepResearch:
             return Self.deepResearchInstruction(
-                query: activeTurnModeQuery.trimmingCharacters(in: .whitespacesAndNewlines),
                 folder: activeTurnDeepResearchFolder
             )
         }
@@ -1564,14 +1617,40 @@ final class AgentLoop {
         return "深度研究/研究-\(formatter.string(from: Date()))"
     }
 
-    private static func deepResearchInstruction(query: String, folder: String) -> String {
+    private static func deepResearchInstruction(folder: String) -> String {
         """
-        【深度研究模式】本轮启用深度研究，请严格遵守以下流程：
-        1. 工作目录：先在「项目根目录」下创建（若不存在）名为「深度研究」的文件夹，再在其中创建本轮专属子文件夹「\(folder)」。本轮所有中间笔记、网页摘录、来源清单与最终报告都保存在该子文件夹内。
-        2. 检索强度：你非常倾向于调用网页搜索和网页浏览的工具，且你至少必须成功搜索 100 个网页，以及至少成功浏览 20 个网页、至多成功浏览 100 个网页，才可以考虑总结；否则你总是倾向于不停地搜索更多信息。
-        3. 过程留痕：每完成一批检索/浏览，就把关键信息、来源链接与访问日期追加写入子文件夹内的笔记文件（如「笔记.md」），避免信息丢失。
-        4. 最终报告：达到上述检索量后，用 Markdown 格式输出研究报告，并把同一份报告写入「\(folder)/报告.md」。报告须包含：一级标题、摘要、目录、按主题分节的详细论述（每个关键结论后用方括号标注来源编号，如 [12]）、结论与展望、参考资料清单（编号 + 标题 + 链接 + 访问日期）。
-        本轮研究主题是：\(query)
+        【深度研究模式】
+        对最近一条真实用户消息执行系统化研究。
+
+        工作目录：
+        - 在项目根目录创建 `深度研究` 文件夹。
+        - 在其中创建本轮目录 `\(folder)`。
+        - 本轮中间笔记、来源清单和最终报告只能放在该目录，不要侵扰其他文件。
+
+        研究流程：
+        1. 把主题拆成互不重复的核心问题、关键术语、时间范围和证据要求。
+        2. 优先查找官方文档、原始数据、标准、论文、当事方材料和高质量直接来源。
+        3. 使用网页搜索发现候选；根据标题、摘要、来源身份和覆盖角度选源；再用网页浏览读取正文。
+        4. 对关键主张进行跨来源核验，记录一致点、冲突、发布日期、适用范围和证据缺口。
+        5. 每完成一轮实质检索，把新增事实和来源追加到 `\(folder)/笔记.md`，把编号、标题、最终 URL、访问日期和用途追加到 `\(folder)/来源.md`。
+        6. 不用网页数量代替研究质量。达到以下条件后停止检索：
+           - 核心问题均得到回答或被明确标记为无法证实；
+           - 关键结论有直接来源支持；
+           - 重要冲突已解释或并列呈现；
+           - 新来源不再实质改变结论。
+        7. 将最终 Markdown 报告写入 `\(folder)/报告.md`。
+
+        报告必须包含：
+        - 一级标题
+        - 摘要
+        - 研究范围与方法
+        - 按主题组织的主体
+        - 关键结论及证据
+        - 冲突、限制和未决问题
+        - 结论
+        - 编号参考资料
+
+        正文中的可核验关键结论使用 `[n]` 对应来源编号。不得编造来源、发布日期、正文内容或已访问状态。
         """
     }
 
@@ -1583,16 +1662,100 @@ final class AgentLoop {
         return "\(input)\n\n\(record)"
     }
 
-    private func inputWithTurnRuntimeDirectives(_ input: String, actions: [ToolAction]) -> String {
-        let layers = [
+    private func inputWithTurnRuntimeDirectives(
+        _ input: String,
+        actions: [ToolAction],
+        runProfile: AgentRunProfile,
+        surface: WorkspaceProjectSurface
+    ) -> String {
+        let layers: [String?] = [
+            tierInstructionLayer(runProfile: runProfile, surface: surface),
             composerModeInstructionLayer(),
             multimodalRoutingInstructionLayer(actions: actions)
-        ].compactMap { layer in
-            layer?.trimmingCharacters(in: .whitespacesAndNewlines)
-        }.filter { !$0.isEmpty }
+        ]
 
-        guard !layers.isEmpty else { return input }
-        return "\(input)\n\n【turn】\n\(layers.joined(separator: "\n\n"))"
+        let normalizedLayers = layers.compactMap { layer in
+            layer?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        .filter { !$0.isEmpty }
+
+        guard !normalizedLayers.isEmpty else {
+            return input
+        }
+
+        return """
+        \(input)
+
+
+        \(normalizedLayers.joined(separator: "\n\n"))
+        """
+    }
+
+    private func tierInstructionLayer(
+        runProfile: AgentRunProfile,
+        surface: WorkspaceProjectSurface
+    ) -> String {
+        let surfaceRule: String
+        switch surface {
+        case .chat:
+            surfaceRule = "保持聊天模式的自然交流感；档位提高不等于自动写成长报告，只有任务本身需要时才展开。"
+        case .professional:
+            surfaceRule = "保持专业执行模式；输出围绕交付物、证据、改动和验证，不增加与任务无关的铺陈。"
+        }
+
+        let searchLimit = runProfile.retrieval.webSearch.maxResults
+        let recommendedURLs = runProfile.retrieval.webContent.fetchStaticWebPageRecommendedURLCount
+        let recommendedCharacters = runProfile.retrieval.webContent.fetchStaticWebPageRecommendedMaxCharacters
+
+        switch runProfile.professionalTier {
+        case .speed:
+            return """
+            【tier_contract：效率】
+            \(surfaceRule)
+
+            当前目标是最短可靠路径：
+            - 简单问题直接作答，简单操作直接执行，不先制造计划。
+            - 只读取、检索和验证会改变结论的信息，避免探索旁支。
+            - 有工具时优先使用最直接的专用工具，不为展示过程增加工具调用。
+            - phase_thought 默认调用 0 次；只有任务至少包含两个相互依赖阶段、且当前确实需要提交阶段判断时才调用 1 次。
+            - 网页研究优先一次高质量查询；单次搜索候选上限为 \(searchLimit)，通常只浏览 1 到 \(recommendedURLs) 个最相关来源。
+            - 单页正文建议上限为 \(recommendedCharacters) 字符。
+            - 得到足够可靠的答案后立即收口，不做与结论无关的交叉验证。
+            - 最终回复结论优先、简洁、可执行。
+            """
+
+        case .balanced:
+            return """
+            【tier_contract：质量】
+            \(surfaceRule)
+
+            当前目标是正确性、完整性和成本之间的稳健平衡：
+            - 先识别关键约束和容易出错的环节，再执行最小充分路径。
+            - 关键结论必须有直接证据；时效性、争议性或高影响事实至少进行一次独立核验。
+            - 复杂任务通常使用 1 到 3 次 phase_thought，但只能发生在真实阶段切换、收到新证据或作出关键取舍之后；不是固定配额。
+            - 搜索时允许改写查询覆盖不同角度；单次搜索候选上限为 \(searchLimit)，通常浏览 3 到 \(recommendedURLs) 个高价值来源。
+            - 单页正文建议上限为 \(recommendedCharacters) 字符。
+            - 代码和文件任务在修改后执行直接相关的构建、测试或重新读取。
+            - 重要冲突未解决时继续核验；新增信息不再改变结论时停止。
+            - 最终回复给出结果、关键依据和验证状态。
+            """
+
+        case .infinite:
+            return """
+            【tier_contract：极致】
+            \(surfaceRule)
+
+            当前目标是深度、鲁棒性、覆盖度和可审计性，而不是无限循环：
+            - 对复杂任务先拆解核心问题、依赖、竞争性解释和完成条件。
+            - 主动寻找原始来源、反例、边界条件和来源间冲突；区分事实、推断与证据缺口。
+            - 对真正复杂的任务通常使用 2 到 6 次 phase_thought；每次都必须建立在新证据、新完成项或新决策上。简单任务仍可为 0 次。
+            - 可以使用多组互补查询；单次搜索候选上限为 \(searchLimit)，单批最多浏览 \(recommendedURLs) 个来源。
+            - 单页正文建议上限为 \(recommendedCharacters) 字符。
+            - 代码任务追踪根因、调用链、状态边界和回归风险，完成后执行可用的完整验证。
+            - 当关键主张已有充分直接证据、主要冲突已处理、继续检索只会重复现有结论时，判定达到证据饱和并停止。
+            - 最终回复完整但不堆砌，明确结论、依据、验证、限制和真实未决项。
+            """
+        }
     }
 
     private func appendInlineImageOCRSuppressionResultIfNeeded(
@@ -1767,18 +1930,26 @@ final class AgentLoop {
             function: AgentModelFunctionDefinition(
                 name: Self.phaseThoughtToolName,
                 description: """
-                [Agent 内部动作] 阶段思考：把当前这一步的判断、取舍或下一步决策作为一次已提交的检查点显式展示给用户，然后继续后续循环。
-                使用规则：
-                - 它是思考外显，不是最终答复，也不是外部工具。
-                - 你在同一个 assistant turn 里发出的所有 tool call 都来自同一次前向推理；所以同一个 turn 里最多调用 1 次本工具，在同一个 turn 连续调用多个只会把已经想完的整段答案拆开誊抄，不是真分段。下一段要等本轮结束、结果返回后的下一个 turn 再发。此限制只针对本工具，不影响同一轮一并调用其他互不依赖的真实工具。
-                - 内容必须是当下这一步的真实推理（1 到 5 句），下一段须承接并推进上一段，构成真增量；不得把已经想完的整段答案拆开誊抄。
-                - 调用与否、调用多少，由任务的客观复杂度与当前档位共同决定，不规定段数。
-                - 调完后你仍需继续决定：下一步是调用工具，还是直接结束。
+                [Agent 内部控制动作] 提交一次用户可见的阶段检查点，并在工具结果返回后开启新的模型回合。
+
+                严格规则：
+                - 它不是最终答复，也不是公开私有逐 token 思维链。
+                - 只有在完成真实阶段、获得新证据、作出关键取舍或需要明确下一动作时使用。
+                - 一旦调用，本次 assistant 响应必须只包含这一个 phase_thought 调用；不得同时输出普通正文或调用其他工具。
+                - harness 对一个模型响应只接纳第一个 phase_thought，并丢弃同轮所有其他调用与正文。
+                - content 使用 2 到 4 句，仅包含：新增事实或完成项、当前判断、紧接着的具体动作。
+                - 不得预写未来阶段，不得把完整答案拆段誊抄，不得重复上一检查点。
+                - 已经能够可靠完成回答时不要调用，直接给最终答复。
+                - 调用次数由真实复杂度和当前【tier_contract】决定，不是固定配额。
                 """,
                 parameters: ToolJSONSchema.object(
                     properties: [
-                        "title": ToolJSONSchema.string(description: "可选。默认显示为“阶段思考”。"),
-                        "content": ToolJSONSchema.string(description: "必填。要展示给用户的阶段性思考正文。")
+                        "title": ToolJSONSchema.string(
+                            description: "可选。简短阶段名称；未传时显示为“阶段思考”。"
+                        ),
+                        "content": ToolJSONSchema.string(
+                            description: "必填。2 到 4 句阶段检查点：新增事实或完成项、当前判断、下一项具体动作。"
+                        )
                     ],
                     required: ["content"]
                 )
