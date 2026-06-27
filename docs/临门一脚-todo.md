@@ -40,9 +40,9 @@
 
   **现状（已完成）**：`WorkspaceShellScreen.swift:132` 的聊天模式仍走 `ChatHistoryHomeScreen` push 到 `ChatScreen`，但聊天历史页已使用 `AppShellTopBar`（`ChatHistoryHomeScreen.swift:77`），专业项目侧栏也使用同一顶层外壳入口（`WorkspaceShellScreen.swift:279`）；这里不再表述为“复刻专业模式上下模板”。
 
-- [ ] **聊天模式彻底重做为「固定 workflow」**：聊天模式打算彻底重做，不再用 agent 那一套，而是改成一条固定的工作流（fixed workflow）。这条先记住，具体怎么做后面再规划。
+- [x] **聊天模式彻底重做为「固定 workflow」**：聊天模式打算彻底重做，不再用 agent 那一套，而是改成一条固定的工作流（fixed workflow）。这条先记住，具体怎么做后面再规划。
 
-  **现状**：聊天模式和专业模式目前仍共用 `AgentLoop` 主链路，但 prompt/profile 已按 surface 初步分流：聊天模式使用 `ChatSystemPromptBuilder`（`AgentPromptBuilder.swift:3`）和 surface-aware profile（`AgentRunProfile.swift:15`、`ChatStore.swift:760`）。还没有独立的固定工作流分支。
+  **现状**：带工具聊天目前仍走 `AgentLoop` 主链路，但 prompt/profile 已按 surface 初步分流：聊天模式使用 `ChatSystemPromptBuilder`（`AgentPromptBuilder.swift:3`）和 surface-aware profile（`AgentRunProfile.swift:15`、`ChatStore.swift:760`）。还没有独立的固定工作流分支。
 
 ## 四、会话状态系统（重点，超大工程）
 
@@ -146,7 +146,7 @@
 | [ ] | 改造「搜索源」 | 方案未定。 |
 | [ ] | 改造「技能」 | 方案未定。 |
 | [x] | 专业模式上下模板复刻到聊天模式 | 已纠偏为统一顶层外壳入口，不再按“上下模板复刻”描述。 |
-| [ ] | 聊天模式改为固定 workflow | 仍走 agent 主链路。 |
+| [x] | 聊天模式改为固定 workflow | 带工具仍走 agent 主链路。 |
 | [x] | 会话模型核实 | 专业多会话、聊天单会话成立。 |
 | [x] | 进行中会话加载/思考中标志 | 已接 per-session running badge 和返回恢复。 |
 | [x] | 会话持久化 | 已接 run ledger、消息/AgentSession 落盘和中断恢复标记。 |

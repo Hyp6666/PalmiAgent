@@ -86,7 +86,6 @@ struct ChatScreen: View {
     @State private var previewedAttachmentFiles: WorkspaceFileCarouselPresentation?
     @State private var isShowingPlusMenu = false
     @State private var isShowingModeInfo = false
-    @State private var pendingMultimodalImport: PalmiAttachmentImportPresentation?
     @State private var isShowingQuickConfiguration = false
     @State private var measuredExtremeCapabilityValueCenter: CGPoint?
     @State private var attachmentPresentation: PalmiAttachmentImportPresentation?
@@ -453,27 +452,6 @@ struct ChatScreen: View {
             onComplete: handleAttachmentImportCompletion,
             onError: { store.errorMessage = $0 }
         )
-        .alert(
-            "当前模型不支持多模态",
-            isPresented: Binding(
-                get: { pendingMultimodalImport != nil },
-                set: { if !$0 { pendingMultimodalImport = nil } }
-            ),
-            presenting: pendingMultimodalImport
-        ) { presentation in
-            Button("取消", role: .cancel) {
-                pendingMultimodalImport = nil
-            }
-            Button("确定") {
-                pendingMultimodalImport = nil
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 200_000_000)
-                    presentAttachmentImport(presentation)
-                }
-            }
-        } message: { _ in
-            Text("该模型无法直接识别图片。你可以让 Palmi 调用工具，扫描附件中图片或文件里的文字内容。是否仍要上传该附件？")
-        }
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -2072,29 +2050,12 @@ struct ChatScreen: View {
         attachmentPresentation = presentation
     }
 
-    // 当前会话的主模型是否可直接接收图片输入。
-    private func activeModelSupportsMultimodal() async -> Bool {
-        let state = cachedModelSelectionState ?? computedModelSelectionState
-        if let primaryCandidate = state.primaryCandidate {
-            return primaryCandidate.capabilities.supportsVision
-        }
-        return state.selectedModel.supportsMultimodal
-    }
-
-    // 加号里相机/照片/文件的统一入口：主模型支持多模态就直接调起；否则先弹确认框，提示用工具扫描文字。
     private func requestAttachmentImport(_ presentation: PalmiAttachmentImportPresentation) {
         isShowingPlusMenu = false
-        cachedModelSelectionState = computedModelSelectionState
         // 等 popover 收起再做下一步 presentation，避免同一帧两个弹层打架。
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 220_000_000)
-            let supportsMultimodal = await activeModelSupportsMultimodal()
-            cachedModelSelectionState = computedModelSelectionState
-            if supportsMultimodal {
-                presentAttachmentImport(presentation)
-            } else {
-                pendingMultimodalImport = presentation
-            }
+            presentAttachmentImport(presentation)
         }
     }
 
@@ -2974,31 +2935,15 @@ private struct SessionHeaderStrip: View {
 private struct BottomStreamingIndicator: View {
     let startedAt: Date
 
-    private static let phaseCount = 8
-    private static let frameDuration = 0.08
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static let textRefreshInterval: TimeInterval = 1
 
     var body: some View {
-        TimelineView(.periodic(from: startedAt, by: Self.frameDuration)) { context in
-            let phase = phaseIndex(at: context.date)
-
+        TimelineView(.periodic(from: startedAt, by: Self.textRefreshInterval)) { context in
             HStack(spacing: 10) {
-                ZStack {
-                    Circle()
-                        .stroke(Color.accentColor.opacity(0.16), lineWidth: 2)
-
-                    Circle()
-                        .trim(from: 0, to: 0.36)
-                        .stroke(
-                            Color.accentColor.opacity(0.86),
-                            style: StrokeStyle(lineWidth: 2.4, lineCap: .round)
-                        )
-                        .rotationEffect(.degrees(Double(phase) * 45))
-
-                    Circle()
-                        .fill(Color.accentColor.opacity(0.14 + Double(phase % 4) * 0.04))
-                        .frame(width: 7, height: 7)
-                }
-                .frame(width: 18, height: 18)
+                PalmiProcessingSpriteView(reduceMotion: reduceMotion)
+                    .frame(width: 39, height: 39)
 
                 Text("正在处理 \(elapsedText(to: context.date))")
                     .font(.footnote.weight(.medium))
@@ -3006,11 +2951,6 @@ private struct BottomStreamingIndicator: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-
-    private func phaseIndex(at date: Date) -> Int {
-        let elapsed = max(0, date.timeIntervalSince(startedAt))
-        return Int(elapsed / Self.frameDuration) % Self.phaseCount
     }
 
     private func elapsedText(to date: Date) -> String {
@@ -3022,6 +2962,117 @@ private struct BottomStreamingIndicator: View {
         let minutes = totalSeconds / 60
         let seconds = totalSeconds % 60
         return "\(minutes)m \(seconds)s"
+    }
+}
+
+private struct PalmiProcessingSpriteView: UIViewRepresentable {
+    let reduceMotion: Bool
+
+    func makeUIView(context: Context) -> PalmiProcessingSpriteUIView {
+        let view = PalmiProcessingSpriteUIView()
+        view.configure(reduceMotion: reduceMotion)
+        return view
+    }
+
+    func updateUIView(_ uiView: PalmiProcessingSpriteUIView, context: Context) {
+        uiView.configure(reduceMotion: reduceMotion)
+    }
+
+    static func dismantleUIView(_ uiView: PalmiProcessingSpriteUIView, coordinator: ()) {
+        uiView.stopAnimating()
+    }
+}
+
+private final class PalmiProcessingSpriteUIView: UIView {
+    private static let imageName = "PalmiProcessingSprite"
+    private static let spriteImage = UIImage(named: imageName)?.cgImage
+    private static let frameCount = 20
+    private static let animationDuration: CFTimeInterval = 1.3
+    private static let animationKey = "palmi-processing-contents-rect"
+
+    private let spriteLayer = CALayer()
+    private var lastReduceMotion: Bool?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        isOpaque = false
+        backgroundColor = .clear
+        spriteLayer.contentsGravity = .resizeAspect
+        spriteLayer.magnificationFilter = .linear
+        spriteLayer.minificationFilter = .linear
+        spriteLayer.contentsScale = UIScreen.main.scale
+        layer.addSublayer(spriteLayer)
+        setFirstFrame()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        spriteLayer.frame = bounds
+    }
+
+    func configure(reduceMotion: Bool) {
+        if spriteLayer.contents == nil {
+            spriteLayer.contents = Self.spriteImage
+            setFirstFrame()
+        }
+
+        if lastReduceMotion == reduceMotion {
+            if reduceMotion || spriteLayer.animation(forKey: Self.animationKey) != nil {
+                return
+            }
+        }
+
+        guard spriteLayer.contents != nil else {
+            return
+        }
+
+        lastReduceMotion = reduceMotion
+        if reduceMotion {
+            stopAnimating()
+        } else {
+            startAnimating()
+        }
+    }
+
+    func stopAnimating() {
+        spriteLayer.removeAnimation(forKey: Self.animationKey)
+        setFirstFrame()
+    }
+
+    private func startAnimating() {
+        guard spriteLayer.contents != nil else { return }
+
+        let frameWidth = 1.0 / CGFloat(Self.frameCount)
+        let rects = (0..<Self.frameCount).map { index in
+            NSValue(cgRect: CGRect(
+                x: CGFloat(index) * frameWidth,
+                y: 0,
+                width: frameWidth,
+                height: 1
+            ))
+        }
+
+        let animation = CAKeyframeAnimation(keyPath: "contentsRect")
+        animation.values = rects
+        animation.duration = Self.animationDuration
+        animation.repeatCount = .infinity
+        animation.calculationMode = .discrete
+        animation.isRemovedOnCompletion = false
+        spriteLayer.add(animation, forKey: Self.animationKey)
+    }
+
+    private func setFirstFrame() {
+        spriteLayer.contentsRect = CGRect(
+            x: 0,
+            y: 0,
+            width: 1.0 / CGFloat(Self.frameCount),
+            height: 1
+        )
     }
 }
 
