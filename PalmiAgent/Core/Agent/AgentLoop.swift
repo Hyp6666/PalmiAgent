@@ -48,10 +48,6 @@ final class AgentLoop {
     // 这些动态内容只追加到本轮隐藏 user 文本，不改变稳定 system prompt，也不重复保存完整用户输入。
     private var activeTurnMode: AgentComposerMode = .standard
     private var activeTurnDeepResearchFolder: String = ""
-    // 当轮要内联给主模型的图片（已降采样转 JPEG 的 data URL）。仅当主模型支持视觉时才非空；
-    // 在 runTurn 进入时按能力加载、退出时清空——保证图片只活在本轮、不持久化。
-    private var activeTurnImageDataURLs: [String] = []
-    private var activeTurnInlineImagePaths: Set<String> = []
     private var activeTurnHasImageAttachments = false
     private var activeTurnMultimodalScannerAvailable = false
 
@@ -367,8 +363,6 @@ final class AgentLoop {
         defer {
             activeTurnMode = .standard
             activeTurnDeepResearchFolder = ""
-            activeTurnImageDataURLs = []
-            activeTurnInlineImagePaths = []
             activeTurnHasImageAttachments = false
             activeTurnMultimodalScannerAvailable = false
         }
@@ -387,21 +381,6 @@ final class AgentLoop {
             )
         }
 
-        // 聊天模式不把图片内联给主模型；图片理解必须走多模态扫描 / OCR 工具链。
-        // 专业模式仍按原路由，在主模型支持视觉时把附件降采样转 JPEG 内联。
-        let inlineImages: [(path: String, dataURL: String)]
-        if surface == .chat {
-            inlineImages = []
-        } else {
-            inlineImages = await loadInlineImagesIfVisionSupported(
-                imagePaths,
-                providerID: providerID,
-                runProfile: runProfile,
-                modelOverrides: modelOverrides
-            )
-        }
-        activeTurnImageDataURLs = inlineImages.map { $0.dataURL }
-        activeTurnInlineImagePaths = Set(inlineImages.map { $0.path })
         let turnRequestRole: APIModelRole = .reasoningModel
         let toolRouter = ToolRouter(
             phaseThoughtToolName: Self.phaseThoughtToolName,
@@ -436,7 +415,7 @@ final class AgentLoop {
                 }
             }
             let sessionUserInput = inputWithTurnRuntimeDirectives(
-                inputWithInlineImageRecord(trimmedInput),
+                trimmedInput,
                 actions: actions,
                 runProfile: runProfile,
                 surface: surface
@@ -528,7 +507,7 @@ final class AgentLoop {
                                 reasoning: runProfile.modelReasoningRequest,
                                 configurationOverride: modelOverrides.override(for: turnRequestRole)
                             ),
-                            apiMessages: attachingTurnImagesIfNeeded(to: assembledContext.apiMessages),
+                            apiMessages: assembledContext.apiMessages,
                             tools: toolDefinitions,
                             toolIntent: .auto,
                             onDelta: { _ in },
@@ -659,13 +638,6 @@ final class AgentLoop {
                                         isError: true
                                     )
                                 )
-                                continue
-                            }
-
-                            if appendInlineImageOCRSuppressionResultIfNeeded(
-                                for: toolUse,
-                                prepared: routedPrepared
-                            ) {
                                 continue
                             }
 
@@ -863,13 +835,6 @@ final class AgentLoop {
                                     isError: true
                                 )
                             )
-                            continue
-                        }
-
-                        if appendInlineImageOCRSuppressionResultIfNeeded(
-                            for: toolUse,
-                            prepared: routedPrepared
-                        ) {
                             continue
                         }
 
@@ -1080,7 +1045,7 @@ final class AgentLoop {
                                     reasoning: runProfile.modelReasoningRequest,
                                     configurationOverride: modelOverrides.override(for: turnRequestRole)
                                 ),
-                                apiMessages: attachingTurnImagesIfNeeded(to: assembledContext.apiMessages),
+                                apiMessages: assembledContext.apiMessages,
                                 onDelta: { text in
                                     self.emit(.streamingDelta(text: text))
                                 },
@@ -1138,11 +1103,8 @@ final class AgentLoop {
         modelOverrides: AgentModelRoleOverrides
     ) async throws -> AgentTurnResult {
         _ = imagePaths
-        activeTurnImageDataURLs = []
-        activeTurnInlineImagePaths = []
 
-        let input = inputWithInlineImageRecord(userInput)
-        session.append(.user(text: input))
+        session.append(.user(text: userInput))
         appendEventLog(.turnStarted, summary: "开始聊天")
 
         let baseSystemPrompt = promptBuilder.build(
@@ -1169,7 +1131,7 @@ final class AgentLoop {
                         reasoning: .disabled,
                         configurationOverride: modelOverrides.override(for: .reasoningModel)
                     ),
-                    apiMessages: attachingTurnImagesIfNeeded(to: assembledContext.apiMessages),
+                    apiMessages: assembledContext.apiMessages,
                     tools: [],
                     toolIntent: .none,
                     onDelta: { text in
@@ -1702,7 +1664,7 @@ final class AgentLoop {
 
         let decision = MultimodalImageRoutingDecision.resolve(
             hasImageAttachments: activeTurnHasImageAttachments,
-            primaryHasInlineImage: !activeTurnImageDataURLs.isEmpty,
+            primaryHasInlineImage: false,
             multimodalScannerAvailable: activeTurnMultimodalScannerAvailable,
             canUseMultimodalScanner: canUseMultimodalScanner,
             canUseOCR: canUseOCR
@@ -1710,13 +1672,13 @@ final class AgentLoop {
 
         switch decision {
         case .primaryInlineImage:
-            return "【本轮图片路由】用户上传的图片已经作为真实图像输入发送给主模型。除非用户明确要求提取图片文字，否则不要调用图片扫描工具。"
+            return "【本轮图片路由】图片不得由主模型内联读取；必须通过图片工具读取。优先调用 `scanImageWithMultimodalModel`，结果失败或分析有歧义时再调用 `recognizeImageText` 做 OCR。"
         case .multimodalScannerTool:
-            return "【本轮图片路由】主模型当前没有内联图像输入；如果用户需要理解图片内容，优先调用 `scanImageWithMultimodalModel`。如果该工具失败，或任务只需要图片文字，再调用 `recognizeImageText` 做 OCR 兜底。"
+            return "【本轮图片路由】图片必须通过工具读取。优先调用 `scanImageWithMultimodalModel` 分析图片；如果结果失败、分析有歧义，或任务只需要文字，再调用 `recognizeImageText` 做 OCR。"
         case .ocrFallback:
-            return "【本轮图片路由】主模型当前没有内联图像输入，且当前会话没有可用的多模态模型扫描后端；不要调用 `scanImageWithMultimodalModel`，请直接调用 `recognizeImageText` 对附件图片做 OCR 兜底，再基于可读文字回答。"
+            return "【本轮图片路由】当前没有可用的多模态扫描后端；不要调用 `scanImageWithMultimodalModel`，直接调用 `recognizeImageText` 对图片做 OCR，再基于可读文字回答。"
         case .unavailable:
-            return "【本轮图片路由】主模型当前没有内联图像输入，也没有可用的图片扫描工具；不要臆测图片内容，直接说明当前无法读取附件图片。"
+            return "【本轮图片路由】当前没有可用的图片读取工具；不要臆测图片内容，直接说明当前无法读取附件图片。"
         case nil:
             return nil
         }
@@ -1791,13 +1753,7 @@ final class AgentLoop {
         """
     }
 
-    // MARK: - 内联图片（多模态）
-
-    private func inputWithInlineImageRecord(_ input: String) -> String {
-        guard !activeTurnImageDataURLs.isEmpty else { return input }
-        let record = "【视觉输入记录】本轮有 \(activeTurnImageDataURLs.count) 张用户上传图片已作为真实图像输入发送给支持视觉的主模型；后续即使切换到非视觉模型，也应把紧随其后的图像分析视为基于真实图片的历史结论，而不是臆测。附件路径见本消息的“附件：”块。"
-        return "\(input)\n\n\(record)"
-    }
+    // MARK: - 图片工具路由
 
     private func inputWithTurnRuntimeDirectives(
         _ input: String,
@@ -1924,127 +1880,11 @@ final class AgentLoop {
         }
     }
 
-    private func appendInlineImageOCRSuppressionResultIfNeeded(
-        for toolUse: AgentToolUse,
-        prepared: AgentPreparedToolExecution
-    ) -> Bool {
-        guard shouldSuppressOCRForInlineImage(prepared) else {
-            return false
-        }
-
-        let payload = suppressedInlineImageOCRPayload(
-            action: prepared.action,
-            argumentsJSON: prepared.argumentsJSON
-        )
-        session.append(
-            .toolResult(
-                toolUseID: toolUse.id,
-                toolName: prepared.action.id.rawValue,
-                output: payload,
-                isError: false
-            )
-        )
-        appendEventLog(
-            .toolFinished,
-            summary: "已跳过 OCR：本轮图片已内联给模型",
-            payloadJSON: prepared.argumentsJSON
-        )
-        return true
-    }
-
-    private func shouldSuppressOCRForInlineImage(_ prepared: AgentPreparedToolExecution) -> Bool {
-        guard prepared.action.id == .recognizeImageText,
-              !activeTurnInlineImagePaths.isEmpty,
-              let requestedPath = normalizedRelativePath(prepared.arguments.string("path")) else {
-            return false
-        }
-        return activeTurnInlineImagePaths.contains(requestedPath)
-    }
-
-    private func suppressedInlineImageOCRPayload(
-        action: ToolAction,
-        argumentsJSON: String
-    ) -> String {
-        let summary = "已跳过 OCR"
-        let details = "本轮图片已经作为多模态图像输入提供给主模型。请直接基于可见图像回答；只有在没有可见图像输入且用户明确要求提取图片文字时，才应使用 OCR。"
-        let payload = AgentToolPayload(
-            toolName: action.id.rawValue,
-            title: action.title,
-            status: ToolResult.Status.warning.rawValue,
-            summary: summary,
-            details: details,
-            requiresUserInteraction: false,
-            shareURL: nil,
-            argumentsJSON: argumentsJSON,
-            fileDeltas: nil
-        )
-        guard let data = try? JSONEncoder().encode(payload),
-              let string = String(data: data, encoding: .utf8) else {
-            return """
-            {"tool_name":"\(action.id.rawValue)","title":"\(action.title)","status":"warning","summary":"\(summary)","details":"\(details)","requires_user_interaction":false,"arguments_json":\(String(reflecting: argumentsJSON)),"file_deltas":null}
-            """
-        }
-        return string
-    }
-
-    /// 仅当主模型支持视觉时，加载图片附件、降采样转 JPEG 成 data URL；同轮 OCR 误调用会在执行层被跳过。
-    private func loadInlineImagesIfVisionSupported(
-        _ paths: [String],
-        providerID: APIProviderID,
-        runProfile: AgentRunProfile,
-        modelOverrides: AgentModelRoleOverrides
-    ) async -> [(path: String, dataURL: String)] {
-        guard !paths.isEmpty else { return [] }
-        let selection = AgentModelSelection(
-            providerID: providerID,
-            modelRole: .reasoningModel,
-            reasoning: runProfile.modelReasoningRequest,
-            configurationOverride: modelOverrides.override(for: .reasoningModel)
-        )
-        guard let capabilities = try? await modelRuntime.capabilities(for: selection),
-              capabilities.supportsVision else {
-            return []
-        }
-        return paths.compactMap { path in
-            guard let normalizedPath = normalizedRelativePath(path),
-                  let dataURL = inlineImageDataURL(at: normalizedPath) else {
-                return nil
-            }
-            return (path: normalizedPath, dataURL: dataURL)
-        }
-    }
-
     private func multimodalScannerAvailable(modelOverrides: AgentModelRoleOverrides) -> Bool {
         guard case .resolved(let resolved) = modelOverrides.override(for: .multimodalModel) else {
             return false
         }
         return resolved.capabilities.supportsVision
-    }
-
-    /// 给消息序列里「最后一条 user 消息」贴上当轮图片。每次迭代都贴，保证整轮里模型始终看得到原图；
-    /// 但因为不写回 session，本轮结束后图片自然消失，不会永久占用后续上下文。
-    private func attachingTurnImagesIfNeeded(to messages: [AgentModelMessage]) -> [AgentModelMessage] {
-        guard !activeTurnImageDataURLs.isEmpty,
-              let lastUserIndex = messages.lastIndex(where: { $0.role == "user" }) else {
-            return messages
-        }
-        var updated = messages
-        updated[lastUserIndex].imageDataURLs = activeTurnImageDataURLs
-        return updated
-    }
-
-    /// 把工作区图片降采样到 ≤1536px、转 JPEG(q0.8)，编码成 data URL。
-    /// 转码保证跨端点兼容（很多 OpenAI 兼容端点不收 HEIC），降采样顺带压低图片 token 成本。
-    private func inlineImageDataURL(at relativePath: String) -> String? {
-        guard let url = try? workspaceManager.url(for: relativePath) else { return nil }
-        return MultimodalInlineImageEncoder.dataURL(at: url)
-    }
-
-    private func normalizedRelativePath(_ path: String?) -> String? {
-        let normalized = path?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/")) ?? ""
-        return normalized.isEmpty ? nil : normalized
     }
 
     private var isExternalReasoningEnabled: Bool {
