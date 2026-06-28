@@ -56,7 +56,7 @@ private struct LinkOpenRequest: Identifiable {
     let id = UUID()
     let url: URL
     let title: String?
-    let sourceRect: CGRect?
+    let sourceRect: CGRect
 }
 
 private struct WorkspaceFileCarouselPresentation: Identifiable {
@@ -93,6 +93,7 @@ struct ChatScreen: View {
     @State private var composerSectionHeight: CGFloat = 128
     @State private var isMessageAutoFollowEnabled = true
     @State private var pendingLinkAction: LinkOpenRequest?
+    @State private var measuredLinkActionPopoverSize: CGSize = .zero
     @State private var linkSharePayload: SharePayload?
     // 缓存模型选择快照。原计算路径要 UserDefaults + JSON decode，
     // 在 body 里每次访问都会触发，正好卡在弹窗动画收尾那帧。
@@ -107,6 +108,9 @@ struct ChatScreen: View {
     @AppStorage("palmi.chat.external-reasoning-enabled") private var isExternalReasoningEnabled = true
 
     private let bottomAnchorID = "chat-bottom-anchor"
+    private let linkActionPopoverWidth: CGFloat = 286
+    private let linkActionPopoverVerticalGap: CGFloat = 10
+    private let linkActionPopoverScreenMargin: CGFloat = 12
 
     private struct ModelSelectionState {
         let plans: [ModelPlanSnapshot]
@@ -360,6 +364,23 @@ struct ChatScreen: View {
         return turns.last?.headerMessage?.sessionHeader?.startedAt
     }
 
+    private var activeProcessingPhraseKind: ProcessingPhraseKind {
+        guard store.isLoading,
+              let activeTurn = turns.last,
+              activeTurn.headerMessage?.id == store.activeTurnHeaderID else {
+            return .reasoning
+        }
+
+        let phaseMessages = activeTurn.messagesBeforeFinal + activeTurn.messagesAfterFinal
+        let latestToolCard = phaseMessages.reversed().compactMap(\.toolCall).first
+        if latestToolCard?.cardKind == .tool,
+           latestToolCard?.isRunning == true {
+            return .tool
+        }
+
+        return .reasoning
+    }
+
     private var messageBottomClearance: CGFloat {
         max(96, composerSectionHeight + 10)
     }
@@ -493,7 +514,10 @@ struct ChatScreen: View {
                         }
 
                         if let activeStartedAt {
-                            BottomStreamingIndicator(startedAt: activeStartedAt)
+                            BottomStreamingIndicator(
+                                startedAt: activeStartedAt,
+                                phraseKind: activeProcessingPhraseKind
+                            )
                                 .padding(.top, 4)
                         }
 
@@ -566,7 +590,8 @@ struct ChatScreen: View {
                 SessionHeaderStrip(
                     header: sessionHeader,
                     isCurrentTurn: store.activeTurnHeaderID == headerMessage.id,
-                    isCollapsed: isCollapsed
+                    isCollapsed: isCollapsed,
+                    showsTokenDetails: !isChatSurface
                 ) {
                     toggleTurnCollapse(turn.id)
                 }
@@ -1036,30 +1061,81 @@ struct ChatScreen: View {
         GeometryReader { proxy in
             if let request = pendingLinkAction {
                 let rootFrame = proxy.frame(in: .global)
-                let sourceRect = request.sourceRect ?? CGRect(
-                    x: rootFrame.midX,
-                    y: rootFrame.midY,
-                    width: 1,
-                    height: 1
+                let sourceRect = CGRect(
+                    x: request.sourceRect.minX - rootFrame.minX,
+                    y: request.sourceRect.minY - rootFrame.minY,
+                    width: request.sourceRect.width,
+                    height: request.sourceRect.height
                 )
-                let anchorWidth = min(max(sourceRect.width, 1), max(proxy.size.width, 1))
-                let anchorHeight = min(max(sourceRect.height, 1), max(proxy.size.height, 1))
-                let x = min(max(sourceRect.midX - rootFrame.minX, 8), max(proxy.size.width - 8, 8))
-                let y = min(max(sourceRect.midY - rootFrame.minY, 8), max(proxy.size.height - 8, 8))
+                let hasMeasuredSize = measuredLinkActionPopoverSize.width > 0 && measuredLinkActionPopoverSize.height > 0
+                let popoverSize = hasMeasuredSize
+                    ? measuredLinkActionPopoverSize
+                    : CGSize(width: linkActionPopoverWidth, height: 1)
+                let origin = linkActionPopoverOrigin(
+                    sourceRect: sourceRect,
+                    popoverSize: popoverSize,
+                    containerSize: proxy.size,
+                    safeAreaInsets: proxy.safeAreaInsets
+                )
 
-                Color.clear
-                    .frame(width: anchorWidth, height: anchorHeight)
-                    .position(x: x, y: y)
-                    .popover(
-                        item: $pendingLinkAction,
-                        attachmentAnchor: .rect(.bounds),
-                        arrowEdge: .top
-                    ) { request in
-                        linkActionPopover(for: request)
-                            .presentationCompactAdaptation(.popover)
+                ZStack(alignment: .topLeading) {
+                    Color.black.opacity(0.001)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            pendingLinkAction = nil
+                        }
+
+                    linkActionPopover(for: request)
+                        .frame(width: linkActionPopoverWidth)
+                        .background {
+                            LinkActionPopoverSizeReader()
+                        }
+                        .opacity(hasMeasuredSize ? 1 : 0)
+                        .position(
+                            x: origin.x + popoverSize.width / 2,
+                            y: origin.y + popoverSize.height / 2
+                        )
+                        .zIndex(10)
+                }
+                .onPreferenceChange(LinkActionPopoverSizePreferenceKey.self) { size in
+                    guard size.width > 0, size.height > 0 else { return }
+                    guard abs(size.width - measuredLinkActionPopoverSize.width) > 0.5 ||
+                          abs(size.height - measuredLinkActionPopoverSize.height) > 0.5 else {
+                        return
                     }
+                    measuredLinkActionPopoverSize = size
+                }
             }
         }
+        .allowsHitTesting(pendingLinkAction != nil)
+    }
+
+    private func linkActionPopoverOrigin(
+        sourceRect: CGRect,
+        popoverSize: CGSize,
+        containerSize: CGSize,
+        safeAreaInsets: EdgeInsets
+    ) -> CGPoint {
+        let margin = linkActionPopoverScreenMargin
+        let minX = safeAreaInsets.leading + margin
+        let maxX = max(
+            minX,
+            containerSize.width - safeAreaInsets.trailing - margin - popoverSize.width
+        )
+        let preferredX = sourceRect.midX - popoverSize.width / 2
+        let x = min(max(preferredX, minX), maxX)
+
+        let minY = safeAreaInsets.top + margin
+        let maxY = max(
+            minY,
+            containerSize.height - safeAreaInsets.bottom - composerSectionHeight - margin - popoverSize.height
+        )
+        let aboveY = sourceRect.minY - linkActionPopoverVerticalGap - popoverSize.height
+        let belowY = sourceRect.maxY + linkActionPopoverVerticalGap
+        let preferredY = aboveY >= minY ? aboveY : belowY
+        let y = min(max(preferredY, minY), maxY)
+
+        return CGPoint(x: x, y: y)
     }
 
     private func linkActionPopover(for request: LinkOpenRequest) -> some View {
@@ -1096,7 +1172,8 @@ struct ChatScreen: View {
             }
         }
         .padding(12)
-        .frame(width: 286)
+        .frame(width: linkActionPopoverWidth)
+        .chatGlassSurface(cornerRadius: 18)
     }
 
     private func linkActionButton(
@@ -2474,7 +2551,9 @@ struct ChatScreen: View {
     }
 
     private func toggleToolExpansion(_ messageID: UUID) {
-        withAnimation(.easeInOut(duration: 0.16)) {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
             if expandedToolMessageIDs.contains(messageID) {
                 expandedToolMessageIDs.remove(messageID)
             } else {
@@ -2547,11 +2626,17 @@ struct ChatScreen: View {
 
     private func handleSelectableLinkInteraction(_ interaction: SelectableLinkInteraction) {
         if shouldPresentLinkActionMenu(for: interaction.url) {
+            guard let sourceRect = interaction.sourceRect else {
+                assertionFailure("Selectable link action requires a sourceRect.")
+                return
+            }
+
             dismissTransientUI()
+            measuredLinkActionPopoverSize = .zero
             pendingLinkAction = LinkOpenRequest(
                 url: interaction.url,
                 title: interaction.title,
-                sourceRect: interaction.sourceRect
+                sourceRect: sourceRect
             )
         } else {
             _ = handleOpenURL(interaction.url)
@@ -3057,6 +3142,7 @@ private struct SessionHeaderStrip: View {
     let header: PalmiChatSessionHeader
     let isCurrentTurn: Bool
     let isCollapsed: Bool
+    let showsTokenDetails: Bool
     let onToggle: () -> Void
 
     var body: some View {
@@ -3103,7 +3189,7 @@ private struct SessionHeaderStrip: View {
                     .fill(Color.black.opacity(0.08))
                     .frame(height: 1)
 
-                if !isCollapsed {
+                if showsTokenDetails && !isCollapsed {
                     tokenDetails
                 }
             }
@@ -3123,7 +3209,7 @@ private struct SessionHeaderStrip: View {
     private var tokenDetails: some View {
         VStack(alignment: .leading, spacing: 6) {
             if let usage = header.tokenUsage {
-                tokenDetailRow("输入", usage.inputTokens)
+                tokenDetailRow("未命中输入", usage.inputTokens)
                 tokenDetailRow("输出", usage.outputTokens)
                 if let cached = usage.cachedInputTokens {
                     tokenDetailRow("缓存命中", cached)
@@ -3171,27 +3257,133 @@ private struct SessionHeaderStrip: View {
     }
 }
 
+private enum ProcessingPhraseKind: Hashable {
+    case tool
+    case reasoning
+}
+
+private struct ProcessingPhraseTaskKey: Hashable {
+    let startedAt: Date
+    let phraseKind: ProcessingPhraseKind
+}
+
+private enum ProcessingPhraseDeck {
+    static let toolPhrases: [String] = [
+        "工具是Palmi进步的阶梯",
+        "工具到用时方恨少",
+        "🤓🔍📖",
+        "工具输出三千词，疑是银河落九天",
+        "工欲善其事，Palmi先利其器",
+        "正在翻工具箱",
+        "检索齿轮咔哒作响",
+        "让工具跑一会儿",
+        "证据在路上",
+        "工具链正在发光"
+    ]
+
+    static let reasoningPhrases: [String] = [
+        "苦思冥想",
+        "嗯......",
+        "真在思考",
+        "词元跳动 & Palmi蠕动",
+        "🤔🤔🤔",
+        "🔥🧠",
+        "脑内小剧场开演",
+        "正在把想法揉成形",
+        "灵感正在排队",
+        "Palmi正在盘逻辑",
+        "让神经元飞一会儿"
+    ]
+
+    static func randomPhrase(for kind: ProcessingPhraseKind, excluding current: String?) -> String {
+        let deck: [String]
+        switch kind {
+        case .tool:
+            deck = toolPhrases
+        case .reasoning:
+            deck = reasoningPhrases
+        }
+
+        guard deck.count > 1 else {
+            return deck.first ?? ""
+        }
+
+        var candidate = deck.randomElement() ?? deck[0]
+        while candidate == current {
+            candidate = deck.randomElement() ?? deck[0]
+        }
+        return candidate
+    }
+}
+
 private struct BottomStreamingIndicator: View {
     let startedAt: Date
+    let phraseKind: ProcessingPhraseKind
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private static let textRefreshInterval: TimeInterval = 1
+    var body: some View {
+        HStack(spacing: 10) {
+            PalmiProcessingSpriteView(reduceMotion: reduceMotion)
+                .frame(
+                    width: palmiProcessingSpriteDisplaySize,
+                    height: palmiProcessingSpriteDisplaySize
+                )
+
+            ProcessingPhraseText(
+                startedAt: startedAt,
+                phraseKind: phraseKind
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct ProcessingPhraseText: View {
+    let startedAt: Date
+    let phraseKind: ProcessingPhraseKind
+
+    @State private var phrase: String = ""
+    @State private var referenceDate = Date()
+
+    private var taskKey: ProcessingPhraseTaskKey {
+        ProcessingPhraseTaskKey(startedAt: startedAt, phraseKind: phraseKind)
+    }
 
     var body: some View {
-        TimelineView(.periodic(from: startedAt, by: Self.textRefreshInterval)) { context in
-            HStack(spacing: 10) {
-                PalmiProcessingSpriteView(reduceMotion: reduceMotion)
-                    .frame(
-                        width: palmiProcessingSpriteDisplaySize,
-                        height: palmiProcessingSpriteDisplaySize
-                    )
-
-                Text("正在处理 \(elapsedText(to: context.date))")
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(.secondary)
+        Text("\(displayPhrase) \(elapsedText(to: referenceDate))")
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(.secondary)
+            .task(id: taskKey) {
+                await runPhraseLoop()
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var displayPhrase: String {
+        phrase.isEmpty
+            ? ProcessingPhraseDeck.randomPhrase(for: phraseKind, excluding: nil)
+            : phrase
+    }
+
+    private func runPhraseLoop() async {
+        var currentPhrase = ProcessingPhraseDeck.randomPhrase(
+            for: phraseKind,
+            excluding: nil
+        )
+        phrase = currentPhrase
+        referenceDate = Date()
+
+        while !Task.isCancelled {
+            let delay = UInt64.random(in: 1_000_000_000...2_000_000_000)
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled else { return }
+
+            currentPhrase = ProcessingPhraseDeck.randomPhrase(
+                for: phraseKind,
+                excluding: currentPhrase
+            )
+            phrase = currentPhrase
+            referenceDate = Date()
         }
     }
 
@@ -3706,6 +3898,7 @@ private struct ToolCallCard: View {
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.secondary.opacity(0.8))
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .animation(.easeInOut(duration: 0.16), value: isExpanded)
 
                     Text(summary)
                         .font(.caption)
@@ -3727,6 +3920,10 @@ private struct ToolCallCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, 16)
                     .padding(.top, 2)
+                    .transaction { transaction in
+                        transaction.animation = nil
+                        transaction.disablesAnimations = true
+                    }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -3791,6 +3988,7 @@ private struct ToolCallCard: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .animation(.easeInOut(duration: 0.16), value: isExpanded)
                 }
                 .contentShape(Rectangle())
             }
@@ -3832,6 +4030,10 @@ private struct ToolCallCard: View {
                             renderMarkdown: shouldRenderToolDetailsAsMarkdown(toolCall.details)
                         )
                     }
+                }
+                .transaction { transaction in
+                    transaction.animation = nil
+                    transaction.disablesAnimations = true
                 }
             }
         }
@@ -4026,6 +4228,27 @@ private struct ChatComposerSectionHeightPreferenceKey: PreferenceKey {
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
+    }
+}
+
+private struct LinkActionPopoverSizePreferenceKey: PreferenceKey {
+    static var defaultValue: CGSize = .zero
+
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        let next = nextValue()
+        guard next.width > 0, next.height > 0 else { return }
+        value = next
+    }
+}
+
+private struct LinkActionPopoverSizeReader: View {
+    var body: some View {
+        GeometryReader { proxy in
+            Color.clear.preference(
+                key: LinkActionPopoverSizePreferenceKey.self,
+                value: proxy.size
+            )
+        }
     }
 }
 

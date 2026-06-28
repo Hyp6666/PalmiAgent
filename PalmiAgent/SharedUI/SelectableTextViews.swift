@@ -13,6 +13,7 @@ enum SelectableTextWidthBehavior {
 struct SelectableLinkInteraction {
     let url: URL
     let title: String?
+    // window/global coordinate rect for the tapped link. ChatScreen converts it into chat-root coordinates.
     let sourceRect: CGRect?
 }
 
