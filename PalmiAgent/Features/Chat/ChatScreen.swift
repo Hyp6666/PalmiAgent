@@ -12,6 +12,7 @@ private let chatCanvasBottomColor = Color(red: 0.965, green: 0.967, blue: 0.972)
 
 // 大框底排控制元素（加号圆、极致药丸、模式芯片圆、上下文轮、发送圆）统一的高度/直径。
 private let composerControlSize: CGFloat = 40
+private let palmiProcessingSpriteDisplaySize: CGFloat = 39
 
 private enum QuickConfigurationSheetCoordinateSpace {
     static let name = "quickConfigurationSheet"
@@ -593,6 +594,9 @@ struct ChatScreen: View {
                     turnMessageView(message)
                 }
                 assistantMarkdown(for: finalMessage)
+                if store.activeStreamingMessageIDValue != finalMessage.id {
+                    finalAnswerCompletionRow(for: turn, finalMessage: finalMessage)
+                }
             }
 
             ForEach(Array(visibleAfterFinalMessages.enumerated()), id: \.element.id) { index, message in
@@ -725,6 +729,241 @@ struct ChatScreen: View {
 
         assistantBody(for: source)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func finalAnswerCompletionRow(
+        for turn: ChatTurn,
+        finalMessage: PalmiChatMessage
+    ) -> some View {
+        HStack(spacing: 10) {
+            PalmiProcessingSpriteView(reduceMotion: true)
+                .frame(
+                    width: palmiProcessingSpriteDisplaySize,
+                    height: palmiProcessingSpriteDisplaySize
+                )
+
+            Text("已完成")
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.secondary)
+
+            Spacer(minLength: 8)
+
+            Menu {
+                Button {
+                    copyAnswer(turn: turn, finalMessage: finalMessage, fullTurn: false, markdown: false)
+                } label: {
+                    Label("总结为文字", systemImage: "doc.on.doc")
+                }
+                Button {
+                    copyAnswer(turn: turn, finalMessage: finalMessage, fullTurn: false, markdown: true)
+                } label: {
+                    Label("总结为Markdown", systemImage: "doc.on.doc")
+                }
+                Button {
+                    copyAnswer(turn: turn, finalMessage: finalMessage, fullTurn: true, markdown: false)
+                } label: {
+                    Label("全部为文字", systemImage: "doc.on.doc")
+                }
+                Button {
+                    copyAnswer(turn: turn, finalMessage: finalMessage, fullTurn: true, markdown: true)
+                } label: {
+                    Label("全部为Markdown", systemImage: "doc.on.doc")
+                }
+            } label: {
+                finalAnswerMenuIcon(systemImage: "doc.on.doc")
+            }
+            .buttonStyle(.plain)
+            .menuOrder(.fixed)
+            .accessibilityLabel("复制回答")
+
+            Menu {
+                Button {
+                    shareAnswer(turn: turn, finalMessage: finalMessage, fullTurn: false, markdown: false)
+                } label: {
+                    Label("总结为txt", systemImage: "square.and.arrow.up")
+                }
+                Button {
+                    shareAnswer(turn: turn, finalMessage: finalMessage, fullTurn: false, markdown: true)
+                } label: {
+                    Label("总结为Markdown", systemImage: "square.and.arrow.up")
+                }
+                Button {
+                    shareAnswer(turn: turn, finalMessage: finalMessage, fullTurn: true, markdown: false)
+                } label: {
+                    Label("全部为txt", systemImage: "square.and.arrow.up")
+                }
+                Button {
+                    shareAnswer(turn: turn, finalMessage: finalMessage, fullTurn: true, markdown: true)
+                } label: {
+                    Label("全部为Markdown", systemImage: "square.and.arrow.up")
+                }
+            } label: {
+                finalAnswerMenuIcon(systemImage: "square.and.arrow.up")
+            }
+            .buttonStyle(.plain)
+            .menuOrder(.fixed)
+            .accessibilityLabel("分享回答")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func finalAnswerMenuIcon(systemImage: String) -> some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(Color(uiColor: .systemBlue))
+            .frame(width: 32, height: 32)
+            .background(Circle().fill(Color.white.opacity(0.86)))
+            .glassEffect(.regular.interactive(), in: Circle())
+            .overlay {
+                Circle()
+                    .stroke(Color(uiColor: .systemBlue).opacity(0.18), lineWidth: 1)
+            }
+            .contentShape(Circle())
+    }
+
+    private func copyAnswer(
+        turn: ChatTurn,
+        finalMessage: PalmiChatMessage,
+        fullTurn: Bool,
+        markdown: Bool
+    ) {
+        UIPasteboard.general.string = exportedAnswerText(
+            turn: turn,
+            finalMessage: finalMessage,
+            fullTurn: fullTurn,
+            markdown: markdown
+        )
+    }
+
+    private func shareAnswer(
+        turn: ChatTurn,
+        finalMessage: PalmiChatMessage,
+        fullTurn: Bool,
+        markdown: Bool
+    ) {
+        do {
+            let url = try writeTemporaryAnswerFile(
+                exportedAnswerText(
+                    turn: turn,
+                    finalMessage: finalMessage,
+                    fullTurn: fullTurn,
+                    markdown: markdown
+                ),
+                fullTurn: fullTurn,
+                markdown: markdown
+            )
+            linkSharePayload = SharePayload(url: url)
+        } catch {
+            assertionFailure("Failed to prepare answer share file: \(error)")
+        }
+    }
+
+    private func exportedAnswerText(
+        turn: ChatTurn,
+        finalMessage: PalmiChatMessage,
+        fullTurn: Bool,
+        markdown: Bool
+    ) -> String {
+        let markdownText = fullTurn
+            ? Self.completeTurnMarkdown(for: turn, finalMessage: finalMessage)
+            : finalMessage.content.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return markdown
+            ? markdownText
+            : Self.plainText(fromMarkdown: markdownText)
+    }
+
+    private func writeTemporaryAnswerFile(
+        _ content: String,
+        fullTurn: Bool,
+        markdown: Bool
+    ) throws -> URL {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("palmi-answer-share", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
+
+        let scope = fullTurn ? "complete-phase" : "final-phase"
+        let fileExtension = markdown ? "md" : "txt"
+        let url = directory
+            .appendingPathComponent("palmi-\(scope)-\(UUID().uuidString)")
+            .appendingPathExtension(fileExtension)
+        try content.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    private static func completeTurnMarkdown(
+        for turn: ChatTurn,
+        finalMessage: PalmiChatMessage
+    ) -> String {
+        (turn.messagesBeforeFinal + [finalMessage] + turn.messagesAfterFinal)
+            .compactMap { message in
+                Self.exportableMarkdown(for: message)
+            }
+            .joined(separator: "\n\n")
+    }
+
+    private static func exportableMarkdown(for message: PalmiChatMessage) -> String? {
+        guard message.role == .agent else { return nil }
+
+        switch message.kind {
+        case .normal, .summary:
+            return nonEmptyTrimmed(message.content)
+        case .toolCall:
+            guard let toolCall = message.toolCall else {
+                return nonEmptyTrimmed(message.content)
+            }
+            return exportableMarkdown(for: toolCall)
+        case .contextCompaction, .sessionHeader:
+            return nil
+        }
+    }
+
+    private static func exportableMarkdown(for toolCall: PalmiToolCallCard) -> String? {
+        var parts: [String] = []
+        if let title = nonEmptyTrimmed(toolCall.toolTitle) {
+            parts.append("### \(title)")
+        }
+        if let summary = nonEmptyTrimmed(toolCall.summary) {
+            parts.append(summary)
+        }
+        if let details = nonEmptyTrimmed(toolCall.details) {
+            parts.append(details)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+    }
+
+    private static func nonEmptyTrimmed(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func plainText(fromMarkdown markdown: String) -> String {
+        var text = markdown.replacingOccurrences(of: "\r\n", with: "\n")
+        text = replacingRegex(in: text, pattern: #"!\[([^\]]*)\]\([^)]+\)"#, with: "$1")
+        text = replacingRegex(in: text, pattern: #"\[([^\]]+)\]\(([^)]+)\)"#, with: "$1 ($2)")
+        text = replacingRegex(in: text, pattern: #"(?m)^\s{0,3}#{1,6}\s*"#, with: "")
+        text = replacingRegex(in: text, pattern: #"(?m)^\s{0,3}>\s?"#, with: "")
+        text = replacingRegex(in: text, pattern: #"(?m)^```.*$"#, with: "")
+        text = replacingRegex(in: text, pattern: #"[*_~`]"#, with: "")
+        text = replacingRegex(in: text, pattern: #"\n{3,}"#, with: "\n\n")
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func replacingRegex(
+        in text: String,
+        pattern: String,
+        with replacement: String
+    ) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return text
+        }
+
+        return regex.stringByReplacingMatches(
+            in: text,
+            range: NSRange(text.startIndex..., in: text),
+            withTemplate: replacement
+        )
     }
 
     private var composerSection: some View {
@@ -2943,7 +3182,10 @@ private struct BottomStreamingIndicator: View {
         TimelineView(.periodic(from: startedAt, by: Self.textRefreshInterval)) { context in
             HStack(spacing: 10) {
                 PalmiProcessingSpriteView(reduceMotion: reduceMotion)
-                    .frame(width: 39, height: 39)
+                    .frame(
+                        width: palmiProcessingSpriteDisplaySize,
+                        height: palmiProcessingSpriteDisplaySize
+                    )
 
                 Text("正在处理 \(elapsedText(to: context.date))")
                     .font(.footnote.weight(.medium))
