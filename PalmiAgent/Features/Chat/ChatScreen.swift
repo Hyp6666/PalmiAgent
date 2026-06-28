@@ -767,7 +767,7 @@ struct ChatScreen: View {
                     height: palmiProcessingSpriteDisplaySize
                 )
 
-            Text("已完成")
+            Text("完成——AI生成，仅供参考")
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(.secondary)
 
@@ -3271,14 +3271,10 @@ private enum ProcessingPhraseDeck {
     static let toolPhrases: [String] = [
         "工具是Palmi进步的阶梯",
         "工具到用时方恨少",
-        "🤓🔍📖",
+        "🔍📖",
         "工具输出三千词，疑是银河落九天",
         "工欲善其事，Palmi先利其器",
-        "正在翻工具箱",
-        "检索齿轮咔哒作响",
         "让工具跑一会儿",
-        "证据在路上",
-        "工具链正在发光"
     ]
 
     static let reasoningPhrases: [String] = [
@@ -3288,12 +3284,19 @@ private enum ProcessingPhraseDeck {
         "词元跳动 & Palmi蠕动",
         "🤔🤔🤔",
         "🔥🧠",
-        "脑内小剧场开演",
         "正在把想法揉成形",
-        "灵感正在排队",
-        "Palmi正在盘逻辑",
-        "让神经元飞一会儿"
+        "灵感涌动中",
+        "颅内风暴"
     ]
+
+    static func initialPhrase(for kind: ProcessingPhraseKind) -> String {
+        switch kind {
+        case .tool:
+            return toolPhrases.first ?? ""
+        case .reasoning:
+            return reasoningPhrases.first ?? ""
+        }
+    }
 
     static func randomPhrase(for kind: ProcessingPhraseKind, excluding current: String?) -> String {
         let deck: [String]
@@ -3343,17 +3346,34 @@ private struct ProcessingPhraseText: View {
     let startedAt: Date
     let phraseKind: ProcessingPhraseKind
 
+    var body: some View {
+        HStack(spacing: 4) {
+            ProcessingPhraseLabel(
+                startedAt: startedAt,
+                phraseKind: phraseKind
+            )
+
+            ProcessingElapsedText(startedAt: startedAt)
+        }
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(.secondary)
+    }
+}
+
+private struct ProcessingPhraseLabel: View {
+    let startedAt: Date
+    let phraseKind: ProcessingPhraseKind
+
     @State private var phrase: String = ""
-    @State private var referenceDate = Date()
 
     private var taskKey: ProcessingPhraseTaskKey {
         ProcessingPhraseTaskKey(startedAt: startedAt, phraseKind: phraseKind)
     }
 
     var body: some View {
-        Text("\(displayPhrase) \(elapsedText(to: referenceDate))")
-            .font(.footnote.weight(.medium))
-            .foregroundStyle(.secondary)
+        Text(displayPhrase)
+            .lineLimit(1)
+            .truncationMode(.tail)
             .task(id: taskKey) {
                 await runPhraseLoop()
             }
@@ -3361,20 +3381,16 @@ private struct ProcessingPhraseText: View {
 
     private var displayPhrase: String {
         phrase.isEmpty
-            ? ProcessingPhraseDeck.randomPhrase(for: phraseKind, excluding: nil)
+            ? ProcessingPhraseDeck.initialPhrase(for: phraseKind)
             : phrase
     }
 
     private func runPhraseLoop() async {
-        var currentPhrase = ProcessingPhraseDeck.randomPhrase(
-            for: phraseKind,
-            excluding: nil
-        )
+        var currentPhrase = ProcessingPhraseDeck.randomPhrase(for: phraseKind, excluding: nil)
         phrase = currentPhrase
-        referenceDate = Date()
 
         while !Task.isCancelled {
-            let delay = UInt64.random(in: 1_000_000_000...2_000_000_000)
+            let delay = UInt64.random(in: 5_000_000_000...10_000_000_000)
             try? await Task.sleep(nanoseconds: delay)
             guard !Task.isCancelled else { return }
 
@@ -3383,7 +3399,18 @@ private struct ProcessingPhraseText: View {
                 excluding: currentPhrase
             )
             phrase = currentPhrase
-            referenceDate = Date()
+        }
+    }
+}
+
+private struct ProcessingElapsedText: View {
+    let startedAt: Date
+
+    var body: some View {
+        TimelineView(.periodic(from: startedAt, by: 1)) { context in
+            Text(elapsedText(to: context.date))
+                .monospacedDigit()
+                .fixedSize(horizontal: true, vertical: false)
         }
     }
 

@@ -131,12 +131,13 @@ struct ContextAssembler {
                     )
                 }
                 let content = message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
+                // 原样回放 native reasoning：缓存前缀需与服务端返回逐字一致；是否真正进入上下文由 preparedMessages 按 provider 标志决定。
                 apiMessages.append(
                     .assistant(
                         content.isEmpty ? nil : content,
                         toolCalls: toolCalls.isEmpty ? nil : toolCalls,
-                        reasoningContent: nil,
-                        reasoningDetails: nil
+                        reasoningContent: message.nativeReasoning?.reasoningContent,
+                        reasoningDetails: message.nativeReasoning?.reasoningDetails
                     )
                 )
 
@@ -184,12 +185,13 @@ struct ContextAssembler {
                 )
             }
             let content = agentMessage.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
+            // 原样回放 native reasoning：缓存前缀需与服务端返回逐字一致；是否真正进入上下文由 preparedMessages 按 provider 标志决定。
             return [
                 .assistant(
                     content.isEmpty ? nil : content,
                     toolCalls: toolCalls.isEmpty ? nil : toolCalls,
-                    reasoningContent: nil,
-                    reasoningDetails: nil
+                    reasoningContent: agentMessage.nativeReasoning?.reasoningContent,
+                    reasoningDetails: agentMessage.nativeReasoning?.reasoningDetails
                 )
             ]
         case .tool:
