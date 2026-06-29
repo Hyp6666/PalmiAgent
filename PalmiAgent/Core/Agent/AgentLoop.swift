@@ -432,7 +432,7 @@ final class AgentLoop {
             )
 
             let actionToolDefinitions = LLMToolDefinitionBuilder.makeToolDefinitions(for: actions)
-            var exposesTaskStateTool = surface == .chat ? false : taskToolExposurePolicy.shouldExpose(
+            let exposesTaskStateTool = taskToolExposurePolicy.shouldExpose(
                 userInput: trimmedInput,
                 session: session,
                 surface: surface
@@ -794,9 +794,6 @@ final class AgentLoop {
                                 snapshot: session.taskStateSnapshot
                             )
                             session.taskStateSnapshot = update.snapshot
-                            if update.isError {
-                                exposesTaskStateTool = false
-                            }
                             session.append(
                                 .toolResult(
                                     toolUseID: toolUse.id,
@@ -1006,6 +1003,13 @@ final class AgentLoop {
                     )
                     let activeProjectID = try? workspaceManager.currentSelection().projectID
                     let activeSkills = skillRegistry.enabledSkills(for: activeProjectID)
+                    var summaryToolDefinitions = actionToolDefinitions
+                    if phaseThoughtEnabled {
+                        summaryToolDefinitions.append(phaseThoughtToolDefinition())
+                    }
+                    if exposesTaskStateTool {
+                        summaryToolDefinitions.append(TaskStateToolDefinitionFactory.makeToolDefinition())
+                    }
                     if surface == .professional {
                         _ = await maybeCompactContext(
                             providerID: providerID,
@@ -1028,7 +1032,7 @@ final class AgentLoop {
                             skills: activeSkills,
                             session: session,
                             actions: actions,
-                            exposesTools: false,
+                            exposesTools: !summaryToolDefinitions.isEmpty,
                             exposesPhaseThought: phaseThoughtEnabled,
                             surface: surface
                         )
@@ -1046,6 +1050,8 @@ final class AgentLoop {
                                     configurationOverride: modelOverrides.override(for: turnRequestRole)
                                 ),
                                 apiMessages: assembledContext.apiMessages,
+                                tools: summaryToolDefinitions,
+                                toolIntent: .none,
                                 onDelta: { text in
                                     self.emit(.streamingDelta(text: text))
                                 },

@@ -6,44 +6,9 @@ struct TaskToolExposurePolicy {
         session: AgentSession,
         surface: WorkspaceProjectSurface
     ) -> Bool {
-        if session.taskStateSnapshot?.activeState != nil {
-            return true
-        }
-
-        let normalizedInput = userInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedInput.isEmpty else { return false }
-
-        if containsExplicitTaskIntent(normalizedInput) {
-            return true
-        }
-
-        if normalizedInput.contains("附件：") && containsComplexVerb(normalizedInput) {
-            return true
-        }
-
-        switch surface {
-        case .professional:
-            return normalizedInput.count >= 16 && containsComplexVerb(normalizedInput)
-        case .chat:
-            return false
-        }
-    }
-
-    private func containsExplicitTaskIntent(_ input: String) -> Bool {
-        let keywords = [
-            "计划", "任务", "todo", "to-do", "待办", "目标", "深度研究", "deep research",
-            "分步骤", "分阶段", "拆解", "规划", "执行清单"
-        ]
-        let lowercased = input.lowercased()
-        return keywords.contains { lowercased.contains($0.lowercased()) }
-    }
-
-    private func containsComplexVerb(_ input: String) -> Bool {
-        let verbs = [
-            "实现", "修改", "排查", "调研", "整理", "生成", "迁移", "重构", "验证",
-            "接入", "修复", "分析", "设计", "落地", "优化", "对比", "总结", "构建"
-        ]
-        return verbs.contains { input.contains($0) }
+        _ = userInput
+        _ = session
+        return surface == .professional
     }
 }
 

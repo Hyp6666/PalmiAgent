@@ -174,7 +174,13 @@ final class LLMAPIClient: AgentModelRuntime {
             OpenAICompatibleChatAdapter.headers(for: runtimeProfile, acceptsStreaming: false),
             to: &request
         )
-        request.httpBody = try JSONEncoder().encode(requestBody)
+        let requestData = try encodeRequestBody(requestBody)
+        request.httpBody = requestData
+        debugLogPromptCacheFingerprint(
+            requestBody: requestBody,
+            requestData: requestData,
+            runtimeProfile: runtimeProfile
+        )
 
         let transportResponse: LLMHTTPResponse
         do {
@@ -309,7 +315,13 @@ final class LLMAPIClient: AgentModelRuntime {
             OpenAICompatibleChatAdapter.headers(for: runtimeProfile, acceptsStreaming: true),
             to: &request
         )
-        request.httpBody = try JSONEncoder().encode(requestBody)
+        let requestData = try encodeRequestBody(requestBody)
+        request.httpBody = requestData
+        debugLogPromptCacheFingerprint(
+            requestBody: requestBody,
+            requestData: requestData,
+            runtimeProfile: runtimeProfile
+        )
 
         let promptEstimate = approximatePromptTokenCount(for: requestMessages)
         onTokenEstimate?(promptEstimate)
@@ -460,7 +472,13 @@ final class LLMAPIClient: AgentModelRuntime {
             OpenAICompatibleChatAdapter.headers(for: resolvedRuntimeProfile, acceptsStreaming: true),
             to: &request
         )
-        request.httpBody = try JSONEncoder().encode(requestBody)
+        let requestData = try encodeRequestBody(requestBody)
+        request.httpBody = requestData
+        debugLogPromptCacheFingerprint(
+            requestBody: requestBody,
+            requestData: requestData,
+            runtimeProfile: resolvedRuntimeProfile
+        )
 
         let promptEstimate = approximatePromptTokenCount(for: requestMessages)
         onTokenEstimate?(promptEstimate)
@@ -937,6 +955,65 @@ final class LLMAPIClient: AgentModelRuntime {
             return "\(provider.title) 调用失败：网络请求异常。\n\(urlError.localizedDescription)"
         }
     }
+
+    // 无语义稳定化：固定 key 顺序，避免 tools / JSON schema 的 dictionary 迭代序在请求间漂移而打断 provider 的前缀缓存。
+    private func encodeRequestBody(_ requestBody: OpenAIChatCompletionRequest) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try encoder.encode(requestBody)
+    }
+
+#if DEBUG
+    // 仅打印结构指纹（计数 + hash + 字节数），绝不输出 messages 正文、system 原文、tool schema 原文、API key、URL 或任何用户输入。
+    private func debugLogPromptCacheFingerprint(
+        requestBody: OpenAIChatCompletionRequest,
+        requestData: Data,
+        runtimeProfile: LLMProviderRuntimeProfile
+    ) {
+        let toolsData: Data
+        if let tools = requestBody.tools {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            toolsData = (try? encoder.encode(tools)) ?? Data()
+        } else {
+            toolsData = Data()
+        }
+
+        let systemText = requestBody.messages.first(where: { $0.role == "system" })?.content ?? ""
+        let systemHash = fnv1a64Hex(systemText)
+        let toolsHash = fnv1a64Hex(toolsData)
+        let bodyHash = fnv1a64Hex(requestData)
+        let toolCount = requestBody.tools?.count ?? 0
+        let messageCount = requestBody.messages.count
+
+        print(
+            "[PalmiPromptCache] provider=\(runtimeProfile.providerID.rawValue) model=\(runtimeProfile.model.id) messages=\(messageCount) tools=\(toolCount) systemHash=\(systemHash) toolsHash=\(toolsHash) bodyHash=\(bodyHash) bytes=\(requestData.count)"
+        )
+    }
+
+    private func fnv1a64Hex(_ text: String) -> String {
+        fnv1a64Hex(Data(text.utf8))
+    }
+
+    private func fnv1a64Hex(_ data: Data) -> String {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in data {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        return String(format: "%016llx", hash)
+    }
+#else
+    private func debugLogPromptCacheFingerprint(
+        requestBody: OpenAIChatCompletionRequest,
+        requestData: Data,
+        runtimeProfile: LLMProviderRuntimeProfile
+    ) {
+        _ = requestBody
+        _ = requestData
+        _ = runtimeProfile
+    }
+#endif
 
     private func applyHeaders(_ headers: [String: String], to request: inout URLRequest) {
         for (field, value) in headers {
