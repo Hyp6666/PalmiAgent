@@ -82,6 +82,7 @@ struct ChatScreen: View {
     @State private var expandedToolMessageIDs: Set<UUID> = []
     @State private var collapsedTurnIDs: Set<UUID> = []
     @State private var pendingAutoCollapseTurnID: UUID?
+    @State private var copiedAnswerMessageIDs: Set<UUID> = []
     @State private var isShowingContextInfo = false
     @State private var previewedWorkspaceFile: WorkspacePreviewFile?
     @State private var previewedAttachmentFiles: WorkspaceFileCarouselPresentation?
@@ -169,6 +170,17 @@ struct ChatScreen: View {
 
     private var isChatSurface: Bool {
         shellMode == .chat
+    }
+
+    private func shouldHideCompletedChatDetails(for turn: ChatTurn) -> Bool {
+        guard isChatSurface,
+              turn.finalMessage != nil,
+              let header = turn.headerMessage?.sessionHeader,
+              header.finishedAt != nil else {
+            return false
+        }
+
+        return true
     }
 
     private var activeProviderID: APIProviderID {
@@ -355,15 +367,6 @@ struct ChatScreen: View {
         .spring(response: 0.30, dampingFraction: 1.0, blendDuration: 0)
     }
 
-    private var activeStartedAt: Date? {
-        guard store.isLoading,
-              turns.last?.headerMessage?.id == store.activeTurnHeaderID,
-              turns.last?.headerMessage?.sessionHeader?.finishedAt == nil else {
-            return nil
-        }
-        return turns.last?.headerMessage?.sessionHeader?.startedAt
-    }
-
     private var activeProcessingPhraseKind: ProcessingPhraseKind {
         guard store.isLoading,
               let activeTurn = turns.last,
@@ -513,14 +516,6 @@ struct ChatScreen: View {
                                 .id(turn.id)
                         }
 
-                        if let activeStartedAt {
-                            BottomStreamingIndicator(
-                                startedAt: activeStartedAt,
-                                phraseKind: activeProcessingPhraseKind
-                            )
-                                .padding(.top, 4)
-                        }
-
                         Color.clear
                             .frame(height: messageBottomClearance)
                             .id(bottomAnchorID)
@@ -541,16 +536,15 @@ struct ChatScreen: View {
                 .onChange(of: store.messages.count) {
                     if store.isLoading {
                         pendingAutoCollapseTurnID = store.activeTurnHeaderID ?? pendingAutoCollapseTurnID
-                    } else if isMessageAutoFollowEnabled {
-                        collapsePendingCompletedTurn()
                     }
+                    collapsePendingCompletedTurn()
                     scrollToBottomIfFollowing(proxy)
                 }
                 .onChange(of: store.isLoading) {
                     if store.isLoading {
                         pendingAutoCollapseTurnID = store.activeTurnHeaderID ?? turns.last?.id
-                    } else if isMessageAutoFollowEnabled {
-                        collapsePendingCompletedTurn()
+                    } else {
+                        collapsePendingCompletedTurn(allowLatestCompletedFallback: true)
                     }
                     scrollToBottomIfFollowing(proxy)
                 }
@@ -566,14 +560,19 @@ struct ChatScreen: View {
 
     @ViewBuilder
     private func turnView(_ turn: ChatTurn) -> some View {
+        let hidesCompletedChatDetails = shouldHideCompletedChatDetails(for: turn)
         let isCollapsed = turn.headerMessage != nil && collapsedTurnIDs.contains(turn.id)
-        let visibleBeforeFinalMessages = turn.messagesBeforeFinal.filter {
-            !isCollapsed || $0.foldBehavior == .alwaysVisible
-        }
-        let visibleAfterFinalMessages = turn.messagesAfterFinal.filter {
-            !isCollapsed || $0.foldBehavior == .alwaysVisible
-        }
-        let finalThoughtMessages = turn.finalMessage == nil
+        let visibleBeforeFinalMessages = hidesCompletedChatDetails
+            ? []
+            : turn.messagesBeforeFinal.filter {
+                !isCollapsed || $0.foldBehavior == .alwaysVisible
+            }
+        let visibleAfterFinalMessages = hidesCompletedChatDetails
+            ? []
+            : turn.messagesAfterFinal.filter {
+                !isCollapsed || $0.foldBehavior == .alwaysVisible
+            }
+        let finalThoughtMessages = hidesCompletedChatDetails || turn.finalMessage == nil
             ? []
             : Self.trailingThoughtMessages(in: visibleBeforeFinalMessages)
         let visibleBeforeFinalPhaseMessages = Array(
@@ -585,13 +584,18 @@ struct ChatScreen: View {
                 userBubble(userMessage)
             }
 
-            if let headerMessage = turn.headerMessage,
-               let sessionHeader = headerMessage.sessionHeader {
+            if hidesCompletedChatDetails,
+               let sessionHeader = turn.headerMessage?.sessionHeader {
+                CompletedTurnStatusRow(header: sessionHeader)
+            } else if let headerMessage = turn.headerMessage,
+                      let sessionHeader = headerMessage.sessionHeader {
                 SessionHeaderStrip(
                     header: sessionHeader,
                     isCurrentTurn: store.activeTurnHeaderID == headerMessage.id,
                     isCollapsed: isCollapsed,
-                    showsTokenDetails: !isChatSurface
+                    showsTokenDetails: !isChatSurface,
+                    showsDivider: !isChatSurface,
+                    processingPhraseKind: activeProcessingPhraseKind
                 ) {
                     toggleTurnCollapse(turn.id)
                 }
@@ -760,73 +764,25 @@ struct ChatScreen: View {
         for turn: ChatTurn,
         finalMessage: PalmiChatMessage
     ) -> some View {
-        HStack(spacing: 10) {
-            PalmiProcessingSpriteView(reduceMotion: true)
-                .frame(
-                    width: palmiProcessingSpriteDisplaySize,
-                    height: palmiProcessingSpriteDisplaySize
-                )
+        let isCopied = copiedAnswerMessageIDs.contains(finalMessage.id)
 
-            Text("完成——AI生成，仅供参考")
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(.secondary)
-
-            Spacer(minLength: 8)
-
-            Menu {
-                Button {
-                    copyAnswer(turn: turn, finalMessage: finalMessage, fullTurn: false, markdown: false)
-                } label: {
-                    Label("总结为文字", systemImage: "doc.on.doc")
-                }
-                Button {
-                    copyAnswer(turn: turn, finalMessage: finalMessage, fullTurn: false, markdown: true)
-                } label: {
-                    Label("总结为Markdown", systemImage: "doc.on.doc")
-                }
-                Button {
-                    copyAnswer(turn: turn, finalMessage: finalMessage, fullTurn: true, markdown: false)
-                } label: {
-                    Label("全部为文字", systemImage: "doc.on.doc")
-                }
-                Button {
-                    copyAnswer(turn: turn, finalMessage: finalMessage, fullTurn: true, markdown: true)
-                } label: {
-                    Label("全部为Markdown", systemImage: "doc.on.doc")
-                }
+        return HStack(spacing: 10) {
+            Button {
+                copyAnswer(turn: turn, finalMessage: finalMessage, fullTurn: false, markdown: false)
+                markAnswerCopied(finalMessage.id)
             } label: {
-                finalAnswerMenuIcon(systemImage: "doc.on.doc")
+                finalAnswerMenuIcon(systemImage: isCopied ? "checkmark" : "doc.on.doc")
             }
             .buttonStyle(.plain)
-            .menuOrder(.fixed)
-            .accessibilityLabel("复制回答")
+            .accessibilityLabel(isCopied ? "已复制回答" : "复制回答")
+            .animation(.easeInOut(duration: 0.16), value: isCopied)
 
-            Menu {
-                Button {
-                    shareAnswer(turn: turn, finalMessage: finalMessage, fullTurn: false, markdown: false)
-                } label: {
-                    Label("总结为txt", systemImage: "square.and.arrow.up")
-                }
-                Button {
-                    shareAnswer(turn: turn, finalMessage: finalMessage, fullTurn: false, markdown: true)
-                } label: {
-                    Label("总结为Markdown", systemImage: "square.and.arrow.up")
-                }
-                Button {
-                    shareAnswer(turn: turn, finalMessage: finalMessage, fullTurn: true, markdown: false)
-                } label: {
-                    Label("全部为txt", systemImage: "square.and.arrow.up")
-                }
-                Button {
-                    shareAnswer(turn: turn, finalMessage: finalMessage, fullTurn: true, markdown: true)
-                } label: {
-                    Label("全部为Markdown", systemImage: "square.and.arrow.up")
-                }
+            Button {
+                shareAnswer(turn: turn, finalMessage: finalMessage, fullTurn: true, markdown: true)
             } label: {
                 finalAnswerMenuIcon(systemImage: "square.and.arrow.up")
             }
             .buttonStyle(.plain)
-            .menuOrder(.fixed)
             .accessibilityLabel("分享回答")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -860,6 +816,21 @@ struct ChatScreen: View {
         )
     }
 
+    private func markAnswerCopied(_ messageID: UUID) {
+        withAnimation(.easeInOut(duration: 0.16)) {
+            _ = copiedAnswerMessageIDs.insert(messageID)
+        }
+
+        Task {
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            await MainActor.run {
+                withAnimation(.easeInOut(duration: 0.16)) {
+                    copiedAnswerMessageIDs.remove(messageID)
+                }
+            }
+        }
+    }
+
     private func shareAnswer(
         turn: ChatTurn,
         finalMessage: PalmiChatMessage,
@@ -875,12 +846,38 @@ struct ChatScreen: View {
                     markdown: markdown
                 ),
                 fullTurn: fullTurn,
-                markdown: markdown
+                markdown: markdown,
+                title: answerShareTitle()
             )
             linkSharePayload = SharePayload(url: url)
         } catch {
             assertionFailure("Failed to prepare answer share file: \(error)")
         }
+    }
+
+    private func answerShareTitle() -> String {
+        if isChatSurface {
+            if let projectTitle = cleanedShareTitle(workspaceStore.selectedProject?.name) {
+                return projectTitle
+            }
+            if let threadTitle = cleanedShareTitle(workspaceStore.selectedThread?.name) {
+                return threadTitle
+            }
+        } else {
+            if let threadTitle = cleanedShareTitle(workspaceStore.selectedThread?.name) {
+                return threadTitle
+            }
+            if let projectTitle = cleanedShareTitle(workspaceStore.selectedProject?.name) {
+                return projectTitle
+            }
+        }
+
+        return "Palmi 会话"
+    }
+
+    private func cleanedShareTitle(_ title: String?) -> String? {
+        let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func exportedAnswerText(
@@ -901,27 +898,52 @@ struct ChatScreen: View {
     private func writeTemporaryAnswerFile(
         _ content: String,
         fullTurn: Bool,
-        markdown: Bool
+        markdown: Bool,
+        title: String? = nil
     ) throws -> URL {
         let fileManager = FileManager.default
         let directory = fileManager.temporaryDirectory
             .appendingPathComponent("palmi-answer-share", isDirectory: true)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
 
-        let scope = fullTurn ? "complete-phase" : "final-phase"
+        let fallbackTitle = fullTurn ? "Palmi 完整回答" : "Palmi 回答"
         let fileExtension = markdown ? "md" : "txt"
+        let fileStem = Self.sanitizedShareFileStem(from: title ?? "", fallback: fallbackTitle)
         let url = directory
-            .appendingPathComponent("palmi-\(scope)-\(UUID().uuidString)")
+            .appendingPathComponent(fileStem)
             .appendingPathExtension(fileExtension)
         try content.write(to: url, atomically: true, encoding: .utf8)
         return url
+    }
+
+    private static func sanitizedShareFileStem(from title: String, fallback: String) -> String {
+        let rawTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let source = rawTitle.isEmpty ? fallback : rawTitle
+        let invalidCharacters = CharacterSet(charactersIn: "/\\?%*|\"<>:\n\r\t")
+        let cleaned = source
+            .components(separatedBy: invalidCharacters)
+            .joined(separator: " ")
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let limited = String(cleaned.prefix(80))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return limited.isEmpty ? fallback : limited
     }
 
     private static func completeTurnMarkdown(
         for turn: ChatTurn,
         finalMessage: PalmiChatMessage
     ) -> String {
-        (turn.messagesBeforeFinal + [finalMessage] + turn.messagesAfterFinal)
+        var orderedMessages: [PalmiChatMessage] = []
+        if let userMessage = turn.userMessage {
+            orderedMessages.append(userMessage)
+        }
+        orderedMessages.append(contentsOf: turn.messagesBeforeFinal)
+        orderedMessages.append(finalMessage)
+        orderedMessages.append(contentsOf: turn.messagesAfterFinal)
+
+        return orderedMessages
             .compactMap { message in
                 Self.exportableMarkdown(for: message)
             }
@@ -929,6 +951,10 @@ struct ChatScreen: View {
     }
 
     private static func exportableMarkdown(for message: PalmiChatMessage) -> String? {
+        if message.role == .user {
+            return exportableUserQuestionMarkdown(for: message)
+        }
+
         guard message.role == .agent else { return nil }
 
         switch message.kind {
@@ -942,6 +968,23 @@ struct ChatScreen: View {
         case .contextCompaction, .sessionHeader:
             return nil
         }
+    }
+
+    private static func exportableUserQuestionMarkdown(for message: PalmiChatMessage) -> String? {
+        var parts: [String] = ["## 用户提问"]
+
+        if let content = nonEmptyTrimmed(message.content) {
+            parts.append(content)
+        }
+
+        if !message.attachments.isEmpty {
+            let attachmentLines = message.attachments
+                .map { "- \($0.name)" }
+                .joined(separator: "\n")
+            parts.append("附件：\n\(attachmentLines)")
+        }
+
+        return parts.count > 1 ? parts.joined(separator: "\n\n") : nil
     }
 
     private static func exportableMarkdown(for toolCall: PalmiToolCallCard) -> String? {
@@ -2572,21 +2615,27 @@ struct ChatScreen: View {
         }
     }
 
-    private func collapsePendingCompletedTurn() {
-        guard let turnID = pendingAutoCollapseTurnID else {
-            return
-        }
-        guard turns.contains(where: { turn in
-            turn.id == turnID
-                && turn.headerMessage?.sessionHeader?.finishedAt != nil
-                && turn.finalMessage != nil
+    private func collapsePendingCompletedTurn(allowLatestCompletedFallback: Bool = false) {
+        let targetTurnID = pendingAutoCollapseTurnID
+
+        guard let completedTurn = turns.last(where: { turn in
+            guard turn.headerMessage?.sessionHeader?.finishedAt != nil,
+                  turn.finalMessage != nil else {
+                return false
+            }
+
+            if let targetTurnID {
+                return turn.id == targetTurnID
+            }
+
+            return allowLatestCompletedFallback
         }) else {
             return
         }
 
         pendingAutoCollapseTurnID = nil
         withAnimation(.easeInOut(duration: 0.16)) {
-            _ = collapsedTurnIDs.insert(turnID)
+            _ = collapsedTurnIDs.insert(completedTurn.id)
         }
     }
 
@@ -3138,40 +3187,78 @@ private struct ContextCompactionDivider: View {
     }
 }
 
+private enum TurnCompletionStatusFormatter {
+    static func completionText(for header: PalmiChatSessionHeader) -> String {
+        guard let finishedAt = header.finishedAt else {
+            return "已完成"
+        }
+
+        let totalSeconds = max(0, Int(finishedAt.timeIntervalSince(header.startedAt)))
+        guard totalSeconds >= 10 else {
+            return "已完成"
+        }
+
+        if totalSeconds < 60 {
+            return "用时\(totalSeconds)秒完成"
+        }
+
+        let minutes = totalSeconds / 60
+        let seconds = totalSeconds % 60
+        return "用时\(minutes)分\(seconds)秒完成"
+    }
+}
+
+private struct CompletedTurnStatusContent: View {
+    let header: PalmiChatSessionHeader
+
+    var body: some View {
+        HStack(spacing: 10) {
+            PalmiProcessingSpriteView(reduceMotion: true)
+                .frame(
+                    width: palmiProcessingSpriteDisplaySize,
+                    height: palmiProcessingSpriteDisplaySize
+                )
+
+            Text(TurnCompletionStatusFormatter.completionText(for: header))
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct CompletedTurnStatusRow: View {
+    let header: PalmiChatSessionHeader
+
+    var body: some View {
+        CompletedTurnStatusContent(header: header)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 private struct SessionHeaderStrip: View {
     let header: PalmiChatSessionHeader
     let isCurrentTurn: Bool
     let isCollapsed: Bool
     let showsTokenDetails: Bool
+    let showsDivider: Bool
+    let processingPhraseKind: ProcessingPhraseKind
     let onToggle: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        Group {
-            if isLive {
-                TimelineView(.periodic(from: header.startedAt, by: 1)) { context in
-                    content(referenceDate: context.date)
-                }
-            } else {
-                content(referenceDate: header.finishedAt ?? header.startedAt)
-            }
-        }
+        content
     }
 
     private var isLive: Bool {
         isCurrentTurn && header.finishedAt == nil
     }
 
-    private func content(referenceDate: Date) -> some View {
+    private var content: some View {
         Button(action: onToggle) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 10) {
-                    Image(systemName: isLive ? "circle.fill" : "checkmark.circle.fill")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(isLive ? Color.accentColor : Color.accentColor)
-
-                    Text(statusText(referenceDate: referenceDate))
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.primary)
+                    statusContent
 
                     Spacer(minLength: 12)
 
@@ -3185,9 +3272,11 @@ private struct SessionHeaderStrip: View {
                         .rotationEffect(.degrees(isCollapsed ? -90 : 0))
                 }
 
-                Capsule()
-                    .fill(Color.black.opacity(0.08))
-                    .frame(height: 1)
+                if showsDivider {
+                    Capsule()
+                        .fill(Color.black.opacity(0.08))
+                        .frame(height: 1)
+                }
 
                 if showsTokenDetails && !isCollapsed {
                     tokenDetails
@@ -3196,6 +3285,26 @@ private struct SessionHeaderStrip: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var statusContent: some View {
+        if isLive {
+            HStack(spacing: 10) {
+                PalmiProcessingSpriteView(reduceMotion: reduceMotion)
+                    .frame(
+                        width: palmiProcessingSpriteDisplaySize,
+                        height: palmiProcessingSpriteDisplaySize
+                    )
+
+                ProcessingPhraseText(
+                    startedAt: header.startedAt,
+                    phraseKind: processingPhraseKind
+                )
+            }
+        } else {
+            CompletedTurnStatusContent(header: header)
+        }
     }
 
     private var compactTokenText: String {
@@ -3232,28 +3341,6 @@ private struct SessionHeaderStrip: View {
 
     private func tokenDetailRow(_ title: String, _ value: Int) -> Text {
         Text("\(title)：\(PalmiTokenCountFormatter.compact(value))")
-    }
-
-    private func statusText(referenceDate: Date) -> String {
-        let elapsed = elapsedText(from: header.startedAt, to: referenceDate)
-        return isLive ? "正在处理 \(elapsed)" : "已处理 \(elapsed)"
-    }
-
-    private func elapsedText(from startDate: Date, to endDate: Date) -> String {
-        let totalSeconds = max(0, Int(endDate.timeIntervalSince(startDate)))
-        if totalSeconds < 60 {
-            return "\(totalSeconds)s"
-        }
-
-        let minutes = totalSeconds / 60
-        let seconds = totalSeconds % 60
-        if minutes < 60 {
-            return "\(minutes)m \(seconds)s"
-        }
-
-        let hours = minutes / 60
-        let remainingMinutes = minutes % 60
-        return "\(hours)h \(remainingMinutes)m"
     }
 }
 
@@ -3316,29 +3403,6 @@ private enum ProcessingPhraseDeck {
             candidate = deck.randomElement() ?? deck[0]
         }
         return candidate
-    }
-}
-
-private struct BottomStreamingIndicator: View {
-    let startedAt: Date
-    let phraseKind: ProcessingPhraseKind
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        HStack(spacing: 10) {
-            PalmiProcessingSpriteView(reduceMotion: reduceMotion)
-                .frame(
-                    width: palmiProcessingSpriteDisplaySize,
-                    height: palmiProcessingSpriteDisplaySize
-                )
-
-            ProcessingPhraseText(
-                startedAt: startedAt,
-                phraseKind: phraseKind
-            )
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
