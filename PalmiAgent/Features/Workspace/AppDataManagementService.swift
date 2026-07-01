@@ -46,10 +46,14 @@ enum AppDataManagementService {
     }
 
     @MainActor
-    static func restoreFactoryState(workspaceStore: WorkspaceStore) throws {
+    static func restoreFactoryState(
+        workspaceStore: WorkspaceStore,
+        afterResettingPreferences: (() -> Void)? = nil
+    ) throws {
         try workspaceStore.workspaceManager.deleteAllWorkspaceData()
         try clearCaches()
         resetUserPreferences()
+        afterResettingPreferences?()
         try clearPalmiKeychainSecrets()
         workspaceStore.reload()
     }

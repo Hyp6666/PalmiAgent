@@ -1,6 +1,20 @@
 import SwiftUI
 import UIKit
 
+enum OnboardingStorage {
+    static let hasCompletedKey = "palmi.onboarding.has-completed"
+    static let selectedLanguageIDKey = "palmi.onboarding.selected-language-id"
+
+    static func markNeedsOnboarding(defaults: UserDefaults = .standard) {
+        defaults.set(false, forKey: hasCompletedKey)
+        defaults.removeObject(forKey: selectedLanguageIDKey)
+    }
+
+    static func markCompleted(defaults: UserDefaults = .standard) {
+        defaults.set(true, forKey: hasCompletedKey)
+    }
+}
+
 private enum CompactWorkspaceRoute: Hashable {
     case chat
 }
@@ -12,6 +26,8 @@ private enum ChatModeRoute: Hashable {
 struct WorkspaceShellScreen: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @AppStorage("palmi.app-shell-mode") private var storedShellMode = AppShellMode.professional.rawValue
+    @AppStorage(OnboardingStorage.hasCompletedKey) private var hasCompletedOnboarding = false
+    @AppStorage(OnboardingStorage.selectedLanguageIDKey) private var selectedOnboardingLanguageID = "zh-Hans"
     @Bindable var workspaceStore: WorkspaceStore
     @Bindable var manualLabStore: ManualLabStore
     @Bindable var skillRegistry: SkillRegistry
@@ -22,6 +38,7 @@ struct WorkspaceShellScreen: View {
     @State private var isShowingSettings = false
     @State private var isShowingProjectSkills = false
     @State private var isShowingModePicker = false
+    @State private var isShowingOnboarding = false
     @State private var chatModePath: [ChatModeRoute] = []
 
     init(
@@ -57,7 +74,12 @@ struct WorkspaceShellScreen: View {
             WorkspaceBrowserSheet(store: workspaceStore)
         }
         .sheet(isPresented: $isShowingSettings) {
-            AppSettingsScreen(store: manualLabStore, skillRegistry: skillRegistry)
+            AppSettingsScreen(
+                store: manualLabStore,
+                skillRegistry: skillRegistry,
+                onStartOnboarding: presentOnboardingFromSettings,
+                onFactoryResetCompleted: handleFactoryResetCompleted
+            )
         }
         .sheet(isPresented: $isShowingProjectSkills) {
             NavigationStack {
@@ -75,6 +97,26 @@ struct WorkspaceShellScreen: View {
                 },
                 onDismiss: { isShowingModePicker = false }
             )
+        }
+        .fullScreenCover(isPresented: $isShowingOnboarding) {
+            OnboardingFlowScreen(
+                manualLabStore: manualLabStore,
+                selectedLanguageID: $selectedOnboardingLanguageID,
+                onComplete: { selectedMode in
+                    completeOnboarding(selectedMode)
+                },
+                onSkip: {
+                    completeOnboarding(nil)
+                }
+            )
+        }
+        .onAppear {
+            presentOnboardingIfNeeded()
+        }
+        .onChange(of: hasCompletedOnboarding) { _, completed in
+            if !completed {
+                presentOnboardingIfNeeded()
+            }
         }
         .task(id: workspaceStore.selectedSelection) {
             chatStore.loadMessagesForActiveThread()
@@ -98,6 +140,60 @@ struct WorkspaceShellScreen: View {
         shellMode = newMode
         if newMode == .professional {
             compactPath = []
+        }
+    }
+
+    private func presentOnboardingIfNeeded() {
+        guard !hasCompletedOnboarding else { return }
+        guard !isShowingOnboarding else { return }
+        isShowingOnboarding = true
+    }
+
+    private func presentOnboardingFromSettings() {
+        isShowingSettings = false
+        DispatchQueue.main.async {
+            isShowingOnboarding = true
+        }
+    }
+
+    private func handleFactoryResetCompleted() {
+        selectedOnboardingLanguageID = "zh-Hans"
+        hasCompletedOnboarding = false
+        isShowingSettings = false
+        DispatchQueue.main.async {
+            isShowingOnboarding = true
+        }
+    }
+
+    private func completeOnboarding(_ selectedMode: AppShellMode?) {
+        OnboardingStorage.markCompleted()
+        hasCompletedOnboarding = true
+        isShowingOnboarding = false
+
+        let resolvedMode = selectedMode ?? shellMode
+        selectShellMode(resolvedMode)
+
+        switch resolvedMode {
+        case .chat:
+            let project = workspaceStore.ensureDefaultChatConversation()
+            workspaceStore.activateChatSurface()
+            if let project {
+                chatModePath = [.conversation(project.id)]
+            } else if let selectedChatProjectID = workspaceStore.selectedChatProjectID {
+                chatModePath = [.conversation(selectedChatProjectID)]
+            } else {
+                chatModePath = []
+            }
+
+        case .professional:
+            _ = workspaceStore.ensureDefaultProfessionalProject(named: "默认项目")
+            workspaceStore.activateProfessionalSurface()
+            chatModePath = []
+            if horizontalSizeClass == .compact {
+                compactPath = [.chat]
+            } else {
+                compactPath = []
+            }
         }
     }
 
@@ -1012,10 +1108,350 @@ private func workspaceBrowserActionButton(
     .accessibilityLabel(accessibilityLabel)
 }
 
+private enum OnboardingStep {
+    case language
+    case modelConfiguration
+    case modeChoice
+}
+
+private struct OnboardingLanguageOption: Identifiable, Equatable {
+    let id: String
+    let title: String
+}
+
+private let onboardingLanguageOptions: [OnboardingLanguageOption] = [
+    .init(id: "zh-Hans", title: "简体中文"),
+    .init(id: "zh-Hant", title: "繁體中文"),
+    .init(id: "en", title: "English"),
+    .init(id: "ja", title: "日本語"),
+    .init(id: "ko", title: "한국어")
+]
+
+private struct OnboardingFlowScreen: View {
+    @Bindable var manualLabStore: ManualLabStore
+    @Binding var selectedLanguageID: String
+    let onComplete: (AppShellMode) -> Void
+    let onSkip: () -> Void
+
+    @State private var step: OnboardingStep = .language
+
+    var body: some View {
+        ZStack {
+            OnboardingLiquidGlassBackground()
+                .ignoresSafeArea()
+
+            switch step {
+            case .language:
+                OnboardingLanguageStep(
+                    selectedLanguageID: $selectedLanguageID,
+                    onContinue: {
+                        withAnimation(.snappy(duration: 0.36, extraBounce: 0.06)) {
+                            step = .modelConfiguration
+                        }
+                    }
+                )
+
+            case .modelConfiguration:
+                OnboardingModelConfigurationStep(
+                    store: manualLabStore,
+                    onBack: {
+                        withAnimation(.snappy(duration: 0.32, extraBounce: 0.04)) {
+                            step = .language
+                        }
+                    },
+                    onContinue: {
+                        withAnimation(.snappy(duration: 0.32, extraBounce: 0.04)) {
+                            step = .modeChoice
+                        }
+                    },
+                    onSkip: onSkip
+                )
+
+            case .modeChoice:
+                OnboardingModeChoiceStep(onSelect: onComplete)
+            }
+        }
+        .animation(.snappy(duration: 0.36, extraBounce: 0.06), value: step)
+    }
+}
+
+private struct OnboardingLiquidGlassBackground: View {
+    var body: some View {
+        ZStack {
+            Color(uiColor: .systemBackground)
+
+            LinearGradient(
+                colors: [
+                    Color(uiColor: .systemBackground),
+                    Color.blue.opacity(0.10),
+                    Color.cyan.opacity(0.08),
+                    Color(uiColor: .systemBackground)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            TimelineView(.animation) { context in
+                let time = context.date.timeIntervalSinceReferenceDate
+                ZStack {
+                    Circle()
+                        .fill(Color.blue.opacity(0.16))
+                        .frame(width: 260, height: 260)
+                        .blur(radius: 42)
+                        .offset(
+                            x: CGFloat(sin(time * 0.18)) * 26 - 120,
+                            y: CGFloat(cos(time * 0.14)) * 34 - 220
+                        )
+
+                    Circle()
+                        .fill(Color.cyan.opacity(0.13))
+                        .frame(width: 320, height: 320)
+                        .blur(radius: 48)
+                        .offset(
+                            x: CGFloat(cos(time * 0.15)) * 34 + 110,
+                            y: CGFloat(sin(time * 0.17)) * 28 + 180
+                        )
+                }
+            }
+
+            Color(uiColor: .systemBackground).opacity(0.18)
+        }
+    }
+}
+
+private struct OnboardingLanguageStep: View {
+    @Binding var selectedLanguageID: String
+    let onContinue: () -> Void
+
+    private var selectedOption: OnboardingLanguageOption {
+        onboardingLanguageOptions.first { $0.id == selectedLanguageID } ?? onboardingLanguageOptions[0]
+    }
+
+    var body: some View {
+        VStack(spacing: 34) {
+            Spacer(minLength: 80)
+
+            RotatingLanguageTitle()
+                .frame(height: 54)
+
+            Menu {
+                ForEach(onboardingLanguageOptions) { option in
+                    Button {
+                        selectedLanguageID = option.id
+                    } label: {
+                        if option.id == selectedOption.id {
+                            Label(option.title, systemImage: "checkmark")
+                        } else {
+                            Text(option.title)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 14) {
+                    Text(selectedOption.title)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.primary)
+
+                    Spacer(minLength: 24)
+
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 22)
+                .frame(height: 62)
+                .frame(maxWidth: 360)
+                .glassEffect(.regular.tint(.white.opacity(0.16)), in: .rect(cornerRadius: 28))
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                onContinue()
+            } label: {
+                Text("继续")
+                    .font(.headline.weight(.semibold))
+                    .frame(maxWidth: 360)
+                    .frame(height: 56)
+                    .foregroundStyle(.white)
+                    .background(Color.blue, in: Capsule())
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            OnboardingAppIcon()
+                .padding(.bottom, 34)
+        }
+        .padding(.horizontal, 24)
+    }
+}
+
+private struct RotatingLanguageTitle: View {
+    private let titles = [
+        "选择语言",
+        "選擇語言",
+        "Select Language",
+        "言語を選択",
+        "언어 선택"
+    ]
+
+    var body: some View {
+        TimelineView(.animation) { context in
+            let time = context.date.timeIntervalSinceReferenceDate
+            let index = Int(time / 1.55) % titles.count
+
+            Text(titles[index])
+                .id(index)
+                .font(.largeTitle.weight(.semibold))
+                .foregroundStyle(.primary)
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                .animation(.easeInOut(duration: 0.42), value: index)
+                .frame(maxWidth: .infinity)
+        }
+    }
+}
+
+private struct OnboardingAppIcon: View {
+    var body: some View {
+        if let image = Self.primaryAppIconImage() {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 72, height: 72)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .shadow(color: .black.opacity(0.12), radius: 18, y: 8)
+        }
+    }
+
+    private static func primaryAppIconImage() -> UIImage? {
+        guard
+            let icons = Bundle.main.infoDictionary?["CFBundleIcons"] as? [String: Any],
+            let primary = icons["CFBundlePrimaryIcon"] as? [String: Any],
+            let files = primary["CFBundleIconFiles"] as? [String],
+            let name = files.last
+        else {
+            return nil
+        }
+        return UIImage(named: name)
+    }
+}
+
+private struct OnboardingModelConfigurationStep: View {
+    @Bindable var store: ManualLabStore
+    let onBack: () -> Void
+    let onContinue: () -> Void
+    let onSkip: () -> Void
+
+    @State private var isConfirmingSkip = false
+
+    private var canContinue: Bool {
+        store.modelPlanStore.activePlanSnapshot()?.isUsable == true
+    }
+
+    var body: some View {
+        NavigationStack {
+            ModelConfigurationManagerScreen(store: store)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("返回") {
+                            onBack()
+                        }
+                    }
+
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("跳过") {
+                            isConfirmingSkip = true
+                        }
+                    }
+                }
+                .safeAreaInset(edge: .bottom) {
+                    VStack(spacing: 0) {
+                        Divider().opacity(0.35)
+
+                        Button {
+                            onContinue()
+                        } label: {
+                            Text("完成")
+                                .font(.headline.weight(.semibold))
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 54)
+                                .foregroundStyle(canContinue ? .white : .secondary)
+                                .background(
+                                    canContinue ? Color.blue : Color.secondary.opacity(0.14),
+                                    in: Capsule()
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!canContinue)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 12)
+                        .padding(.bottom, 12)
+                        .background(.ultraThinMaterial)
+                    }
+                }
+        }
+        .confirmationDialog(
+            "跳过设置？",
+            isPresented: $isConfirmingSkip,
+            titleVisibility: .visible
+        ) {
+            Button("确认跳过", role: .destructive) {
+                onSkip()
+            }
+
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("之后可在设置中配置模型。")
+        }
+    }
+}
+
+private struct OnboardingModeChoiceStep: View {
+    let onSelect: (AppShellMode) -> Void
+
+    var body: some View {
+        VStack(spacing: 26) {
+            Spacer(minLength: 90)
+
+            Text("选择模式")
+                .font(.largeTitle.weight(.semibold))
+                .foregroundStyle(.primary)
+
+            VStack(spacing: 16) {
+                modeButton("聊天模式") {
+                    onSelect(.chat)
+                }
+
+                modeButton("专业模式") {
+                    onSelect(.professional)
+                }
+            }
+            .frame(maxWidth: 380)
+
+            Spacer()
+        }
+        .padding(.horizontal, 24)
+    }
+
+    private func modeButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 76)
+                .glassEffect(.regular.tint(.white.opacity(0.16)), in: .rect(cornerRadius: 30))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 private struct AppSettingsScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var store: ManualLabStore
     @Bindable var skillRegistry: SkillRegistry
+    let onStartOnboarding: () -> Void
+    let onFactoryResetCompleted: () -> Void
 
     var body: some View {
         NavigationStack {
@@ -1063,7 +1499,11 @@ private struct AppSettingsScreen: View {
         case .personalization:
             PersonalizationSettingsScreen()
         case .systemSettings:
-            SystemSettingsScreen(store: store)
+            SystemSettingsScreen(
+                store: store,
+                onStartOnboarding: onStartOnboarding,
+                onFactoryResetCompleted: onFactoryResetCompleted
+            )
         case .privacyAndPolicy:
             PrivacyAndPolicySettingsScreen()
         }
@@ -1072,6 +1512,8 @@ private struct AppSettingsScreen: View {
 
 private struct SystemSettingsScreen: View {
     @Bindable var store: ManualLabStore
+    let onStartOnboarding: () -> Void
+    let onFactoryResetCompleted: () -> Void
 
     var body: some View {
         List {
@@ -1083,9 +1525,20 @@ private struct SystemSettingsScreen: View {
                 }
             }
 
+            Section("启动") {
+                Button {
+                    onStartOnboarding()
+                } label: {
+                    Label("重新开始设置", systemImage: "sparkles")
+                }
+            }
+
             Section("数据") {
                 NavigationLink {
-                    DataManagementSettingsScreen(store: store)
+                    DataManagementSettingsScreen(
+                        store: store,
+                        onFactoryResetCompleted: onFactoryResetCompleted
+                    )
                 } label: {
                     Label("数据管理", systemImage: "externaldrive")
                 }
@@ -1132,6 +1585,7 @@ private struct LanguageSettingsScreen: View {
 
 private struct DataManagementSettingsScreen: View {
     @Bindable var store: ManualLabStore
+    let onFactoryResetCompleted: () -> Void
     @State private var usageSummary = AppDataUsageSummary.empty
     @State private var pendingOperation: DataManagementOperation?
     @State private var feedbackMessage: String?
@@ -1184,7 +1638,7 @@ private struct DataManagementSettingsScreen: View {
             case .clearCaches:
                 return "已清理缓存。"
             case .restoreFactoryState:
-                return "已恢复初始状态，重启 App 后所有设置会完全刷新。"
+                return "已恢复初始状态。"
             }
         }
     }
@@ -1291,7 +1745,13 @@ private struct DataManagementSettingsScreen: View {
             case .clearCaches:
                 try AppDataManagementService.clearCaches()
             case .restoreFactoryState:
-                try AppDataManagementService.restoreFactoryState(workspaceStore: store.workspaceStore)
+                try AppDataManagementService.restoreFactoryState(
+                    workspaceStore: store.workspaceStore,
+                    afterResettingPreferences: {
+                        OnboardingStorage.markNeedsOnboarding()
+                    }
+                )
+                onFactoryResetCompleted()
             }
             feedbackMessage = operation.successMessage
             reloadUsageSummary()
@@ -1639,21 +2099,6 @@ private struct ModelConfigurationManagerScreen: View {
                 }
             }
         }
-        .confirmationDialog(
-            "删除方案",
-            isPresented: pendingDeletionBinding,
-            presenting: pendingDeletion
-        ) { plan in
-            Button("删除方案", role: .destructive) {
-                planStore.deletePlan(plan.id)
-                if presentedPlan?.planID == plan.id {
-                    presentedPlan = nil
-                }
-            }
-            Button("取消", role: .cancel) {}
-        } message: { plan in
-            Text(plan.name)
-        }
         .alert("重命名方案", isPresented: renamingPlanBinding) {
             TextField("方案名称", text: $renameDraft)
 
@@ -1750,6 +2195,22 @@ private struct ModelConfigurationManagerScreen: View {
                         .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.plain)
+                .confirmationDialog(
+                    "删除方案",
+                    isPresented: planDeletionBinding(for: plan)
+                ) {
+                    Button("删除方案", role: .destructive) {
+                        let planID = plan.id
+                        planStore.deletePlan(planID)
+                        if presentedPlan?.planID == planID {
+                            presentedPlan = nil
+                        }
+                        pendingDeletion = nil
+                    }
+                    Button("取消", role: .cancel) {}
+                } message: {
+                    Text(plan.name)
+                }
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -1852,11 +2313,11 @@ private struct ModelConfigurationManagerScreen: View {
         renameDraft = ""
     }
 
-    private var pendingDeletionBinding: Binding<Bool> {
+    private func planDeletionBinding(for plan: ModelPlanSnapshot) -> Binding<Bool> {
         Binding(
-            get: { pendingDeletion != nil },
+            get: { pendingDeletion?.id == plan.id },
             set: { isPresented in
-                if !isPresented {
+                if !isPresented && pendingDeletion?.id == plan.id {
                     pendingDeletion = nil
                 }
             }

@@ -271,6 +271,68 @@ final class WorkspaceStore {
         }
     }
 
+    @discardableResult
+    func ensureDefaultChatConversation() -> WorkspaceProjectRecord? {
+        do {
+            if let existing = firstEmptyDefaultChatProject() {
+                if threadCount(for: existing.id) == 0 {
+                    _ = try workspaceManager.createThread(
+                        named: Self.defaultChatConversationName,
+                        in: existing.id
+                    )
+                    try refreshThreads(for: existing.id)
+                }
+
+                reload()
+
+                if let refreshed = chatProjects.first(where: { $0.id == existing.id }) {
+                    selectChatConversation(refreshed)
+                    return refreshed
+                }
+
+                selectChatConversation(existing)
+                return existing
+            }
+
+            createChatConversation()
+            return selectedChatProject
+        } catch {
+            statusMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    @discardableResult
+    func ensureDefaultProfessionalProject(named name: String = "默认项目") -> WorkspaceProjectRecord? {
+        do {
+            if let existing = projects.first(where: { $0.name == name }) {
+                if threadCount(for: existing.id) == 0 {
+                    _ = try workspaceManager.createThread(
+                        named: Self.defaultProfessionalThreadName,
+                        in: existing.id
+                    )
+                    try refreshThreads(for: existing.id)
+                }
+
+                reload()
+
+                if let refreshed = projects.first(where: { $0.id == existing.id }) {
+                    selectProject(refreshed)
+                    return refreshed
+                }
+
+                selectProject(existing)
+                return existing
+            }
+
+            createProject(named: name)
+            return selectedProfessionalProject
+        } catch {
+            statusMessage = error.localizedDescription
+            return nil
+        }
+    }
+
     func createThread(named name: String) {
         guard let selectedProject, selectedProject.surface == .professional else {
             statusMessage = "请先选择一个项目。"
