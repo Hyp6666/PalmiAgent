@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import PDFKit
 
 enum OnboardingStorage {
     static let hasCompletedKey = "palmi.onboarding.has-completed"
@@ -77,6 +78,7 @@ struct WorkspaceShellScreen: View {
             AppSettingsScreen(
                 store: manualLabStore,
                 skillRegistry: skillRegistry,
+                selectedLanguageID: selectedOnboardingLanguageID,
                 onStartOnboarding: presentOnboardingFromSettings,
                 onFactoryResetCompleted: handleFactoryResetCompleted
             )
@@ -1110,6 +1112,7 @@ private func workspaceBrowserActionButton(
 
 private enum OnboardingStep {
     case language
+    case policyNotice
     case modelConfiguration
     case modeChoice
 }
@@ -1146,6 +1149,21 @@ private struct OnboardingFlowScreen: View {
                     selectedLanguageID: $selectedLanguageID,
                     onContinue: {
                         withAnimation(.snappy(duration: 0.36, extraBounce: 0.06)) {
+                            step = .policyNotice
+                        }
+                    }
+                )
+
+            case .policyNotice:
+                OnboardingPolicyAgreementStep(
+                    selectedLanguageID: selectedLanguageID,
+                    onBack: {
+                        withAnimation(.snappy(duration: 0.32, extraBounce: 0.04)) {
+                            step = .language
+                        }
+                    },
+                    onAgree: {
+                        withAnimation(.snappy(duration: 0.32, extraBounce: 0.04)) {
                             step = .modelConfiguration
                         }
                     }
@@ -1156,7 +1174,7 @@ private struct OnboardingFlowScreen: View {
                     store: manualLabStore,
                     onBack: {
                         withAnimation(.snappy(duration: 0.32, extraBounce: 0.04)) {
-                            step = .language
+                            step = .policyNotice
                         }
                     },
                     onContinue: {
@@ -1336,6 +1354,222 @@ private struct OnboardingAppIcon: View {
     }
 }
 
+private enum PalmiPolicyDocumentResource {
+    static func resourceName(for languageID: String) -> String {
+        switch languageID {
+        case "zh-Hans", "zh-Hant":
+            return "PalmiUserNotice.zh-Hans"
+        default:
+            return "PalmiUserNotice.en"
+        }
+    }
+
+    static func displayFileName(for languageID: String) -> String {
+        "\(resourceName(for: languageID)).pdf"
+    }
+
+    static func url(for languageID: String) -> URL? {
+        let name = resourceName(for: languageID)
+        if let url = Bundle.main.url(
+            forResource: name,
+            withExtension: "pdf",
+            subdirectory: "Resources/Policies"
+        ) {
+            return url
+        }
+        return Bundle.main.url(forResource: name, withExtension: "pdf")
+    }
+}
+
+private struct PalmiPolicyAgreementStrings {
+    let title: String
+    let subtitle: String
+    let checkboxTitle: String
+    let backTitle: String
+    let continueTitle: String
+    let missingTitle: String
+    let missingMessage: String
+
+    static func resolve(for languageID: String) -> PalmiPolicyAgreementStrings {
+        switch languageID {
+        case "zh-Hans", "zh-Hant":
+            return PalmiPolicyAgreementStrings(
+                title: "隐私与第三方 AI 服务提示",
+                subtitle: "请阅读完整 PDF。勾选同意后才能继续配置模型。",
+                checkboxTitle: "我已阅读并同意《Palmi 用户知情与第三方 AI 服务提示》，并理解第三方模型服务、聚合平台、自定义 endpoint、系统权限和工具调用可能按照各自政策处理我选择发送的数据。",
+                backTitle: "返回",
+                continueTitle: "同意并继续",
+                missingTitle: "未找到政策文件",
+                missingMessage: "请确认 PDF 已放入 PalmiAgent/Resources/Policies。"
+            )
+        default:
+            return PalmiPolicyAgreementStrings(
+                title: "Privacy and Third-Party AI Services Notice",
+                subtitle: "Read the full PDF. You must acknowledge it before configuring a model.",
+                checkboxTitle: "I have read and agree to the Palmi Notice for Privacy and Third-Party AI Services, and I understand that third-party model services, aggregators, custom endpoints, system permissions, and tool calls may process data I choose to send under their own policies.",
+                backTitle: "Back",
+                continueTitle: "Agree and Continue",
+                missingTitle: "Policy file not found",
+                missingMessage: "Confirm that the PDF files are in PalmiAgent/Resources/Policies."
+            )
+        }
+    }
+}
+
+private struct PalmiPolicyPDFView: UIViewRepresentable {
+    let url: URL
+
+    func makeUIView(context: Context) -> PDFView {
+        let view = PDFView()
+        view.displayMode = .singlePageContinuous
+        view.displayDirection = .vertical
+        view.autoScales = true
+        view.backgroundColor = .clear
+        view.document = PDFDocument(url: url)
+        return view
+    }
+
+    func updateUIView(_ uiView: PDFView, context: Context) {
+        if uiView.document?.documentURL != url {
+            uiView.document = PDFDocument(url: url)
+        }
+        uiView.autoScales = true
+    }
+}
+
+private struct OnboardingPolicyAgreementStep: View {
+    let selectedLanguageID: String
+    let onBack: () -> Void
+    let onAgree: () -> Void
+
+    @State private var hasAccepted = false
+
+    private var strings: PalmiPolicyAgreementStrings {
+        PalmiPolicyAgreementStrings.resolve(for: selectedLanguageID)
+    }
+
+    private var pdfURL: URL? {
+        PalmiPolicyDocumentResource.url(for: selectedLanguageID)
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Spacer(minLength: 18)
+
+            VStack(spacing: 8) {
+                Text(strings.title)
+                    .font(.largeTitle.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.primary)
+
+                Text(strings.subtitle)
+                    .font(.subheadline)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 24)
+
+            policyDocumentPanel
+                .frame(maxWidth: 720)
+                .frame(maxHeight: .infinity)
+                .padding(.horizontal, 20)
+
+            acceptanceToggle
+                .frame(maxWidth: 720)
+                .padding(.horizontal, 20)
+
+            footerButtons
+                .frame(maxWidth: 720)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 18)
+        }
+        .padding(.top, 18)
+    }
+
+    @ViewBuilder
+    private var policyDocumentPanel: some View {
+        Group {
+            if let pdfURL {
+                PalmiPolicyPDFView(url: pdfURL)
+            } else {
+                ContentUnavailableView(
+                    strings.missingTitle,
+                    systemImage: "doc.badge.exclamationmark",
+                    description: Text("\(strings.missingMessage) Missing: \(PalmiPolicyDocumentResource.displayFileName(for: selectedLanguageID))")
+                )
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+        }
+        .background {
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(Color(uiColor: .systemBackground).opacity(0.72))
+                .glassEffect(.regular.tint(.white.opacity(0.10)), in: .rect(cornerRadius: 28))
+        }
+    }
+
+    private var acceptanceToggle: some View {
+        Button {
+            hasAccepted.toggle()
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: hasAccepted ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(hasAccepted ? .blue : .secondary)
+                    .padding(.top, 1)
+
+                Text(strings.checkboxTitle)
+                    .font(.footnote)
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 0)
+            }
+            .padding(14)
+            .glassEffect(.regular.tint(.white.opacity(0.14)), in: .rect(cornerRadius: 22))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(strings.checkboxTitle)
+    }
+
+    private var footerButtons: some View {
+        HStack(spacing: 12) {
+            Button {
+                onBack()
+            } label: {
+                Text(strings.backTitle)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 54)
+                    .glassEffect(.regular.tint(.white.opacity(0.14)), in: .capsule)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                onAgree()
+            } label: {
+                Text(strings.continueTitle)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(canContinue ? .white : .secondary)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 54)
+                    .background(canContinue ? Color.blue : Color.secondary.opacity(0.14), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(!canContinue)
+        }
+    }
+
+    private var canContinue: Bool {
+        hasAccepted && pdfURL != nil
+    }
+}
+
 private struct OnboardingModelConfigurationStep: View {
     @Bindable var store: ManualLabStore
     let onBack: () -> Void
@@ -1450,6 +1684,7 @@ private struct AppSettingsScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var store: ManualLabStore
     @Bindable var skillRegistry: SkillRegistry
+    let selectedLanguageID: String
     let onStartOnboarding: () -> Void
     let onFactoryResetCompleted: () -> Void
 
@@ -1505,7 +1740,7 @@ private struct AppSettingsScreen: View {
                 onFactoryResetCompleted: onFactoryResetCompleted
             )
         case .privacyAndPolicy:
-            PrivacyAndPolicySettingsScreen()
+            PrivacyAndPolicySettingsScreen(selectedLanguageID: selectedLanguageID)
         }
     }
 }
@@ -1818,8 +2053,7 @@ private struct SystemInformationScreen: View {
 }
 
 private struct PrivacyAndPolicySettingsScreen: View {
-    @State private var previewedFile: WorkspacePreviewFile?
-    @State private var errorMessage: String?
+    let selectedLanguageID: String
 
     var body: some View {
         List {
@@ -1835,51 +2069,58 @@ private struct PrivacyAndPolicySettingsScreen: View {
             }
 
             Section("政策文件") {
-                Button {
-                    openPrivacyPolicyPreview()
+                NavigationLink {
+                    PalmiPolicyDocumentScreen(languageID: selectedLanguageID)
                 } label: {
-                    Label("查看完整隐私与政策", systemImage: "doc.text.magnifyingglass")
+                    Label("查看当前语言版本", systemImage: "doc.richtext")
+                }
+
+                NavigationLink {
+                    PalmiPolicyDocumentScreen(languageID: "zh-Hans")
+                } label: {
+                    Label("查看简体中文版本", systemImage: "doc.text")
+                }
+
+                NavigationLink {
+                    PalmiPolicyDocumentScreen(languageID: "en")
+                } label: {
+                    Label("View English Version", systemImage: "doc.text")
                 }
             }
         }
         .listStyle(.insetGrouped)
         .navigationTitle("隐私与政策")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(item: $previewedFile) { file in
-            WorkspaceFilePreviewSheet(file: file)
-        }
-        .alert("无法打开文件", isPresented: errorBinding) {
-            Button("知道了", role: .cancel) {}
-        } message: {
-            Text(errorMessage ?? "")
+    }
+}
+
+private struct PalmiPolicyDocumentScreen: View {
+    let languageID: String
+
+    private var title: String {
+        switch languageID {
+        case "zh-Hans", "zh-Hant":
+            return "用户知情提示"
+        default:
+            return "Privacy Notice"
         }
     }
 
-    private var errorBinding: Binding<Bool> {
-        Binding(
-            get: { errorMessage != nil },
-            set: { isPresented in
-                if !isPresented {
-                    errorMessage = nil
-                }
+    var body: some View {
+        Group {
+            if let url = PalmiPolicyDocumentResource.url(for: languageID) {
+                PalmiPolicyPDFView(url: url)
+                    .background(Color(uiColor: .systemGroupedBackground))
+            } else {
+                ContentUnavailableView(
+                    "未找到政策文件",
+                    systemImage: "doc.badge.exclamationmark",
+                    description: Text("Missing: \(PalmiPolicyDocumentResource.displayFileName(for: languageID))")
+                )
             }
-        )
-    }
-
-    private func openPrivacyPolicyPreview() {
-        guard let url = Bundle.main.url(forResource: "PalmiPrivacyPolicy", withExtension: "md") else {
-            errorMessage = "没有找到隐私与政策文件。"
-            return
         }
-
-        let preview = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        previewedFile = WorkspacePreviewFile(
-            title: "隐私与政策",
-            relativePath: "Resources/Policies/PalmiPrivacyPolicy.md",
-            url: url,
-            preview: preview,
-            kind: .markdown
-        )
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

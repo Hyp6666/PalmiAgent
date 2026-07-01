@@ -18,7 +18,7 @@
 
 - [x] **新增「隐私与政策」独立入口**：设置里单独放一个「隐私与政策」选项，点开后展示隐私与政策相关的内容。
 
-  **现状（已完成）**：设置首页已有「隐私与政策」独立入口（`AppSettingsCatalog.swift:55`）；页面说明本机数据、第三方服务边界，并复用 `WorkspaceFilePreviewSheet` 打开 bundle 内的 `PalmiPrivacyPolicy.md`（`WorkspaceShellScreen.swift:1352`、`PalmiPrivacyPolicy.md`）。
+  **现状（已完成）**：设置首页已有「隐私与政策」独立入口（`AppSettingsCatalog.swift:55`）；页面说明本机数据、第三方服务边界，并打开 bundle 内的 PDF 用户知情提示文件（`WorkspaceShellScreen.swift`）。
 
 ## 二、模型管理
 
