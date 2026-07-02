@@ -188,6 +188,19 @@ extension ToolConfirmationPolicy {
     }
 }
 
+extension ToolRiskLevel {
+    var localizedTitle: String {
+        switch self {
+        case .r0TextOnly, .r1PublicRead:
+            PalmiL10n.tr("tool.risk.low")
+        case .r2LocalRead, .r3WorkspaceMutationOrSandbox:
+            PalmiL10n.tr("tool.risk.medium")
+        case .r4PersonalDataOrSystemUI, .r5ExternalVisibleOrPersistentSystemChange:
+            PalmiL10n.tr("tool.risk.high")
+        }
+    }
+}
+
 extension ToolSideEffect {
     var localizedTitle: String {
         PalmiL10n.tr("tool.sideEffect.\(rawValue)")

@@ -1112,7 +1112,6 @@ private func workspaceBrowserActionButton(
 
 private enum OnboardingStep {
     case language
-    case policyNotice
     case modelConfiguration
     case modeChoice
 }
@@ -1136,21 +1135,6 @@ private struct OnboardingFlowScreen: View {
                     selectedLanguageID: $selectedLanguageID,
                     onContinue: {
                         withAnimation(.snappy(duration: 0.36, extraBounce: 0.06)) {
-                            step = .policyNotice
-                        }
-                    }
-                )
-
-            case .policyNotice:
-                OnboardingPolicyAgreementStep(
-                    selectedLanguageID: selectedLanguageID,
-                    onBack: {
-                        withAnimation(.snappy(duration: 0.32, extraBounce: 0.04)) {
-                            step = .language
-                        }
-                    },
-                    onAgree: {
-                        withAnimation(.snappy(duration: 0.32, extraBounce: 0.04)) {
                             step = .modelConfiguration
                         }
                     }
@@ -1161,7 +1145,7 @@ private struct OnboardingFlowScreen: View {
                     store: manualLabStore,
                     onBack: {
                         withAnimation(.snappy(duration: 0.32, extraBounce: 0.04)) {
-                            step = .policyNotice
+                            step = .language
                         }
                     },
                     onContinue: {
@@ -1239,17 +1223,16 @@ private struct OnboardingLanguageStep: View {
             RotatingLanguageTitle()
                 .frame(height: 54)
 
-            Menu {
+            Picker(selection: Binding(
+                get: { selectedLanguageID },
+                set: { newValue in
+                    selectedLanguageID = newValue
+                    UserDefaults.standard.set(newValue, forKey: PalmiLanguage.storageKey)
+                }
+            )) {
                 ForEach(PalmiLanguage.allCases) { language in
-                    Button {
-                        selectedLanguageID = language.rawValue
-                    } label: {
-                        if language == selectedLanguage {
-                            Label(language.displayTitle, systemImage: "checkmark")
-                        } else {
-                            Text(language.displayTitle)
-                        }
-                    }
+                    Text(language.displayTitle)
+                        .tag(language.rawValue)
                 }
             } label: {
                 HStack(spacing: 14) {
@@ -1266,9 +1249,11 @@ private struct OnboardingLanguageStep: View {
                 .padding(.horizontal, 22)
                 .frame(height: 62)
                 .frame(maxWidth: 360)
+                .contentShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
                 .glassEffect(.regular.tint(.white.opacity(0.16)), in: .rect(cornerRadius: 28))
             }
-            .buttonStyle(.plain)
+            .pickerStyle(.menu)
+            .id(selectedLanguageID)
 
             Button {
                 onContinue()
@@ -1368,29 +1353,6 @@ private enum PalmiPolicyDocumentResource {
     }
 }
 
-private struct PalmiPolicyAgreementStrings {
-    let title: String
-    let subtitle: String
-    let checkboxTitle: String
-    let backTitle: String
-    let continueTitle: String
-    let missingTitle: String
-    let missingMessage: String
-
-    static func resolve(for languageID: String) -> PalmiPolicyAgreementStrings {
-        _ = languageID
-        return PalmiPolicyAgreementStrings(
-            title: PalmiL10n.tr("onboarding.policy.title"),
-            subtitle: PalmiL10n.tr("onboarding.policy.subtitle"),
-            checkboxTitle: PalmiL10n.tr("onboarding.policy.checkbox"),
-            backTitle: PalmiL10n.tr("common.back"),
-            continueTitle: PalmiL10n.tr("onboarding.policy.agreeContinue"),
-            missingTitle: PalmiL10n.tr("policy.missing.title"),
-            missingMessage: PalmiL10n.tr("policy.missing.message")
-        )
-    }
-}
-
 private struct PalmiPolicyPDFView: UIViewRepresentable {
     let url: URL
 
@@ -1412,139 +1374,6 @@ private struct PalmiPolicyPDFView: UIViewRepresentable {
     }
 }
 
-private struct OnboardingPolicyAgreementStep: View {
-    let selectedLanguageID: String
-    let onBack: () -> Void
-    let onAgree: () -> Void
-
-    @State private var hasAccepted = false
-
-    private var strings: PalmiPolicyAgreementStrings {
-        PalmiPolicyAgreementStrings.resolve(for: selectedLanguageID)
-    }
-
-    private var pdfURL: URL? {
-        PalmiPolicyDocumentResource.url(for: selectedLanguageID)
-    }
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Spacer(minLength: 18)
-
-            VStack(spacing: 8) {
-                Text(strings.title)
-                    .font(.largeTitle.weight(.semibold))
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.primary)
-
-                Text(strings.subtitle)
-                    .font(.subheadline)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 24)
-
-            policyDocumentPanel
-                .frame(maxWidth: 720)
-                .frame(maxHeight: .infinity)
-                .padding(.horizontal, 20)
-
-            acceptanceToggle
-                .frame(maxWidth: 720)
-                .padding(.horizontal, 20)
-
-            footerButtons
-                .frame(maxWidth: 720)
-                .padding(.horizontal, 20)
-                .padding(.bottom, 18)
-        }
-        .padding(.top, 18)
-    }
-
-    @ViewBuilder
-    private var policyDocumentPanel: some View {
-        Group {
-            if let pdfURL {
-                PalmiPolicyPDFView(url: pdfURL)
-            } else {
-                ContentUnavailableView(
-                    strings.missingTitle,
-                    systemImage: "doc.badge.exclamationmark",
-                    description: Text(PalmiL10n.tr("policy.missing.withFile", PalmiPolicyDocumentResource.displayFileName(for: selectedLanguageID)))
-                )
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        }
-        .background {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(Color(uiColor: .systemBackground).opacity(0.72))
-                .glassEffect(.regular.tint(.white.opacity(0.10)), in: .rect(cornerRadius: 28))
-        }
-    }
-
-    private var acceptanceToggle: some View {
-        Button {
-            hasAccepted.toggle()
-        } label: {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: hasAccepted ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(hasAccepted ? .blue : .secondary)
-                    .padding(.top, 1)
-
-                Text(strings.checkboxTitle)
-                    .font(.footnote)
-                    .foregroundStyle(.primary)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Spacer(minLength: 0)
-            }
-            .padding(14)
-            .glassEffect(.regular.tint(.white.opacity(0.14)), in: .rect(cornerRadius: 22))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(strings.checkboxTitle)
-    }
-
-    private var footerButtons: some View {
-        HStack(spacing: 12) {
-            Button {
-                onBack()
-            } label: {
-                Text(strings.backTitle)
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 54)
-                    .glassEffect(.regular.tint(.white.opacity(0.14)), in: .capsule)
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                onAgree()
-            } label: {
-                Text(strings.continueTitle)
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(canContinue ? .white : .secondary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 54)
-                    .background(canContinue ? Color.blue : Color.secondary.opacity(0.14), in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(!canContinue)
-        }
-    }
-
-    private var canContinue: Bool {
-        hasAccepted && pdfURL != nil
-    }
-}
-
 private struct OnboardingModelConfigurationStep: View {
     @Bindable var store: ManualLabStore
     let onBack: () -> Void
@@ -1562,15 +1391,31 @@ private struct OnboardingModelConfigurationStep: View {
             ModelConfigurationManagerScreen(store: store)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button(PalmiL10n.tr("common.back")) {
+                        Button {
                             onBack()
+                        } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundStyle(.primary)
+                                .frame(width: 56, height: 56)
+                                .contentShape(Circle())
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(PalmiL10n.tr("common.back"))
                     }
 
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button(PalmiL10n.tr("common.skip")) {
+                        Button {
                             isConfirmingSkip = true
+                        } label: {
+                            Image(systemName: "forward.end.fill")
+                                .font(.system(size: 21, weight: .semibold))
+                                .foregroundStyle(.primary)
+                                .frame(width: 56, height: 56)
+                                .contentShape(Circle())
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(PalmiL10n.tr("common.skip"))
                     }
                 }
                 .safeAreaInset(edge: .bottom) {
@@ -1770,37 +1615,42 @@ private struct SystemSettingsScreen: View {
 
 private struct LanguageSettingsScreen: View {
     @AppStorage(PalmiLanguage.storageKey) private var selectedLanguageID = PalmiLanguage.zhHans.rawValue
-
+    private var selectedLanguage: PalmiLanguage {
+        PalmiLanguage.resolve(selectedLanguageID)
+    }
     var body: some View {
         List {
             Section {
                 ForEach(PalmiLanguage.allCases) { language in
                     Button {
                         selectedLanguageID = language.rawValue
+                        UserDefaults.standard.set(language.rawValue, forKey: PalmiLanguage.storageKey)
                     } label: {
                         HStack(spacing: 12) {
                             Text(language.displayTitle)
                                 .foregroundStyle(.primary)
-
                             Spacer(minLength: 12)
-
-                            if PalmiLanguage.resolve(selectedLanguageID) == language {
+                            if selectedLanguage == language {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundStyle(Color.accentColor)
+                                    .accessibilityHidden(true)
                             }
                         }
+                        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(language.displayTitle)
+                    .accessibilityAddTraits(selectedLanguage == language ? [.isSelected] : [])
                 }
             } header: {
                 Text(PalmiL10n.tr("system.language.section.display"))
-            } footer: {
-                Text(PalmiL10n.tr("system.language.footer"))
             }
         }
         .listStyle(.insetGrouped)
         .navigationTitle(PalmiL10n.tr("system.language.title"))
         .navigationBarTitleDisplayMode(.inline)
+        .id(selectedLanguageID)
     }
 }
 

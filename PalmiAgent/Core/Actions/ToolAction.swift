@@ -8,11 +8,11 @@ enum ToolPresentationKind: String, Codable, Sendable {
     var title: String {
         switch self {
         case .data:
-            "结果"
+            PalmiL10n.tr("tool.presentation.data")
         case .action:
-            "系统动作"
+            PalmiL10n.tr("tool.presentation.action")
         case .interactive:
-            "等待继续"
+            PalmiL10n.tr("tool.presentation.interactive")
         }
     }
 }

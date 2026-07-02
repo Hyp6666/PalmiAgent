@@ -90,18 +90,17 @@ struct AppShellTopBar: View {
                     trailingButton
                 }
             }
-            .frame(height: 52)
+            .frame(height: 64)
         }
     }
 
     private var settingsButton: some View {
         Button(action: onOpenSettings) {
-            Label(PalmiL10n.tr("common.settings"), systemImage: "gearshape")
-                .font(.body.weight(.semibold))
+            Image(systemName: "gearshape")
+                .font(.system(size: 24, weight: .semibold))
                 .foregroundStyle(.primary)
-                .padding(.horizontal, 16)
-                .frame(height: 50)
-                .contentShape(Capsule())
+                .frame(width: 50, height: 50)
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.tint(.white.opacity(0.10)).interactive(), in: .capsule)
@@ -110,12 +109,11 @@ struct AppShellTopBar: View {
 
     private var trailingButton: some View {
         Button(action: onTrailingAction) {
-            Label(PalmiL10n.tr("common.new"), systemImage: trailingSystemName)
-                .font(.body.weight(.semibold))
+            Image(systemName: trailingSystemName)
+                .font(.system(size: 24, weight: .semibold))
                 .foregroundStyle(.blue)
-                .padding(.horizontal, 16)
-                .frame(height: 50)
-                .contentShape(Capsule())
+                .frame(width: 50, height: 50)
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.tint(.white.opacity(0.14)).interactive(), in: .capsule)

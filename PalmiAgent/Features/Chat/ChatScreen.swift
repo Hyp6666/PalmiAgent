@@ -4225,14 +4225,27 @@ private struct ToolCallCard: View {
     }
 
     private var compactToolLine: String {
-        let summary = toolCall.summary.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !summary.isEmpty {
-            return summary
+        guard toolCall.cardKind == .tool else {
+            let summary = toolCall.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !summary.isEmpty {
+                return summary
+            }
+            return toolCall.toolTitle
         }
         if toolCall.isRunning == true {
             return PalmiL10n.tr("chat.tool.running", displayToolTitle)
         }
-        return displayToolTitle
+        if toolCall.status == .failure {
+            return PalmiL10n.tr("tool.status.failure")
+        }
+        if toolCall.status == .warning {
+            return PalmiL10n.tr("tool.status.warning")
+        }
+        if let actionID = ToolActionID(rawValue: toolCall.toolName),
+           let action = ActionCatalog.all.first(where: { $0.id == actionID }) {
+            return action.localizedEffectForUI
+        }
+        return PalmiL10n.tr("tool.status.success")
     }
 
     private var displayToolTitle: String {

@@ -9,11 +9,11 @@ struct ToolResult: Identifiable, Sendable {
         var title: String {
             switch self {
             case .success:
-                "成功"
+                PalmiL10n.tr("tool.status.success")
             case .warning:
-                "提醒"
+                PalmiL10n.tr("tool.status.warning")
             case .failure:
-                "失败"
+                PalmiL10n.tr("tool.status.failure")
             }
         }
     }

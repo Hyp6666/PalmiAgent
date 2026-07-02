@@ -43,7 +43,7 @@ struct ToolApprovalSheet: View {
 
     private var metadataGrid: some View {
         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
-            metadataRow(PalmiL10n.tr("tool.approval.risk"), request.riskLevel.title)
+            metadataRow(PalmiL10n.tr("tool.approval.risk"), request.riskLevel.localizedTitle)
             metadataRow(PalmiL10n.tr("tool.approval.action"), request.sideEffect.localizedTitle)
             metadataRow(PalmiL10n.tr("tool.approval.policy"), request.confirmationPolicy.localizedTitle)
             if !request.systemPermissions.isEmpty {
