@@ -29,7 +29,7 @@ struct ToolApprovalSheet: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(request.toolTitle)
+            Text(request.toolActionID.localizedTitleForUI)
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(.primary)
 

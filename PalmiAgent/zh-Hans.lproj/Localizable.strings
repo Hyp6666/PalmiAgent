@@ -366,9 +366,9 @@
 "onboarding.model.skip.message" = "稍后仍可在设置中配置模型。";
 "onboarding.model.skip.title" = "跳过模型配置？";
 "onboarding.policy.agreeContinue" = "同意并继续";
-"onboarding.policy.checkbox" = "我已阅读并同意";
-"onboarding.policy.subtitle" = "请先阅读并同意隐私与政策文件。";
-"onboarding.policy.title" = "PDF 知情提示";
+"onboarding.policy.checkbox" = "我已阅读并同意《Palmi 用户知情与第三方 AI 服务提示》，并理解第三方模型服务、聚合平台、自定义 endpoint、系统权限和工具调用可能按照各自政策处理我选择发送的数据。";
+"onboarding.policy.subtitle" = "请阅读完整 PDF。勾选同意后才能继续配置模型。";
+"onboarding.policy.title" = "隐私与第三方 AI 服务提示";
 "personality.cool" = "冷静";
 "personality.custom" = "自定义";
 "personality.custom.withTitle" = "自定义：%@";

@@ -52,6 +52,15 @@ enum PalmiL10n {
         return String(format: format, locale: language.locale, arguments: args)
     }
 
+    static func tr(_ key: String, language: PalmiLanguage) -> String {
+        let localizedBundle = Self.bundle(for: language)
+        let fallbackBundle = Self.bundle(for: .zhHans)
+        let localized = localizedBundle.localizedString(forKey: key, value: nil, table: "Localizable")
+        return localized == key
+            ? fallbackBundle.localizedString(forKey: key, value: key, table: "Localizable")
+            : localized
+    }
+
     static func bundle(for language: PalmiLanguage) -> Bundle {
         guard let path = Bundle.main.path(forResource: language.rawValue, ofType: "lproj"),
               let bundle = Bundle(path: path) else {
@@ -145,6 +154,12 @@ extension ToolAction {
 
     var localizedEffectForUI: String {
         PalmiL10n.tr("tool.action.\(id.rawValue).effect")
+    }
+}
+
+extension ToolActionID {
+    var localizedTitleForUI: String {
+        ActionCatalog.all.first { $0.id == self }?.localizedTitleForUI ?? rawValue
     }
 }
 

@@ -79,7 +79,6 @@ struct WorkspaceShellScreen: View {
             AppSettingsScreen(
                 store: manualLabStore,
                 skillRegistry: skillRegistry,
-                selectedLanguageID: selectedOnboardingLanguageID,
                 onStartOnboarding: presentOnboardingFromSettings,
                 onFactoryResetCompleted: handleFactoryResetCompleted
             )
@@ -1293,7 +1292,13 @@ private struct OnboardingLanguageStep: View {
 }
 
 private struct RotatingLanguageTitle: View {
-    private let titles = PalmiLanguage.allCases.map(\.displayTitle)
+    private let titles = [
+        "选择语言",
+        "選擇語言",
+        "Select Language",
+        "言語を選択",
+        "언어 선택"
+    ]
 
     var body: some View {
         TimelineView(.animation) { context in
@@ -1652,9 +1657,9 @@ private struct OnboardingModeChoiceStep: View {
 
 private struct AppSettingsScreen: View {
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(PalmiLanguage.storageKey) private var selectedLanguageID = PalmiLanguage.zhHans.rawValue
     @Bindable var store: ManualLabStore
     @Bindable var skillRegistry: SkillRegistry
-    let selectedLanguageID: String
     let onStartOnboarding: () -> Void
     let onFactoryResetCompleted: () -> Void
 

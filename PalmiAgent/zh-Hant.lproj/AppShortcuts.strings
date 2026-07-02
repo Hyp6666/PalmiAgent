@@ -1,0 +1,4 @@
+"Open ${applicationName}" = "開啟 ${applicationName}";
+"Launch ${applicationName} developer mode" = "開啟 ${applicationName} 開發者模式";
+"Create a workspace with ${applicationName}" = "用 ${applicationName} 建立工作區";
+"Make a test workspace in ${applicationName}" = "在 ${applicationName} 中建立測試工作區";

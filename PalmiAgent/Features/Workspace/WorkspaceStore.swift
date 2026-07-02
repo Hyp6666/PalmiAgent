@@ -16,6 +16,40 @@ final class WorkspaceStore {
         PalmiL10n.tr("workspace.default.professionalProject")
     }
 
+    private static func supportedDefaultNames(for key: String, legacyNames: [String]) -> Set<String> {
+        let localizedNames = PalmiLanguage.allCases.map {
+            PalmiL10n.tr(key, language: $0)
+        }
+        return Set((localizedNames + legacyNames).compactMap { name in
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        })
+    }
+
+    static func isDefaultChatConversationName(_ name: String) -> Bool {
+        supportedDefaultNames(
+            for: "workspace.default.chatConversation",
+            legacyNames: ["新聊天", "主聊天"]
+        )
+        .contains(name.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    static func isDefaultProfessionalThreadName(_ name: String) -> Bool {
+        supportedDefaultNames(
+            for: "workspace.default.professionalThread",
+            legacyNames: ["默认会话", "主会话"]
+        )
+        .contains(name.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    static func isDefaultProfessionalProjectName(_ name: String) -> Bool {
+        supportedDefaultNames(
+            for: "workspace.default.professionalProject",
+            legacyNames: ["默认项目"]
+        )
+        .contains(name.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
     let workspaceManager: WorkspaceManager
 
     var projects: [WorkspaceProjectRecord] = []
@@ -252,7 +286,7 @@ final class WorkspaceStore {
 
     func firstEmptyDefaultChatProject() -> WorkspaceProjectRecord? {
         chatProjects.first { project in
-            guard project.name == Self.defaultChatConversationName else { return false }
+            guard Self.isDefaultChatConversationName(project.name) else { return false }
             let projectThreads = threadsByProject[project.id] ?? []
             guard projectThreads.count <= 1 else { return false }
             if let thread = projectThreads.first {
@@ -315,7 +349,14 @@ final class WorkspaceStore {
     func ensureDefaultProfessionalProject(named requestedName: String? = nil) -> WorkspaceProjectRecord? {
         let name = requestedName ?? Self.defaultProfessionalProjectName
         do {
-            if let existing = projects.first(where: { $0.name == name }) {
+            let existing: WorkspaceProjectRecord?
+            if requestedName == nil {
+                existing = projects.first(where: { Self.isDefaultProfessionalProjectName($0.name) })
+            } else {
+                existing = projects.first(where: { $0.name == name })
+            }
+
+            if let existing {
                 if threadCount(for: existing.id) == 0 {
                     _ = try workspaceManager.createThread(
                         named: Self.defaultProfessionalThreadName,
@@ -412,14 +453,14 @@ final class WorkspaceStore {
 
             switch target.surface {
             case .chat:
-                if project.name == Self.defaultChatConversationName {
+                if Self.isDefaultChatConversationName(project.name) {
                     try workspaceManager.renameProject(projectID: project.id, to: trimmedTitle)
                 }
-                if thread.name == Self.defaultChatConversationName || thread.name == "\u{4E3B}\u{804A}\u{5929}" {
+                if Self.isDefaultChatConversationName(thread.name) {
                     try workspaceManager.renameThread(projectID: thread.projectID, threadID: thread.id, to: trimmedTitle)
                 }
             case .professional:
-                if thread.name == Self.defaultProfessionalThreadName || thread.name == "\u{4E3B}\u{4F1A}\u{8BDD}" {
+                if Self.isDefaultProfessionalThreadName(thread.name) {
                     try workspaceManager.renameThread(projectID: thread.projectID, threadID: thread.id, to: trimmedTitle)
                 }
             }

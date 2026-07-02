@@ -732,11 +732,11 @@ final class ChatStore {
 
         switch target.surface {
         case .chat:
-            guard target.projectName == WorkspaceStore.defaultChatConversationName else {
+            guard WorkspaceStore.isDefaultChatConversationName(target.projectName) else {
                 return nil
             }
         case .professional:
-            guard target.threadName == WorkspaceStore.defaultProfessionalThreadName else {
+            guard WorkspaceStore.isDefaultProfessionalThreadName(target.threadName) else {
                 return nil
             }
         }

@@ -409,7 +409,7 @@ private struct ToolAuditRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Text(record.toolName)
+                Text(localizedToolTitle)
                     .font(.headline)
                 Spacer(minLength: 8)
                 Text(record.riskLevel.title)
@@ -426,6 +426,10 @@ private struct ToolAuditRow: View {
         }
         .textSelection(.enabled)
         .padding(.vertical, 4)
+    }
+
+    private var localizedToolTitle: String {
+        ToolActionID(rawValue: record.toolName)?.localizedTitleForUI ?? record.toolName
     }
 }
 
@@ -498,7 +502,7 @@ private struct ConfirmationRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Text(record.toolName)
+                Text(localizedToolTitle)
                     .font(.headline)
                 Spacer(minLength: 8)
                 Text(record.approved ? PalmiL10n.tr("evidence.approval.approved") : PalmiL10n.tr("evidence.approval.rejected"))
@@ -515,6 +519,10 @@ private struct ConfirmationRow: View {
         }
         .textSelection(.enabled)
         .padding(.vertical, 4)
+    }
+
+    private var localizedToolTitle: String {
+        ToolActionID(rawValue: record.toolName)?.localizedTitleForUI ?? record.toolName
     }
 }
 

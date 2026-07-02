@@ -989,7 +989,10 @@ struct ChatScreen: View {
 
     private static func exportableMarkdown(for toolCall: PalmiToolCallCard) -> String? {
         var parts: [String] = []
-        if let title = nonEmptyTrimmed(toolCall.toolTitle) {
+        let titleForExport = toolCall.cardKind == .tool
+            ? ToolActionID(rawValue: toolCall.toolName)?.localizedTitleForUI ?? toolCall.toolTitle
+            : toolCall.toolTitle
+        if let title = nonEmptyTrimmed(titleForExport) {
             parts.append("### \(title)")
         }
         if let summary = nonEmptyTrimmed(toolCall.summary) {
@@ -4082,7 +4085,7 @@ private struct ToolCallCard: View {
                         }
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(toolCall.toolTitle)
+                        Text(displayToolTitle)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.primary)
                             .lineLimit(1)
@@ -4227,9 +4230,16 @@ private struct ToolCallCard: View {
             return summary
         }
         if toolCall.isRunning == true {
-            return PalmiL10n.tr("chat.tool.running", toolCall.toolTitle)
+            return PalmiL10n.tr("chat.tool.running", displayToolTitle)
         }
-        return toolCall.toolTitle
+        return displayToolTitle
+    }
+
+    private var displayToolTitle: String {
+        guard toolCall.cardKind == .tool else {
+            return toolCall.toolTitle
+        }
+        return ToolActionID(rawValue: toolCall.toolName)?.localizedTitleForUI ?? toolCall.toolTitle
     }
 
     private var detailTitle: String {

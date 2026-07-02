@@ -1,0 +1,4 @@
+"Open ${applicationName}" = "${applicationName} 열기";
+"Launch ${applicationName} developer mode" = "${applicationName} 개발자 모드 열기";
+"Create a workspace with ${applicationName}" = "${applicationName}에서 작업 공간 만들기";
+"Make a test workspace in ${applicationName}" = "${applicationName}에서 테스트 작업 공간 만들기";

@@ -314,7 +314,6 @@
 				"HEADER_SEARCH_PATHS[sdk=iphoneos*]" = "$(PROJECT_DIR)/Vendor/PythonSupport/Python.xcframework/ios-arm64/Python.framework/Headers";
 				"HEADER_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(PROJECT_DIR)/Vendor/PythonSupport/Python.xcframework/ios-arm64_x86_64-simulator/Python.framework/Headers";
 				INFOPLIST_FILE = PalmiAgent/Info.plist;
-				INFOPLIST_KEY_CFBundleLocalizations = "en zh-Hans zh-Hant ja ko";
 				INFOPLIST_KEY_NSAlarmKitUsageDescription = "PalmiAgent needs access to alarms to create, view, and manage alarms and timers.";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "PalmiAgent needs calendar access to create and read events.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "PalmiAgent needs camera access for photos, document scanning, and live text recognition.";
@@ -371,7 +370,6 @@
 				"HEADER_SEARCH_PATHS[sdk=iphoneos*]" = "$(PROJECT_DIR)/Vendor/PythonSupport/Python.xcframework/ios-arm64/Python.framework/Headers";
 				"HEADER_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(PROJECT_DIR)/Vendor/PythonSupport/Python.xcframework/ios-arm64_x86_64-simulator/Python.framework/Headers";
 				INFOPLIST_FILE = PalmiAgent/Info.plist;
-				INFOPLIST_KEY_CFBundleLocalizations = "en zh-Hans zh-Hant ja ko";
 				INFOPLIST_KEY_NSAlarmKitUsageDescription = "PalmiAgent needs access to alarms to create, view, and manage alarms and timers.";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "PalmiAgent needs calendar access to create and read events.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "PalmiAgent needs camera access for photos, document scanning, and live text recognition.";
