@@ -16,7 +16,7 @@ final class LiveReasoningBuffer {
     private let storage = Storage()
 
     private(set) var revision = 0
-    private(set) var summary = "思考"
+    private(set) var summary = PalmiL10n.tr("chat.thinking")
     private(set) var hasVisibleContent = false
 
     var chunkCount: Int {
@@ -95,7 +95,7 @@ final class LiveReasoningBuffer {
     }
 
     private func publishSummaryIfNeeded() {
-        let nextSummary = storage.summaryCore.isEmpty ? "思考" : storage.summaryCore
+        let nextSummary = storage.summaryCore.isEmpty ? PalmiL10n.tr("chat.thinking") : storage.summaryCore
         if summary != nextSummary {
             summary = nextSummary
         }
@@ -105,6 +105,10 @@ final class LiveReasoningBuffer {
 @MainActor
 @Observable
 final class ChatStore {
+    private static let hiddenAttachmentMarker = "\u{9644}\u{4ef6}\u{ff1a}"
+    private static let unknownFallback = "\u{672a}\u{77e5}"
+    private static let defaultModelPlanFallback = "\u{9ed8}\u{8ba4}"
+
     private static let toolsEnabledDefaultsKey = "palmi.chat.tools-enabled"
 
     struct QueuedUserGuidance: Identifiable, Equatable {
@@ -235,9 +239,9 @@ final class ChatStore {
     func runningBadgeText(for selection: WorkspaceSelection) -> String? {
         guard isRunning(selection: selection) else { return nil }
         if pendingApprovalRequestsBySelection[selection] != nil {
-            return "等待确认"
+            return PalmiL10n.tr("chat.running.waitingApproval")
         }
-        return "正在处理"
+        return PalmiL10n.tr("chat.running.processing")
     }
 
     func flushForAppBackground() {
@@ -386,7 +390,7 @@ final class ChatStore {
         guard !hiddenText.isEmpty else { return }
 
         guard let turnSelection = workspaceStore.selectedSelection ?? (try? workspaceManager.currentSelection()) else {
-            errorMessage = "请先选择一个会话。"
+            errorMessage = PalmiL10n.tr("chat.error.selectSessionFirst")
             return
         }
 
@@ -401,7 +405,7 @@ final class ChatStore {
 
         if let running = activeRuns[turnSelection] {
             guard running.loop.acceptsQueuedUserGuidance else {
-                errorMessage = "当前会话正在处理，请稍后再发送。"
+                errorMessage = PalmiL10n.tr("chat.error.sessionBusy")
                 return
             }
             enqueueQueuedUserGuidance(hiddenText)
@@ -545,7 +549,7 @@ final class ChatStore {
                     if isRunSelectionDisplayed(turnSelection) {
                         errorMessage = message
                         finalizeActiveSession()
-                        appendAgentMessage(kind: .summary, content: "调用失败：\(message)")
+                        appendAgentMessage(kind: .summary, content: PalmiL10n.tr("chat.error.callFailed", message))
                     } else {
                         appendPersistedBackgroundResult(
                             for: turnSelection,
@@ -628,7 +632,7 @@ final class ChatStore {
     func addPendingAttachments(_ attachments: [WorkspaceStoredAttachment]) {
         let remaining = max(0, Self.maxPendingAttachments - pendingAttachments.count)
         guard remaining > 0 else {
-            errorMessage = "最多只能添加 \(Self.maxPendingAttachments) 个附件。"
+            errorMessage = PalmiL10n.tr("chat.attachment.limitReached", Self.maxPendingAttachments)
             return
         }
 
@@ -645,7 +649,7 @@ final class ChatStore {
         )
 
         if attachments.count > remaining {
-            errorMessage = "最多只能添加 \(Self.maxPendingAttachments) 个附件，已保留前 \(remaining) 个。"
+            errorMessage = PalmiL10n.tr("chat.attachment.limitTrimmed", Self.maxPendingAttachments, remaining)
         } else {
             errorMessage = nil
         }
@@ -862,7 +866,7 @@ final class ChatStore {
         let attachmentLines = pendingAttachments.map { attachment in
             "- \(attachment.source.title)：`\(attachment.relativePath)`"
         }
-        let attachmentBlock = "附件：\n" + attachmentLines.joined(separator: "\n")
+        let attachmentBlock = Self.hiddenAttachmentMarker + "\n" + attachmentLines.joined(separator: "\n")
         guard !trimmedInput.isEmpty else {
             return attachmentBlock
         }
@@ -922,7 +926,7 @@ final class ChatStore {
     ) -> (realModel: String, displayName: String) {
         if case .resolved(let resolved) = modelOverrides.override(for: .reasoningModel) {
             return (
-                realModel: normalizedModelValue(resolved.model.id, fallback: "未知"),
+                realModel: normalizedModelValue(resolved.model.id, fallback: Self.unknownFallback),
                 displayName: normalizedModelValue(resolved.model.title, fallback: resolved.model.id)
             )
         }
@@ -934,7 +938,7 @@ final class ChatStore {
             : nil
         let model = overrideModel ?? snapshot.configuredReasoningModel
         return (
-            realModel: normalizedModelValue(model.id, fallback: "未知"),
+            realModel: normalizedModelValue(model.id, fallback: Self.unknownFallback),
             displayName: normalizedModelValue(model.title, fallback: model.id)
         )
     }
@@ -942,7 +946,7 @@ final class ChatStore {
     private func modelPlanName(for selection: WorkspaceSelection) -> String {
         let thread = workspaceStore.thread(for: selection)
         let plan = modelPlanStore.selectedPlan(for: thread?.modelPlanOverride)
-        return normalizedModelValue(plan?.name ?? "", fallback: "默认")
+        return normalizedModelValue(plan?.name ?? "", fallback: Self.defaultModelPlanFallback)
     }
 
     private func compactDateTime(from snapshot: CurrentDateTimeSnapshot) -> String {
@@ -958,7 +962,7 @@ final class ChatStore {
     private func normalizedModelValue(_ value: String, fallback: String) -> String {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            return fallback.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "未知" : fallback
+            return fallback.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Self.unknownFallback : fallback
         }
         return trimmed
     }
@@ -1012,7 +1016,7 @@ final class ChatStore {
                         PalmiChatMessage(
                             role: .agent,
                             kind: .summary,
-                            content: "调用失败：\(errorMessage)"
+                            content: PalmiL10n.tr("chat.error.callFailed", errorMessage)
                         )
                     )
                 } else if !trimmedFinalReply.isEmpty {
@@ -1145,7 +1149,7 @@ final class ChatStore {
                       ledger.status == .running || ledger.status == .waitingApproval else {
                     return false
                 }
-                let interruptionMessage = "上次运行在 App 退出或系统回收后中断。"
+                let interruptionMessage = PalmiL10n.tr("chat.error.interruptedAfterRestart")
                 ledger.status = .interrupted
                 ledger.phase = "interrupted_after_restart"
                 ledger.updatedAt = .now
@@ -1760,12 +1764,12 @@ final class ChatStore {
                     .first
                     .map(String.init)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                    ?? "思考"
+                    ?? PalmiL10n.tr("chat.thinking")
                 appendThoughtCard(
                     AgentThoughtCard(
                         kind: .modelThink,
-                        title: "思考",
-                        summary: summary.isEmpty ? "思考" : summary,
+                        title: PalmiL10n.tr("chat.thinking"),
+                        summary: summary.isEmpty ? PalmiL10n.tr("chat.thinking") : summary,
                         details: trimmed
                     ),
                     to: &messages
@@ -1886,7 +1890,7 @@ final class ChatStore {
             content: "",
             contextCompaction: PalmiContextCompactionNotice(
                 status: .running,
-                summary: "正在压缩上下文中",
+                summary: PalmiL10n.tr("chat.contextCompaction.running"),
                 source: noticeSource
             ),
             turnPlacement: source == .automatic && viewState.activeSessionHeaderID != nil ? .inTurn : .standalone,
@@ -1906,7 +1910,7 @@ final class ChatStore {
     ) {
         _ = retainedMessageCount
         _ = compactedMessageCount
-        let summary = didCompact ? "上下文已压缩" : "上下文压缩未执行"
+        let summary = didCompact ? PalmiL10n.tr("chat.contextCompaction.completed") : PalmiL10n.tr("chat.contextCompaction.skipped")
 
         if let messageID = viewState.activeContextCompactionMessageID,
            let index = messages.firstIndex(where: { $0.id == messageID }) {
@@ -1952,12 +1956,12 @@ final class ChatStore {
             content: "",
             toolCall: PalmiToolCallCard(
                 cardKind: .tool,
-                toolTitle: action.title,
+                toolTitle: action.localizedTitleForUI,
                 toolName: action.id.rawValue,
                 presentationKind: action.id.presentationKind,
                 status: .warning,
-                summary: "正在调用 \(action.title)…",
-                details: "等待工具返回结果。",
+                summary: PalmiL10n.tr("chat.tool.running", action.localizedTitleForUI),
+                details: PalmiL10n.tr("chat.tool.waitingResult"),
                 argumentsJSON: argumentsJSON,
                 requiresUserInteraction: false,
                 isRunning: true
@@ -2021,12 +2025,12 @@ final class ChatStore {
             content: "",
             toolCall: PalmiToolCallCard(
                 cardKind: .tool,
-                toolTitle: action.title,
+                toolTitle: action.localizedTitleForUI,
                 toolName: action.id.rawValue,
                 presentationKind: action.id.presentationKind,
                 status: .warning,
-                summary: "正在调用 \(action.title)…",
-                details: "等待工具返回结果。",
+                summary: PalmiL10n.tr("chat.tool.running", action.localizedTitleForUI),
+                details: PalmiL10n.tr("chat.tool.waitingResult"),
                 argumentsJSON: argumentsJSON,
                 requiresUserInteraction: false,
                 isRunning: true
@@ -2091,7 +2095,7 @@ final class ChatStore {
     private func makeToolCard(from step: LLMToolExecutionStep) -> PalmiToolCallCard {
         PalmiToolCallCard(
             cardKind: .tool,
-            toolTitle: step.action.title,
+            toolTitle: step.action.localizedTitleForUI,
             toolName: step.action.id.rawValue,
             presentationKind: step.action.id.presentationKind,
             status: step.result.status,
@@ -2118,12 +2122,12 @@ final class ChatStore {
         let isPhaseThought = card.kind == .phaseThought
         return PalmiToolCallCard(
             cardKind: isPhaseThought ? .phaseThought : .modelThink,
-            toolTitle: isPhaseThought ? card.title : "思考",
+            toolTitle: isPhaseThought ? card.title : PalmiL10n.tr("chat.thinking"),
             toolName: card.kind.rawValue,
             presentationKind: .data,
             status: .success,
             summary: card.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? (isPhaseThought ? "阶段思考" : "思考")
+                ? (isPhaseThought ? PalmiL10n.tr("chat.phaseThought") : PalmiL10n.tr("chat.thinking"))
                 : card.summary,
             details: card.details,
             argumentsJSON: "",
@@ -2145,7 +2149,7 @@ final class ChatStore {
         buffer.append(text)
         let card = PalmiToolCallCard(
             cardKind: .modelThink,
-            toolTitle: "思考",
+            toolTitle: PalmiL10n.tr("chat.thinking"),
             toolName: "model_think",
             presentationKind: .data,
             status: .success,
@@ -2177,7 +2181,7 @@ final class ChatStore {
         let details = activeStreamingReasoningBuffer.snapshot()
         let card = PalmiToolCallCard(
             cardKind: .modelThink,
-            toolTitle: "思考",
+            toolTitle: PalmiL10n.tr("chat.thinking"),
             toolName: "model_think",
             presentationKind: .data,
             status: .success,
@@ -2200,11 +2204,11 @@ final class ChatStore {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return PalmiToolCallCard(
             cardKind: .modelThink,
-            toolTitle: "思考",
+            toolTitle: PalmiL10n.tr("chat.thinking"),
             toolName: "model_think",
             presentationKind: .data,
             status: .success,
-            summary: (summary?.isEmpty == false) ? summary! : "思考",
+            summary: (summary?.isEmpty == false) ? summary! : PalmiL10n.tr("chat.thinking"),
             details: details,
             argumentsJSON: "",
             requiresUserInteraction: false,
@@ -2271,12 +2275,12 @@ final class ChatStore {
                     .first
                     .map(String.init)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                    ?? "思考"
+                    ?? PalmiL10n.tr("chat.thinking")
                 appendThoughtCard(
                     AgentThoughtCard(
                         kind: .modelThink,
-                        title: "思考",
-                        summary: summary.isEmpty ? "思考" : summary,
+                        title: PalmiL10n.tr("chat.thinking"),
+                        summary: summary.isEmpty ? PalmiL10n.tr("chat.thinking") : summary,
                         details: trimmed
                     )
                 )
@@ -2415,7 +2419,7 @@ final class ChatStore {
             content: "",
             contextCompaction: PalmiContextCompactionNotice(
                 status: .running,
-                summary: "正在压缩上下文中",
+                summary: PalmiL10n.tr("chat.contextCompaction.running"),
                 source: noticeSource
             ),
             turnPlacement: source == .automatic && activeSessionHeaderID != nil ? .inTurn : .standalone,
@@ -2434,8 +2438,8 @@ final class ChatStore {
         _ = retainedMessageCount
         _ = compactedMessageCount
         let summary = didCompact
-            ? "上下文已压缩"
-            : "上下文压缩未执行"
+            ? PalmiL10n.tr("chat.contextCompaction.completed")
+            : PalmiL10n.tr("chat.contextCompaction.skipped")
 
         if let messageID = activeContextCompactionMessageID {
             updateMessage(id: messageID) { message in
@@ -2654,7 +2658,7 @@ final class ChatStore {
         from content: String
     ) -> (visibleContent: String, attachments: [PalmiChatAttachment])? {
         let lines = content.components(separatedBy: .newlines)
-        guard let markerIndex = lines.lastIndex(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines) == "附件：" }),
+        guard let markerIndex = lines.lastIndex(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines) == Self.hiddenAttachmentMarker }),
               markerIndex < lines.endIndex - 1 else {
             return nil
         }

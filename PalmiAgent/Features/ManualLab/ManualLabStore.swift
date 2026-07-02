@@ -163,27 +163,27 @@ final class ManualLabStore {
         let details: String
         let status: ToolResult.Status
         if let image {
-            details = "已得到图片：\(Int(image.size.width)) x \(Int(image.size.height))"
+            details = PalmiL10n.tr("manualLab.callback.imageReceived", Int(image.size.width), Int(image.size.height))
             status = .success
         } else {
-            details = "用户取消了图片选择。"
+            details = PalmiL10n.tr("manualLab.callback.imageCancelled")
             status = .warning
         }
-        appendCallbackResult(for: presentation.actionID, summary: "媒体回调已完成", details: details, status: status)
+        appendCallbackResult(for: presentation.actionID, summary: PalmiL10n.tr("manualLab.callback.mediaCompleted"), details: details, status: status)
         self.presentation = nil
     }
 
     func handleDocumentScan(_ pageCount: Int?) {
         guard let presentation else { return }
-        let details = pageCount.map { "扫描完成，共 \($0) 页。" } ?? "用户取消了扫描。"
-        appendCallbackResult(for: presentation.actionID, summary: "文档扫描回调已完成", details: details, status: pageCount == nil ? .warning : .success)
+        let details = pageCount.map { PalmiL10n.tr("manualLab.callback.documentScanned", $0) } ?? PalmiL10n.tr("manualLab.callback.scanCancelled")
+        appendCallbackResult(for: presentation.actionID, summary: PalmiL10n.tr("manualLab.callback.documentCompleted"), details: details, status: pageCount == nil ? .warning : .success)
         self.presentation = nil
     }
 
     func handleTextScan(_ text: String?) {
         guard let presentation else { return }
-        let details = text.map { "识别结果：\($0)" } ?? "没有识别到文本，或者用户取消了扫描。"
-        appendCallbackResult(for: presentation.actionID, summary: "实时文本扫描已回传", details: details, status: text == nil ? .warning : .success)
+        let details = text.map { PalmiL10n.tr("manualLab.callback.textRecognized", $0) } ?? PalmiL10n.tr("manualLab.callback.textScanEmpty")
+        appendCallbackResult(for: presentation.actionID, summary: PalmiL10n.tr("manualLab.callback.liveTextReturned"), details: details, status: text == nil ? .warning : .success)
         self.presentation = nil
     }
 
@@ -194,7 +194,7 @@ final class ManualLabStore {
     func runNaturalLanguageToolCall() {
         let trimmedPrompt = naturalLanguagePrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPrompt.isEmpty else {
-            llmStatusMessage = "请输入一条自然语言指令。"
+            llmStatusMessage = PalmiL10n.tr("manualLab.llm.enterPrompt")
             return
         }
 
@@ -211,18 +211,18 @@ final class ManualLabStore {
                     onEvent: { event in
                         switch event {
                         case .planningReceived(_, let tokens):
-                            self.llmStatusMessage = "规划完成，已用 \(tokens) tokens"
+                            self.llmStatusMessage = PalmiL10n.tr("manualLab.llm.planningCompleted", tokens)
                         case .toolStarted:
                             self.llmStreamingPreview = nil
-                            self.llmStatusMessage = "正在执行工具…"
+                            self.llmStatusMessage = PalmiL10n.tr("manualLab.llm.toolRunning")
                         case .toolFinished:
-                            self.llmStatusMessage = "工具执行完成，正在生成总结…"
+                            self.llmStatusMessage = PalmiL10n.tr("manualLab.llm.toolFinished")
                         case .streamingDelta(let text):
                             self.llmStreamingPreview = (self.llmStreamingPreview ?? "") + text
                         case .tokenUpdate(let tokens):
-                            self.llmStatusMessage = "正在生成总结，已用 \(tokens) tokens"
+                            self.llmStatusMessage = PalmiL10n.tr("manualLab.llm.summarizing", tokens)
                         case .finalReplyReceived(_, let tokens):
-                            self.llmStatusMessage = "模型已完成，共 \(tokens) tokens"
+                            self.llmStatusMessage = PalmiL10n.tr("manualLab.llm.modelCompleted", tokens)
                         }
                     }
                 ) { action, arguments in
@@ -611,7 +611,7 @@ final class ManualLabStore {
                     apiFeedbacks[resolvedProfileID] = .failure(lastError.localizedDescription)
                 } else {
                     apiFeedbacks[resolvedProfileID] = .failure(
-                        "没有自动发现可用的 LM Studio 服务。确认目标设备已开启 Serve on Local Network，或直接填写 192.168.x.x:1234 后再点“自动配置”。"
+                        PalmiL10n.tr("manualLab.lmStudio.autoDiscoveryFailed")
                     )
                 }
                 return
@@ -627,15 +627,15 @@ final class ManualLabStore {
 
                 if validationPassed {
                     apiFeedbacks[resolvedProfileID] = .success(
-                        "\(savedProfile.profileName) 已自动配置、保存并完成联通验证。"
+                        PalmiL10n.tr("manualLab.lmStudio.autoConfiguredValidated", savedProfile.profileName)
                     )
                 } else if selectedServer.requiresAuthentication && apiToken == nil {
                     apiFeedbacks[resolvedProfileID] = .success(
-                        "\(savedProfile.profileName) 已发现并保存服务器地址；该服务端需要 API Key，填写后再点一次“自动配置”即可。"
+                        PalmiL10n.tr("manualLab.lmStudio.serverSavedNeedsKey", savedProfile.profileName)
                     )
                 } else {
                     apiFeedbacks[resolvedProfileID] = .success(
-                        "\(savedProfile.profileName) 已自动保存服务器信息。"
+                        PalmiL10n.tr("manualLab.lmStudio.serverSaved", savedProfile.profileName)
                     )
                 }
             } catch {
@@ -656,9 +656,9 @@ final class ManualLabStore {
 
             if let best = servers.first {
                 selectLMStudioServer(best, for: providerID, profileID: resolvedProfileID)
-                apiFeedbacks[resolvedProfileID] = .success("已发现 \(servers.count) 个 LM Studio 服务，已自动配对首个可用节点。")
+                apiFeedbacks[resolvedProfileID] = .success(PalmiL10n.tr("manualLab.lmStudio.discoveredServers", servers.count))
             } else {
-                apiFeedbacks[resolvedProfileID] = .failure("没有发现可用的 LM Studio 服务。确认目标设备已开启 Serve on Local Network，并使用默认端口 1234。")
+                apiFeedbacks[resolvedProfileID] = .failure(PalmiL10n.tr("manualLab.lmStudio.discoveryFailed"))
             }
         }
     }
@@ -669,7 +669,7 @@ final class ManualLabStore {
             .selectedLMStudioServer?
             .baseURLString ?? nonEmpty(customBaseURLDraft(for: providerID, profileID: resolvedProfileID)),
               let baseURL = normalizedLMStudioCandidateURL(from: baseURLString) else {
-            apiFeedbacks[resolvedProfileID] = .failure("还没有可刷新的 LM Studio 服务器地址。")
+            apiFeedbacks[resolvedProfileID] = .failure(PalmiL10n.tr("manualLab.lmStudio.noRefreshableServer"))
             return
         }
 
@@ -680,7 +680,7 @@ final class ManualLabStore {
                     apiToken: nonEmpty(apiKeyDraft(for: providerID, profileID: resolvedProfileID))
                 )
                 selectLMStudioServer(refreshed, for: providerID, profileID: resolvedProfileID)
-                apiFeedbacks[resolvedProfileID] = .success("LM Studio 服务器信息已刷新。")
+                apiFeedbacks[resolvedProfileID] = .success(PalmiL10n.tr("manualLab.lmStudio.serverRefreshed"))
             } catch {
                 apiFeedbacks[resolvedProfileID] = .failure(error.localizedDescription)
             }
@@ -758,7 +758,7 @@ final class ManualLabStore {
                     profileID: resolvedProfileID
                 )
                 refreshAPIConfiguration(for: providerID)
-                apiConnectionFeedbacks[resolvedProfileID] = .success("已检测到 \(models.count) 个远程模型。")
+                apiConnectionFeedbacks[resolvedProfileID] = .success(PalmiL10n.tr("manualLab.api.remoteModelsDetected", models.count))
             } catch {
                 let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 apiConnectionFeedbacks[resolvedProfileID] = .failure(message)
@@ -818,7 +818,7 @@ final class ManualLabStore {
 
             validatingProfileIDs.remove(resolvedProfileID)
             if failures.isEmpty {
-                apiConnectionFeedbacks[resolvedProfileID] = .success("联通验证完成。")
+                apiConnectionFeedbacks[resolvedProfileID] = .success(PalmiL10n.tr("manualLab.api.validationCompleted"))
             } else {
                 apiConnectionFeedbacks[resolvedProfileID] = .failure(failures.joined(separator: "\n"))
             }
@@ -835,7 +835,7 @@ final class ManualLabStore {
         do {
             let snapshot = try persistDraft(for: providerID, profileID: resolvedProfileID)
             setActiveProviderID(providerID)
-            apiFeedbacks[resolvedProfileID] = .success("\(snapshot.profileName) 已保存。")
+            apiFeedbacks[resolvedProfileID] = .success(PalmiL10n.tr("manualLab.api.profileSaved", snapshot.profileName))
         } catch {
             apiFeedbacks[resolvedProfileID] = .failure(error.localizedDescription)
         }
@@ -855,7 +855,7 @@ final class ManualLabStore {
                 draft.apiKeyDraft = ""
                 apiDrafts[resolvedProfileID] = draft
             }
-            apiFeedbacks[resolvedProfileID] = .success("API Key 已清空。")
+            apiFeedbacks[resolvedProfileID] = .success(PalmiL10n.tr("manualLab.api.apiKeyCleared"))
             resetConnectionValidation(for: resolvedProfileID)
         } catch {
             apiFeedbacks[resolvedProfileID] = .failure(error.localizedDescription)
@@ -864,7 +864,7 @@ final class ManualLabStore {
 
     private func appendCallbackResult(for actionID: ToolActionID, summary: String, details: String, status: ToolResult.Status) {
         guard let action = actions.first(where: { $0.id == actionID }) else { return }
-        let result = ToolResult(status: status, title: action.title, summary: summary, details: details, actionID: actionID, createdAt: .now)
+        let result = ToolResult(status: status, title: action.localizedTitleForUI, summary: summary, details: details, actionID: actionID, createdAt: .now)
         lastResult = result
         executionLog.insert(.init(action: action, result: result), at: 0)
         workspaceStore.refreshCurrentThreadContents()
@@ -952,7 +952,7 @@ final class ManualLabStore {
         refreshAPIConfiguration(for: providerID)
 
         guard let refreshedProfile = profiles(for: providerID).first(where: { $0.id == profileID }) else {
-            throw AppError.invalidState("配置保存后未能刷新最新状态。")
+            throw AppError.invalidState(PalmiL10n.tr("manualLab.api.refreshAfterSaveFailed"))
         }
 
         return refreshedProfile
@@ -1182,7 +1182,7 @@ final class ManualLabStore {
                 role: .reasoningModel
             )
             apiConnectionStates[profileID] = [.reasoningModel: .success]
-            apiConnectionFeedbacks[profileID] = .success("联通验证完成。")
+            apiConnectionFeedbacks[profileID] = .success(PalmiL10n.tr("manualLab.api.validationCompleted"))
             return true
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription

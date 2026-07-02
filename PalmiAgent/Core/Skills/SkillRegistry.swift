@@ -71,18 +71,18 @@ final class SkillRegistry {
     func importGlobalSkill(from sourceURL: URL) throws {
         try importSkill(from: sourceURL, scope: .global, projectID: nil)
         try reloadGlobalSkills()
-        statusMessage = "技能已导入到全局。"
+        statusMessage = PalmiL10n.tr("skill.status.importedGlobal")
     }
 
     func importProjectSkill(from sourceURL: URL, projectID: UUID) throws {
         try importSkill(from: sourceURL, scope: .project, projectID: projectID)
         try reloadProjectSkills(for: projectID)
-        statusMessage = "技能已导入到当前项目。"
+        statusMessage = PalmiL10n.tr("skill.status.importedProject")
     }
 
     func deleteSkill(_ skill: SkillPackage) throws {
         guard fileManager.fileExists(atPath: skill.packageURL.path) else {
-            throw AppError.invalidState("技能包不存在。")
+            throw AppError.invalidState(PalmiL10n.tr("skill.error.packageMissing"))
         }
         try fileManager.removeItem(at: skill.packageURL)
 
@@ -92,7 +92,7 @@ final class SkillRegistry {
         case .project:
             try reloadProjectSkills(for: skill.projectID)
         }
-        statusMessage = "技能已删除。"
+        statusMessage = PalmiL10n.tr("skill.status.deleted")
     }
 
     private func importSkill(from sourceURL: URL, scope: SkillScope, projectID: UUID?) throws {
@@ -190,7 +190,7 @@ final class SkillRegistry {
             return try workspaceManager.globalSkillsRootURL()
         case .project:
             guard let projectID else {
-                throw AppError.invalidState("当前没有可用的项目上下文。")
+                throw AppError.invalidState(PalmiL10n.tr("skill.error.noProjectContext"))
             }
             return try workspaceManager.projectSkillsRootURL(for: projectID)
         }
@@ -221,7 +221,7 @@ final class SkillRegistry {
             return try locatePackageRoot(in: temporaryRoot)
         }
 
-        throw AppError.invalidState("仅支持导入 .zip 或 \(SkillPackage.skillFilename) 文件。")
+        throw AppError.invalidState(PalmiL10n.tr("skill.error.unsupportedImport", SkillPackage.skillFilename))
     }
 
     private func locatePackageRoot(in directoryURL: URL) throws -> URL {
@@ -243,12 +243,12 @@ final class SkillRegistry {
         }
 
         guard !candidates.isEmpty else {
-            throw AppError.invalidState("导入内容中没有找到 \(SkillPackage.skillFilename)。")
+            throw AppError.invalidState(PalmiL10n.tr("skill.error.importMissingSkillFile", SkillPackage.skillFilename))
         }
 
         let uniqueCandidates = Array(Set(candidates.map(\.path))).map(URL.init(fileURLWithPath:))
         guard uniqueCandidates.count == 1, let packageRoot = uniqueCandidates.first else {
-            throw AppError.invalidState("导入内容中包含多个技能包，请一次只导入一个。")
+            throw AppError.invalidState(PalmiL10n.tr("skill.error.multiplePackages"))
         }
         return packageRoot
     }
@@ -266,7 +266,7 @@ final class SkillRegistry {
         if let matched = entries.first(where: { $0.lastPathComponent.caseInsensitiveCompare(SkillPackage.skillFilename) == .orderedSame }) {
             return matched
         }
-        throw AppError.invalidState("技能包缺少 \(SkillPackage.skillFilename)。")
+        throw AppError.invalidState(PalmiL10n.tr("skill.error.missingSkillFile", SkillPackage.skillFilename))
     }
 
     private func normalizeSkillFileCasing(in packageURL: URL) throws {

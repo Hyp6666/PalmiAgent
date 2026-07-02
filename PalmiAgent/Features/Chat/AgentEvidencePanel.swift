@@ -10,7 +10,7 @@ struct AgentEvidencePanel: View {
         NavigationStack {
             List {
                 if !snapshot.hasContent {
-                    Text("暂无过程")
+                    Text(PalmiL10n.tr("evidence.empty"))
                         .foregroundStyle(.secondary)
                 }
 
@@ -52,7 +52,7 @@ struct AgentEvidencePanel: View {
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
-            .navigationTitle("过程")
+            .navigationTitle(PalmiL10n.tr("evidence.title"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -65,7 +65,7 @@ struct AgentEvidencePanel: View {
                             .frame(width: 44, height: 44)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("关闭")
+                    .accessibilityLabel(PalmiL10n.tr("common.close"))
                 }
             }
             .toolbarBackground(.visible, for: .navigationBar)
@@ -98,7 +98,7 @@ struct AgentEvidencePanel: View {
                 .listRowInsets(EdgeInsets(top: 0, leading: 32, bottom: 0, trailing: 32))
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
-                .accessibilityLabel("\(kind.title)，\(count) 项")
+                .accessibilityLabel(PalmiL10n.tr("evidence.section.accessibility", kind.title, count))
 
                 if expandedSections.contains(kind) {
                     content()
@@ -129,17 +129,17 @@ private enum AgentEvidenceSectionKind: Hashable {
     var title: String {
         switch self {
         case .tasks:
-            "任务"
+            PalmiL10n.tr("evidence.section.tasks")
         case .tools:
-            "工具"
+            PalmiL10n.tr("evidence.section.tools")
         case .files:
-            "文件"
+            PalmiL10n.tr("evidence.section.files")
         case .references:
-            "依据"
+            PalmiL10n.tr("evidence.section.references")
         case .approvals:
-            "审批"
+            PalmiL10n.tr("evidence.section.approvals")
         case .events:
-            "事件"
+            PalmiL10n.tr("evidence.section.events")
         }
     }
 
@@ -217,7 +217,7 @@ private struct AgentTaskOverview: View {
                         Image(systemName: "clock.arrow.circlepath")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
-                        Text("历史任务")
+                        Text(PalmiL10n.tr("evidence.task.history"))
                             .font(.subheadline.weight(.semibold))
                         Text(historyRuns.count.formatted())
                             .font(.caption.monospacedDigit().weight(.semibold))
@@ -264,7 +264,7 @@ private struct AgentTaskCurrentRunView: View {
 
                 Spacer(minLength: 12)
 
-                Text("\(state.completedCount)/\(state.totalCount)")
+                Text([state.completedCount.formatted(), state.totalCount.formatted()].joined(separator: "/"))
                     .font(.caption.monospacedDigit().weight(.semibold))
                     .foregroundStyle(.primary)
                     .padding(.horizontal, 8)
@@ -276,7 +276,7 @@ private struct AgentTaskCurrentRunView: View {
                 AgentTaskItemRow(item: item, isFocused: item.id == state.focusItemID)
             }
 
-            Text("更新于 \(state.updatedAt, style: .time)")
+            Text(PalmiL10n.tr("evidence.updatedAt", state.updatedAt.formatted(date: .omitted, time: .shortened)))
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -308,7 +308,7 @@ private struct AgentTaskItemRow: View {
                                 .foregroundStyle(.primary)
                                 .lineLimit(1)
                             if isFocused {
-                                Text("当前")
+                                Text(PalmiL10n.tr("evidence.task.current"))
                                     .font(.caption2.weight(.semibold))
                                     .foregroundStyle(.primary.opacity(0.72))
                                     .padding(.horizontal, 6)
@@ -357,7 +357,7 @@ private struct AgentTaskItemDetail: View {
 
             if !item.acceptanceCriteria.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("验收")
+                    Text(PalmiL10n.tr("evidence.task.acceptance"))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     ForEach(Array(item.acceptanceCriteria.enumerated()), id: \.offset) { _, criterion in
@@ -369,7 +369,10 @@ private struct AgentTaskItemDetail: View {
             }
 
             if !item.evidenceReferences.isEmpty {
-                Text("依据 \(item.evidenceReferences.map(\.title).joined(separator: "、"))")
+                Text(PalmiL10n.tr(
+                    "evidence.task.references",
+                    item.evidenceReferences.map(\.title).joined(separator: PalmiL10n.tr("common.listSeparator"))
+                ))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -393,7 +396,7 @@ private struct AgentTaskHistoryRunRow: View {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
             Spacer(minLength: 8)
-            Text("\(run.completedCount)/\(run.totalCount)")
+            Text([run.completedCount.formatted(), run.totalCount.formatted()].joined(separator: "/"))
                 .font(.caption2.monospacedDigit().weight(.semibold))
                 .foregroundStyle(.secondary)
         }
@@ -498,11 +501,11 @@ private struct ConfirmationRow: View {
                 Text(record.toolName)
                     .font(.headline)
                 Spacer(minLength: 8)
-                Text(record.approved ? "已批准" : "已拒绝")
+                Text(record.approved ? PalmiL10n.tr("evidence.approval.approved") : PalmiL10n.tr("evidence.approval.rejected"))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(record.approved ? .green : .red)
             }
-            Text("\(record.riskLevel.title) / \(record.policy.title)")
+            Text([record.riskLevel.title, record.policy.localizedTitle].joined(separator: " / "))
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Text(record.argumentsJSON)
@@ -547,11 +550,11 @@ private extension ToolConfirmationPolicy {
     var title: String {
         switch self {
         case .allow:
-            "允许"
+            PalmiL10n.tr("tool.confirmation.allow")
         case .firstUse:
-            "首次确认"
+            PalmiL10n.tr("tool.confirmation.firstUse")
         case .always:
-            "每次确认"
+            PalmiL10n.tr("tool.confirmation.always")
         }
     }
 }
@@ -560,17 +563,17 @@ private extension FileDeltaKind {
     var title: String {
         switch self {
         case .created:
-            "创建"
+            PalmiL10n.tr("evidence.fileDelta.created")
         case .modified:
-            "修改"
+            PalmiL10n.tr("evidence.fileDelta.modified")
         case .deleted:
-            "删除"
+            PalmiL10n.tr("evidence.fileDelta.deleted")
         case .directoryCreated:
-            "目录"
+            PalmiL10n.tr("evidence.fileDelta.directoryCreated")
         case .exported:
-            "导出"
+            PalmiL10n.tr("evidence.fileDelta.exported")
         case .possibleMutation:
-            "可能变更"
+            PalmiL10n.tr("evidence.fileDelta.possibleMutation")
         }
     }
 }
@@ -579,15 +582,15 @@ private extension EvidenceReferenceKind {
     var title: String {
         switch self {
         case .searchSelection:
-            "搜索"
+            PalmiL10n.tr("evidence.reference.searchSelection")
         case .sourceDigest:
-            "来源"
+            PalmiL10n.tr("evidence.reference.sourceDigest")
         case .researchSynthesis:
-            "综合"
+            PalmiL10n.tr("evidence.reference.researchSynthesis")
         case .toolResult:
-            "工具"
+            PalmiL10n.tr("evidence.reference.toolResult")
         case .fileDelta:
-            "文件"
+            PalmiL10n.tr("evidence.reference.fileDelta")
         }
     }
 }
@@ -596,31 +599,31 @@ private extension AgentEventLogKind {
     var title: String {
         switch self {
         case .turnStarted:
-            "开始"
+            PalmiL10n.tr("evidence.event.turnStarted")
         case .modelRequest:
-            "请求"
+            PalmiL10n.tr("evidence.event.modelRequest")
         case .modelResponse:
-            "响应"
+            PalmiL10n.tr("evidence.event.modelResponse")
         case .modelFailure:
-            "错误"
+            PalmiL10n.tr("evidence.event.modelFailure")
         case .toolApprovalRequested:
-            "待审批"
+            PalmiL10n.tr("evidence.event.toolApprovalRequested")
         case .toolApprovalResolved:
-            "审批"
+            PalmiL10n.tr("evidence.event.toolApprovalResolved")
         case .toolStarted:
-            "工具开始"
+            PalmiL10n.tr("evidence.event.toolStarted")
         case .toolFinished:
-            "工具结束"
+            PalmiL10n.tr("evidence.event.toolFinished")
         case .contextCompactionStarted:
-            "压缩开始"
+            PalmiL10n.tr("evidence.event.contextCompactionStarted")
         case .contextCompactionFinished:
-            "压缩结束"
+            PalmiL10n.tr("evidence.event.contextCompactionFinished")
         case .taskStateUpdated:
-            "任务"
+            PalmiL10n.tr("evidence.event.taskStateUpdated")
         case .budgetStop:
-            "停止"
+            PalmiL10n.tr("evidence.event.budgetStop")
         case .finalReply:
-            "完成"
+            PalmiL10n.tr("evidence.event.finalReply")
         }
     }
 }

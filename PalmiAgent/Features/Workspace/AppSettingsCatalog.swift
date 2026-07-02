@@ -12,47 +12,55 @@ enum AppSettingsRowID: String, CaseIterable, Hashable, Sendable {
 
 struct AppSettingsRowDefinition: Identifiable, Hashable, Sendable {
     let id: AppSettingsRowID
-    let title: String
+    let titleKey: String
     let systemImageName: String
+
+    var title: String {
+        PalmiL10n.tr(titleKey)
+    }
 }
 
 struct AppSettingsSectionDefinition: Identifiable, Hashable, Sendable {
     let id: String
-    let title: String
+    let titleKey: String
     let rows: [AppSettingsRowDefinition]
+
+    var title: String {
+        PalmiL10n.tr(titleKey)
+    }
 }
 
 enum AppSettingsCatalog {
     static let sections: [AppSettingsSectionDefinition] = [
         .init(
             id: "models",
-            title: "模型",
+            titleKey: "settings.section.models",
             rows: [
-                .init(id: .modelManagement, title: "大模型管理", systemImageName: "brain.head.profile")
+                .init(id: .modelManagement, titleKey: "settings.row.modelManagement", systemImageName: "brain.head.profile")
             ]
         ),
         .init(
             id: "tools",
-            title: "工具与知识",
+            titleKey: "settings.section.toolsAndKnowledge",
             rows: [
-                .init(id: .toolManagement, title: "工具管理", systemImageName: "switch.2"),
-                .init(id: .searchSources, title: "搜索源", systemImageName: "magnifyingglass.circle"),
-                .init(id: .skills, title: "技能", systemImageName: "sparkles.rectangle.stack")
+                .init(id: .toolManagement, titleKey: "settings.row.toolManagement", systemImageName: "switch.2"),
+                .init(id: .searchSources, titleKey: "settings.row.searchSources", systemImageName: "magnifyingglass.circle"),
+                .init(id: .skills, titleKey: "settings.row.skills", systemImageName: "sparkles.rectangle.stack")
             ]
         ),
         .init(
             id: "experience",
-            title: "体验",
+            titleKey: "settings.section.experience",
             rows: [
-                .init(id: .personalization, title: "个性化", systemImageName: "paintpalette.fill")
+                .init(id: .personalization, titleKey: "settings.row.personalization", systemImageName: "paintpalette.fill")
             ]
         ),
         .init(
             id: "system",
-            title: "系统",
+            titleKey: "settings.section.system",
             rows: [
-                .init(id: .systemSettings, title: "系统设置", systemImageName: "gearshape"),
-                .init(id: .privacyAndPolicy, title: "隐私与政策", systemImageName: "hand.raised")
+                .init(id: .systemSettings, titleKey: "settings.row.systemSettings", systemImageName: "gearshape"),
+                .init(id: .privacyAndPolicy, titleKey: "settings.row.privacyAndPolicy", systemImageName: "hand.raised")
             ]
         )
     ]

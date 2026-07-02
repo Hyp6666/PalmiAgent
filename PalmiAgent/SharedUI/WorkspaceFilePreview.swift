@@ -52,7 +52,7 @@ struct WorkspaceFilePreviewSheet: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button("关闭") {
+                        Button(PalmiL10n.tr("common.close")) {
                             dismiss()
                         }
                     }
@@ -89,7 +89,7 @@ struct WorkspaceFileCarouselPreviewSheet: View {
                             .font(.system(size: 34, weight: .semibold))
                             .foregroundStyle(.secondary)
 
-                        Text("暂无可预览附件")
+                        Text(PalmiL10n.tr("filePreview.noAttachments"))
                             .font(.headline)
                             .foregroundStyle(.primary)
                     }
@@ -114,11 +114,11 @@ struct WorkspaceFileCarouselPreviewSheet: View {
                     .background(.white)
                 }
             }
-            .navigationTitle(currentFile?.title ?? "附件预览")
+            .navigationTitle(currentFile?.title ?? PalmiL10n.tr("filePreview.title"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("关闭") {
+                    Button(PalmiL10n.tr("common.close")) {
                         dismiss()
                     }
                 }
@@ -171,9 +171,9 @@ struct WorkspaceFileCarouselPreviewSheet: View {
                     .contentShape(Circle())
             }
             .disabled(!canGoPrevious)
-            .accessibilityLabel("上一项附件")
+            .accessibilityLabel(PalmiL10n.tr("filePreview.previousAttachment"))
 
-            Text("\(selectedIndex + 1) / \(files.count)")
+            Text([String(selectedIndex + 1), String(files.count)].joined(separator: " / "))
                 .font(.caption.weight(.semibold))
                 .monospacedDigit()
                 .frame(minWidth: 56)
@@ -185,7 +185,7 @@ struct WorkspaceFileCarouselPreviewSheet: View {
                     .contentShape(Circle())
             }
             .disabled(!canGoNext)
-            .accessibilityLabel("下一项附件")
+            .accessibilityLabel(PalmiL10n.tr("filePreview.nextAttachment"))
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 8)
@@ -225,7 +225,7 @@ private struct WorkspaceFilePreviewContent: View {
         case .text:
             ScrollView {
                 SelectablePlainTextView(
-                    text: file.preview ?? "该文件暂无可预览内容。",
+                    text: file.preview ?? PalmiL10n.tr("filePreview.emptyFile"),
                     font: .monospacedSystemFont(
                         ofSize: UIFont.preferredFont(forTextStyle: .footnote).pointSize,
                         weight: .regular
@@ -265,7 +265,7 @@ private struct WorkspaceImagePreview: View {
                 VStack(spacing: 10) {
                     Image(systemName: "photo")
                         .font(.system(size: 32, weight: .semibold))
-                    Text("该图片暂无可预览内容")
+                    Text(PalmiL10n.tr("filePreview.emptyImage"))
                         .font(.headline)
                 }
                 .foregroundStyle(.white.opacity(0.82))

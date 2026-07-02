@@ -26,10 +26,10 @@ struct ChatHistoryHomeScreen: View {
                     }
                 }
 
-                Section("聊天记录") {
+                Section(PalmiL10n.tr("chat.history.title")) {
                     if store.chatProjects.isEmpty {
                         HStack {
-                            Text("空")
+                            Text(PalmiL10n.tr("common.empty"))
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity)
@@ -77,7 +77,7 @@ struct ChatHistoryHomeScreen: View {
                 AppShellTopBar(
                     mode: .chat,
                     trailingSystemName: "plus.bubble",
-                    trailingAccessibilityLabel: "新增聊天",
+                    trailingAccessibilityLabel: PalmiL10n.tr("chat.history.new"),
                     onOpenSettings: onOpenSettings,
                     onTrailingAction: createOrOpenEmptyChat,
                     onSelectMode: onSelectMode
@@ -90,7 +90,7 @@ struct ChatHistoryHomeScreen: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .confirmationDialog(
-            pendingDeletion.map { "删除“\($0.name)”" } ?? "",
+            pendingDeletion.map { PalmiL10n.tr("chat.history.deleteTitle", $0.name) } ?? "",
             isPresented: Binding(
                 get: { pendingDeletion != nil },
                 set: { if !$0 { pendingDeletion = nil } }
@@ -98,17 +98,17 @@ struct ChatHistoryHomeScreen: View {
             titleVisibility: .visible
         ) {
             if let pendingDeletion {
-                Button("删除", role: .destructive) {
+                Button(PalmiL10n.tr("common.delete"), role: .destructive) {
                     store.deleteProject(pendingDeletion)
                     self.pendingDeletion = nil
                 }
             }
-            Button("取消", role: .cancel) {
+            Button(PalmiL10n.tr("common.cancel"), role: .cancel) {
                 pendingDeletion = nil
             }
         } message: {
             if pendingDeletion != nil {
-                Text("删除后，这条聊天的历史记录和隐藏工作区都会被移除。")
+                Text(PalmiL10n.tr("chat.history.deleteMessage"))
             }
         }
         .alert(
@@ -119,10 +119,10 @@ struct ChatHistoryHomeScreen: View {
             )
         ) {
             if let route = presentedEditor {
-                TextField("聊天名称", text: $chatNameDraft)
+                TextField(PalmiL10n.tr("chat.history.name"), text: $chatNameDraft)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                Button("取消", role: .cancel) {
+                Button(PalmiL10n.tr("common.cancel"), role: .cancel) {
                     presentedEditor = nil
                 }
                 Button(route.confirmTitle) {
@@ -137,7 +137,7 @@ struct ChatHistoryHomeScreen: View {
             }
         } message: {
             if presentedEditor != nil {
-                Text("名称会立即应用到这条聊天记录。")
+                Text(PalmiL10n.tr("chat.history.renameMessage"))
             }
         }
     }
@@ -199,10 +199,10 @@ private struct ChatHistoryCard: View {
             .buttonStyle(.plain)
 
             Menu {
-                Button("重命名") {
+                Button(PalmiL10n.tr("common.rename")) {
                     onRename()
                 }
-                Button("删除", role: .destructive) {
+                Button(PalmiL10n.tr("common.delete"), role: .destructive) {
                     onDelete()
                 }
             } label: {
@@ -222,14 +222,14 @@ private enum ChatHistoryEditorRoute {
     var title: String {
         switch self {
         case .rename:
-            "重命名聊天"
+            PalmiL10n.tr("chat.history.rename")
         }
     }
 
     var confirmTitle: String {
         switch self {
         case .rename:
-            "保存"
+            PalmiL10n.tr("common.save")
         }
     }
 

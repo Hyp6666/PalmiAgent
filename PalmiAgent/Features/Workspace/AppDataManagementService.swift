@@ -116,7 +116,7 @@ extension KeychainSecretStore {
         ]
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw AppError.operationFailed("删除 Keychain 凭据失败：\(status)")
+            throw AppError.operationFailed(PalmiL10n.tr("dataManagement.error.deleteKeychainFailed", status))
         }
     }
 }

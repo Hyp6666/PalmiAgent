@@ -8,18 +8,18 @@ enum SkillCatalogMode: Equatable {
     var title: String {
         switch self {
         case .global:
-            "技能"
+            PalmiL10n.tr("skill.title")
         case .project(let project):
-            "\(project.name) 的技能"
+            PalmiL10n.tr("skill.projectTitle", project.name)
         }
     }
 
     var importButtonTitle: String {
         switch self {
         case .global:
-            "导入文件"
+            PalmiL10n.tr("skill.importFile")
         case .project:
-            "导入到项目"
+            PalmiL10n.tr("skill.importToProject")
         }
     }
 }
@@ -116,8 +116,8 @@ struct SkillCatalogScreen: View {
             let builtIn = registry.globalSkills.filter { $0.source == .builtIn }
             let imported = registry.globalSkills.filter { $0.source != .builtIn }
             return [
-                SkillSectionData(title: "系统技能", packages: builtIn),
-                SkillSectionData(title: "全局技能", packages: imported)
+                SkillSectionData(title: PalmiL10n.tr("skill.section.system"), packages: builtIn),
+                SkillSectionData(title: PalmiL10n.tr("skill.section.global"), packages: imported)
             ]
             .filter { !$0.packages.isEmpty }
 
@@ -126,9 +126,9 @@ struct SkillCatalogScreen: View {
             let globalImported = registry.globalSkills.filter { $0.source != .builtIn }
             let projectSkills = registry.projectSkills(for: project.id)
             return [
-                SkillSectionData(title: "系统技能", packages: builtIn),
-                SkillSectionData(title: "全局技能", packages: globalImported),
-                SkillSectionData(title: "当前项目技能", packages: projectSkills)
+                SkillSectionData(title: PalmiL10n.tr("skill.section.system"), packages: builtIn),
+                SkillSectionData(title: PalmiL10n.tr("skill.section.global"), packages: globalImported),
+                SkillSectionData(title: PalmiL10n.tr("skill.section.currentProject"), packages: projectSkills)
             ]
             .filter { !$0.packages.isEmpty }
         }
@@ -136,8 +136,8 @@ struct SkillCatalogScreen: View {
 
     private var overviewCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(mode == .global ? "系统技能和全局技能会作用于所有项目" : "这里会显示系统技能、全局技能和当前项目技能")
-            Text("支持导入 .zip 或单个 SKILL.md 文件")
+            Text(mode == .global ? PalmiL10n.tr("skill.overview.global") : PalmiL10n.tr("skill.overview.project"))
+            Text(PalmiL10n.tr("skill.overview.importSupport"))
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -215,11 +215,11 @@ struct SkillInlineStrip: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Text("技能")
+                Text(PalmiL10n.tr("skill.title"))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button("查看全部") {
+                Button(PalmiL10n.tr("common.viewAll")) {
                     onOpen()
                 }
                 .font(.caption.weight(.medium))
@@ -234,7 +234,7 @@ struct SkillInlineStrip: View {
                                 .foregroundStyle(.primary)
                                 .lineLimit(1)
 
-                            Text(skill.scope.displayTitle)
+                            Text(skill.scope.localizedDisplayTitle)
                                 .font(.caption2.weight(.medium))
                                 .foregroundStyle(skill.scope == .global ? .blue : .mint)
                         }
@@ -307,7 +307,7 @@ private struct SkillCard: View {
     }
 
     private var badgeText: String {
-        skill.source == .builtIn ? "内置" : "导入"
+        skill.source == .builtIn ? PalmiL10n.tr("skill.source.builtIn") : PalmiL10n.tr("skill.source.imported")
     }
 
     var body: some View {
@@ -364,7 +364,7 @@ private struct SkillDetailScreen: View {
     let onError: (String) -> Void
 
     private var fileTree: String {
-        (try? SkillFileTreeBuilder.treeString(for: skill.packageURL)) ?? "空"
+        (try? SkillFileTreeBuilder.treeString(for: skill.packageURL)) ?? PalmiL10n.tr("common.empty")
     }
 
     var body: some View {
@@ -383,7 +383,7 @@ private struct SkillDetailScreen: View {
 
             Section {
                 if skill.source != .builtIn {
-                    Button("删除", role: .destructive) {
+                    Button(PalmiL10n.tr("common.delete"), role: .destructive) {
                         deleteSkill()
                     }
                 }
@@ -393,7 +393,7 @@ private struct SkillDetailScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("完成") {
+                Button(PalmiL10n.tr("common.done")) {
                     dismiss()
                 }
             }

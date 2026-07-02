@@ -252,7 +252,7 @@ struct ChatScreen: View {
 
     private var selectedReasoningTitle: String {
         if isChatSurface {
-            return areChatWebToolsEnabled ? "联网搜索" : "聊天"
+            return areChatWebToolsEnabled ? PalmiL10n.tr("chat.capability.webSearch") : PalmiL10n.tr("chat.capability.chat")
         }
         return ProfessionalReasoningTier.resolved(rawValue: professionalReasoningTierRaw).title
     }
@@ -268,12 +268,12 @@ struct ChatScreen: View {
         if isChatSurface {
             return areChatWebToolsEnabled ? Color.accentColor : Color.secondary
         }
-        switch selectedReasoningTitle {
-        case "极致":
+        switch ProfessionalReasoningTier.resolved(rawValue: professionalReasoningTierRaw) {
+        case .infinite:
             return extremeCapabilityAccent
-        case "效率":
+        case .speed:
             return efficiencyCapabilityAccent
-        default:
+        case .balanced:
             return Color.accentColor
         }
     }
@@ -313,16 +313,16 @@ struct ChatScreen: View {
     private var modelThinkingModeTitle: String {
         guard let option = modelThinkingToggleOption,
               case .thinkingToggle(let defaultEnabled) = option.action else {
-            return "关闭"
+            return PalmiL10n.tr("common.off")
         }
 
-        return isModelThinkingEnabled(defaultEnabled: defaultEnabled) ? "开启" : "关闭"
+        return isModelThinkingEnabled(defaultEnabled: defaultEnabled) ? PalmiL10n.tr("common.on") : PalmiL10n.tr("common.off")
     }
 
     private var modelEffortTitle: String {
         return modelEffortMenuOptions
             .first(where: { isSelectedModelReasoningOption($0) })?
-            .title ?? "默认"
+            .title ?? PalmiL10n.tr("common.default")
     }
 
     private func makeSelectedModelReasoningOptions(
@@ -774,7 +774,7 @@ struct ChatScreen: View {
                 finalAnswerMenuIcon(systemImage: isCopied ? "checkmark" : "doc.on.doc")
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(isCopied ? "已复制回答" : "复制回答")
+            .accessibilityLabel(isCopied ? PalmiL10n.tr("chat.answer.copied") : PalmiL10n.tr("chat.answer.copy"))
             .animation(.easeInOut(duration: 0.16), value: isCopied)
 
             Button {
@@ -783,7 +783,7 @@ struct ChatScreen: View {
                 finalAnswerMenuIcon(systemImage: "square.and.arrow.up")
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("分享回答")
+            .accessibilityLabel(PalmiL10n.tr("chat.answer.share"))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -872,7 +872,7 @@ struct ChatScreen: View {
             }
         }
 
-        return "Palmi 会话"
+        return PalmiL10n.tr("chat.share.defaultTitle")
     }
 
     private func cleanedShareTitle(_ title: String?) -> String? {
@@ -906,7 +906,7 @@ struct ChatScreen: View {
             .appendingPathComponent("palmi-answer-share", isDirectory: true)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
 
-        let fallbackTitle = fullTurn ? "Palmi 完整回答" : "Palmi 回答"
+        let fallbackTitle = fullTurn ? PalmiL10n.tr("chat.share.fullAnswer") : PalmiL10n.tr("chat.share.answer")
         let fileExtension = markdown ? "md" : "txt"
         let fileStem = Self.sanitizedShareFileStem(from: title ?? "", fallback: fallbackTitle)
         let url = directory
@@ -971,7 +971,7 @@ struct ChatScreen: View {
     }
 
     private static func exportableUserQuestionMarkdown(for message: PalmiChatMessage) -> String? {
-        var parts: [String] = ["## 用户提问"]
+        var parts: [String] = ["## \(PalmiL10n.tr("chat.export.userQuestion"))"]
 
         if let content = nonEmptyTrimmed(message.content) {
             parts.append(content)
@@ -981,7 +981,7 @@ struct ChatScreen: View {
             let attachmentLines = message.attachments
                 .map { "- \($0.name)" }
                 .joined(separator: "\n")
-            parts.append("附件：\n\(attachmentLines)")
+            parts.append("\(PalmiL10n.tr("chat.export.attachments")):\n\(attachmentLines)")
         }
 
         return parts.count > 1 ? parts.joined(separator: "\n\n") : nil
@@ -1202,15 +1202,15 @@ struct ChatScreen: View {
 
             Divider()
 
-            linkActionButton("Palmi 内置浏览器打开", systemImage: "globe") {
+            linkActionButton(PalmiL10n.tr("chat.link.openInPalmi"), systemImage: "globe") {
                 openLinkInPalmi(request)
             }
 
-            linkActionButton("Safari 浏览器打开", systemImage: "safari") {
+            linkActionButton(PalmiL10n.tr("chat.link.openInSafari"), systemImage: "safari") {
                 openLinkInSafari(request)
             }
 
-            linkActionButton("分享", systemImage: "square.and.arrow.up") {
+            linkActionButton(PalmiL10n.tr("common.share"), systemImage: "square.and.arrow.up") {
                 shareLink(request)
             }
         }
@@ -1276,7 +1276,7 @@ struct ChatScreen: View {
                 .glassEffect(.regular.interactive(), in: .circle)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("添加")
+        .accessibilityLabel(PalmiL10n.tr("common.add"))
         .popover(isPresented: $isShowingPlusMenu) {
             composerPlusMenuContent
                 .presentationCompactAdaptation(.popover)
@@ -1291,7 +1291,7 @@ struct ChatScreen: View {
                     PalmiAttachmentActions.camera(destination: .hiddenFilesBatch, allowsMultipleSelection: false)
                 )
             } label: {
-                plusMenuRow(title: "相机", systemImage: "camera", tint: .primary)
+                plusMenuRow(title: PalmiL10n.tr("attachment.camera"), systemImage: "camera", tint: .primary)
             }
             .buttonStyle(.plain)
 
@@ -1300,7 +1300,7 @@ struct ChatScreen: View {
                     PalmiAttachmentActions.photos(destination: .hiddenFilesBatch, allowsMultipleSelection: true)
                 )
             } label: {
-                plusMenuRow(title: "照片", systemImage: "photo", tint: .primary)
+                plusMenuRow(title: PalmiL10n.tr("attachment.photos"), systemImage: "photo", tint: .primary)
             }
             .buttonStyle(.plain)
 
@@ -1309,7 +1309,7 @@ struct ChatScreen: View {
                     PalmiAttachmentActions.files(destination: .hiddenFilesBatch, allowsMultipleSelection: true)
                 )
             } label: {
-                plusMenuRow(title: "文件", systemImage: "doc", tint: .primary)
+                plusMenuRow(title: PalmiL10n.tr("attachment.files"), systemImage: "doc", tint: .primary)
             }
             .buttonStyle(.plain)
 
@@ -1324,14 +1324,14 @@ struct ChatScreen: View {
                         isShowingPlusMenu = false
                         store.composerMode = .goal
                     } label: {
-                        Label("目标", systemImage: "target")
+                        Label(PalmiL10n.tr("attachment.goal"), systemImage: "target")
                     }
 
                     Button {
                         isShowingPlusMenu = false
                         store.composerMode = .deepResearch
                     } label: {
-                        Label("深度研究", systemImage: "magnifyingglass")
+                        Label(PalmiL10n.tr("attachment.deepResearch"), systemImage: "magnifyingglass")
                     }
 
                     // 已选模式时，用分隔线隔出一个「取消」用于退出该模式。
@@ -1341,7 +1341,7 @@ struct ChatScreen: View {
                                 isShowingPlusMenu = false
                                 store.composerMode = .standard
                             } label: {
-                                Label("取消", systemImage: "xmark.circle")
+                                Label(PalmiL10n.tr("common.cancel"), systemImage: "xmark.circle")
                             }
                         }
                     }
@@ -1392,9 +1392,9 @@ struct ChatScreen: View {
     // 规划行随模式：standard→「规划」灰；goal→「目标」橙；deepResearch→「深度研究」蓝。
     private var composerPlanTitle: String {
         switch store.composerMode {
-        case .standard: return "规划"
-        case .goal: return "目标"
-        case .deepResearch: return "深度研究"
+        case .standard: return PalmiL10n.tr("chat.composer.plan")
+        case .goal: return PalmiL10n.tr("attachment.goal")
+        case .deepResearch: return PalmiL10n.tr("attachment.deepResearch")
         }
     }
 
@@ -1448,7 +1448,7 @@ struct ChatScreen: View {
                     isShowingModeInfo = false
                     store.composerMode = .standard
                 } label: {
-                    Text("取消")
+                    Text(PalmiL10n.tr("common.cancel"))
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.primary)
                         .frame(maxWidth: .infinity)
@@ -1460,7 +1460,7 @@ struct ChatScreen: View {
                 Button {
                     isShowingModeInfo = false
                 } label: {
-                    Text("好的")
+                    Text(PalmiL10n.tr("common.ok"))
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
@@ -1493,16 +1493,16 @@ struct ChatScreen: View {
     private var composerModeHintText: String {
         switch store.composerMode {
         case .standard: return ""
-        case .goal: return "当前是目标模式，请输入内容以设立目标让 Palmi 完成"
-        case .deepResearch: return "当前是深度研究模式，请输入内容让 Palmi 进行深度研究"
+        case .goal: return PalmiL10n.tr("chat.composer.goalHint")
+        case .deepResearch: return PalmiL10n.tr("chat.composer.deepResearchHint")
         }
     }
 
     private var composerModeAccessibilityLabel: String {
         switch store.composerMode {
         case .standard: return ""
-        case .goal: return "目标模式"
-        case .deepResearch: return "深度研究模式"
+        case .goal: return PalmiL10n.tr("chat.composer.goalMode")
+        case .deepResearch: return PalmiL10n.tr("chat.composer.deepResearchMode")
         }
     }
 
@@ -1548,7 +1548,7 @@ struct ChatScreen: View {
         }
 
         Section {
-            Button("配置") {
+            Button(PalmiL10n.tr("common.configure")) {
                 presentQuickConfiguration()
             }
         }
@@ -1602,7 +1602,7 @@ struct ChatScreen: View {
                 areChatWebToolsEnabled.toggle()
             }
         } label: {
-            menuSelectionLabel("联网搜索", isSelected: areChatWebToolsEnabled)
+            menuSelectionLabel(PalmiL10n.tr("chat.capability.webSearch"), isSelected: areChatWebToolsEnabled)
         }
         .disabled(store.isLoading)
     }
@@ -1614,7 +1614,7 @@ struct ChatScreen: View {
                 areChatWebToolsEnabled = true
             }
         } label: {
-            menuSelectionLabel("开启", isSelected: areChatWebToolsEnabled)
+            menuSelectionLabel(PalmiL10n.tr("common.on"), isSelected: areChatWebToolsEnabled)
         }
 
         Button {
@@ -1622,7 +1622,7 @@ struct ChatScreen: View {
                 areChatWebToolsEnabled = false
             }
         } label: {
-            menuSelectionLabel("关闭", isSelected: !areChatWebToolsEnabled)
+            menuSelectionLabel(PalmiL10n.tr("common.off"), isSelected: !areChatWebToolsEnabled)
         }
     }
 
@@ -1636,7 +1636,7 @@ struct ChatScreen: View {
                     setModelThinkingEnabled(true)
                 }
             } label: {
-                menuSelectionLabel("开启", isSelected: isEnabled)
+                menuSelectionLabel(PalmiL10n.tr("common.on"), isSelected: isEnabled)
             }
 
             Button {
@@ -1644,11 +1644,11 @@ struct ChatScreen: View {
                     setModelThinkingEnabled(false)
                 }
             } label: {
-                menuSelectionLabel("关闭", isSelected: !isEnabled)
+                menuSelectionLabel(PalmiL10n.tr("common.off"), isSelected: !isEnabled)
             }
         } else {
             Button { } label: {
-                menuSelectionLabel("关闭", isSelected: true)
+                menuSelectionLabel(PalmiL10n.tr("common.off"), isSelected: true)
             }
         }
     }
@@ -1657,7 +1657,7 @@ struct ChatScreen: View {
     private var modelEffortMenuContent: some View {
         if modelEffortMenuOptions.isEmpty {
             Button { } label: {
-                menuSelectionLabel("默认", isSelected: true)
+                menuSelectionLabel(PalmiL10n.tr("common.default"), isSelected: true)
             }
         } else {
             ForEach(modelEffortMenuOptions) { option in
@@ -1682,7 +1682,7 @@ struct ChatScreen: View {
                 areToolsEnabled = true
             }
         } label: {
-            menuSelectionLabel("开启", isSelected: areToolsEnabled)
+            menuSelectionLabel(PalmiL10n.tr("common.on"), isSelected: areToolsEnabled)
         }
 
         Button {
@@ -1690,7 +1690,7 @@ struct ChatScreen: View {
                 areToolsEnabled = false
             }
         } label: {
-            menuSelectionLabel("关闭", isSelected: !areToolsEnabled)
+            menuSelectionLabel(PalmiL10n.tr("common.off"), isSelected: !areToolsEnabled)
         }
     }
 
@@ -1701,7 +1701,7 @@ struct ChatScreen: View {
                 isExternalReasoningEnabled = true
             }
         } label: {
-            menuSelectionLabel("开启", isSelected: isExternalReasoningEnabled)
+            menuSelectionLabel(PalmiL10n.tr("common.on"), isSelected: isExternalReasoningEnabled)
         }
 
         Button {
@@ -1709,7 +1709,7 @@ struct ChatScreen: View {
                 isExternalReasoningEnabled = false
             }
         } label: {
-            menuSelectionLabel("关闭", isSelected: !isExternalReasoningEnabled)
+            menuSelectionLabel(PalmiL10n.tr("common.off"), isSelected: !isExternalReasoningEnabled)
         }
     }
 
@@ -1722,7 +1722,7 @@ struct ChatScreen: View {
                 }
             } label: {
                 menuSelectionLabel(
-                    mode.title,
+                    mode.localizedTitle,
                     isSelected: store.toolAuthorizationStore.mode == mode
                 )
             }
@@ -1750,7 +1750,7 @@ struct ChatScreen: View {
 
                 VStack(spacing: 0) {
                     ZStack {
-                        Text("配置")
+                        Text(PalmiL10n.tr("common.configure"))
                             .font(.system(size: 21, weight: .semibold, design: .rounded))
                             .foregroundStyle(isExtreme ? Color.white.opacity(0.94) : Color.primary)
                             .frame(maxWidth: .infinity)
@@ -1769,7 +1769,7 @@ struct ChatScreen: View {
                                     .glassEffect(.regular.interactive(), in: .circle)
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("关闭配置")
+                            .accessibilityLabel(PalmiL10n.tr("chat.quickConfig.close"))
                         }
                     }
                     .padding(.horizontal, 22)
@@ -1781,17 +1781,21 @@ struct ChatScreen: View {
                             if isChatSurface {
                                 VStack(alignment: .leading, spacing: 10) {
                                     configurationCard(isExtreme: isExtreme) {
-                                        configurationMenuRow(title: "联网搜索", value: areChatWebToolsEnabled ? "开启" : "关闭", isExtreme: isExtreme) {
+                                        configurationMenuRow(
+                                            title: PalmiL10n.tr("chat.capability.webSearch"),
+                                            value: areChatWebToolsEnabled ? PalmiL10n.tr("common.on") : PalmiL10n.tr("common.off"),
+                                            isExtreme: isExtreme
+                                        ) {
                                             chatWebToolsMenuContent
                                         }
                                     }
 
-                                    configurationCaption("聊天模式始终可用时间、定位和图片识别工具；此开关只控制联网搜索。", isExtreme: isExtreme)
+                                    configurationCaption(PalmiL10n.tr("chat.quickConfig.webSearchCaption"), isExtreme: isExtreme)
                                 }
                             } else {
                                 configurationCard(isExtreme: isExtreme) {
                                     configurationMenuRow(
-                                        title: "能力",
+                                        title: PalmiL10n.tr("chat.quickConfig.capability"),
                                         value: selectedReasoningTitle,
                                         isExtreme: isExtreme,
                                         valueAccent: selectedCapabilityAccent,
@@ -1803,45 +1807,57 @@ struct ChatScreen: View {
 
                                 VStack(alignment: .leading, spacing: 10) {
                                     configurationCard(isExtreme: isExtreme) {
-                                        configurationMenuRow(title: "工具", value: areToolsEnabled ? "开启" : "关闭", isExtreme: isExtreme) {
+                                        configurationMenuRow(
+                                            title: PalmiL10n.tr("chat.quickConfig.tools"),
+                                            value: areToolsEnabled ? PalmiL10n.tr("common.on") : PalmiL10n.tr("common.off"),
+                                            isExtreme: isExtreme
+                                        ) {
                                             toolEnabledMenuContent
                                         }
 
                                         configurationDivider(isExtreme: isExtreme)
 
-                                        configurationMenuRow(title: "工具授权", value: store.toolAuthorizationStore.mode.title, isExtreme: isExtreme) {
+                                        configurationMenuRow(
+                                            title: PalmiL10n.tr("chat.quickConfig.toolAuthorization"),
+                                            value: store.toolAuthorizationStore.mode.localizedTitle,
+                                            isExtreme: isExtreme
+                                        ) {
                                             toolAuthorizationMenuContent
                                         }
                                     }
 
-                                    configurationCaption("需开启工具以允许Palmi发挥更多的功能", isExtreme: isExtreme)
+                                    configurationCaption(PalmiL10n.tr("chat.quickConfig.toolsCaption"), isExtreme: isExtreme)
                                 }
 
                                 VStack(alignment: .leading, spacing: 10) {
                                     configurationCard(isExtreme: isExtreme) {
-                                        configurationMenuRow(title: "阶段思考", value: isExternalReasoningEnabled ? "开启" : "关闭", isExtreme: isExtreme) {
+                                        configurationMenuRow(
+                                            title: PalmiL10n.tr("chat.quickConfig.phaseThought"),
+                                            value: isExternalReasoningEnabled ? PalmiL10n.tr("common.on") : PalmiL10n.tr("common.off"),
+                                            isExtreme: isExtreme
+                                        ) {
                                             externalReasoningMenuContent
                                         }
                                     }
 
-                                    configurationCaption("允许Palmi以类似工具调用的形式进行阶段性总结来进一步增大Palmi的能力", isExtreme: isExtreme)
+                                    configurationCaption(PalmiL10n.tr("chat.quickConfig.phaseThoughtCaption"), isExtreme: isExtreme)
                                 }
                             }
 
                             VStack(alignment: .leading, spacing: 10) {
                                 configurationCard(isExtreme: isExtreme) {
-                                    configurationMenuRow(title: "思考模式", value: modelThinkingModeTitle, isExtreme: isExtreme) {
+                                    configurationMenuRow(title: PalmiL10n.tr("chat.quickConfig.thinkingMode"), value: modelThinkingModeTitle, isExtreme: isExtreme) {
                                         modelThinkingModeMenuContent
                                     }
 
                                     configurationDivider(isExtreme: isExtreme)
 
-                                    configurationMenuRow(title: "思考强度", value: modelEffortTitle, isExtreme: isExtreme) {
+                                    configurationMenuRow(title: PalmiL10n.tr("chat.quickConfig.thinkingStrength"), value: modelEffortTitle, isExtreme: isExtreme) {
                                         modelEffortMenuContent
                                     }
                                 }
 
-                                configurationCaption("思考能力的配置需模型本身支持", isExtreme: isExtreme)
+                                configurationCaption(PalmiL10n.tr("chat.quickConfig.thinkingCaption"), isExtreme: isExtreme)
                             }
                         }
                         .padding(.horizontal, 18)
@@ -1993,7 +2009,7 @@ struct ChatScreen: View {
         }
         .buttonStyle(.plain)
         .menuOrder(.fixed)
-        .accessibilityLabel(isChatSurface ? "聊天工具" : "能力")
+        .accessibilityLabel(isChatSurface ? PalmiL10n.tr("chat.accessibility.chatTools") : PalmiL10n.tr("chat.quickConfig.capability"))
         .simultaneousGesture(
             TapGesture().onEnded {
                 scheduleQuickSettingsPreparation()
@@ -2013,7 +2029,7 @@ struct ChatScreen: View {
         }
         .buttonStyle(.plain)
         .menuOrder(.fixed)
-        .accessibilityLabel("Palmi")
+        .accessibilityLabel(topOrbTitle)
         .simultaneousGesture(
             TapGesture().onEnded {
                 prepareTopModelMenu()
@@ -2069,7 +2085,7 @@ struct ChatScreen: View {
                 embedsInParentSurface: true
             )
         }
-        .accessibilityLabel("上下文窗口")
+        .accessibilityLabel(PalmiL10n.tr("context.title"))
     }
 
     private func topChromeBar() -> some View {
@@ -2131,7 +2147,7 @@ struct ChatScreen: View {
         if let onShowWorkspace {
             return TopChromeButtonConfiguration(
                 systemImage: "chevron.left",
-                accessibilityLabel: shellMode == .chat ? "返回" : "返回工作区"
+                accessibilityLabel: shellMode == .chat ? PalmiL10n.tr("common.back") : PalmiL10n.tr("chat.accessibility.backToWorkspace")
             ) {
                 dismissTransientUI()
                 onShowWorkspace()
@@ -2141,7 +2157,7 @@ struct ChatScreen: View {
         if shellMode == .chat || onShowFiles != nil {
             return TopChromeButtonConfiguration(
                 systemImage: "chevron.left",
-                accessibilityLabel: "返回"
+                accessibilityLabel: PalmiL10n.tr("common.back")
             ) {
                 dismissTransientUI()
                 dismiss()
@@ -2151,7 +2167,7 @@ struct ChatScreen: View {
         if let onOpenModeSwitcher {
             return TopChromeButtonConfiguration(
                 systemImage: "line.3.horizontal",
-                accessibilityLabel: "切换模式"
+                accessibilityLabel: PalmiL10n.tr("common.mode")
             ) {
                 dismissTransientUI()
                 onOpenModeSwitcher()
@@ -2165,7 +2181,7 @@ struct ChatScreen: View {
         if let onShowFiles {
             return TopChromeButtonConfiguration(
                 systemImage: "folder",
-                accessibilityLabel: "文件"
+                accessibilityLabel: PalmiL10n.tr("evidence.section.files")
             ) {
                 dismissTransientUI()
                 onShowFiles()
@@ -2175,7 +2191,7 @@ struct ChatScreen: View {
         if let onOpenSkills {
             return TopChromeButtonConfiguration(
                 systemImage: "square.grid.2x2",
-                accessibilityLabel: "技能"
+                accessibilityLabel: PalmiL10n.tr("skill.title")
             ) {
                 dismissTransientUI()
                 onOpenSkills()
@@ -2199,9 +2215,9 @@ struct ChatScreen: View {
     private var topModelMenuContent: some View {
         let state = modelSelectionState
 
-        Section("预设配置") {
+        Section(PalmiL10n.tr("chat.presetConfiguration")) {
             Button {} label: {
-                topModelMenuSelectionLabel("自定义", isSelected: state.isCustom)
+                topModelMenuSelectionLabel(PalmiL10n.tr("common.custom"), isSelected: state.isCustom)
             }
             .disabled(!state.isCustom)
 
@@ -2235,7 +2251,7 @@ struct ChatScreen: View {
         _ slot: ModelPlanSlot,
         state: ModelSelectionState
     ) -> some View {
-        Section(slot.title) {
+        Section(slot.localizedTitle) {
             let candidates = state.selectedPlan?.candidates(for: slot) ?? []
 
             if !slot.isRequired {
@@ -2243,14 +2259,14 @@ struct ChatScreen: View {
                     selectModelCandidate(nil, slot: slot)
                 } label: {
                     topModelMenuSelectionLabel(
-                        "无",
+                            PalmiL10n.tr("common.none"),
                         isSelected: state.selectedCandidate(for: slot) == nil
                     )
                 }
             }
 
             if candidates.isEmpty && slot.isRequired {
-                Text("无")
+                Text(PalmiL10n.tr("common.none"))
                     .disabled(true)
             } else {
                 ForEach(candidates) { candidate in
@@ -2306,13 +2322,13 @@ struct ChatScreen: View {
         let selectedProfessionalTier = ProfessionalReasoningTier.resolved(rawValue: professionalReasoningTierRaw)
 
         return FloatingGlassPanel(
-            title: isChatSurface ? "联网搜索" : "能力",
-            subtitle: isChatSurface ? "默认纯聊天" : "专业模式"
+            title: isChatSurface ? PalmiL10n.tr("chat.capability.webSearch") : PalmiL10n.tr("chat.quickConfig.capability"),
+            subtitle: isChatSurface ? PalmiL10n.tr("chat.capability.defaultChat") : PalmiL10n.tr("appMode.professionalMode")
         ) {
             if isChatSurface {
                 ComposerOptionRow(
-                    title: "联网搜索",
-                    subtitle: "搜索网页或读取明确 URL。",
+                    title: PalmiL10n.tr("chat.capability.webSearch"),
+                    subtitle: PalmiL10n.tr("chat.capability.webSearch.subtitle"),
                     badge: nil,
                     isSelected: areChatWebToolsEnabled
                 ) {
@@ -2340,7 +2356,7 @@ struct ChatScreen: View {
         return CompactGlassList {
             if isChatSurface {
                 CompactSelectionRow(
-                    title: "联网搜索",
+                    title: PalmiL10n.tr("chat.capability.webSearch"),
                     trailingText: nil,
                     isSelected: areChatWebToolsEnabled
                 ) {
@@ -2364,11 +2380,11 @@ struct ChatScreen: View {
     private var compactQueuedGuidanceContent: some View {
         CompactGlassList {
             VStack(alignment: .leading, spacing: 6) {
-                Text("当前这些消息会在下一次安全点一次性送出。")
+                Text(PalmiL10n.tr("chat.queue.description"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Text("\(store.queuedUserGuidanceCount) 条待发送")
+                Text(PalmiL10n.tr("chat.queue.pendingCount", store.queuedUserGuidanceCount))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
@@ -2863,7 +2879,7 @@ struct ChatScreen: View {
             switch kind {
             case .markdown, .text:
                 preview = try workspaceStore.previewText(at: trimmedPath)
-                    ?? "该文件暂无可预览内容。"
+                    ?? PalmiL10n.tr("filePreview.emptyFile")
             case .quickLook:
                 preview = nil
             }
@@ -3025,7 +3041,7 @@ private struct ComposerTextEditor: View {
     @FocusState.Binding var isFocused: Bool
 
     var body: some View {
-        TextField("输入消息…", text: $store.inputText, axis: .vertical)
+        TextField(PalmiL10n.tr("chat.input.placeholder"), text: $store.inputText, axis: .vertical)
             .lineLimit(1...6)
             .textFieldStyle(.plain)
             .focused($isFocused)
@@ -3058,7 +3074,7 @@ private struct ComposerSendButton: View {
         }
         .buttonStyle(.plain)
         .disabled(!store.canSend)
-        .accessibilityLabel("发送")
+        .accessibilityLabel(PalmiL10n.tr("chat.send"))
         .animation(animation, value: store.canSend)
     }
 }
@@ -3190,21 +3206,21 @@ private struct ContextCompactionDivider: View {
 private enum TurnCompletionStatusFormatter {
     static func completionText(for header: PalmiChatSessionHeader) -> String {
         guard let finishedAt = header.finishedAt else {
-            return "已完成"
+            return PalmiL10n.tr("chat.turn.completed")
         }
 
         let totalSeconds = max(0, Int(finishedAt.timeIntervalSince(header.startedAt)))
         guard totalSeconds >= 10 else {
-            return "已完成"
+            return PalmiL10n.tr("chat.turn.completed")
         }
 
         if totalSeconds < 60 {
-            return "用时\(totalSeconds)秒完成"
+            return PalmiL10n.tr("chat.turn.completed.seconds", totalSeconds)
         }
 
         let minutes = totalSeconds / 60
         let seconds = totalSeconds % 60
-        return "用时\(minutes)分\(seconds)秒完成"
+        return PalmiL10n.tr("chat.turn.completed.minutesSeconds", minutes, seconds)
     }
 }
 
@@ -3318,20 +3334,20 @@ private struct SessionHeaderStrip: View {
     private var tokenDetails: some View {
         VStack(alignment: .leading, spacing: 6) {
             if let usage = header.tokenUsage {
-                tokenDetailRow("未命中输入", usage.inputTokens)
-                tokenDetailRow("输出", usage.outputTokens)
+                tokenDetailRow(PalmiL10n.tr("chat.token.uncachedInput"), usage.inputTokens)
+                tokenDetailRow(PalmiL10n.tr("chat.token.output"), usage.outputTokens)
                 if let cached = usage.cachedInputTokens {
-                    tokenDetailRow("缓存命中", cached)
+                    tokenDetailRow(PalmiL10n.tr("chat.token.cachedInput"), cached)
                 } else {
-                    Text("缓存命中：不支持")
+                    Text(PalmiL10n.tr("chat.token.cacheUnsupported"))
                 }
-                Text("计量来源：\(usage.source == .api ? "API" : "估算")")
+                Text(PalmiL10n.tr("chat.token.source", usage.source == .api ? "API" : PalmiL10n.tr("chat.token.estimated")))
                 if let warning = usage.cacheWarning {
                     Divider()
-                    Text("缓存可能已失效。新开会话预计可少发送约 \(PalmiTokenCountFormatter.compact(warning.estimatedSavingsTokens)) 输入 token。")
+                    Text(PalmiL10n.tr("chat.token.cacheWarning", PalmiTokenCountFormatter.compact(warning.estimatedSavingsTokens)))
                 }
             } else {
-                Text("Token：\(header.outputTokens.formatted())")
+                Text(PalmiL10n.tr("chat.token.outputFallback", header.outputTokens.formatted()))
             }
         }
         .font(.caption2.monospacedDigit())
@@ -3340,7 +3356,7 @@ private struct SessionHeaderStrip: View {
     }
 
     private func tokenDetailRow(_ title: String, _ value: Int) -> Text {
-        Text("\(title)：\(PalmiTokenCountFormatter.compact(value))")
+        Text(PalmiL10n.tr("chat.token.detail", title, PalmiTokenCountFormatter.compact(value)))
     }
 }
 
@@ -3355,26 +3371,30 @@ private struct ProcessingPhraseTaskKey: Hashable {
 }
 
 private enum ProcessingPhraseDeck {
-    static let toolPhrases: [String] = [
-        "工具是Palmi进步的阶梯",
-        "工具到用时方恨少",
+    static var toolPhrases: [String] {
+        [
+        PalmiL10n.tr("chat.processing.tool.1"),
+        PalmiL10n.tr("chat.processing.tool.2"),
         "🔍📖",
-        "工具输出三千词，疑是银河落九天",
-        "工欲善其事，Palmi先利其器",
-        "让工具跑一会儿",
-    ]
+        PalmiL10n.tr("chat.processing.tool.3"),
+        PalmiL10n.tr("chat.processing.tool.4"),
+        PalmiL10n.tr("chat.processing.tool.5"),
+        ]
+    }
 
-    static let reasoningPhrases: [String] = [
-        "苦思冥想",
-        "嗯......",
-        "真在思考",
-        "词元跳动 & Palmi蠕动",
+    static var reasoningPhrases: [String] {
+        [
+        PalmiL10n.tr("chat.processing.reasoning.1"),
+        PalmiL10n.tr("chat.processing.reasoning.2"),
+        PalmiL10n.tr("chat.processing.reasoning.3"),
+        PalmiL10n.tr("chat.processing.reasoning.4"),
         "🤔🤔🤔",
         "🔥🧠",
-        "正在把想法揉成形",
-        "灵感涌动中",
-        "颅内风暴"
-    ]
+        PalmiL10n.tr("chat.processing.reasoning.5"),
+        PalmiL10n.tr("chat.processing.reasoning.6"),
+        PalmiL10n.tr("chat.processing.reasoning.7")
+        ]
+    }
 
     static func initialPhrase(for kind: ProcessingPhraseKind) -> String {
         switch kind {
@@ -3980,7 +4000,7 @@ private struct ToolCallCard: View {
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.secondary)
 
-                    Text("思考")
+                    Text(PalmiL10n.tr("chat.thinking"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -4088,10 +4108,10 @@ private struct ToolCallCard: View {
             if isExpanded {
                 VStack(alignment: .leading, spacing: 12) {
                     if toolCall.cardKind == .tool {
-                        ToolCallDetailSection(title: "类型", text: toolCall.toolName, renderMarkdown: false)
+                        ToolCallDetailSection(title: PalmiL10n.tr("tool.detail.type"), text: toolCall.toolName, renderMarkdown: false)
 
                         if !toolCall.argumentsJSON.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            ToolCallDetailSection(title: "参数", text: toolCall.argumentsJSON, renderMarkdown: false)
+                            ToolCallDetailSection(title: PalmiL10n.tr("tool.approval.arguments"), text: toolCall.argumentsJSON, renderMarkdown: false)
                         }
 
                         if !toolCall.details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -4103,20 +4123,20 @@ private struct ToolCallCard: View {
                         }
 
                         if toolCall.presentationKind == .action, toolCall.isRunning != true {
-                            Text("这个工具的主要结果是系统动作已成功发起。")
+                            Text(PalmiL10n.tr("tool.detail.actionStarted"))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
 
                         if toolCall.isRunning != true,
                            toolCall.presentationKind == .interactive || toolCall.requiresUserInteraction {
-                            Text("这个工具需要用户继续交互。")
+                            Text(PalmiL10n.tr("tool.detail.needsInteraction"))
                                 .font(.caption)
                                 .foregroundStyle(.orange)
                         }
                     } else if !toolCall.details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         ToolCallDetailSection(
-                            title: "内容",
+                            title: PalmiL10n.tr("tool.detail.content"),
                             text: toolCall.details,
                             renderMarkdown: shouldRenderToolDetailsAsMarkdown(toolCall.details)
                         )
@@ -4207,34 +4227,34 @@ private struct ToolCallCard: View {
             return summary
         }
         if toolCall.isRunning == true {
-            return "正在调用 \(toolCall.toolTitle)"
+            return PalmiL10n.tr("chat.tool.running", toolCall.toolTitle)
         }
         return toolCall.toolTitle
     }
 
     private var detailTitle: String {
         if toolCall.cardKind != .tool {
-            return "内容"
+            return PalmiL10n.tr("tool.detail.content")
         }
 
         if toolCall.isRunning == true {
-            return "状态"
+            return PalmiL10n.tr("tool.detail.status")
         }
 
         switch toolCall.presentationKind {
         case .data:
-            return "结果"
+            return PalmiL10n.tr("tool.detail.result")
         case .action:
-            return "动作"
+            return PalmiL10n.tr("tool.approval.action")
         case .interactive:
-            return "交互"
+            return PalmiL10n.tr("tool.detail.interaction")
         }
     }
 
     private var phaseThoughtTitle: String {
         let title = toolCall.toolTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        if title.isEmpty || title == "思考" {
-            return "阶段思考"
+        if title.isEmpty || title == PalmiL10n.tr("chat.thinking") {
+            return PalmiL10n.tr("chat.phaseThought")
         }
         return title
     }
@@ -4245,7 +4265,7 @@ private struct ToolCallCard: View {
             return details
         }
         let summary = toolCall.summary.trimmingCharacters(in: .whitespacesAndNewlines)
-        return summary.isEmpty ? "（本次阶段思考未提供可展示内容）" : summary
+        return summary.isEmpty ? PalmiL10n.tr("chat.phaseThought.empty") : summary
     }
 
     private func shouldRenderToolDetailsAsMarkdown(_ details: String) -> Bool {
@@ -4457,8 +4477,8 @@ private struct QueuedGuidanceButton: View {
                 )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("待发送队列")
-        .accessibilityValue("\(count) 条")
+        .accessibilityLabel(PalmiL10n.tr("chat.queue.title"))
+        .accessibilityValue(PalmiL10n.tr("chat.queue.count", count))
     }
 }
 
@@ -4501,7 +4521,7 @@ private struct ChatAttachmentRow: View {
                 preview
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(attachment.source.title)
+                    Text(attachment.source.localizedTitle)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
 
@@ -4530,7 +4550,7 @@ private struct ChatAttachmentRow: View {
         }
         .buttonStyle(.plain)
         .task(id: attachment.id) { await loadThumbnail() }
-        .accessibilityLabel("\(attachment.source.title)，\(displayName)")
+        .accessibilityLabel(PalmiL10n.tr("attachment.accessibility.item", attachment.source.localizedTitle, displayName))
     }
 
     @ViewBuilder
@@ -4669,7 +4689,7 @@ private struct ComposerAttachmentTile: View {
                 .background(Circle().fill(Color.black.opacity(0.55)))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("移除附件")
+        .accessibilityLabel(PalmiL10n.tr("attachment.remove"))
     }
 
     private var displayName: String {
@@ -4724,7 +4744,7 @@ private struct QueuedGuidanceRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Text("\(index)")
+            Text(String(index))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .frame(width: 18, alignment: .leading)
@@ -4924,25 +4944,25 @@ private struct ContextInspectorModal: View {
     private var rows: [ContextInspectorRow] {
         return [
             ContextInspectorRow(
-                title: "系统提示词",
+                title: PalmiL10n.tr("context.segment.systemPrompt"),
                 color: ContextInspectorPalette.colors[0],
                 valueText: formattedTokenCount(snapshot.systemPromptTokens),
                 ratio: tokenRatio(snapshot.systemPromptTokens)
             ),
             ContextInspectorRow(
-                title: "技能",
+                title: PalmiL10n.tr("context.segment.skills"),
                 color: ContextInspectorPalette.colors[1],
                 valueText: formattedTokenCount(snapshot.skillTokens),
                 ratio: tokenRatio(snapshot.skillTokens)
             ),
             ContextInspectorRow(
-                title: "工具",
+                title: PalmiL10n.tr("context.segment.tools"),
                 color: ContextInspectorPalette.colors[2],
                 valueText: formattedTokenCount(snapshot.toolTokens),
                 ratio: tokenRatio(snapshot.toolTokens)
             ),
             ContextInspectorRow(
-                title: "消息",
+                title: PalmiL10n.tr("context.segment.messages"),
                 color: ContextInspectorPalette.colors[3],
                 valueText: formattedTokenCount(snapshot.messageTokens),
                 ratio: tokenRatio(snapshot.messageTokens)
@@ -4954,16 +4974,16 @@ private struct ContextInspectorModal: View {
         let content = VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("上下文窗口")
+                    Text(PalmiL10n.tr("context.title"))
                         .font(.headline)
                         .foregroundStyle(.primary)
                         .lineLimit(1)
 
-                    Text("\(formattedTokenCount(snapshot.totalTokens)) / \(formattedTokenCount(snapshot.maxTokens))")
+                    Text([formattedTokenCount(snapshot.totalTokens), formattedTokenCount(snapshot.maxTokens)].joined(separator: " / "))
                         .font(.subheadline.monospacedDigit())
                         .foregroundStyle(.primary)
 
-                    Text("已压缩 \(snapshot.compactionCount) 次 · \(formattedPercent(snapshot.usedRatio))")
+                    Text(PalmiL10n.tr("context.compactedCount", snapshot.compactionCount, formattedPercent(snapshot.usedRatio)))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -4981,7 +5001,7 @@ private struct ContextInspectorModal: View {
                                     .font(.system(size: 14, weight: .semibold))
                             }
 
-                            Text(isCompacting ? "压缩中" : "压缩")
+                            Text(isCompacting ? PalmiL10n.tr("context.compacting") : PalmiL10n.tr("context.compact"))
                                 .font(.caption.weight(.semibold))
                         }
                         .foregroundStyle(.primary)

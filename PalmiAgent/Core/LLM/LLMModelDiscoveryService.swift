@@ -104,11 +104,11 @@ final class LLMModelDiscoveryService: Sendable {
             do {
                 (data, response) = try await session.data(for: request)
             } catch {
-                throw AppError.operationFailed("模型列表获取失败：网络请求异常。\n\(error.localizedDescription)")
+                throw AppError.operationFailed(PalmiL10n.tr("model.discovery.error.network", error.localizedDescription))
             }
 
             guard let httpResponse = response as? HTTPURLResponse else {
-                throw AppError.operationFailed("模型列表获取失败：服务端没有返回有效 HTTP 响应。")
+                throw AppError.operationFailed(PalmiL10n.tr("model.discovery.error.invalidResponse"))
             }
 
             if (200..<300).contains(httpResponse.statusCode) {
@@ -117,7 +117,7 @@ final class LLMModelDiscoveryService: Sendable {
                     envelope = try JSONDecoder().decode(OpenAIModelsEnvelope.self, from: data)
                 } catch {
                     let payload = String(decoding: data, as: UTF8.self)
-                    throw AppError.operationFailed("模型列表解析失败：返回内容不是 OpenAI-compatible `/models` 格式。\n\(Self.truncated(payload))")
+                    throw AppError.operationFailed(PalmiL10n.tr("model.discovery.error.parse", Self.truncated(payload)))
                 }
 
                 let models = envelope.data
@@ -130,7 +130,7 @@ final class LLMModelDiscoveryService: Sendable {
                     }
                     .sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }
                 guard !models.isEmpty else {
-                    throw AppError.operationFailed("模型列表为空。可以手动填写模型 ID，或检查当前 Key 是否有模型权限。")
+                    throw AppError.operationFailed(PalmiL10n.tr("model.discovery.error.empty"))
                 }
                 guard probeMultimodalSupport else {
                     return models
@@ -151,13 +151,18 @@ final class LLMModelDiscoveryService: Sendable {
 
             switch httpResponse.statusCode {
             case 401, 403:
-                throw AppError.operationFailed("模型列表获取失败：API Key 被拒绝，或当前 Key 没有模型列表权限。")
+                throw AppError.operationFailed(PalmiL10n.tr("model.discovery.error.unauthorized"))
             default:
-                throw AppError.operationFailed("模型列表获取失败：HTTP \(httpResponse.statusCode)\n\(body)")
+                throw AppError.operationFailed(PalmiL10n.tr("model.discovery.error.http", httpResponse.statusCode, body))
             }
         }
 
-        throw AppError.operationFailed("模型列表获取失败：当前地址可能不支持 `/models`。\n\(lastEndpointError ?? "没有可用候选地址。")")
+        throw AppError.operationFailed(
+            PalmiL10n.tr(
+                "model.discovery.error.unsupportedModelsEndpoint",
+                lastEndpointError ?? PalmiL10n.tr("model.discovery.error.noCandidateEndpoint")
+            )
+        )
     }
 
     func probeMultimodalSupport(
@@ -252,7 +257,7 @@ final class LLMModelDiscoveryService: Sendable {
 
         let absolute = baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard !absolute.isEmpty else {
-            throw AppError.invalidState("Base URL 为空。")
+            throw AppError.invalidState(PalmiL10n.tr("model.discovery.error.emptyBaseURL"))
         }
 
         var candidates: [String] = []

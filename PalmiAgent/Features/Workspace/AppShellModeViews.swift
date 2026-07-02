@@ -7,18 +7,18 @@ enum AppShellMode: String {
     var title: String {
         switch self {
         case .chat:
-            "聊天"
+            PalmiL10n.tr("appMode.chat")
         case .professional:
-            "专业"
+            PalmiL10n.tr("appMode.professional")
         }
     }
 
     var pickerTitle: String {
         switch self {
         case .chat:
-            "聊天模式"
+            PalmiL10n.tr("appMode.chatMode")
         case .professional:
-            "专业模式"
+            PalmiL10n.tr("appMode.professionalMode")
         }
     }
 
@@ -96,7 +96,7 @@ struct AppShellTopBar: View {
 
     private var settingsButton: some View {
         Button(action: onOpenSettings) {
-            Label("设置", systemImage: "gearshape")
+            Label(PalmiL10n.tr("common.settings"), systemImage: "gearshape")
                 .font(.body.weight(.semibold))
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 16)
@@ -105,12 +105,12 @@ struct AppShellTopBar: View {
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.tint(.white.opacity(0.10)).interactive(), in: .capsule)
-        .accessibilityLabel("设置")
+        .accessibilityLabel(PalmiL10n.tr("common.settings"))
     }
 
     private var trailingButton: some View {
         Button(action: onTrailingAction) {
-            Label("新建", systemImage: trailingSystemName)
+            Label(PalmiL10n.tr("common.new"), systemImage: trailingSystemName)
                 .font(.body.weight(.semibold))
                 .foregroundStyle(.blue)
                 .padding(.horizontal, 16)
@@ -152,7 +152,7 @@ struct AppShellTopBar: View {
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.tint(.white.opacity(0.12)).interactive(), in: .capsule)
-        .accessibilityLabel("模式")
+        .accessibilityLabel(PalmiL10n.tr("common.mode"))
     }
 }
 

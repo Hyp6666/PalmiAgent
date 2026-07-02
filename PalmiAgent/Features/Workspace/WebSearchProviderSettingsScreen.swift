@@ -13,7 +13,7 @@ struct WebSearchProviderSettingsScreen: View {
                             .foregroundStyle(.blue)
                             .frame(width: 28)
 
-                        Text(providerID.title)
+                        Text(providerID.localizedTitleForUI)
                             .font(.body.weight(.semibold))
                             .foregroundStyle(.primary)
 
@@ -35,7 +35,7 @@ struct WebSearchProviderSettingsScreen: View {
                 }
             }
         }
-        .navigationTitle("搜索源")
+        .navigationTitle(PalmiL10n.tr("webSearch.title"))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             enabledProviderIDs = WebSearchProviderSettings.enabledProviderIDs()

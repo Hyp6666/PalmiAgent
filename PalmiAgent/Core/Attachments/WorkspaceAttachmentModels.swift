@@ -8,11 +8,11 @@ enum WorkspaceAttachmentSource: String, Codable, Sendable {
     var title: String {
         switch self {
         case .camera:
-            return "相机"
+            return "\u{76f8}\u{673a}"
         case .photoLibrary:
-            return "照片"
+            return "\u{7167}\u{7247}"
         case .filePicker:
-            return "文件"
+            return "\u{6587}\u{4ef6}"
         }
     }
 }

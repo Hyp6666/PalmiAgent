@@ -1,0 +1,13 @@
+"CFBundleDisplayName" = "PalmiAgent";
+"CFBundleName" = "PalmiAgent";
+"NSAlarmKitUsageDescription" = "PalmiAgent 需要访问系统闹钟，用于创建、查看和管理系统闹钟与倒计时。";
+"NSCalendarsFullAccessUsageDescription" = "PalmiAgent 需要访问日历，用于创建和读取测试事件。";
+"NSCameraUsageDescription" = "PalmiAgent 需要访问相机，用于拍照、扫描文档和实时文本识别。";
+"NSContactsUsageDescription" = "PalmiAgent 需要访问通讯录，用于创建和搜索测试联系人。";
+"NSLocalNetworkUsageDescription" = "PalmiAgent 需要访问局域网，用于发现并连接同一网络中的 LM Studio 服务器。";
+"NSLocationWhenInUseUsageDescription" = "PalmiAgent 需要访问定位，用于地点搜索、路线预览和地址解析。";
+"NSMicrophoneUsageDescription" = "PalmiAgent 需要访问麦克风，用于语音识别和后续语音交互。";
+"NSPhotoLibraryAddUsageDescription" = "PalmiAgent 需要写入照片库，用于保存生成的测试图片。";
+"NSPhotoLibraryUsageDescription" = "PalmiAgent 需要访问照片库，用于选择图片和后续媒体处理。";
+"NSRemindersFullAccessUsageDescription" = "PalmiAgent 需要访问提醒事项，用于创建和读取测试提醒。";
+"NSSpeechRecognitionUsageDescription" = "PalmiAgent 需要访问语音识别，用于语音输入和语音实验能力。";

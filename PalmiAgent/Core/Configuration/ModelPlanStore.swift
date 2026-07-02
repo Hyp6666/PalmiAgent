@@ -11,16 +11,16 @@ enum ModelPlanSlot: String, CaseIterable, Codable, Identifiable, Sendable {
     var title: String {
         switch self {
         case .primary:
-            return "主模型"
+            return PalmiL10n.tr("model.slot.primary")
         case .multimodal:
-            return "多模态"
+            return PalmiL10n.tr("model.slot.multimodal")
         case .lightweight:
-            return "轻模型"
+            return PalmiL10n.tr("model.slot.lightweight")
         }
     }
 
     var listTitle: String {
-        "\(title)候选"
+        PalmiL10n.tr("model.slot.candidates", title)
     }
 
     var isRequired: Bool {
@@ -116,11 +116,11 @@ enum ModelCandidateProviderPreset: String, CaseIterable, Codable, Identifiable, 
     var title: String {
         switch self {
         case .openAICompatible:
-            return "OpenAI兼容"
+            return PalmiL10n.tr("model.preset.openAICompatible")
         case .glm:
-            return "智谱通用 API"
+            return PalmiL10n.tr("model.preset.glm")
         case .glmCodingPlan:
-            return "智谱 Coding Plan"
+            return PalmiL10n.tr("model.preset.glmCodingPlan")
         case .deepseek:
             return "DeepSeek"
         }
@@ -579,7 +579,7 @@ final class ModelPlanStore {
            ) {
             multimodalOverride = resolved
         } else {
-            multimodalOverride = .unavailable("当前会话未选择多模态模型。")
+            multimodalOverride = .unavailable(PalmiL10n.tr("model.error.noMultimodalSelected"))
         }
 
         let lightweightCandidate = selectedCandidate(
@@ -608,7 +608,7 @@ final class ModelPlanStore {
             id: planID,
             name: normalizedPlanName(
                 name,
-                defaultName: records.isEmpty ? "系统默认配置" : "新模型方案 \(records.count + 1)"
+                defaultName: records.isEmpty ? PalmiL10n.tr("model.plan.defaultName") : PalmiL10n.tr("model.plan.newName", records.count + 1)
             ),
             primaryCandidateID: nil,
             multimodalCandidateID: nil,
@@ -628,16 +628,16 @@ final class ModelPlanStore {
 
     func setPlanName(_ name: String, planID: UUID) {
         updatePlan(planID) { plan in
-            plan.name = normalizedPlanName(name, defaultName: "未命名方案")
+            plan.name = normalizedPlanName(name, defaultName: PalmiL10n.tr("model.plan.unnamed"))
         }
     }
 
     func activatePlan(_ planID: UUID) throws {
         guard let plan = plan(id: planID) else {
-            throw AppError.invalidState("模型方案不存在。")
+            throw AppError.invalidState(PalmiL10n.tr("model.error.planMissing"))
         }
         guard plan.isUsable else {
-            throw AppError.invalidState("请先为该方案配置主模型。")
+            throw AppError.invalidState(PalmiL10n.tr("model.error.primaryRequired"))
         }
         writeActivePlanID(planID)
         refresh()
@@ -685,7 +685,7 @@ final class ModelPlanStore {
     ) throws -> UUID {
         let trimmedModelName = draft.modelName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedModelName.isEmpty else {
-            throw AppError.invalidState("请求模型名称必填。")
+            throw AppError.invalidState(PalmiL10n.tr("model.error.requestModelRequired"))
         }
         let trimmedDisplayName = draft.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedBaseURL = try Self.normalizedBaseURLString(draft.baseURLString)
@@ -729,7 +729,7 @@ final class ModelPlanStore {
             modelName: trimmedModelName,
             capabilities: capabilities,
             validationStatus: validation == nil ? .unvalidated : .valid,
-            validationMessage: validation?.message ?? "未测试。",
+            validationMessage: validation?.message ?? PalmiL10n.tr("model.status.untested"),
             validatedAt: validation == nil ? nil : now,
             createdAt: now,
             updatedAt: now
@@ -764,7 +764,7 @@ final class ModelPlanStore {
     ) throws {
         guard let plan = plan(id: planID),
               plan.candidates.contains(where: { $0.id == candidateID }) else {
-            throw AppError.invalidState("模型库中不存在该模型。")
+            throw AppError.invalidState(PalmiL10n.tr("model.error.libraryModelMissing"))
         }
         updatePlan(planID) { plan in
             if let index = plan.candidates.firstIndex(where: { $0.id == candidateID }) {
@@ -784,7 +784,7 @@ final class ModelPlanStore {
         validation: ModelCandidateValidationResult
     ) throws {
         guard plan(id: planID)?.candidates.contains(where: { $0.id == candidateID }) == true else {
-            throw AppError.invalidState("候选模型不存在。")
+            throw AppError.invalidState(PalmiL10n.tr("model.error.candidateMissing"))
         }
         let now = Date()
         updatePlan(planID) { plan in
@@ -805,7 +805,7 @@ final class ModelPlanStore {
         slot: ModelPlanSlot
     ) throws {
         guard !slot.isRequired || plan(id: planID)?.selectedCandidate(for: slot)?.id != candidateID else {
-            throw AppError.invalidState("主模型当前正在使用，不能直接移出候选。")
+            throw AppError.invalidState(PalmiL10n.tr("model.error.primaryInUse"))
         }
         updatePlan(planID) { plan in
             plan.slotCandidateIDs.remove(candidateID, from: slot)
@@ -822,7 +822,7 @@ final class ModelPlanStore {
         modelName: String
     ) throws {
         guard let candidate = plan(id: planID)?.candidates.first(where: { $0.id == candidateID }) else {
-            throw AppError.invalidState("模型不存在。")
+            throw AppError.invalidState(PalmiL10n.tr("model.error.modelMissing"))
         }
         try updateCandidateConfiguration(
             candidateID,
@@ -845,7 +845,7 @@ final class ModelPlanStore {
         let trimmedDisplayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedModelName = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedModelName.isEmpty else {
-            throw AppError.invalidState("请求模型名称必填。")
+            throw AppError.invalidState(PalmiL10n.tr("model.error.requestModelRequired"))
         }
         let normalizedBaseURL = try Self.normalizedBaseURLString(baseURLString)
         let trimmedAPIKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -871,10 +871,10 @@ final class ModelPlanStore {
     func selectCandidate(_ candidateID: UUID, planID: UUID, slot: ModelPlanSlot) throws {
         guard let plan = plan(id: planID),
               plan.candidates.contains(where: { $0.id == candidateID }) else {
-            throw AppError.invalidState("候选模型不存在。")
+            throw AppError.invalidState(PalmiL10n.tr("model.error.candidateMissing"))
         }
         guard plan.record.slotCandidateIDs.contains(candidateID, in: slot) else {
-            throw AppError.invalidState("请先把该模型加入\(slot.title)候选。")
+            throw AppError.invalidState(PalmiL10n.tr("model.error.addToSlotFirst", slot.title))
         }
         updatePlan(planID) { plan in
             plan.setSelectedCandidateID(candidateID, for: slot)
@@ -883,7 +883,7 @@ final class ModelPlanStore {
 
     func clearSelection(planID: UUID, slot: ModelPlanSlot) throws {
         guard !slot.isRequired else {
-            throw AppError.invalidState("主模型不能为空。")
+            throw AppError.invalidState(PalmiL10n.tr("model.error.primaryCannotBeEmpty"))
         }
         updatePlan(planID) { plan in
             plan.setSelectedCandidateID(nil, for: slot)
@@ -915,13 +915,13 @@ final class ModelPlanStore {
     static func normalizedBaseURLString(_ rawValue: String) throws -> String {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            throw AppError.invalidState("Base URL 必填。")
+            throw AppError.invalidState(PalmiL10n.tr("model.error.baseURLRequired"))
         }
         let candidate = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
         guard let url = URL(string: candidate),
               let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https" else {
-            throw AppError.invalidState("Base URL 必须以 http:// 或 https:// 开头。")
+            throw AppError.invalidState(PalmiL10n.tr("model.error.baseURLScheme"))
         }
         return url.absoluteString
     }
@@ -1006,7 +1006,7 @@ final class ModelPlanStore {
         let now = Date()
         return ModelPlanRecord(
             id: UUID(),
-            name: "系统默认配置",
+            name: PalmiL10n.tr("model.plan.defaultName"),
             primaryCandidateID: nil,
             multimodalCandidateID: nil,
             lightweightCandidateID: nil,

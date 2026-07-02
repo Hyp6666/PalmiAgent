@@ -14,9 +14,22 @@
 		762415DB2F89627200FBB4F0 /* PalmiAgent.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PalmiAgent.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		76I18N012F91000000I18N01 /* Exceptions for "PalmiAgent" folder in "PalmiAgent" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 762415DA2F89627200FBB4F0 /* PalmiAgent */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		762415DD2F89627200FBB4F0 /* PalmiAgent */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				76I18N012F91000000I18N01 /* Exceptions for "PalmiAgent" folder in "PalmiAgent" target */,
+			);
 			path = PalmiAgent;
 			sourceTree = "<group>";
 		};
@@ -98,6 +111,10 @@
 			knownRegions = (
 				en,
 				Base,
+				"zh-Hans",
+				"zh-Hant",
+				ja,
+				ko,
 			);
 			mainGroup = 762415D22F89627200FBB4F0;
 			minimizedProjectReferenceProxies = 1;
@@ -296,17 +313,19 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				"HEADER_SEARCH_PATHS[sdk=iphoneos*]" = "$(PROJECT_DIR)/Vendor/PythonSupport/Python.xcframework/ios-arm64/Python.framework/Headers";
 				"HEADER_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(PROJECT_DIR)/Vendor/PythonSupport/Python.xcframework/ios-arm64_x86_64-simulator/Python.framework/Headers";
-				INFOPLIST_KEY_NSAlarmKitUsageDescription = "PalmiAgent 需要访问系统闹钟，用于创建、查看和管理系统闹钟与倒计时。";
-				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "PalmiAgent 需要访问日历，用于创建和读取测试事件。";
-				INFOPLIST_KEY_NSCameraUsageDescription = "PalmiAgent 需要访问相机，用于拍照、扫描文档和实时文本识别。";
-				INFOPLIST_KEY_NSContactsUsageDescription = "PalmiAgent 需要访问通讯录，用于创建和搜索测试联系人。";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "PalmiAgent 需要访问局域网，用于发现并连接同一网络中的 LM Studio 服务器。";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "PalmiAgent 需要访问定位，用于地点搜索、路线预览和地址解析。";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "PalmiAgent 需要访问麦克风，用于语音识别和后续语音交互。";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "PalmiAgent 需要写入照片库，用于保存生成的测试图片。";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "PalmiAgent 需要访问照片库，用于选择图片和后续媒体处理。";
-				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "PalmiAgent 需要访问提醒事项，用于创建和读取测试提醒。";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "PalmiAgent 需要访问语音识别，用于语音输入和语音实验能力。";
+				INFOPLIST_FILE = PalmiAgent/Info.plist;
+				INFOPLIST_KEY_CFBundleLocalizations = "en zh-Hans zh-Hant ja ko";
+				INFOPLIST_KEY_NSAlarmKitUsageDescription = "PalmiAgent needs access to alarms to create, view, and manage alarms and timers.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "PalmiAgent needs calendar access to create and read events.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "PalmiAgent needs camera access for photos, document scanning, and live text recognition.";
+				INFOPLIST_KEY_NSContactsUsageDescription = "PalmiAgent needs contacts access to create and search contacts.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "PalmiAgent needs local network access to discover and connect to LM Studio servers on your network.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "PalmiAgent needs location access for place search, route previews, and address lookup.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "PalmiAgent needs microphone access for speech recognition and voice experiments.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "PalmiAgent needs permission to add photos to save generated images.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "PalmiAgent needs photo library access to choose images and process media.";
+				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "PalmiAgent needs reminders access to create and read reminders.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "PalmiAgent needs speech recognition access for voice input and voice experiments.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -351,17 +370,19 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				"HEADER_SEARCH_PATHS[sdk=iphoneos*]" = "$(PROJECT_DIR)/Vendor/PythonSupport/Python.xcframework/ios-arm64/Python.framework/Headers";
 				"HEADER_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(PROJECT_DIR)/Vendor/PythonSupport/Python.xcframework/ios-arm64_x86_64-simulator/Python.framework/Headers";
-				INFOPLIST_KEY_NSAlarmKitUsageDescription = "PalmiAgent 需要访问系统闹钟，用于创建、查看和管理系统闹钟与倒计时。";
-				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "PalmiAgent 需要访问日历，用于创建和读取测试事件。";
-				INFOPLIST_KEY_NSCameraUsageDescription = "PalmiAgent 需要访问相机，用于拍照、扫描文档和实时文本识别。";
-				INFOPLIST_KEY_NSContactsUsageDescription = "PalmiAgent 需要访问通讯录，用于创建和搜索测试联系人。";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "PalmiAgent 需要访问局域网，用于发现并连接同一网络中的 LM Studio 服务器。";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "PalmiAgent 需要访问定位，用于地点搜索、路线预览和地址解析。";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "PalmiAgent 需要访问麦克风，用于语音识别和后续语音交互。";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "PalmiAgent 需要写入照片库，用于保存生成的测试图片。";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "PalmiAgent 需要访问照片库，用于选择图片和后续媒体处理。";
-				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "PalmiAgent 需要访问提醒事项，用于创建和读取测试提醒。";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "PalmiAgent 需要访问语音识别，用于语音输入和语音实验能力。";
+				INFOPLIST_FILE = PalmiAgent/Info.plist;
+				INFOPLIST_KEY_CFBundleLocalizations = "en zh-Hans zh-Hant ja ko";
+				INFOPLIST_KEY_NSAlarmKitUsageDescription = "PalmiAgent needs access to alarms to create, view, and manage alarms and timers.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "PalmiAgent needs calendar access to create and read events.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "PalmiAgent needs camera access for photos, document scanning, and live text recognition.";
+				INFOPLIST_KEY_NSContactsUsageDescription = "PalmiAgent needs contacts access to create and search contacts.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "PalmiAgent needs local network access to discover and connect to LM Studio servers on your network.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "PalmiAgent needs location access for place search, route previews, and address lookup.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "PalmiAgent needs microphone access for speech recognition and voice experiments.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "PalmiAgent needs permission to add photos to save generated images.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "PalmiAgent needs photo library access to choose images and process media.";
+				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "PalmiAgent needs reminders access to create and read reminders.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "PalmiAgent needs speech recognition access for voice input and voice experiments.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

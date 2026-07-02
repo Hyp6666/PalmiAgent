@@ -14,16 +14,25 @@ enum ProfessionalReasoningTier: String, CaseIterable, Identifiable, Sendable {
     static let storageKey = "palmi.prof.reasoning-tier"
 
     var id: String { rawValue }
-    var title: String { rawValue }
+    var title: String {
+        switch self {
+        case .speed:
+            PalmiL10n.tr("reasoning.tier.speed")
+        case .balanced:
+            PalmiL10n.tr("reasoning.tier.balanced")
+        case .infinite:
+            PalmiL10n.tr("reasoning.tier.infinite")
+        }
+    }
 
     var description: String {
         switch self {
         case .speed:
-            return "倾向短路径与快速收口。"
+            return PalmiL10n.tr("reasoning.tier.speed.description")
         case .balanced:
-            return "倾向更稳妥的完成质量。"
+            return PalmiL10n.tr("reasoning.tier.balanced.description")
         case .infinite:
-            return "分阶段推进更长任务。"
+            return PalmiL10n.tr("reasoning.tier.infinite.description")
         }
     }
 
@@ -59,16 +68,25 @@ enum ChatReasoningTier: String, CaseIterable, Identifiable, Sendable {
     static let storageKey = "palmi.chat.reasoning-tier"
 
     var id: String { rawValue }
-    var title: String { rawValue }
+    var title: String {
+        switch self {
+        case .fast:
+            PalmiL10n.tr("reasoning.tier.speed")
+        case .normal:
+            PalmiL10n.tr("reasoning.tier.balanced")
+        case .expert:
+            PalmiL10n.tr("reasoning.tier.infinite")
+        }
+    }
 
     var description: String {
         switch self {
         case .fast:
-            return "倾向短路径与快速收口。"
+            return PalmiL10n.tr("reasoning.tier.speed.description")
         case .normal:
-            return "倾向更稳妥的完成质量。"
+            return PalmiL10n.tr("reasoning.tier.balanced.description")
         case .expert:
-            return "优先更完整地完成任务。"
+            return PalmiL10n.tr("reasoning.tier.infinite.description")
         }
     }
 

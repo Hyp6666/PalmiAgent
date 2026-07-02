@@ -1,0 +1,13 @@
+"CFBundleDisplayName" = "PalmiAgent";
+"CFBundleName" = "PalmiAgent";
+"NSAlarmKitUsageDescription" = "PalmiAgent は、アラームやタイマーの作成、表示、管理のためにシステムアラームへのアクセスを必要とします。";
+"NSCalendarsFullAccessUsageDescription" = "PalmiAgent は、テスト用イベントの作成と読み取りのためにカレンダーへのアクセスを必要とします。";
+"NSCameraUsageDescription" = "PalmiAgent は、写真撮影、書類スキャン、ライブテキスト認識のためにカメラへのアクセスを必要とします。";
+"NSContactsUsageDescription" = "PalmiAgent は、テスト用連絡先の作成と検索のために連絡先へのアクセスを必要とします。";
+"NSLocalNetworkUsageDescription" = "PalmiAgent は、同じネットワーク上の LM Studio サーバーを検出して接続するためにローカルネットワークへのアクセスを必要とします。";
+"NSLocationWhenInUseUsageDescription" = "PalmiAgent は、場所の検索、経路プレビュー、住所解析のために位置情報へのアクセスを必要とします。";
+"NSMicrophoneUsageDescription" = "PalmiAgent は、音声認識と今後の音声操作のためにマイクへのアクセスを必要とします。";
+"NSPhotoLibraryAddUsageDescription" = "PalmiAgent は、生成したテスト画像を保存するために写真ライブラリへの追加権限を必要とします。";
+"NSPhotoLibraryUsageDescription" = "PalmiAgent は、画像の選択とメディア処理のために写真ライブラリへのアクセスを必要とします。";
+"NSRemindersFullAccessUsageDescription" = "PalmiAgent は、テスト用リマインダーの作成と読み取りのためにリマインダーへのアクセスを必要とします。";
+"NSSpeechRecognitionUsageDescription" = "PalmiAgent は、音声入力と音声実験機能のために音声認識へのアクセスを必要とします。";

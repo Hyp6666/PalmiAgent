@@ -10,15 +10,15 @@ enum ModelReasoningStrengthLevel: String, CaseIterable, Codable, Sendable {
     var title: String {
         switch self {
         case .minimal:
-            "推理强度-极低"
+            PalmiL10n.tr("model.reasoning.strength.minimal")
         case .low:
-            "推理强度-低"
+            PalmiL10n.tr("model.reasoning.strength.low")
         case .medium:
-            "推理强度-中"
+            PalmiL10n.tr("model.reasoning.strength.medium")
         case .high:
-            "推理强度-高"
+            PalmiL10n.tr("model.reasoning.strength.high")
         case .maximum:
-            "推理强度-最大"
+            PalmiL10n.tr("model.reasoning.strength.maximum")
         }
     }
 
@@ -171,7 +171,7 @@ enum ModelReasoningControlCatalog {
     private static func thinkingToggle(defaultEnabled: Bool) -> ModelReasoningControlOption {
         ModelReasoningControlOption(
             id: "thinking",
-            title: "思考",
+            title: PalmiL10n.tr("chat.thinking"),
             action: .thinkingToggle(defaultEnabled: defaultEnabled)
         )
     }

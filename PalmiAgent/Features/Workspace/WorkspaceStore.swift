@@ -4,8 +4,17 @@ import Foundation
 @MainActor
 @Observable
 final class WorkspaceStore {
-    static let defaultChatConversationName = "新聊天"
-    static let defaultProfessionalThreadName = "新会话"
+    static var defaultChatConversationName: String {
+        PalmiL10n.tr("workspace.default.chatConversation")
+    }
+
+    static var defaultProfessionalThreadName: String {
+        PalmiL10n.tr("workspace.default.professionalThread")
+    }
+
+    static var defaultProfessionalProjectName: String {
+        PalmiL10n.tr("workspace.default.professionalProject")
+    }
 
     let workspaceManager: WorkspaceManager
 
@@ -125,7 +134,7 @@ final class WorkspaceStore {
     func selectProject(_ project: WorkspaceProjectRecord) {
         do {
             guard project.surface == .professional else {
-                statusMessage = "该项目属于聊天模式。"
+                statusMessage = PalmiL10n.tr("workspace.status.projectBelongsToChat")
                 return
             }
             // 只解析、不新建：空项目进入合法的 0 会话态，绝不再兜底建会话。
@@ -188,7 +197,7 @@ final class WorkspaceStore {
     func selectChatConversation(_ project: WorkspaceProjectRecord) {
         do {
             guard project.surface == .chat else {
-                statusMessage = "该聊天不属于聊天模式。"
+                statusMessage = PalmiL10n.tr("workspace.status.chatBelongsToOtherMode")
                 return
             }
             // 只解析、不新建：空聊天项目进入合法的 0 会话态，绝不再兜底建会话。
@@ -231,7 +240,7 @@ final class WorkspaceStore {
             if let createdProject = projects.first(where: { $0.id == project.id }) {
                 selectProject(createdProject)
             }
-            statusMessage = "已创建项目：\(project.name)"
+            statusMessage = PalmiL10n.tr("workspace.status.projectCreated", project.name)
         } catch {
             statusMessage = error.localizedDescription
         }
@@ -265,7 +274,7 @@ final class WorkspaceStore {
             if let createdProject = chatProjects.first(where: { $0.id == project.id }) {
                 selectChatConversation(createdProject)
             }
-            statusMessage = "已创建聊天：\(project.name)"
+            statusMessage = PalmiL10n.tr("workspace.status.chatCreated", project.name)
         } catch {
             statusMessage = error.localizedDescription
         }
@@ -303,7 +312,8 @@ final class WorkspaceStore {
     }
 
     @discardableResult
-    func ensureDefaultProfessionalProject(named name: String = "默认项目") -> WorkspaceProjectRecord? {
+    func ensureDefaultProfessionalProject(named requestedName: String? = nil) -> WorkspaceProjectRecord? {
+        let name = requestedName ?? Self.defaultProfessionalProjectName
         do {
             if let existing = projects.first(where: { $0.name == name }) {
                 if threadCount(for: existing.id) == 0 {
@@ -335,7 +345,7 @@ final class WorkspaceStore {
 
     func createThread(named name: String) {
         guard let selectedProject, selectedProject.surface == .professional else {
-            statusMessage = "请先选择一个项目。"
+            statusMessage = PalmiL10n.tr("workspace.status.selectProjectFirst")
             return
         }
 
@@ -348,7 +358,7 @@ final class WorkspaceStore {
 
     func createThread(named name: String, in projectID: UUID) {
         guard projects.contains(where: { $0.id == projectID }) else {
-            statusMessage = "目标项目不存在。"
+            statusMessage = PalmiL10n.tr("workspace.status.targetProjectMissing")
             return
         }
 
@@ -356,7 +366,7 @@ final class WorkspaceStore {
             let thread = try workspaceManager.createThread(named: name, in: projectID)
             try refreshThreads(for: projectID)
             selectThread(thread)
-            statusMessage = "已创建会话：\(thread.name)"
+            statusMessage = PalmiL10n.tr("workspace.status.threadCreated", thread.name)
         } catch {
             statusMessage = error.localizedDescription
         }
@@ -405,11 +415,11 @@ final class WorkspaceStore {
                 if project.name == Self.defaultChatConversationName {
                     try workspaceManager.renameProject(projectID: project.id, to: trimmedTitle)
                 }
-                if thread.name == Self.defaultChatConversationName || thread.name == "主聊天" {
+                if thread.name == Self.defaultChatConversationName || thread.name == "\u{4E3B}\u{804A}\u{5929}" {
                     try workspaceManager.renameThread(projectID: thread.projectID, threadID: thread.id, to: trimmedTitle)
                 }
             case .professional:
-                if thread.name == Self.defaultProfessionalThreadName || thread.name == "主会话" {
+                if thread.name == Self.defaultProfessionalThreadName || thread.name == "\u{4E3B}\u{4F1A}\u{8BDD}" {
                     try workspaceManager.renameThread(projectID: thread.projectID, threadID: thread.id, to: trimmedTitle)
                 }
             }
@@ -424,8 +434,10 @@ final class WorkspaceStore {
         do {
             try workspaceManager.renameProject(projectID: project.id, to: newName)
             reload()
-            let subject = project.surface == .chat ? "聊天" : "项目"
-            statusMessage = "已重命名\(subject)：\(newName.trimmingCharacters(in: .whitespacesAndNewlines))"
+            let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+            statusMessage = project.surface == .chat
+                ? PalmiL10n.tr("workspace.status.chatRenamed", trimmed)
+                : PalmiL10n.tr("workspace.status.projectRenamed", trimmed)
         } catch {
             statusMessage = error.localizedDescription
         }
@@ -440,8 +452,9 @@ final class WorkspaceStore {
             } else {
                 activateProfessionalSurface()
             }
-            let subject = project.surface == .chat ? "聊天" : "项目"
-            statusMessage = "已删除\(subject)：\(project.name)"
+            statusMessage = project.surface == .chat
+                ? PalmiL10n.tr("workspace.status.chatDeleted", project.name)
+                : PalmiL10n.tr("workspace.status.projectDeleted", project.name)
         } catch {
             statusMessage = error.localizedDescription
         }
@@ -451,7 +464,7 @@ final class WorkspaceStore {
         do {
             try workspaceManager.renameThread(projectID: thread.projectID, threadID: thread.id, to: newName)
             reload()
-            statusMessage = "已重命名会话：\(newName.trimmingCharacters(in: .whitespacesAndNewlines))"
+            statusMessage = PalmiL10n.tr("workspace.status.threadRenamed", newName.trimmingCharacters(in: .whitespacesAndNewlines))
         } catch {
             statusMessage = error.localizedDescription
         }
@@ -492,7 +505,7 @@ final class WorkspaceStore {
             } else {
                 activateProfessionalSurface()
             }
-            statusMessage = "已删除会话：\(thread.name)"
+            statusMessage = PalmiL10n.tr("workspace.status.threadDeleted", thread.name)
         } catch {
             statusMessage = error.localizedDescription
         }
@@ -500,7 +513,7 @@ final class WorkspaceStore {
 
     func createFolder(at relativePath: String) {
         guard hasBrowsableWorkspace else {
-            statusMessage = "请先选择一个会话或项目。"
+            statusMessage = PalmiL10n.tr("workspace.status.selectSessionOrProject")
             return
         }
 
@@ -509,7 +522,7 @@ final class WorkspaceStore {
                 try workspaceManager.createDirectory(at: relativePath)
             }
             refreshCurrentThreadContents()
-            statusMessage = "已创建文件夹：\(relativePath)"
+            statusMessage = PalmiL10n.tr("workspace.status.folderCreated", relativePath)
         } catch {
             statusMessage = error.localizedDescription
         }
@@ -520,7 +533,7 @@ final class WorkspaceStore {
             try workspaceManager.importAttachmentsToHiddenFiles(attachments)
         }
         refreshCurrentThreadContents()
-        statusMessage = "已添加 \(batch.attachments.count) 个附件。"
+        statusMessage = PalmiL10n.tr("workspace.status.attachmentsAdded", batch.attachments.count)
         return batch
     }
 
@@ -532,7 +545,7 @@ final class WorkspaceStore {
             try workspaceManager.importAttachments(attachments, toDirectory: relativePath)
         }
         refreshCurrentThreadContents()
-        statusMessage = "已添加 \(stored.count) 个文件。"
+        statusMessage = PalmiL10n.tr("workspace.status.filesAdded", stored.count)
         return stored
     }
 
@@ -578,7 +591,7 @@ final class WorkspaceStore {
 
     func selectNode(_ node: WorkspaceFileNode) {
         guard hasBrowsableWorkspace else {
-            statusMessage = "请先选择一个会话或项目。"
+            statusMessage = PalmiL10n.tr("workspace.status.selectSessionOrProject")
             selectedNodePreview = nil
             return
         }
@@ -597,7 +610,7 @@ final class WorkspaceStore {
 
     func exportCurrentThread() {
         guard hasBrowsableWorkspace else {
-            statusMessage = "请先选择一个会话或项目。"
+            statusMessage = PalmiL10n.tr("workspace.status.selectSessionOrProject")
             return
         }
 
@@ -613,7 +626,7 @@ final class WorkspaceStore {
 
     func exportNode(_ node: WorkspaceFileNode) {
         guard hasBrowsableWorkspace else {
-            statusMessage = "请先选择一个会话或项目。"
+            statusMessage = PalmiL10n.tr("workspace.status.selectSessionOrProject")
             return
         }
 
@@ -641,7 +654,7 @@ final class WorkspaceStore {
 
     private func loadPreview(for node: WorkspaceFileNode) throws {
         if node.isDirectory {
-            selectedNodePreview = "这是一个文件夹：\(node.relativePath)"
+            selectedNodePreview = PalmiL10n.tr("workspace.status.directoryPreview", node.relativePath)
             return
         }
         selectedNodePreview = try workspaceManager.previewText(at: node.relativePath)
@@ -783,7 +796,7 @@ final class WorkspaceStore {
             return try workspaceManager.withProject(browsedProjectID, operation: operation)
         }
         guard let selection = selectedSelection else {
-            throw AppError.invalidState("请先选择一个会话或项目。")
+            throw AppError.invalidState(PalmiL10n.tr("workspace.status.selectSessionOrProject"))
         }
         return try workspaceManager.withSelection(selection, operation: operation)
     }

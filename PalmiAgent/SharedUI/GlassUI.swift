@@ -4,7 +4,7 @@ struct StatusBadge: View {
     let availability: ToolAvailability
 
     var body: some View {
-        Text(availability.title)
+        Text(availability.localizedTitleForUI)
             .font(.caption.weight(.semibold))
             .foregroundStyle(.white.opacity(0.9))
             .padding(.horizontal, 10)
@@ -41,7 +41,7 @@ struct StatCapsule: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("\(value)")
+            Text(String(value))
                 .font(.system(size: 30, weight: .bold, design: .rounded))
             Text(title)
                 .font(.caption)

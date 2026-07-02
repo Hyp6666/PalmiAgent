@@ -26,7 +26,7 @@ struct ToolManagementOverviewScreen: View {
             .padding(.vertical, 14)
         }
         .background(Color(uiColor: .systemGroupedBackground))
-        .navigationTitle("工具管理")
+        .navigationTitle(PalmiL10n.tr("tool.management.title"))
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $selectedGroup) { group in
             ToolManagementGroupScreen(
@@ -43,16 +43,16 @@ private struct ToolAuthorizationModeCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("工具授权")
+            Text(PalmiL10n.tr("tool.authorization.title"))
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(.primary)
 
-            Picker("工具授权", selection: Binding(
+            Picker(PalmiL10n.tr("tool.authorization.title"), selection: Binding(
                 get: { authorizationStore.mode },
                 set: { authorizationStore.setMode($0) }
             )) {
                 ForEach(ToolAuthorizationMode.allCases) { mode in
-                    Text(mode.title).tag(mode)
+                    Text(mode.localizedTitle).tag(mode)
                 }
             }
             .pickerStyle(.segmented)
@@ -78,7 +78,7 @@ private struct ToolManagementSectionBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(section.title)
+            Text(section.id.localizedTitle)
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 4)
@@ -119,11 +119,11 @@ private struct ToolManagementGroupCard: View {
                     iconBadge
 
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(group.title)
+                        Text(group.id.localizedTitle)
                             .font(.body.weight(.semibold))
                             .foregroundStyle(.primary)
 
-                        Text(group.subtitle)
+                        Text(group.id.localizedSubtitle)
                             .font(.footnote)
                             .foregroundStyle(.secondary)
 
@@ -164,7 +164,7 @@ private struct ToolManagementGroupCard: View {
     }
 
     private var statusPill: some View {
-        Text("\(enabledCount)/\(totalCount) 已开启")
+        Text(PalmiL10n.tr("tool.enabledCount", enabledCount, totalCount))
             .font(.caption.weight(.medium))
             .foregroundStyle(appearance.tint)
             .padding(.horizontal, 10)
@@ -213,7 +213,7 @@ private struct ToolManagementGroupScreen: View {
             .padding(.vertical, 14)
         }
         .background(Color(uiColor: .systemGroupedBackground))
-        .navigationTitle(group.title)
+        .navigationTitle(group.id.localizedTitle)
         .navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -240,15 +240,15 @@ private struct ToolManagementGroupHeaderCard: View {
                 }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(group.title)
+                Text(group.id.localizedTitle)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.primary)
 
-                Text(group.subtitle)
+                Text(group.id.localizedSubtitle)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
-                Text("\(enabledCount)/\(totalCount) 已开启")
+                Text(PalmiL10n.tr("tool.enabledCount", enabledCount, totalCount))
                     .font(.caption.weight(.medium))
                     .foregroundStyle(appearance.tint)
             }
@@ -278,11 +278,11 @@ private struct ToolManagementActionRow: View {
     var body: some View {
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(action.title)
+                Text(action.localizedTitleForUI)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.primary)
 
-                Text(action.effect)
+                Text(action.localizedEffectForUI)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

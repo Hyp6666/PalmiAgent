@@ -27,9 +27,13 @@ struct AgentCustomPersonalityConfiguration: Sendable {
 
     var displayTitle: String {
         guard !title.isEmpty else {
-            return "自定义"
+            return PalmiL10n.tr("personality.custom")
         }
-        return "自定义（\(title)）"
+        return PalmiL10n.tr("personality.custom.withTitle", title)
+    }
+
+    var localizedDisplayTitle: String {
+        displayTitle
     }
 
     var systemPromptFragment: String {
@@ -68,19 +72,23 @@ enum AgentPersonalityPreset: String, CaseIterable, Codable, Identifiable, Sendab
     var id: String { rawValue }
 
     var title: String {
+        localizedTitle
+    }
+
+    var localizedTitle: String {
         switch self {
         case .default:
-            return "默认"
+            return PalmiL10n.tr("personality.default")
         case .focused:
-            return "专一"
+            return PalmiL10n.tr("personality.focused")
         case .humorous:
-            return "幽默"
+            return PalmiL10n.tr("personality.humorous")
         case .cool:
-            return "高冷"
+            return PalmiL10n.tr("personality.cool")
         case .lively:
-            return "活泼"
+            return PalmiL10n.tr("personality.lively")
         case .custom:
-            return "自定义"
+            return PalmiL10n.tr("personality.custom")
         }
     }
 

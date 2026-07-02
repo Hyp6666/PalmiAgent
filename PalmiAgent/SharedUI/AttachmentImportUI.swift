@@ -88,7 +88,7 @@ struct PalmiAttachmentImportHost: ViewModifier {
                     finish(item.map { [$0] } ?? [], configuration: presentation.configuration)
                 }
             } else {
-                PalmiAttachmentUnavailableSheet(message: "当前设备不可用相机。") {
+                PalmiAttachmentUnavailableSheet(message: PalmiL10n.tr("attachment.cameraUnavailable")) {
                     self.presentation = nil
                 }
             }
@@ -175,14 +175,14 @@ struct PalmiAttachmentMenu: View {
     var body: some View {
         VStack(spacing: 14) {
             HStack(spacing: 12) {
-                topButton(title: "相机", systemImage: "camera.fill", action: onCamera)
-                topButton(title: "照片", systemImage: "photo.on.rectangle.angled", action: onPhotos)
-                topButton(title: "文件", systemImage: "doc.fill", action: onFiles)
+                topButton(title: PalmiL10n.tr("attachment.camera"), systemImage: "camera.fill", action: onCamera)
+                topButton(title: PalmiL10n.tr("attachment.photos"), systemImage: "photo.on.rectangle.angled", action: onPhotos)
+                topButton(title: PalmiL10n.tr("attachment.files"), systemImage: "doc.fill", action: onFiles)
             }
 
             if showsPlanningRows {
-                menuRow(title: "目  标", subtitle: "设立目标让 Palmi 完成", systemImage: "target", action: onGoal)
-                menuRow(title: "深度研究", subtitle: "让 Palmi 进行深度研究", systemImage: "sparkle.magnifyingglass", action: onResearch)
+                menuRow(title: PalmiL10n.tr("attachment.goal"), subtitle: PalmiL10n.tr("attachment.goal.subtitle"), systemImage: "target", action: onGoal)
+                menuRow(title: PalmiL10n.tr("attachment.deepResearch"), subtitle: PalmiL10n.tr("attachment.deepResearch.subtitle"), systemImage: "sparkle.magnifyingglass", action: onResearch)
             }
         }
         .padding(14)
@@ -283,7 +283,7 @@ private struct PalmiAttachmentUnavailableSheet: View {
                 .foregroundStyle(.primary)
                 .multilineTextAlignment(.center)
 
-            Button("关闭", action: onDismiss)
+            Button(PalmiL10n.tr("common.close"), action: onDismiss)
                 .font(.body.weight(.semibold))
                 .buttonStyle(.borderedProminent)
         }

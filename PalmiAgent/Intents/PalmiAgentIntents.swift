@@ -1,18 +1,18 @@
 import AppIntents
 
 struct OpenPalmiAgentIntent: AppIntent {
-    static let title: LocalizedStringResource = "打开 PalmiAgent 开发者模式"
-    static let description = IntentDescription("打开 PalmiAgent 的开发者模式。")
+    static let title: LocalizedStringResource = "intent.openDeveloper.title"
+    static let description = IntentDescription("intent.openDeveloper.description")
     static var openAppWhenRun: Bool = true
 
     func perform() async throws -> some IntentResult {
-        .result(dialog: "PalmiAgent 已经打开。")
+        .result(dialog: "intent.openDeveloper.dialog")
     }
 }
 
 struct CreateWorkspaceIntent: AppIntent {
-    static let title: LocalizedStringResource = "创建 Palmi 工作区"
-    static let description = IntentDescription("在 PalmiAgent 内创建测试工作区，并写入一份 README。")
+    static let title: LocalizedStringResource = "intent.createWorkspace.title"
+    static let description = IntentDescription("intent.createWorkspace.description")
     static var openAppWhenRun: Bool = true
 
     func perform() async throws -> some IntentResult {
@@ -21,7 +21,7 @@ struct CreateWorkspaceIntent: AppIntent {
             _ = try manager.ensureWorkspace()
             _ = try manager.writeReadme()
         }
-        return .result(dialog: "工作区已经创建并写入 README。")
+        return .result(dialog: "intent.createWorkspace.dialog")
     }
 }
 
@@ -30,19 +30,19 @@ struct PalmiAgentShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: OpenPalmiAgentIntent(),
             phrases: [
-                "打开 \(.applicationName)",
-                "启动 \(.applicationName) 开发者模式"
+                "Open \(.applicationName)",
+                "Launch \(.applicationName) developer mode"
             ],
-            shortTitle: "开发者模式",
+            shortTitle: "intent.openDeveloper.shortTitle",
             systemImageName: "sparkles.rectangle.stack"
         )
         AppShortcut(
             intent: CreateWorkspaceIntent(),
             phrases: [
-                "用 \(.applicationName) 创建工作区",
-                "让 \(.applicationName) 新建测试目录"
+                "Create a workspace with \(.applicationName)",
+                "Make a test workspace in \(.applicationName)"
             ],
-            shortTitle: "创建工作区",
+            shortTitle: "intent.createWorkspace.shortTitle",
             systemImageName: "folder.badge.plus"
         )
     }

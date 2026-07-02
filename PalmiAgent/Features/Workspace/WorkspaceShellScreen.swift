@@ -4,7 +4,7 @@ import PDFKit
 
 enum OnboardingStorage {
     static let hasCompletedKey = "palmi.onboarding.has-completed"
-    static let selectedLanguageIDKey = "palmi.onboarding.selected-language-id"
+    static let selectedLanguageIDKey = PalmiLanguage.storageKey
 
     static func markNeedsOnboarding(defaults: UserDefaults = .standard) {
         defaults.set(false, forKey: hasCompletedKey)
@@ -28,7 +28,7 @@ struct WorkspaceShellScreen: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @AppStorage("palmi.app-shell-mode") private var storedShellMode = AppShellMode.professional.rawValue
     @AppStorage(OnboardingStorage.hasCompletedKey) private var hasCompletedOnboarding = false
-    @AppStorage(OnboardingStorage.selectedLanguageIDKey) private var selectedOnboardingLanguageID = "zh-Hans"
+    @AppStorage(OnboardingStorage.selectedLanguageIDKey) private var selectedOnboardingLanguageID = PalmiLanguage.zhHans.rawValue
     @Bindable var workspaceStore: WorkspaceStore
     @Bindable var manualLabStore: ManualLabStore
     @Bindable var skillRegistry: SkillRegistry
@@ -64,6 +64,7 @@ struct WorkspaceShellScreen: View {
                 regularBody
             }
         }
+        .environment(\.locale, PalmiLanguage.resolve(selectedOnboardingLanguageID).locale)
         .sheet(
             isPresented: $isShowingWorkspaceBrowser,
             onDismiss: {
@@ -159,7 +160,7 @@ struct WorkspaceShellScreen: View {
     }
 
     private func handleFactoryResetCompleted() {
-        selectedOnboardingLanguageID = "zh-Hans"
+        selectedOnboardingLanguageID = PalmiLanguage.zhHans.rawValue
         hasCompletedOnboarding = false
         isShowingSettings = false
         DispatchQueue.main.async {
@@ -188,7 +189,7 @@ struct WorkspaceShellScreen: View {
             }
 
         case .professional:
-            _ = workspaceStore.ensureDefaultProfessionalProject(named: "默认项目")
+            _ = workspaceStore.ensureDefaultProfessionalProject()
             workspaceStore.activateProfessionalSurface()
             chatModePath = []
             if horizontalSizeClass == .compact {
@@ -330,10 +331,10 @@ private struct WorkspaceSidebar: View {
             List {
                 sidebarHeaderSpacer
 
-                Section("项目工作区") {
+                Section(PalmiL10n.tr("workspace.sidebar.section.projects")) {
                     if store.projects.isEmpty {
                         HStack {
-                            Text("空")
+                            Text(PalmiL10n.tr("common.empty"))
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity)
@@ -385,7 +386,7 @@ private struct WorkspaceSidebar: View {
                 AppShellTopBar(
                     mode: shellMode,
                     trailingSystemName: "folder.badge.plus",
-                    trailingAccessibilityLabel: "新增项目",
+                    trailingAccessibilityLabel: PalmiL10n.tr("workspace.action.newProject"),
                     onOpenSettings: onOpenSettings,
                     onTrailingAction: { presentedNameEditor = .createProject },
                     onSelectMode: onSelectMode
@@ -411,7 +412,7 @@ private struct WorkspaceSidebar: View {
                     handleDeletion(pendingDeletion)
                 }
             }
-            Button("取消", role: .cancel) {
+            Button(PalmiL10n.tr("common.cancel"), role: .cancel) {
                 pendingDeletion = nil
             }
         } message: {
@@ -430,7 +431,7 @@ private struct WorkspaceSidebar: View {
                 TextField(route.placeholder, text: $nameDraft)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                Button("取消", role: .cancel) {
+                Button(PalmiL10n.tr("common.cancel"), role: .cancel) {
                     presentedNameEditor = nil
                 }
                 Button(route.confirmTitle) {
@@ -442,7 +443,7 @@ private struct WorkspaceSidebar: View {
             }
         } message: {
             if presentedNameEditor != nil {
-                Text("名称会立即应用到当前项目或会话。")
+                Text(PalmiL10n.tr("workspace.nameEditor.message"))
             }
         }
         .onChange(of: presentedNameEditor?.id) {
@@ -536,7 +537,7 @@ private struct WorkspaceProjectRow: View {
                             Text(project.name)
                                 .font(.body.weight(isExpanded ? .semibold : .regular))
                                 .foregroundStyle(isExpanded ? .blue : .primary)
-                            Text("\(threadCount) 个会话")
+                            Text(PalmiL10n.tr("workspace.project.threadCount", threadCount))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -563,12 +564,12 @@ private struct WorkspaceProjectRow: View {
                     Button {
                         onBrowseFiles()
                     } label: {
-                        Label("查看文件夹", systemImage: "folder")
+                        Label(PalmiL10n.tr("workspace.action.viewFolder"), systemImage: "folder")
                     }
-                    Button("重命名") {
+                    Button(PalmiL10n.tr("common.rename")) {
                         onRenameProject()
                     }
-                    Button("删除", role: .destructive) {
+                    Button(PalmiL10n.tr("common.delete"), role: .destructive) {
                         onDeleteProject()
                     }
                 } label: {
@@ -636,10 +637,10 @@ private struct WorkspaceThreadRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Menu {
-                Button("重命名") {
+                Button(PalmiL10n.tr("common.rename")) {
                     onRename()
                 }
-                Button("删除", role: .destructive) {
+                Button(PalmiL10n.tr("common.delete"), role: .destructive) {
                     onDelete()
                 }
             } label: {
@@ -676,20 +677,20 @@ private enum WorkspaceNameEditorRoute: Identifiable {
     var title: String {
         switch self {
         case .createProject:
-            return "新建项目"
+            return PalmiL10n.tr("workspace.action.newProject")
         case .renameProject:
-            return "重命名项目"
+            return PalmiL10n.tr("workspace.action.renameProject")
         case .renameThread:
-            return "重命名会话"
+            return PalmiL10n.tr("workspace.action.renameThread")
         }
     }
 
     var confirmTitle: String {
         switch self {
         case .createProject:
-            return "创建"
+            return PalmiL10n.tr("common.create")
         case .renameProject, .renameThread:
-            return "保存"
+            return PalmiL10n.tr("common.save")
         }
     }
 
@@ -707,9 +708,9 @@ private enum WorkspaceNameEditorRoute: Identifiable {
     var placeholder: String {
         switch self {
         case .createProject, .renameProject:
-            return "项目名称"
+            return PalmiL10n.tr("workspace.placeholder.projectName")
         case .renameThread:
-            return "会话名称"
+            return PalmiL10n.tr("workspace.placeholder.threadName")
         }
     }
 }
@@ -721,22 +722,22 @@ private enum WorkspaceDeletionTarget {
     var title: String {
         switch self {
         case .project:
-            return "删除项目"
+            return PalmiL10n.tr("workspace.action.deleteProject")
         case .thread:
-            return "删除会话"
+            return PalmiL10n.tr("workspace.action.deleteThread")
         }
     }
 
     var confirmTitle: String {
-        "删除"
+        PalmiL10n.tr("common.delete")
     }
 
     var message: String {
         switch self {
         case .project(let project):
-            return "确定删除项目“\(project.name)”吗？项目下的会话和工作区文件都会被移除。"
+            return PalmiL10n.tr("workspace.delete.project.message", project.name)
         case .thread(let thread):
-            return "确定删除会话“\(thread.name)”吗？该会话下的聊天记录会被移除，项目文件夹会保留。"
+            return PalmiL10n.tr("workspace.delete.thread.message", thread.name)
         }
     }
 }
@@ -774,7 +775,7 @@ private struct WorkspaceBrowser: View {
                 .toolbar {
                     if let onClose {
                         ToolbarItem(placement: .topBarLeading) {
-                            Button("关闭") {
+                            Button(PalmiL10n.tr("common.close")) {
                                 onClose()
                             }
                         }
@@ -796,18 +797,18 @@ private struct WorkspaceBrowser: View {
                     attachmentMenuOverlay
                 }
                 .alert(
-                    "新建文件夹",
+                    PalmiL10n.tr("workspace.folder.new"),
                     isPresented: Binding(
                         get: { folderCreation != nil },
                         set: { if !$0 { folderCreation = nil } }
                     )
                 ) {
-                    TextField("文件夹名称", text: $folderNameDraft)
+                    TextField(PalmiL10n.tr("workspace.folder.name"), text: $folderNameDraft)
                         .textInputAutocapitalization(.never)
-                    Button("取消", role: .cancel) {
+                    Button(PalmiL10n.tr("common.cancel"), role: .cancel) {
                         folderCreation = nil
                     }
-                    Button("创建") {
+                    Button(PalmiL10n.tr("common.create")) {
                         let trimmed = folderNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !trimmed.isEmpty else { return }
                         createFolder(named: trimmed, basePath: folderCreation?.basePath ?? "")
@@ -816,7 +817,7 @@ private struct WorkspaceBrowser: View {
                 } message: {
                     if let folderCreation {
                         let trimmedBase = folderCreation.basePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                        Text(trimmedBase.isEmpty ? "项目文件" : trimmedBase)
+                        Text(trimmedBase.isEmpty ? PalmiL10n.tr("workspace.files.title") : trimmedBase)
                     }
                 }
                 .animation(.snappy(duration: 0.22), value: attachmentMenuBasePath)
@@ -838,7 +839,7 @@ private struct WorkspaceBrowser: View {
             }
 
             if !store.hasBrowsableWorkspace {
-                ContentUnavailableView("请选择一个会话", systemImage: "tray")
+                ContentUnavailableView(PalmiL10n.tr("workspace.empty.selectSession"), systemImage: "tray")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 fileList(for: route)
@@ -852,7 +853,7 @@ private struct WorkspaceBrowser: View {
         HStack(spacing: 10) {
             workspaceBrowserActionButton(
                 systemName: "folder.badge.plus",
-                accessibilityLabel: "新建文件夹",
+                accessibilityLabel: PalmiL10n.tr("workspace.folder.new"),
                 iconColor: .blue
             ) {
                 folderNameDraft = ""
@@ -862,7 +863,7 @@ private struct WorkspaceBrowser: View {
 
             workspaceBrowserActionButton(
                 systemName: "plus",
-                accessibilityLabel: "添加文件",
+                accessibilityLabel: PalmiL10n.tr("workspace.file.add"),
                 iconColor: .blue
             ) {
                 attachmentMenuBasePath = route?.relativePath ?? ""
@@ -871,7 +872,7 @@ private struct WorkspaceBrowser: View {
 
             workspaceBrowserActionButton(
                 systemName: "arrow.clockwise",
-                accessibilityLabel: "刷新",
+                accessibilityLabel: PalmiL10n.tr("common.refresh"),
                 iconColor: .blue
             ) {
                 store.refreshCurrentThreadContents()
@@ -880,7 +881,7 @@ private struct WorkspaceBrowser: View {
 
             workspaceBrowserActionButton(
                 systemName: "square.and.arrow.up",
-                accessibilityLabel: "导出项目文件",
+                accessibilityLabel: PalmiL10n.tr("workspace.file.exportProject"),
                 iconColor: .blue
             ) {
                 store.exportCurrentThread()
@@ -891,7 +892,7 @@ private struct WorkspaceBrowser: View {
 
             workspaceBrowserActionButton(
                 systemName: store.showsHiddenFiles ? "eye" : "eye.slash",
-                accessibilityLabel: store.showsHiddenFiles ? "隐藏 .files" : "显示 .files",
+                accessibilityLabel: store.showsHiddenFiles ? PalmiL10n.tr("workspace.file.hideHidden") : PalmiL10n.tr("workspace.file.showHidden"),
                 iconColor: .blue
             ) {
                 store.toggleHiddenFilesVisibility()
@@ -953,7 +954,7 @@ private struct WorkspaceBrowser: View {
     private func fileList(for route: WorkspaceBrowserRoute?) -> some View {
         List {
             if nodes(for: route).isEmpty {
-                Text("空")
+                Text(PalmiL10n.tr("common.empty"))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             } else {
@@ -977,7 +978,7 @@ private struct WorkspaceBrowser: View {
     }
 
     private func title(for route: WorkspaceBrowserRoute?) -> String {
-        guard let route else { return "项目文件" }
+        guard let route else { return PalmiL10n.tr("workspace.files.title") }
         return URL(fileURLWithPath: route.relativePath).lastPathComponent
     }
 
@@ -993,7 +994,7 @@ private struct WorkspaceBrowser: View {
             switch kind {
             case .markdown, .text:
                 preview = try store.previewText(at: node.relativePath)
-                    ?? "该文件暂无可预览内容。"
+                    ?? PalmiL10n.tr("filePreview.emptyFile")
             case .quickLook:
                 preview = nil
             }
@@ -1117,19 +1118,6 @@ private enum OnboardingStep {
     case modeChoice
 }
 
-private struct OnboardingLanguageOption: Identifiable, Equatable {
-    let id: String
-    let title: String
-}
-
-private let onboardingLanguageOptions: [OnboardingLanguageOption] = [
-    .init(id: "zh-Hans", title: "简体中文"),
-    .init(id: "zh-Hant", title: "繁體中文"),
-    .init(id: "en", title: "English"),
-    .init(id: "ja", title: "日本語"),
-    .init(id: "ko", title: "한국어")
-]
-
 private struct OnboardingFlowScreen: View {
     @Bindable var manualLabStore: ManualLabStore
     @Binding var selectedLanguageID: String
@@ -1241,8 +1229,8 @@ private struct OnboardingLanguageStep: View {
     @Binding var selectedLanguageID: String
     let onContinue: () -> Void
 
-    private var selectedOption: OnboardingLanguageOption {
-        onboardingLanguageOptions.first { $0.id == selectedLanguageID } ?? onboardingLanguageOptions[0]
+    private var selectedLanguage: PalmiLanguage {
+        PalmiLanguage.resolve(selectedLanguageID)
     }
 
     var body: some View {
@@ -1253,20 +1241,20 @@ private struct OnboardingLanguageStep: View {
                 .frame(height: 54)
 
             Menu {
-                ForEach(onboardingLanguageOptions) { option in
+                ForEach(PalmiLanguage.allCases) { language in
                     Button {
-                        selectedLanguageID = option.id
+                        selectedLanguageID = language.rawValue
                     } label: {
-                        if option.id == selectedOption.id {
-                            Label(option.title, systemImage: "checkmark")
+                        if language == selectedLanguage {
+                            Label(language.displayTitle, systemImage: "checkmark")
                         } else {
-                            Text(option.title)
+                            Text(language.displayTitle)
                         }
                     }
                 }
             } label: {
                 HStack(spacing: 14) {
-                    Text(selectedOption.title)
+                    Text(selectedLanguage.displayTitle)
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(.primary)
 
@@ -1286,7 +1274,7 @@ private struct OnboardingLanguageStep: View {
             Button {
                 onContinue()
             } label: {
-                Text("继续")
+                Text(PalmiL10n.tr("common.continue"))
                     .font(.headline.weight(.semibold))
                     .frame(maxWidth: 360)
                     .frame(height: 56)
@@ -1305,13 +1293,7 @@ private struct OnboardingLanguageStep: View {
 }
 
 private struct RotatingLanguageTitle: View {
-    private let titles = [
-        "选择语言",
-        "選擇語言",
-        "Select Language",
-        "言語を選択",
-        "언어 선택"
-    ]
+    private let titles = PalmiLanguage.allCases.map(\.displayTitle)
 
     var body: some View {
         TimelineView(.animation) { context in
@@ -1391,28 +1373,16 @@ private struct PalmiPolicyAgreementStrings {
     let missingMessage: String
 
     static func resolve(for languageID: String) -> PalmiPolicyAgreementStrings {
-        switch languageID {
-        case "zh-Hans", "zh-Hant":
-            return PalmiPolicyAgreementStrings(
-                title: "隐私与第三方 AI 服务提示",
-                subtitle: "请阅读完整 PDF。勾选同意后才能继续配置模型。",
-                checkboxTitle: "我已阅读并同意《Palmi 用户知情与第三方 AI 服务提示》，并理解第三方模型服务、聚合平台、自定义 endpoint、系统权限和工具调用可能按照各自政策处理我选择发送的数据。",
-                backTitle: "返回",
-                continueTitle: "同意并继续",
-                missingTitle: "未找到政策文件",
-                missingMessage: "请确认 PDF 已放入 PalmiAgent/Resources/Policies。"
-            )
-        default:
-            return PalmiPolicyAgreementStrings(
-                title: "Privacy and Third-Party AI Services Notice",
-                subtitle: "Read the full PDF. You must acknowledge it before configuring a model.",
-                checkboxTitle: "I have read and agree to the Palmi Notice for Privacy and Third-Party AI Services, and I understand that third-party model services, aggregators, custom endpoints, system permissions, and tool calls may process data I choose to send under their own policies.",
-                backTitle: "Back",
-                continueTitle: "Agree and Continue",
-                missingTitle: "Policy file not found",
-                missingMessage: "Confirm that the PDF files are in PalmiAgent/Resources/Policies."
-            )
-        }
+        _ = languageID
+        return PalmiPolicyAgreementStrings(
+            title: PalmiL10n.tr("onboarding.policy.title"),
+            subtitle: PalmiL10n.tr("onboarding.policy.subtitle"),
+            checkboxTitle: PalmiL10n.tr("onboarding.policy.checkbox"),
+            backTitle: PalmiL10n.tr("common.back"),
+            continueTitle: PalmiL10n.tr("onboarding.policy.agreeContinue"),
+            missingTitle: PalmiL10n.tr("policy.missing.title"),
+            missingMessage: PalmiL10n.tr("policy.missing.message")
+        )
     }
 }
 
@@ -1495,7 +1465,7 @@ private struct OnboardingPolicyAgreementStep: View {
                 ContentUnavailableView(
                     strings.missingTitle,
                     systemImage: "doc.badge.exclamationmark",
-                    description: Text("\(strings.missingMessage) Missing: \(PalmiPolicyDocumentResource.displayFileName(for: selectedLanguageID))")
+                    description: Text(PalmiL10n.tr("policy.missing.withFile", PalmiPolicyDocumentResource.displayFileName(for: selectedLanguageID)))
                 )
             }
         }
@@ -1587,13 +1557,13 @@ private struct OnboardingModelConfigurationStep: View {
             ModelConfigurationManagerScreen(store: store)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button("返回") {
+                        Button(PalmiL10n.tr("common.back")) {
                             onBack()
                         }
                     }
 
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button("跳过") {
+                        Button(PalmiL10n.tr("common.skip")) {
                             isConfirmingSkip = true
                         }
                     }
@@ -1605,7 +1575,7 @@ private struct OnboardingModelConfigurationStep: View {
                         Button {
                             onContinue()
                         } label: {
-                            Text("完成")
+                            Text(PalmiL10n.tr("common.done"))
                                 .font(.headline.weight(.semibold))
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 54)
@@ -1625,17 +1595,17 @@ private struct OnboardingModelConfigurationStep: View {
                 }
         }
         .confirmationDialog(
-            "跳过设置？",
+            PalmiL10n.tr("onboarding.model.skip.title"),
             isPresented: $isConfirmingSkip,
             titleVisibility: .visible
         ) {
-            Button("确认跳过", role: .destructive) {
+            Button(PalmiL10n.tr("onboarding.model.skip.confirm"), role: .destructive) {
                 onSkip()
             }
 
-            Button("取消", role: .cancel) {}
+            Button(PalmiL10n.tr("common.cancel"), role: .cancel) {}
         } message: {
-            Text("之后可在设置中配置模型。")
+            Text(PalmiL10n.tr("onboarding.model.skip.message"))
         }
     }
 }
@@ -1647,16 +1617,16 @@ private struct OnboardingModeChoiceStep: View {
         VStack(spacing: 26) {
             Spacer(minLength: 90)
 
-            Text("选择模式")
+            Text(PalmiL10n.tr("onboarding.mode.title"))
                 .font(.largeTitle.weight(.semibold))
                 .foregroundStyle(.primary)
 
             VStack(spacing: 16) {
-                modeButton("聊天模式") {
+                modeButton(PalmiL10n.tr("appMode.chatMode")) {
                     onSelect(.chat)
                 }
 
-                modeButton("专业模式") {
+                modeButton(PalmiL10n.tr("appMode.professionalMode")) {
                     onSelect(.professional)
                 }
             }
@@ -1704,11 +1674,11 @@ private struct AppSettingsScreen: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .navigationTitle("设置")
+            .navigationTitle(PalmiL10n.tr("settings.title"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") {
+                    Button(PalmiL10n.tr("common.done")) {
                         dismiss()
                     }
                 }
@@ -1752,68 +1722,79 @@ private struct SystemSettingsScreen: View {
 
     var body: some View {
         List {
-            Section("通用") {
+            Section(PalmiL10n.tr("settings.section.general")) {
                 NavigationLink {
                     LanguageSettingsScreen()
                 } label: {
-                    Label("语言", systemImage: "globe")
+                    Label(PalmiL10n.tr("settings.row.language"), systemImage: "globe")
                 }
             }
 
-            Section("启动") {
+            Section(PalmiL10n.tr("settings.section.launch")) {
                 Button {
                     onStartOnboarding()
                 } label: {
-                    Label("重新开始设置", systemImage: "sparkles")
+                    Label(PalmiL10n.tr("settings.row.restartOnboarding"), systemImage: "sparkles")
                 }
             }
 
-            Section("数据") {
+            Section(PalmiL10n.tr("settings.section.data")) {
                 NavigationLink {
                     DataManagementSettingsScreen(
                         store: store,
                         onFactoryResetCompleted: onFactoryResetCompleted
                     )
                 } label: {
-                    Label("数据管理", systemImage: "externaldrive")
+                    Label(PalmiL10n.tr("settings.row.dataManagement"), systemImage: "externaldrive")
                 }
             }
 
-            Section("关于") {
+            Section(PalmiL10n.tr("settings.section.about")) {
                 NavigationLink {
                     SystemInformationScreen(workspaceManager: store.workspaceStore.workspaceManager)
                 } label: {
-                    Label("系统信息", systemImage: "info.circle")
+                    Label(PalmiL10n.tr("settings.row.systemInfo"), systemImage: "info.circle")
                 }
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle("系统设置")
+        .navigationTitle(PalmiL10n.tr("settings.system.title"))
         .navigationBarTitleDisplayMode(.inline)
     }
 }
 
 private struct LanguageSettingsScreen: View {
+    @AppStorage(PalmiLanguage.storageKey) private var selectedLanguageID = PalmiLanguage.zhHans.rawValue
+
     var body: some View {
         List {
             Section {
-                HStack(spacing: 12) {
-                    Label("跟随系统", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.primary, Color.accentColor)
+                ForEach(PalmiLanguage.allCases) { language in
+                    Button {
+                        selectedLanguageID = language.rawValue
+                    } label: {
+                        HStack(spacing: 12) {
+                            Text(language.displayTitle)
+                                .foregroundStyle(.primary)
 
-                    Spacer(minLength: 12)
+                            Spacer(minLength: 12)
 
-                    Text(Locale.current.localizedString(forIdentifier: Locale.current.identifier) ?? Locale.current.identifier)
-                        .foregroundStyle(.secondary)
+                            if PalmiLanguage.resolve(selectedLanguageID) == language {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
                 }
             } header: {
-                Text("显示语言")
+                Text(PalmiL10n.tr("system.language.section.display"))
             } footer: {
-                Text("语言切换入口已预留，具体 i18n 方案落地后启用。")
+                Text(PalmiL10n.tr("system.language.footer"))
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle("语言")
+        .navigationTitle(PalmiL10n.tr("system.language.title"))
         .navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -1836,65 +1817,65 @@ private struct DataManagementSettingsScreen: View {
         var title: String {
             switch self {
             case .clearWorkspaceData:
-                return "清理工作区数据"
+                return PalmiL10n.tr("data.operation.clearWorkspace.title")
             case .clearCaches:
-                return "清理缓存"
+                return PalmiL10n.tr("data.operation.clearCaches.title")
             case .restoreFactoryState:
-                return "恢复初始状态"
+                return PalmiL10n.tr("data.operation.restoreFactory.title")
             }
         }
 
         var confirmTitle: String {
             switch self {
             case .clearWorkspaceData:
-                return "清理工作区"
+                return PalmiL10n.tr("data.operation.clearWorkspace.confirm")
             case .clearCaches:
-                return "清理缓存"
+                return PalmiL10n.tr("data.operation.clearCaches.title")
             case .restoreFactoryState:
-                return "恢复初始状态"
+                return PalmiL10n.tr("data.operation.restoreFactory.title")
             }
         }
 
         var message: String {
             switch self {
             case .clearWorkspaceData:
-                return "会删除本机工作区、项目、会话和附件文件。该操作不会删除第三方模型服务商的数据。"
+                return PalmiL10n.tr("data.operation.clearWorkspace.message")
             case .clearCaches:
-                return "会删除 Palmi 的本机缓存文件。"
+                return PalmiL10n.tr("data.operation.clearCaches.message")
             case .restoreFactoryState:
-                return "会删除本机工作区、缓存、偏好设置，以及 Palmi 保存在 Keychain 中的模型凭据。第三方账号数据仍需到对应服务商处理。"
+                return PalmiL10n.tr("data.operation.restoreFactory.message")
             }
         }
 
         var successMessage: String {
             switch self {
             case .clearWorkspaceData:
-                return "已清理工作区数据。"
+                return PalmiL10n.tr("data.operation.clearWorkspace.success")
             case .clearCaches:
-                return "已清理缓存。"
+                return PalmiL10n.tr("data.operation.clearCaches.success")
             case .restoreFactoryState:
-                return "已恢复初始状态。"
+                return PalmiL10n.tr("data.operation.restoreFactory.success")
             }
         }
     }
 
     var body: some View {
         List {
-            Section("存储") {
-                usageRow(title: "工作区与会话", byteCount: usageSummary.workspaceBytes)
+            Section(PalmiL10n.tr("data.section.storage")) {
+                usageRow(title: PalmiL10n.tr("data.storage.workspaceAndSessions"), byteCount: usageSummary.workspaceBytes)
 
                 Button(role: .destructive) {
                     pendingOperation = .clearWorkspaceData
                 } label: {
-                    Label("清理工作区数据", systemImage: "trash")
+                    Label(PalmiL10n.tr("data.operation.clearWorkspace.title"), systemImage: "trash")
                 }
 
-                usageRow(title: "缓存", byteCount: usageSummary.cacheBytes)
+                usageRow(title: PalmiL10n.tr("data.storage.cache"), byteCount: usageSummary.cacheBytes)
 
                 Button(role: .destructive) {
                     pendingOperation = .clearCaches
                 } label: {
-                    Label("清理缓存", systemImage: "trash")
+                    Label(PalmiL10n.tr("data.operation.clearCaches.title"), systemImage: "trash")
                 }
             }
 
@@ -1902,12 +1883,12 @@ private struct DataManagementSettingsScreen: View {
                 Button(role: .destructive) {
                     pendingOperation = .restoreFactoryState
                 } label: {
-                    Label("恢复初始状态", systemImage: "exclamationmark.triangle")
+                    Label(PalmiL10n.tr("data.operation.restoreFactory.title"), systemImage: "exclamationmark.triangle")
                 }
             } header: {
-                Text("危险操作")
+                Text(PalmiL10n.tr("data.section.danger"))
             } footer: {
-                Text("恢复初始状态会清理本机数据和 Palmi 保存的模型凭据，不能撤销。")
+                Text(PalmiL10n.tr("data.restore.warning"))
             }
 
             if let feedbackMessage {
@@ -1918,13 +1899,13 @@ private struct DataManagementSettingsScreen: View {
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle("数据管理")
+        .navigationTitle(PalmiL10n.tr("settings.row.dataManagement"))
         .navigationBarTitleDisplayMode(.inline)
         .task {
             reloadUsageSummary()
         }
         .confirmationDialog(
-            pendingOperation?.title ?? "确认操作",
+            pendingOperation?.title ?? PalmiL10n.tr("common.confirmOperation"),
             isPresented: pendingOperationBinding,
             titleVisibility: .visible,
             presenting: pendingOperation
@@ -1932,12 +1913,12 @@ private struct DataManagementSettingsScreen: View {
             Button(operation.confirmTitle, role: .destructive) {
                 perform(operation)
             }
-            Button("取消", role: .cancel) {}
+            Button(PalmiL10n.tr("common.cancel"), role: .cancel) {}
         } message: { operation in
             Text(operation.message)
         }
-        .alert("操作失败", isPresented: errorBinding) {
-            Button("知道了", role: .cancel) {}
+        .alert(PalmiL10n.tr("common.operationFailed"), isPresented: errorBinding) {
+            Button(PalmiL10n.tr("common.ok"), role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
         }
@@ -2006,36 +1987,36 @@ private struct SystemInformationScreen: View {
     let workspaceManager: WorkspaceManager
 
     private var appVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "未知"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? PalmiL10n.tr("common.unknown")
     }
 
     private var buildNumber: String {
-        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "未知"
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? PalmiL10n.tr("common.unknown")
     }
 
     private var bundleIdentifier: String {
-        Bundle.main.bundleIdentifier ?? "未知"
+        Bundle.main.bundleIdentifier ?? PalmiL10n.tr("common.unknown")
     }
 
     var body: some View {
         List {
-            Section("App") {
-                infoRow("版本", appVersion)
-                infoRow("构建", buildNumber)
-                infoRow("Bundle ID", bundleIdentifier)
+            Section(PalmiL10n.tr("system.info.section.app")) {
+                infoRow(PalmiL10n.tr("system.info.version"), appVersion)
+                infoRow(PalmiL10n.tr("system.info.build"), buildNumber)
+                infoRow(PalmiL10n.tr("system.info.bundleID"), bundleIdentifier)
             }
 
-            Section("设备") {
-                infoRow("系统", "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)")
-                infoRow("设备", UIDevice.current.model)
+            Section(PalmiL10n.tr("system.info.section.device")) {
+                infoRow(PalmiL10n.tr("system.info.system"), "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)")
+                infoRow(PalmiL10n.tr("system.info.device"), UIDevice.current.model)
             }
 
-            Section("本机数据") {
-                infoRow("工作区目录", workspaceManager.workspaceStorageRootURL().path)
+            Section(PalmiL10n.tr("privacy.section.localData")) {
+                infoRow(PalmiL10n.tr("system.info.workspaceDirectory"), workspaceManager.workspaceStorageRootURL().path)
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle("系统信息")
+        .navigationTitle(PalmiL10n.tr("settings.row.systemInfo"))
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -2057,39 +2038,39 @@ private struct PrivacyAndPolicySettingsScreen: View {
 
     var body: some View {
         List {
-            Section("本机数据") {
-                Label("Palmi 当前没有自有服务器", systemImage: "iphone")
-                Label("工作区、会话和配置主要保存在本机", systemImage: "internaldrive")
-                Label("API Key 保存在系统 Keychain", systemImage: "key")
+            Section(PalmiL10n.tr("privacy.section.localData")) {
+                Label(PalmiL10n.tr("privacy.local.noServer"), systemImage: "iphone")
+                Label(PalmiL10n.tr("privacy.local.storedOnDevice"), systemImage: "internaldrive")
+                Label(PalmiL10n.tr("privacy.local.keychain"), systemImage: "key")
             }
 
-            Section("第三方服务") {
-                Text("云端模型、聚合平台、搜索源和系统权限的数据处理规则，以你启用的服务商官方政策为准。")
+            Section(PalmiL10n.tr("privacy.section.thirdParty")) {
+                Text(PalmiL10n.tr("privacy.thirdParty.note"))
                     .foregroundStyle(.secondary)
             }
 
-            Section("政策文件") {
+            Section(PalmiL10n.tr("privacy.section.policyDocuments")) {
                 NavigationLink {
                     PalmiPolicyDocumentScreen(languageID: selectedLanguageID)
                 } label: {
-                    Label("查看当前语言版本", systemImage: "doc.richtext")
+                    Label(PalmiL10n.tr("privacy.policy.currentLanguage"), systemImage: "doc.richtext")
                 }
 
                 NavigationLink {
-                    PalmiPolicyDocumentScreen(languageID: "zh-Hans")
+                    PalmiPolicyDocumentScreen(languageID: PalmiLanguage.zhHans.rawValue)
                 } label: {
-                    Label("查看简体中文版本", systemImage: "doc.text")
+                    Label(PalmiL10n.tr("privacy.policy.zhHans"), systemImage: "doc.text")
                 }
 
                 NavigationLink {
-                    PalmiPolicyDocumentScreen(languageID: "en")
+                    PalmiPolicyDocumentScreen(languageID: PalmiLanguage.en.rawValue)
                 } label: {
-                    Label("View English Version", systemImage: "doc.text")
+                    Label(PalmiL10n.tr("privacy.policy.en"), systemImage: "doc.text")
                 }
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle("隐私与政策")
+        .navigationTitle(PalmiL10n.tr("settings.row.privacyAndPolicy"))
         .navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -2100,9 +2081,9 @@ private struct PalmiPolicyDocumentScreen: View {
     private var title: String {
         switch languageID {
         case "zh-Hans", "zh-Hant":
-            return "用户知情提示"
+            return PalmiL10n.tr("policy.document.title")
         default:
-            return "Privacy Notice"
+            return PalmiL10n.tr("policy.document.title")
         }
     }
 
@@ -2113,9 +2094,9 @@ private struct PalmiPolicyDocumentScreen: View {
                     .background(Color(uiColor: .systemGroupedBackground))
             } else {
                 ContentUnavailableView(
-                    "未找到政策文件",
+                    PalmiL10n.tr("policy.missing.title"),
                     systemImage: "doc.badge.exclamationmark",
-                    description: Text("Missing: \(PalmiPolicyDocumentResource.displayFileName(for: languageID))")
+                    description: Text(PalmiL10n.tr("policy.missing.withFile", PalmiPolicyDocumentResource.displayFileName(for: languageID)))
                 )
             }
         }
@@ -2149,7 +2130,7 @@ private struct PersonalizationSettingsScreen: View {
 
     var body: some View {
         List {
-            Section("性格") {
+            Section(PalmiL10n.tr("personalization.section.personality")) {
                 ForEach(AgentPersonalityPreset.allCases) { preset in
                     if preset == .custom {
                         customPresetRow
@@ -2159,7 +2140,7 @@ private struct PersonalizationSettingsScreen: View {
                 }
             }
         }
-        .navigationTitle("个性化")
+        .navigationTitle(PalmiL10n.tr("settings.row.personalization"))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             isCustomExpanded = selectedPreset == .custom
@@ -2174,7 +2155,7 @@ private struct PersonalizationSettingsScreen: View {
             HStack(spacing: 12) {
                 personalityIcon(for: preset)
 
-                Text(preset.title)
+                Text(preset.localizedTitle)
                     .foregroundStyle(.primary)
 
                 Spacer(minLength: 12)
@@ -2212,7 +2193,7 @@ private struct PersonalizationSettingsScreen: View {
                 HStack(spacing: 12) {
                     personalityIcon(for: .custom)
 
-                    Text(customConfiguration.displayTitle)
+                    Text(customConfiguration.localizedDisplayTitle)
                         .foregroundStyle(.primary)
 
                     Spacer(minLength: 12)
@@ -2229,11 +2210,11 @@ private struct PersonalizationSettingsScreen: View {
             if isCustomExpanded {
                 VStack(alignment: .leading, spacing: 14) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("标题")
+                        Text(PalmiL10n.tr("personalization.custom.title"))
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
-                        TextField("例如：毒舌学霸", text: $customTitle)
+                        TextField(PalmiL10n.tr("personalization.custom.titlePlaceholder"), text: $customTitle)
                             .textFieldStyle(.roundedBorder)
                             .submitLabel(.next)
                             .focused($focusedField, equals: .title)
@@ -2243,7 +2224,7 @@ private struct PersonalizationSettingsScreen: View {
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("详细描述")
+                        Text(PalmiL10n.tr("personalization.custom.description"))
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -2311,7 +2292,7 @@ private struct ModelConfigurationManagerScreen: View {
             .padding(.vertical, 12)
         }
         .background(Color(uiColor: .systemGroupedBackground))
-        .navigationTitle("大模型管理")
+        .navigationTitle(PalmiL10n.tr("settings.row.modelManagement"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -2321,7 +2302,7 @@ private struct ModelConfigurationManagerScreen: View {
                 } label: {
                     Image(systemName: "plus")
                 }
-                .accessibilityLabel("新增方案")
+                .accessibilityLabel(PalmiL10n.tr("model.plan.add"))
             }
         }
         .sheet(item: $presentedPlan) { presentation in
@@ -2333,27 +2314,27 @@ private struct ModelConfigurationManagerScreen: View {
                 )
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button("关闭") {
+                        Button(PalmiL10n.tr("common.close")) {
                             presentedPlan = nil
                         }
                     }
                 }
             }
         }
-        .alert("重命名方案", isPresented: renamingPlanBinding) {
-            TextField("方案名称", text: $renameDraft)
+        .alert(PalmiL10n.tr("model.plan.rename"), isPresented: renamingPlanBinding) {
+            TextField(PalmiL10n.tr("model.plan.name"), text: $renameDraft)
 
-            Button("保存") {
+            Button(PalmiL10n.tr("common.save")) {
                 saveRenamedPlan()
             }
 
-            Button("取消", role: .cancel) {
+            Button(PalmiL10n.tr("common.cancel"), role: .cancel) {
                 renamingPlanID = nil
                 renameDraft = ""
             }
         }
-        .alert("无法启用方案", isPresented: errorBinding) {
-            Button("知道了", role: .cancel) {}
+        .alert(PalmiL10n.tr("model.plan.activateFailed"), isPresented: errorBinding) {
+            Button(PalmiL10n.tr("common.ok"), role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
         }
@@ -2369,7 +2350,7 @@ private struct ModelConfigurationManagerScreen: View {
                     .font(.title3)
                     .foregroundStyle(.blue)
 
-                Text("新增模型方案")
+                Text(PalmiL10n.tr("model.plan.add"))
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.primary)
 
@@ -2393,7 +2374,7 @@ private struct ModelConfigurationManagerScreen: View {
                 Button {
                     activate(plan)
                 } label: {
-                    Text(plan.isActive ? "使用中" : "启用")
+                    Text(plan.isActive ? PalmiL10n.tr("model.plan.active") : PalmiL10n.tr("model.plan.activate"))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(plan.isActive ? Color.blue : Color.primary)
                         .padding(.horizontal, 12)
@@ -2408,26 +2389,26 @@ private struct ModelConfigurationManagerScreen: View {
                         )
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(plan.isActive ? "当前方案" : "启用方案")
+                .accessibilityLabel(plan.isActive ? PalmiL10n.tr("model.plan.current") : PalmiL10n.tr("model.plan.activate"))
                 .disabled(plan.isActive)
 
                 Menu {
                     Button {
                         beginRenaming(plan)
                     } label: {
-                        Label("重命名方案", systemImage: "pencil")
+                        Label(PalmiL10n.tr("model.plan.rename"), systemImage: "pencil")
                     }
 
                     Button {
                         presentedPlan = ModelPlanPresentation(planID: plan.id)
                     } label: {
-                        Label("配置方案", systemImage: "slider.horizontal.3")
+                        Label(PalmiL10n.tr("model.plan.configure"), systemImage: "slider.horizontal.3")
                     }
 
                     Button(role: .destructive) {
                         pendingDeletion = plan
                     } label: {
-                        Label("删除方案", systemImage: "trash")
+                        Label(PalmiL10n.tr("model.plan.delete"), systemImage: "trash")
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -2437,10 +2418,10 @@ private struct ModelConfigurationManagerScreen: View {
                 }
                 .buttonStyle(.plain)
                 .confirmationDialog(
-                    "删除方案",
+                    PalmiL10n.tr("model.plan.delete"),
                     isPresented: planDeletionBinding(for: plan)
                 ) {
-                    Button("删除方案", role: .destructive) {
+                    Button(PalmiL10n.tr("model.plan.delete"), role: .destructive) {
                         let planID = plan.id
                         planStore.deletePlan(planID)
                         if presentedPlan?.planID == planID {
@@ -2448,16 +2429,16 @@ private struct ModelConfigurationManagerScreen: View {
                         }
                         pendingDeletion = nil
                     }
-                    Button("取消", role: .cancel) {}
+                    Button(PalmiL10n.tr("common.cancel"), role: .cancel) {}
                 } message: {
                     Text(plan.name)
                 }
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                planSlotMenu(.primary, plan: plan, emptyValue: "未选择")
-                planSlotMenu(.multimodal, plan: plan, emptyValue: "无")
-                planSlotMenu(.lightweight, plan: plan, emptyValue: "无")
+                planSlotMenu(.primary, plan: plan, emptyValue: PalmiL10n.tr("common.notSelected"))
+                planSlotMenu(.multimodal, plan: plan, emptyValue: PalmiL10n.tr("common.none"))
+                planSlotMenu(.lightweight, plan: plan, emptyValue: PalmiL10n.tr("common.none"))
             }
         }
         .padding(18)
@@ -2477,7 +2458,7 @@ private struct ModelConfigurationManagerScreen: View {
         let selected = plan.selectedCandidate(for: slot)
 
         return HStack(spacing: 8) {
-            Text(slot.title)
+            Text(slot.localizedTitle)
                 .font(.body.weight(.semibold))
                 .foregroundStyle(.primary)
                 .frame(width: 64, alignment: .leading)
@@ -2487,10 +2468,10 @@ private struct ModelConfigurationManagerScreen: View {
             Menu {
                 if candidates.isEmpty {
                     if slot.isRequired {
-                        Text("无候选")
+                        Text(PalmiL10n.tr("model.candidate.none"))
                             .disabled(true)
                     } else {
-                        Label("无", systemImage: "checkmark")
+                        Label(PalmiL10n.tr("common.none"), systemImage: "checkmark")
                             .disabled(true)
                     }
                 } else {
@@ -2631,10 +2612,10 @@ private struct ModelPlanEditorScreen: View {
                 Color(uiColor: .systemGroupedBackground)
             }
         }
-        .navigationTitle(plan?.name ?? "模型方案")
+        .navigationTitle(plan?.name ?? PalmiL10n.tr("model.plan.title"))
         .navigationBarTitleDisplayMode(.inline)
-        .alert("配置失败", isPresented: errorBinding) {
-            Button("知道了", role: .cancel) {}
+        .alert(PalmiL10n.tr("model.configuration.failed"), isPresented: errorBinding) {
+            Button(PalmiL10n.tr("common.ok"), role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
         }
@@ -2642,10 +2623,10 @@ private struct ModelPlanEditorScreen: View {
 
     private var planNameCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("方案名称")
+            Text(PalmiL10n.tr("model.plan.name"))
                 .font(.headline)
 
-            TextField("方案名称", text: planNameBinding)
+            TextField(PalmiL10n.tr("model.plan.name"), text: planNameBinding)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.done)
@@ -2664,10 +2645,10 @@ private struct ModelPlanEditorScreen: View {
     private func slotCard(_ slot: ModelPlanSlot, plan: ModelPlanSnapshot) -> some View {
         let candidates = plan.candidates(for: slot)
         let selected = plan.selectedCandidate(for: slot)
-        let selectedTitle = selected?.title ?? (slot.isRequired ? "未选择" : "无")
+        let selectedTitle = selected?.title ?? (slot.isRequired ? PalmiL10n.tr("common.notSelected") : PalmiL10n.tr("common.none"))
 
         return HStack(spacing: 12) {
-            Text(slot.title)
+            Text(slot.localizedTitle)
                 .font(.headline)
                 .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -2675,10 +2656,10 @@ private struct ModelPlanEditorScreen: View {
             Menu {
                 if candidates.isEmpty {
                     if slot.isRequired {
-                        Text("无候选")
+                        Text(PalmiL10n.tr("model.candidate.none"))
                             .disabled(true)
                     } else {
-                        Label("无", systemImage: "checkmark")
+                        Label(PalmiL10n.tr("common.none"), systemImage: "checkmark")
                             .disabled(true)
                     }
                 } else {
@@ -2735,11 +2716,11 @@ private struct ModelPlanEditorScreen: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("模型库")
+                    Text(PalmiL10n.tr("model.library.title"))
                         .font(.headline)
                         .foregroundStyle(.primary)
 
-                    Text("\(plan.candidates.count) 个已保存模型")
+                    Text(PalmiL10n.tr("model.library.count", plan.candidates.count))
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
                 }
@@ -2752,7 +2733,7 @@ private struct ModelPlanEditorScreen: View {
                         planID: planID
                     )
                 } label: {
-                    Label("管理", systemImage: "tray.full")
+                    Label(PalmiL10n.tr("common.manage"), systemImage: "tray.full")
                         .font(.subheadline.weight(.semibold))
                         .labelStyle(.titleAndIcon)
                         .foregroundStyle(.blue)
@@ -2883,7 +2864,7 @@ private struct ModelSlotCandidateListScreen: View {
             .padding(.vertical, 12)
         }
         .background(Color(uiColor: .systemGroupedBackground))
-        .navigationTitle(slot.listTitle)
+        .navigationTitle(slot.localizedListTitle)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $editingCandidate) { candidate in
             ModelCandidateEditorSheet(
@@ -2893,19 +2874,19 @@ private struct ModelSlotCandidateListScreen: View {
             )
         }
         .confirmationDialog(
-            "删除模型",
+            PalmiL10n.tr("model.delete.title"),
             isPresented: pendingDeletionBinding,
             presenting: pendingDeletion
         ) { candidate in
-            Button("删除模型", role: .destructive) {
+            Button(PalmiL10n.tr("model.delete.title"), role: .destructive) {
                 planStore.deleteCandidate(candidate.id, planID: planID)
             }
-            Button("取消", role: .cancel) {}
+            Button(PalmiL10n.tr("common.cancel"), role: .cancel) {}
         } message: { candidate in
             Text(candidate.title)
         }
-        .alert("配置失败", isPresented: errorBinding) {
-            Button("知道了", role: .cancel) {}
+        .alert(PalmiL10n.tr("model.configuration.failed"), isPresented: errorBinding) {
+            Button(PalmiL10n.tr("common.ok"), role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
         }
@@ -2917,7 +2898,7 @@ private struct ModelSlotCandidateListScreen: View {
                 .font(.title3)
                 .foregroundStyle(.blue)
 
-            Text("添加模型")
+            Text(PalmiL10n.tr("model.add.title"))
                 .font(.body.weight(.semibold))
                 .foregroundStyle(.primary)
 
@@ -2928,7 +2909,7 @@ private struct ModelSlotCandidateListScreen: View {
     }
 
     private var emptyCandidateRow: some View {
-        Text("还没有加入\(slot.title)候选")
+        Text(PalmiL10n.tr("model.slot.emptyCandidates", slot.localizedTitle))
             .font(.subheadline.weight(.medium))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -2943,7 +2924,7 @@ private struct ModelSlotCandidateListScreen: View {
                 .fill(Color.secondary.opacity(0.25))
                 .frame(height: 1)
 
-            Text("模型库")
+            Text(PalmiL10n.tr("model.library.title"))
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
 
@@ -2955,7 +2936,7 @@ private struct ModelSlotCandidateListScreen: View {
     }
 
     private var emptyLibraryRow: some View {
-        Text("模型库暂无可加入的模型")
+        Text(PalmiL10n.tr("model.library.noAddableModels"))
             .font(.subheadline.weight(.medium))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -3005,7 +2986,7 @@ private struct ModelSlotCandidateListScreen: View {
             }
             .buttonStyle(.plain)
             .disabled(!canAdd)
-            .accessibilityLabel("加入\(slot.title)候选")
+            .accessibilityLabel(PalmiL10n.tr("model.slot.addCandidate.accessibility", slot.localizedTitle))
 
             candidateMenu(candidate, inSlot: false)
         }
@@ -3040,20 +3021,20 @@ private struct ModelSlotCandidateListScreen: View {
             Button {
                 editingCandidate = candidate
             } label: {
-                Label("编辑模型", systemImage: "pencil")
+                Label(PalmiL10n.tr("model.edit.title"), systemImage: "pencil")
             }
 
             if inSlot {
                 Button {
                     removeFromSlot(candidate)
                 } label: {
-                    Label("移出\(slot.title)候选", systemImage: "minus.circle")
+                    Label(PalmiL10n.tr("model.slot.removeCandidate", slot.localizedTitle), systemImage: "minus.circle")
                 }
             } else {
                 Button {
                     addToSlot(candidate)
                 } label: {
-                    Label("加入\(slot.title)候选", systemImage: "plus.circle")
+                    Label(PalmiL10n.tr("model.slot.addCandidate", slot.localizedTitle), systemImage: "plus.circle")
                 }
                 .disabled(!candidate.isConfigured(for: slot))
             }
@@ -3063,7 +3044,7 @@ private struct ModelSlotCandidateListScreen: View {
             Button(role: .destructive) {
                 pendingDeletion = candidate
             } label: {
-                Label("删除模型", systemImage: "trash")
+                Label(PalmiL10n.tr("model.delete.title"), systemImage: "trash")
             }
         } label: {
             Image(systemName: "ellipsis.circle")
@@ -3200,7 +3181,7 @@ private struct ModelLibraryScreen: View {
             .padding(.vertical, 12)
         }
         .background(Color(uiColor: .systemGroupedBackground))
-        .navigationTitle("模型库")
+        .navigationTitle(PalmiL10n.tr("model.library.title"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -3212,12 +3193,12 @@ private struct ModelLibraryScreen: View {
                         slot: .primary,
                         selectAfterSingleAdd: false,
                         addToSlot: false,
-                        titleOverride: "添加模型"
+                        titleOverride: PalmiL10n.tr("model.add.title")
                     )
                 } label: {
                     Image(systemName: "plus")
                 }
-                .accessibilityLabel("添加模型")
+                .accessibilityLabel(PalmiL10n.tr("model.add.title"))
             }
         }
         .sheet(item: $editingCandidate) { candidate in
@@ -3228,19 +3209,19 @@ private struct ModelLibraryScreen: View {
             )
         }
         .confirmationDialog(
-            "删除模型",
+            PalmiL10n.tr("model.delete.title"),
             isPresented: pendingDeletionBinding,
             presenting: pendingDeletion
         ) { candidate in
-            Button("删除模型", role: .destructive) {
+            Button(PalmiL10n.tr("model.delete.title"), role: .destructive) {
                 planStore.deleteCandidate(candidate.id, planID: planID)
             }
-            Button("取消", role: .cancel) {}
+            Button(PalmiL10n.tr("common.cancel"), role: .cancel) {}
         } message: { candidate in
             Text(candidate.title)
         }
-        .alert("配置失败", isPresented: errorBinding) {
-            Button("知道了", role: .cancel) {}
+        .alert(PalmiL10n.tr("model.configuration.failed"), isPresented: errorBinding) {
+            Button(PalmiL10n.tr("common.ok"), role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
         }
@@ -3265,7 +3246,7 @@ private struct ModelLibraryScreen: View {
                 Button {
                     editingCandidate = candidate
                 } label: {
-                    Label("编辑模型", systemImage: "pencil")
+                    Label(PalmiL10n.tr("model.edit.title"), systemImage: "pencil")
                 }
 
                 Divider()
@@ -3274,7 +3255,7 @@ private struct ModelLibraryScreen: View {
                     Button {
                         addToSlot(candidate, slot: slot)
                     } label: {
-                        Label("加入\(slot.title)候选", systemImage: "plus.circle")
+                        Label(PalmiL10n.tr("model.slot.addCandidate", slot.localizedTitle), systemImage: "plus.circle")
                     }
                     .disabled(!candidate.isConfigured(for: slot))
                 }
@@ -3284,7 +3265,7 @@ private struct ModelLibraryScreen: View {
                 Button(role: .destructive) {
                     pendingDeletion = candidate
                 } label: {
-                    Label("删除模型", systemImage: "trash")
+                    Label(PalmiL10n.tr("model.delete.title"), systemImage: "trash")
                 }
             } label: {
                 Image(systemName: "ellipsis.circle")
@@ -3414,7 +3395,7 @@ private struct ModelCandidateEditorSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     editorField(
-                        title: "显示名称",
+                        title: PalmiL10n.tr("model.field.displayName"),
                         text: $displayName,
                         field: .displayName,
                         submit: .next
@@ -3423,7 +3404,7 @@ private struct ModelCandidateEditorSheet: View {
                     }
 
                     editorField(
-                        title: "请求模型名称",
+                        title: PalmiL10n.tr("model.field.requestModelName"),
                         text: $modelName,
                         field: .modelName,
                         submit: .next
@@ -3456,24 +3437,24 @@ private struct ModelCandidateEditorSheet: View {
                 .padding(.vertical, 16)
             }
             .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("编辑模型")
+            .navigationTitle(PalmiL10n.tr("model.edit.title"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("取消") {
+                    Button(PalmiL10n.tr("common.cancel")) {
                         dismiss()
                     }
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("保存") {
+                    Button(PalmiL10n.tr("common.save")) {
                         save()
                     }
                     .disabled(!canSave)
                 }
             }
-            .alert("保存失败", isPresented: errorBinding) {
-                Button("知道了", role: .cancel) {}
+            .alert(PalmiL10n.tr("common.saveFailed"), isPresented: errorBinding) {
+                Button(PalmiL10n.tr("common.ok"), role: .cancel) {}
             } message: {
                 Text(errorMessage ?? "")
             }
@@ -3570,6 +3551,7 @@ private struct ModelCandidateAddScreen: View {
     @State private var isBulkAdding = false
     @State private var errorMessage: String?
     @FocusState private var focusedField: Field?
+    private let baseURLPlaceholder = "https://api.example.com/v1"
 
     init(
         planStore: ModelPlanStore,
@@ -3628,7 +3610,7 @@ private struct ModelCandidateAddScreen: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .background(Color(uiColor: .systemGroupedBackground))
-        .navigationTitle(titleOverride ?? "添加\(slot.title)")
+        .navigationTitle(titleOverride ?? PalmiL10n.tr("model.add.slotTitle", slot.localizedTitle))
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: baseURLString) { _, _ in
             rowStates.removeAll()
@@ -3636,8 +3618,8 @@ private struct ModelCandidateAddScreen: View {
         .onChange(of: apiKey) { _, _ in
             rowStates.removeAll()
         }
-        .alert("操作失败", isPresented: errorBinding) {
-            Button("知道了", role: .cancel) {}
+        .alert(PalmiL10n.tr("common.operationFailed"), isPresented: errorBinding) {
+            Button(PalmiL10n.tr("common.ok"), role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
         }
@@ -3653,7 +3635,7 @@ private struct ModelCandidateAddScreen: View {
 
     private var presetCard: some View {
         HStack(spacing: 12) {
-            Text("预设")
+            Text(PalmiL10n.tr("model.preset.title"))
                 .font(.headline)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -3715,7 +3697,7 @@ private struct ModelCandidateAddScreen: View {
         return HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 8) {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("请求模型名称")
+                    Text(PalmiL10n.tr("model.field.requestModelName"))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
 
@@ -3726,11 +3708,11 @@ private struct ModelCandidateAddScreen: View {
                 }
 
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("显示名称")
+                    Text(PalmiL10n.tr("model.field.displayName"))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
 
-                    TextField("任意备注名称", text: officialDisplayNameBinding(for: option))
+                    TextField(PalmiL10n.tr("model.field.displayName.placeholder"), text: officialDisplayNameBinding(for: option))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .textFieldStyle(.plain)
@@ -3757,10 +3739,10 @@ private struct ModelCandidateAddScreen: View {
 
     private var baseURLCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Base URL")
+            Text(PalmiL10n.tr("model.field.baseURL"))
                 .font(.headline)
 
-            TextField("https://api.example.com/v1", text: $baseURLString)
+            TextField(baseURLPlaceholder, text: $baseURLString)
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -3780,10 +3762,10 @@ private struct ModelCandidateAddScreen: View {
 
     private var apiKeyCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("API Key")
+            Text(PalmiL10n.tr("model.field.apiKey"))
                 .font(.headline)
 
-            SecureField("API Key", text: $apiKey)
+            SecureField(PalmiL10n.tr("model.field.apiKey"), text: $apiKey)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.next)
@@ -3802,15 +3784,15 @@ private struct ModelCandidateAddScreen: View {
 
     private var customModelCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("自定义模型")
+            Text(PalmiL10n.tr("model.custom.title"))
                 .font(.headline)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("请求模型名称")
+                Text(PalmiL10n.tr("model.field.requestModelName"))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
 
-                TextField("真实模型名称", text: $customModelName)
+                TextField(PalmiL10n.tr("model.field.modelName.placeholder"), text: $customModelName)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .submitLabel(.next)
@@ -3825,11 +3807,11 @@ private struct ModelCandidateAddScreen: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("显示名称")
+                Text(PalmiL10n.tr("model.field.displayName"))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
 
-                TextField("任意备注名称", text: $customDisplayName)
+                TextField(PalmiL10n.tr("model.field.displayName.placeholder"), text: $customDisplayName)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .submitLabel(.done)
@@ -3874,7 +3856,7 @@ private struct ModelCandidateAddScreen: View {
                         Image(systemName: "bolt.horizontal.circle")
                     }
 
-                    Text("测试全部")
+                    Text(PalmiL10n.tr("model.action.testAll"))
                         .font(.body.weight(.semibold))
                 }
                 .foregroundStyle(.primary)
@@ -3896,7 +3878,7 @@ private struct ModelCandidateAddScreen: View {
                         Image(systemName: "plus.circle")
                     }
 
-                    Text("添加全部")
+                    Text(PalmiL10n.tr("model.action.addAll"))
                         .font(.body.weight(.semibold))
                 }
                 .foregroundStyle(.primary)
@@ -3964,7 +3946,7 @@ private struct ModelCandidateAddScreen: View {
                 .font(.title3)
                 .foregroundStyle(.green)
                 .frame(width: 58, height: 34)
-                .accessibilityLabel("已添加")
+                .accessibilityLabel(PalmiL10n.tr("model.status.added"))
         } else {
             VStack(spacing: 8) {
                 Button {
@@ -3975,7 +3957,7 @@ private struct ModelCandidateAddScreen: View {
                             .controlSize(.small)
                             .frame(width: 58, height: 30)
                     } else {
-                        Text(isFailed(key) ? "重试" : "测试")
+                            Text(isFailed(key) ? PalmiL10n.tr("common.retry") : PalmiL10n.tr("model.action.test"))
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(isFailed(key) ? .red : .blue)
                             .frame(width: 58, height: 30)
@@ -3993,7 +3975,7 @@ private struct ModelCandidateAddScreen: View {
                         selectAfterAdd: selectAfterSingleAdd
                     )
                 } label: {
-                    Label("添加", systemImage: "plus.circle")
+                    Label(PalmiL10n.tr("common.add"), systemImage: "plus.circle")
                         .font(.caption.weight(.semibold))
                         .labelStyle(.titleAndIcon)
                         .foregroundStyle(.cyan)
@@ -4009,11 +3991,11 @@ private struct ModelCandidateAddScreen: View {
     private func statusText(for key: CandidateValidationKey) -> (text: String, color: Color)? {
         switch rowStates[key] {
         case .valid:
-            return ("已验证", .green)
+            return (PalmiL10n.tr("model.status.validated"), .green)
         case .failed(let message):
             return (message, .red)
         case .added:
-            return ("已添加", .green)
+            return (PalmiL10n.tr("model.status.added"), .green)
         case .idle, .validating, .none:
             return nil
         }

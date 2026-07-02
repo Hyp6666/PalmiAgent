@@ -17,7 +17,7 @@ struct ToolApprovalSheet: View {
                 .padding(20)
             }
             .scrollBounceBehavior(.basedOnSize)
-            .navigationTitle("确认执行")
+            .navigationTitle(PalmiL10n.tr("tool.approval.title"))
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) {
                 actionBar
@@ -43,11 +43,14 @@ struct ToolApprovalSheet: View {
 
     private var metadataGrid: some View {
         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
-            metadataRow("风险", request.riskLevel.title)
-            metadataRow("动作", request.sideEffect.title)
-            metadataRow("策略", request.confirmationPolicy.title)
+            metadataRow(PalmiL10n.tr("tool.approval.risk"), request.riskLevel.title)
+            metadataRow(PalmiL10n.tr("tool.approval.action"), request.sideEffect.localizedTitle)
+            metadataRow(PalmiL10n.tr("tool.approval.policy"), request.confirmationPolicy.localizedTitle)
             if !request.systemPermissions.isEmpty {
-                metadataRow("系统权限", request.systemPermissions.map(\.title).joined(separator: "、"))
+                metadataRow(
+                    PalmiL10n.tr("tool.approval.systemPermission"),
+                    request.systemPermissions.map(\.localizedTitleForUI).joined(separator: PalmiL10n.tr("common.listSeparator"))
+                )
             }
         }
         .padding(14)
@@ -67,7 +70,7 @@ struct ToolApprovalSheet: View {
 
     private var argumentsBlock: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("参数")
+            Text(PalmiL10n.tr("tool.approval.arguments"))
                 .font(.headline)
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(request.argumentsJSON)
@@ -83,7 +86,7 @@ struct ToolApprovalSheet: View {
     private var actionBar: some View {
         VStack(spacing: 10) {
             Button(action: onApproveForSession) {
-                Text("该会话始终同意该工具")
+                Text(PalmiL10n.tr("tool.approval.approveForSession"))
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
@@ -91,14 +94,14 @@ struct ToolApprovalSheet: View {
 
             HStack(spacing: 12) {
                 Button(role: .cancel, action: onReject) {
-                    Text("拒绝")
+                    Text(PalmiL10n.tr("tool.approval.reject"))
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
 
                 Button(action: onApprove) {
-                    Text("同意")
+                    Text(PalmiL10n.tr("tool.approval.approve"))
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
@@ -109,18 +112,5 @@ struct ToolApprovalSheet: View {
         .padding(.top, 12)
         .padding(.bottom, 12)
         .background(.regularMaterial)
-    }
-}
-
-private extension ToolConfirmationPolicy {
-    var title: String {
-        switch self {
-        case .allow:
-            "允许"
-        case .firstUse:
-            "首次确认"
-        case .always:
-            "每次确认"
-        }
     }
 }

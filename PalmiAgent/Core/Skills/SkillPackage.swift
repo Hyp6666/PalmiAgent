@@ -7,9 +7,9 @@ enum SkillScope: String, Codable, Sendable {
     var displayTitle: String {
         switch self {
         case .global:
-            "全局"
+            "\u{5168}\u{5c40}"
         case .project:
-            "项目"
+            "\u{9879}\u{76ee}"
         }
     }
 }
@@ -22,11 +22,11 @@ enum SkillSource: String, Codable, Sendable {
     var displayTitle: String {
         switch self {
         case .builtIn:
-            "内置"
+            "\u{5185}\u{7f6e}"
         case .imported:
-            "导入"
+            "\u{5bfc}\u{5165}"
         case .project:
-            "项目"
+            "\u{9879}\u{76ee}"
         }
     }
 }
@@ -171,7 +171,7 @@ struct SkillPackage: Identifiable, Sendable, Hashable {
         if let matched = entries.first(where: { $0.lastPathComponent.caseInsensitiveCompare(skillFilename) == .orderedSame }) {
             return matched
         }
-        throw AppError.invalidState("技能包缺少 \(skillFilename)。")
+        throw AppError.invalidState(PalmiL10n.tr("skill.error.missingSkillFile", skillFilename))
     }
 }
 
@@ -234,7 +234,7 @@ enum SkillMarkdownParser {
                 return String(cleaned.prefix(120))
             }
         }
-        return "未提供简介。"
+        return PalmiL10n.tr("skill.description.empty")
     }
 }
 

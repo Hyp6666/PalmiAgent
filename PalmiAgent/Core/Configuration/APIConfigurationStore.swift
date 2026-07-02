@@ -33,23 +33,23 @@ enum APIProviderID: String, CaseIterable, Codable, Identifiable, Sendable {
         case .azureOpenAI:
             return "Azure OpenAI"
         case .glm:
-            return "智谱 AI"
+            return PalmiL10n.tr("provider.glm")
         case .deepseek:
             return "DeepSeek"
         case .qwen:
-            return "通义千问"
+            return PalmiL10n.tr("provider.qwen")
         case .kimi:
             return "Kimi"
         case .minimax:
             return "MiniMax"
         case .volcengine:
-            return "火山方舟"
+            return PalmiL10n.tr("provider.volcengine")
         case .hunyuan:
-            return "腾讯混元"
+            return PalmiL10n.tr("provider.hunyuan")
         case .qianfan:
-            return "百度千帆"
+            return PalmiL10n.tr("provider.qianfan")
         case .stepfun:
-            return "阶跃星辰"
+            return PalmiL10n.tr("provider.stepfun")
         case .modelscope:
             return "ModelScope"
         case .siliconflow:
@@ -61,7 +61,7 @@ enum APIProviderID: String, CaseIterable, Codable, Identifiable, Sendable {
         case .ollama:
             return "Ollama"
         case .customOpenAI:
-            return "自定义 OpenAI-compatible"
+            return PalmiL10n.tr("provider.customOpenAI")
         }
     }
 }
@@ -93,13 +93,13 @@ enum APIModelRole: String, CaseIterable, Codable, Identifiable, Sendable {
     var title: String {
         switch self {
         case .defaultModel:
-            return "默认模型"
+            return PalmiL10n.tr("model.role.default")
         case .reasoningModel:
-            return "主模型"
+            return PalmiL10n.tr("model.role.reasoning")
         case .multimodalModel:
-            return "多模态模型"
+            return PalmiL10n.tr("model.role.multimodal")
         case .lightweightModel:
-            return "轻量模型"
+            return PalmiL10n.tr("model.role.lightweight")
         }
     }
 }
@@ -156,24 +156,28 @@ struct APIModelDefinition: Identifiable, Hashable, Codable, Sendable {
         let summary: String
         switch role {
         case .defaultModel:
-            summary = "跟随当前接入方式的默认模型候选。"
+            summary = PalmiL10n.tr("model.selection.automatic.defaultSummary")
         case .reasoningModel, .multimodalModel, .lightweightModel:
-            summary = "直接复用当前默认模型。"
+            summary = PalmiL10n.tr("model.selection.automatic.reuseSummary")
         }
-        return APIModelDefinition(id: APIModelSelection.automaticID, title: "自动", summary: summary)
+        return APIModelDefinition(id: APIModelSelection.automaticID, title: PalmiL10n.tr("model.selection.automatic"), summary: summary)
     }
 
-    static let noMultimodal = APIModelDefinition(
+    static var noMultimodal: APIModelDefinition {
+        APIModelDefinition(
         id: APIModelSelection.noneMultimodalID,
-        title: "无",
+        title: PalmiL10n.tr("common.none"),
         summary: ""
-    )
+        )
+    }
 
-    static let lmStudioAuto = APIModelDefinition(
+    static var lmStudioAuto: APIModelDefinition {
+        APIModelDefinition(
         id: "lmstudio-auto",
-        title: "自动选择",
-        summary: "每次请求前读取 LM Studio 服务器当前可见模型，并自动挑选最合适的一个。"
-    )
+        title: PalmiL10n.tr("model.selection.autoSelect"),
+        summary: PalmiL10n.tr("model.selection.lmStudioAutoSummary")
+        )
+    }
 }
 
 struct APIAccessModeDefinition: Identifiable, Sendable {
@@ -353,7 +357,7 @@ struct LMStudioDiscoveredServer: Identifiable, Hashable, Codable, Sendable {
         return APIModelDefinition(
             id: selectedModelID,
             title: title,
-            summary: selectedModelSummary ?? "来自 LM Studio 服务器的自动选择结果。",
+            summary: selectedModelSummary ?? PalmiL10n.tr("model.lmStudio.autoSelectedSummary"),
             traits: []
         )
     }
@@ -371,13 +375,14 @@ struct LMStudioDiscoveredServer: Identifiable, Hashable, Codable, Sendable {
 }
 
 enum APIProviderCatalog {
-    static let providers: [APIProviderDefinition] = [
+    static var providers: [APIProviderDefinition] {
+        [
         APIProviderDefinition(
             id: .glm,
             title: "GLM",
-            subtitle: "把智谱 / Z.AI 的标准 API 与 Coding Plan 明确拆开。端点、模型、计费口径、错误提示都跟随当前接入模式变化。",
+            subtitle: PalmiL10n.tr("provider.glm.subtitle"),
             secretLabel: "API Key",
-            placeholder: "请输入 GLM API Key",
+            placeholder: PalmiL10n.tr("provider.glm.apiKeyPlaceholder"),
             secretRequirement: .required,
             endpointStrategy: .catalogManaged,
             modelSelectionStyle: .catalog,
@@ -386,145 +391,145 @@ enum APIProviderCatalog {
             accessModes: [
                 APIAccessModeDefinition(
                     id: .standardAPI,
-                    title: "标准 API",
-                    subtitle: "适用于自建 app、网站、机器人和服务端集成，按标准 API 计费。",
-                    badgeText: "标准计费",
+                    title: PalmiL10n.tr("model.access.standardAPI"),
+                    subtitle: PalmiL10n.tr("provider.glm.standard.subtitle"),
+                    badgeText: PalmiL10n.tr("model.badge.standardBilling"),
                     baseURL: URL(string: "https://open.bigmodel.cn/api/paas/v4/")!,
                     models: [
                         APIModelDefinition(
                             id: "glm-5.1",
                             title: "GLM-5.1",
-                            summary: "当前优先默认候选，适合通用对话、结构化输出和单消息工具调用实验。",
+                            summary: PalmiL10n.tr("model.catalog.glm51.summary"),
                             traits: [.reasoningPreferred]
                         ),
                         APIModelDefinition(
                             id: "glm-5-turbo",
                             title: "GLM-5-Turbo",
-                            summary: "更偏在线业务与低时延场景，适合作为高频调用默认模型。",
+                            summary: PalmiL10n.tr("model.catalog.glm5Turbo.summary"),
                             traits: [.lightweight]
                         ),
                         APIModelDefinition(
                             id: "glm-5",
                             title: "GLM-5",
-                            summary: "作为补充候选保留在列表中，适合你需要时手动切换验证。"
+                            summary: PalmiL10n.tr("model.catalog.glm5.summary")
                         ),
                         APIModelDefinition(
                             id: "glm-5v-turbo",
                             title: "GLM-5V-Turbo",
-                            summary: "当前主推的多模态候选，适合图片理解与视觉输入相关场景。",
+                            summary: PalmiL10n.tr("model.catalog.glm5vTurbo.summary"),
                             traits: [.multimodal]
                         ),
                         APIModelDefinition(
                             id: "glm-4.7",
                             title: "GLM-4.7",
-                            summary: "稳定的一线备选，适合复杂推理、工具调用和链路回归测试。",
+                            summary: PalmiL10n.tr("model.catalog.glm47.summary"),
                             traits: [.reasoningPreferred]
                         ),
                         APIModelDefinition(
                             id: "glm-4.7-flash",
                             title: "GLM-4.7-Flash",
-                            summary: "更快的 4.7 级别轻量变体，适合高频文本调用。",
+                            summary: PalmiL10n.tr("model.catalog.glm47Flash.summary"),
                             traits: [.lightweight]
                         ),
                         APIModelDefinition(
                             id: "glm-4.7-flashx",
                             title: "GLM-4.7-FlashX",
-                            summary: "更偏低时延与吞吐的 4.7 轻量路线。",
+                            summary: PalmiL10n.tr("model.catalog.glm47FlashX.summary"),
                             traits: [.lightweight]
                         ),
                         APIModelDefinition(
                             id: "glm-4.6",
                             title: "GLM-4.6",
-                            summary: "稳定均衡，适合大多数通用 Agent 与业务集成场景。"
+                            summary: PalmiL10n.tr("model.catalog.glm46.summary")
                         ),
                         APIModelDefinition(
                             id: "glm-4.5",
                             title: "GLM-4.5",
-                            summary: "较强的推理、编码与工具调用能力，适合过程型任务链路。",
+                            summary: PalmiL10n.tr("model.catalog.glm45.summary"),
                             traits: [.reasoningPreferred]
                         ),
                         APIModelDefinition(
                             id: "glm-4.5-air",
                             title: "GLM-4.5-Air",
-                            summary: "更轻量的高性价比模型，适合默认在线推理。",
+                            summary: PalmiL10n.tr("model.catalog.glm45Air.summary"),
                             traits: [.lightweight]
                         ),
                         APIModelDefinition(
                             id: "glm-4.5-airx",
                             title: "GLM-4.5-AirX",
-                            summary: "比 Air 更偏速度与成本控制的轻量候选。",
+                            summary: PalmiL10n.tr("model.catalog.glm45AirX.summary"),
                             traits: [.lightweight]
                         ),
                         APIModelDefinition(
                             id: "glm-4.5-flash",
                             title: "GLM-4.5-Flash",
-                            summary: "更轻快的通用文本模型，适合低门槛高频调用。",
+                            summary: PalmiL10n.tr("model.catalog.glm45Flash.summary"),
                             traits: [.lightweight]
                         )
                     ],
-                    note: "走官方通用端点与标准 API 计费。适合真实产品接入。"
+                    note: PalmiL10n.tr("provider.glm.standard.note")
                 ),
                 APIAccessModeDefinition(
                     id: .codingPlan,
                     title: "Coding Plan",
-                    subtitle: "面向支持 OpenAI 协议的编码工具生态，走 Coding 专属端点。",
-                    badgeText: "Coding 套餐",
+                    subtitle: PalmiL10n.tr("provider.glm.coding.subtitle"),
+                    badgeText: PalmiL10n.tr("model.badge.codingPlan"),
                     baseURL: URL(string: "https://open.bigmodel.cn/api/coding/paas/v4")!,
                     models: [
                         APIModelDefinition(
                             id: "glm-5.2",
                             title: "GLM-5.2",
-                            summary: "Coding Plan 高强度复杂任务候选，官方面向编码 Agent 场景提供，适合复杂推理与长上下文工程任务。",
+                            summary: PalmiL10n.tr("model.catalog.glm52Coding.summary"),
                             traits: [.reasoningPreferred]
                         ),
                         APIModelDefinition(
                             id: "glm-5.1",
                             title: "GLM-5.1",
-                            summary: "Coding Plan 长周期任务候选，适合需要稳定规划和持续执行的工程任务。",
+                            summary: PalmiL10n.tr("model.catalog.glm51Coding.summary"),
                             traits: [.reasoningPreferred]
                         ),
                         APIModelDefinition(
                             id: "glm-5-turbo",
                             title: "GLM-5-Turbo",
-                            summary: "偏低时延与在线编码体验的轻快路线。",
+                            summary: PalmiL10n.tr("model.catalog.glm5TurboCoding.summary"),
                             traits: [.lightweight]
                         ),
                         APIModelDefinition(
                             id: "glm-5",
                             title: "GLM-5",
-                            summary: "部分 Coding 套餐场景可用，适合你手动切换验证。"
+                            summary: PalmiL10n.tr("model.catalog.glm5Coding.summary")
                         ),
                         APIModelDefinition(
                             id: "glm-5v-turbo",
                             title: "GLM-5V-Turbo",
-                            summary: "作为多模态候选保留在设置中，实际可用性以联通验证结果为准。",
+                            summary: PalmiL10n.tr("model.catalog.glm5vTurboCoding.summary"),
                             traits: [.multimodal]
                         ),
                         APIModelDefinition(
                             id: "glm-4.7",
                             title: "GLM-4.7",
-                            summary: "Coding Plan 当前最稳妥的一线模型选择。",
+                            summary: PalmiL10n.tr("model.catalog.glm47Coding.summary"),
                             traits: [.reasoningPreferred]
                         ),
                         APIModelDefinition(
                             id: "glm-4.6",
                             title: "GLM-4.6",
-                            summary: "稳定均衡，适合编码和日常工具调用。"
+                            summary: PalmiL10n.tr("model.catalog.glm46Coding.summary")
                         ),
                         APIModelDefinition(
                             id: "glm-4.5",
                             title: "GLM-4.5",
-                            summary: "支持较强推理和工具调用，适合过程型任务。",
+                            summary: PalmiL10n.tr("model.catalog.glm45Coding.summary"),
                             traits: [.reasoningPreferred]
                         ),
                         APIModelDefinition(
                             id: "glm-4.5-air",
                             title: "GLM-4.5-Air",
-                            summary: "轻量高性价比，适合 Coding Plan 下的高频调用。",
+                            summary: PalmiL10n.tr("model.catalog.glm45AirCoding.summary"),
                             traits: [.lightweight]
                         )
                     ],
-                    note: "按当前官方 FAQ，应仅在支持的 Coding 工具中使用，且需使用 Coding 专属端点。自建 app 内接入属于实验方案。"
+                    note: PalmiL10n.tr("provider.glm.coding.note")
                 )
             ],
             preferredAccessModeID: .standardAPI,
@@ -533,9 +538,9 @@ enum APIProviderCatalog {
         APIProviderDefinition(
             id: .deepseek,
             title: "DeepSeek",
-            subtitle: "仅接标准 API，复用 OpenAI 兼容接口。当前模型标识为 `deepseek-v4-flash` 与 `deepseek-v4-pro`，没有视觉模型。",
+            subtitle: PalmiL10n.tr("provider.deepseek.subtitle"),
             secretLabel: "API Key",
-            placeholder: "请输入 DeepSeek API Key",
+            placeholder: PalmiL10n.tr("provider.deepseek.apiKeyPlaceholder"),
             secretRequirement: .required,
             endpointStrategy: .catalogManaged,
             modelSelectionStyle: .catalog,
@@ -544,25 +549,25 @@ enum APIProviderCatalog {
             accessModes: [
                 APIAccessModeDefinition(
                     id: .standardAPI,
-                    title: "标准 API",
-                    subtitle: "官方 OpenAI 兼容端点，走通用标准 API。没有 Coding Plan，也没有视觉路线。",
-                    badgeText: "标准计费",
+                    title: PalmiL10n.tr("model.access.standardAPI"),
+                    subtitle: PalmiL10n.tr("provider.deepseek.standard.subtitle"),
+                    badgeText: PalmiL10n.tr("model.badge.standardBilling"),
                     baseURL: URL(string: "https://api.deepseek.com")!,
                     models: [
                         APIModelDefinition(
                             id: "deepseek-v4-flash",
                             title: "DeepSeek V4 Flash",
-                            summary: "128K 上下文；支持 JSON 输出、工具调用与 Beta 前缀续写，适合作为当前 Agent 主链路默认模型。",
+                            summary: PalmiL10n.tr("model.catalog.deepseekV4Flash.summary"),
                             traits: [.lightweight]
                         ),
                         APIModelDefinition(
                             id: "deepseek-v4-pro",
                             title: "DeepSeek V4 Pro",
-                            summary: "支持 thinking、reasoning_content 回传与工具调用；复杂任务默认使用该模型。",
+                            summary: PalmiL10n.tr("model.catalog.deepseekV4Pro.summary"),
                             traits: [.reasoningPreferred]
                         )
                     ],
-                    note: "官方 `/models` 文档当前示例只返回 `deepseek-v4-flash` 与 `deepseek-v4-pro`。如后续官方新增模型，建议再同步目录。"
+                    note: PalmiL10n.tr("provider.deepseek.standard.note")
                 )
             ],
             preferredAccessModeID: .standardAPI,
@@ -571,7 +576,7 @@ enum APIProviderCatalog {
         APIProviderDefinition(
             id: .lmstudio,
             title: "LM Studio",
-            subtitle: "面向局域网内的 LM Studio 服务器。模型不在 app 里手选，而是通过服务端当前可见模型自动解析并配对。",
+            subtitle: PalmiL10n.tr("provider.lmstudio.subtitle"),
             secretLabel: "API Key",
             placeholder: "API Key",
             secretRequirement: .optional,
@@ -582,18 +587,19 @@ enum APIProviderCatalog {
             accessModes: [
                 APIAccessModeDefinition(
                     id: .localServer,
-                    title: "局域网服务器",
-                    subtitle: "通过发现或手动填写 `http://<host>:1234/v1` 接入 LM Studio 的 OpenAI 兼容端点。",
-                    badgeText: "局域网",
+                    title: PalmiL10n.tr("model.access.localServer"),
+                    subtitle: PalmiL10n.tr("provider.lmstudio.local.subtitle"),
+                    badgeText: PalmiL10n.tr("model.badge.localNetwork"),
                     baseURL: nil,
                     models: [.lmStudioAuto],
-                    note: "默认按 LM Studio 文档常见端点探测：OpenAI 兼容 `/v1/models`，并尽量补充读取 `/api/v1/models` 的 richer metadata。发现逻辑按默认端口 1234 进行最佳努力扫描。"
+                    note: PalmiL10n.tr("provider.lmstudio.local.note")
                 )
             ],
             preferredAccessModeID: .localServer,
             supportsServerDiscovery: true
         )
-    ] + LLMBuiltInAPIProviderCatalog.additionalProviders
+        ] + LLMBuiltInAPIProviderCatalog.additionalProviders
+    }
 
     static func definition(for providerID: APIProviderID) -> APIProviderDefinition {
         guard let definition = providers.first(where: { $0.id == providerID }) else {
@@ -861,7 +867,7 @@ final class APIConfigurationStore {
 
         var profiles = profileRecords(for: providerID)
         guard let index = profiles.firstIndex(where: { $0.id == profileID }) else {
-            throw AppError.invalidState("配置不存在，无法保存远程模型列表。")
+            throw AppError.invalidState(PalmiL10n.tr("model.error.profileMissingRemoteModels"))
         }
         let definition = APIProviderCatalog.definition(for: providerID)
         let baseAccessMode = definition.accessMode(withID: profiles[index].selectedAccessModeID) ?? definition.preferredAccessMode
@@ -893,11 +899,11 @@ final class APIConfigurationStore {
     ) throws {
         let definition = APIProviderCatalog.definition(for: providerID)
         guard let baseAccessMode = definition.accessMode(withID: selectedAccessModeID) else {
-            throw AppError.invalidState("接入模式无效：\(selectedAccessModeID.rawValue)")
+            throw AppError.invalidState(PalmiL10n.tr("model.error.invalidAccessMode", selectedAccessModeID.rawValue))
         }
         var profiles = profileRecords(for: providerID)
         guard let index = profiles.firstIndex(where: { $0.id == profileID }) else {
-            throw AppError.invalidState("配置不存在，无法保存。")
+            throw AppError.invalidState(PalmiL10n.tr("model.error.profileMissingSave"))
         }
         profiles[index] = normalizedProfileRecord(profiles[index], providerID: providerID)
         let accessMode = baseAccessMode.mergingRemoteModels(profiles[index].remoteModelDefinitions)
@@ -947,7 +953,7 @@ final class APIConfigurationStore {
         if definition.supportsManualModelSelection,
            accessMode.models.isEmpty,
            !isManualModelIDAllowed(normalizedReasoningModelID, provider: definition, accessMode: accessMode) {
-            throw AppError.invalidState("主模型必填。")
+            throw AppError.invalidState(PalmiL10n.tr("model.error.primaryRequired"))
         }
 
         try validateModel(normalizedDefaultModelID, in: accessMode, role: .defaultModel, provider: definition)
@@ -958,14 +964,14 @@ final class APIConfigurationStore {
         if definition.endpointStrategy == .profileManaged,
            normalizedBaseURLString == nil,
            selectedServer == nil {
-            throw AppError.invalidState("\(definition.title) 还没有完成服务器配对或地址填写。")
+            throw AppError.invalidState(PalmiL10n.tr("model.error.providerEndpointRequired", definition.title))
         }
 
         let trimmedAPIKey = apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         switch definition.secretRequirement {
         case .required:
             guard !trimmedAPIKey.isEmpty || hasSavedSecret(for: providerID, profileID: profileID) else {
-                throw AppError.invalidState("\(definition.title) 还没有配置 \(definition.secretLabel)。")
+                throw AppError.invalidState(PalmiL10n.tr("model.error.providerSecretRequired", definition.title, definition.secretLabel))
             }
         case .optional:
             break
@@ -1086,14 +1092,14 @@ final class APIConfigurationStore {
         switch snapshot.provider.secretRequirement {
         case .required:
             guard let trimmedSecret, !trimmedSecret.isEmpty else {
-                throw AppError.invalidState("\(snapshot.provider.title) 还没有配置 \(snapshot.provider.secretLabel)。")
+                throw AppError.invalidState(PalmiL10n.tr("model.error.providerSecretRequired", snapshot.provider.title, snapshot.provider.secretLabel))
             }
         case .optional:
             break
         }
 
         guard let baseURL = snapshot.endpointURL else {
-            throw AppError.invalidState("\(snapshot.provider.title) 还没有完成服务器配对或地址配置。")
+            throw AppError.invalidState(PalmiL10n.tr("model.error.providerEndpointRequired", snapshot.provider.title))
         }
 
         let overrideReasoningModel: APIModelDefinition = {
@@ -1147,7 +1153,7 @@ final class APIConfigurationStore {
     ) throws {
         if modelID == APIModelSelection.automaticID {
             guard provider.modelSelectionStyle == .automaticRemote else {
-                throw AppError.invalidState("\(role.title) 不能使用自动模型。")
+                throw AppError.invalidState(PalmiL10n.tr("model.error.roleCannotUseAutomatic", role.title))
             }
             return
         }
@@ -1155,7 +1161,7 @@ final class APIConfigurationStore {
             return
         }
         guard availableModels(for: provider, accessMode: accessMode, role: role).contains(where: { $0.id == modelID }) else {
-            throw AppError.invalidState("\(role.title) 无效：\(modelID)")
+            throw AppError.invalidState(PalmiL10n.tr("model.error.roleModelInvalid", role.title, modelID))
         }
     }
 
@@ -1683,7 +1689,7 @@ final class APIConfigurationStore {
     }
 
     private func defaultProfileName(for definition: APIProviderDefinition, index: Int) -> String {
-        "\(definition.title) 配置 \(index)"
+        PalmiL10n.tr("model.profile.defaultName", definition.title, index)
     }
 
     private func defaultModelSelectionID(
@@ -1711,9 +1717,9 @@ final class APIConfigurationStore {
         case .codingPlan:
             return "\(definition.title) + \(accessMode.title)"
         case .localServer:
-            return "\(definition.title) + 局域网"
+            return PalmiL10n.tr("model.profile.legacyLocalServer", definition.title)
         case .standardAPI:
-            return "\(definition.title) + 标准 API"
+            return PalmiL10n.tr("model.profile.legacyStandardAPI", definition.title)
         }
     }
 
@@ -1739,7 +1745,7 @@ final class APIConfigurationStore {
         }
 
         guard var url = URL(string: candidate) else {
-            throw AppError.invalidState("服务器地址无效：\(trimmed)")
+            throw AppError.invalidState(PalmiL10n.tr("model.error.serverURLInvalid", trimmed))
         }
 
         if providerID == .lmstudio || providerID == .ollama {
@@ -1750,7 +1756,7 @@ final class APIConfigurationStore {
         }
 
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
-            throw AppError.invalidState("服务器地址必须以 http:// 或 https:// 开头。")
+            throw AppError.invalidState(PalmiL10n.tr("model.error.serverURLScheme"))
         }
 
         return url.absoluteString
@@ -1788,9 +1794,9 @@ final class APIConfigurationStore {
         }
         switch provider.endpointStrategy {
         case .catalogManaged:
-            return accessMode.baseURL?.absoluteString ?? "未配置"
+            return accessMode.baseURL?.absoluteString ?? PalmiL10n.tr("common.notConfigured")
         case .profileManaged:
-            return "未配对服务器"
+            return PalmiL10n.tr("model.endpoint.noServerPaired")
         }
     }
 
@@ -1851,7 +1857,7 @@ struct KeychainSecretStore {
         kind: APISecretKind
     ) throws {
         guard let data = secret.data(using: .utf8) else {
-            throw AppError.operationFailed("API Key 编码失败。")
+            throw AppError.operationFailed(PalmiL10n.tr("model.error.apiKeyEncodingFailed"))
         }
 
         let query = baseQuery(for: providerID, profileID: profileID, kind: kind)
@@ -1867,10 +1873,10 @@ struct KeychainSecretStore {
             item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             let addStatus = SecItemAdd(item as CFDictionary, nil)
             guard addStatus == errSecSuccess else {
-                throw AppError.operationFailed("API Key 写入 Keychain 失败：\(addStatus)")
+                throw AppError.operationFailed(PalmiL10n.tr("model.error.apiKeyKeychainWriteFailed", addStatus))
             }
         default:
-            throw AppError.operationFailed("API Key 更新 Keychain 失败：\(status)")
+            throw AppError.operationFailed(PalmiL10n.tr("model.error.apiKeyKeychainUpdateFailed", status))
         }
     }
 
@@ -1890,13 +1896,13 @@ struct KeychainSecretStore {
         case errSecSuccess:
             guard let data = result as? Data,
                   let value = String(data: data, encoding: .utf8) else {
-                throw AppError.operationFailed("Keychain 里的 API Key 无法解码。")
+                throw AppError.operationFailed(PalmiL10n.tr("model.error.apiKeyKeychainDecodeFailed"))
             }
             return value
         case errSecItemNotFound:
             return nil
         default:
-            throw AppError.operationFailed("读取 Keychain 失败：\(status)")
+            throw AppError.operationFailed(PalmiL10n.tr("model.error.keychainReadFailed", status))
         }
     }
 
@@ -1907,13 +1913,13 @@ struct KeychainSecretStore {
     ) throws {
         let status = SecItemDelete(baseQuery(for: providerID, profileID: profileID, kind: kind) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw AppError.operationFailed("删除 Keychain 里的 API Key 失败：\(status)")
+            throw AppError.operationFailed(PalmiL10n.tr("model.error.apiKeyKeychainDeleteFailed", status))
         }
     }
 
     func saveSecret(_ secret: String, account: String) throws {
         guard let data = secret.data(using: .utf8) else {
-            throw AppError.operationFailed("API Key 编码失败。")
+            throw AppError.operationFailed(PalmiL10n.tr("model.error.apiKeyEncodingFailed"))
         }
 
         let query = baseQuery(account: account)
@@ -1929,10 +1935,10 @@ struct KeychainSecretStore {
             item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             let addStatus = SecItemAdd(item as CFDictionary, nil)
             guard addStatus == errSecSuccess else {
-                throw AppError.operationFailed("API Key 写入 Keychain 失败：\(addStatus)")
+                throw AppError.operationFailed(PalmiL10n.tr("model.error.apiKeyKeychainWriteFailed", addStatus))
             }
         default:
-            throw AppError.operationFailed("API Key 更新 Keychain 失败：\(status)")
+            throw AppError.operationFailed(PalmiL10n.tr("model.error.apiKeyKeychainUpdateFailed", status))
         }
     }
 
@@ -1948,20 +1954,20 @@ struct KeychainSecretStore {
         case errSecSuccess:
             guard let data = result as? Data,
                   let value = String(data: data, encoding: .utf8) else {
-                throw AppError.operationFailed("Keychain 里的 API Key 无法解码。")
+                throw AppError.operationFailed(PalmiL10n.tr("model.error.apiKeyKeychainDecodeFailed"))
             }
             return value
         case errSecItemNotFound:
             return nil
         default:
-            throw AppError.operationFailed("读取 Keychain 失败：\(status)")
+            throw AppError.operationFailed(PalmiL10n.tr("model.error.keychainReadFailed", status))
         }
     }
 
     func deleteSecret(account: String) throws {
         let status = SecItemDelete(baseQuery(account: account) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw AppError.operationFailed("删除 Keychain 里的 API Key 失败：\(status)")
+            throw AppError.operationFailed(PalmiL10n.tr("model.error.apiKeyKeychainDeleteFailed", status))
         }
     }
 
