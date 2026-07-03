@@ -28,9 +28,12 @@
 "chat.composer.goalHint" = "목표 모드입니다. Palmi가 완료할 목표를 입력하세요";
 "chat.composer.goalMode" = "목표 모드";
 "chat.composer.plan" = "계획";
-"chat.contextCompaction.completed" = "컨텍스트를 압축했습니다";
+"chat.contextCompaction.completed" = "컨텍스트가 압축됨";
+"chat.contextCompaction.completed.detail" = "%d개 메시지를 압축하고 %d개를 유지했습니다";
 "chat.contextCompaction.running" = "컨텍스트 압축 중";
-"chat.contextCompaction.skipped" = "컨텍스트 압축을 실행하지 않았습니다";
+"chat.contextCompaction.running.automatic" = "컨텍스트 자동 압축 중";
+"chat.contextCompaction.running.manual" = "컨텍스트 수동 압축 중";
+"chat.contextCompaction.skipped" = "컨텍스트 압축이 필요 없습니다";
 "chat.error.callFailed" = "호출 실패: %@";
 "chat.error.interruptedAfterRestart" = "이전 실행은 앱 종료 또는 시스템 회수 후 중단되었습니다.";
 "chat.error.selectSessionFirst" = "먼저 세션을 선택하세요.";
@@ -135,6 +138,10 @@
 "context.compact" = "압축";
 "context.compactedCount" = "%d회 압축됨 · %@";
 "context.compacting" = "압축 중";
+"context.compaction.event.automaticStarted" = "컨텍스트 자동 압축";
+"context.compaction.event.completed" = "%d개 메시지를 압축하고 %d개를 유지했습니다";
+"context.compaction.event.manualStarted" = "컨텍스트 수동 압축";
+"context.compaction.event.skipped" = "컨텍스트 압축이 필요 없습니다";
 "context.segment.messages" = "메시지";
 "context.segment.skills" = "스킬";
 "context.segment.systemPrompt" = "시스템 프롬프트";

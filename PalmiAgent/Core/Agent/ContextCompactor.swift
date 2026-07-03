@@ -56,12 +56,16 @@ enum ContextUsageEstimator {
         configuration: ContextCompactionConfiguration = .default(),
         fixedTokenOverhead: Int = 0,
         toolContextProjector: ToolContextProjector = ToolContextProjector(),
-        researchStateAssembler: ResearchStateAssembler = ResearchStateAssembler()
+        researchStateAssembler: ResearchStateAssembler = ResearchStateAssembler(),
+        taskContextProjector: TaskContextProjector = TaskContextProjector()
     ) -> ContextUsageSnapshot {
         let compactedPrefixCount = session.hiddenContextSummary?.compactedMessageCount ?? 0
         let rawMessages = Array(session.messages.dropFirst(compactedPrefixCount))
         let renderedSummaryTokens = renderedHiddenSummaryTokenCount(for: session.hiddenContextSummary)
         let hiddenResearchTokens = researchStateAssembler.hiddenResearchPrompt(for: session).map {
+            ApproximateTokenCounter.estimate($0)
+        } ?? 0
+        let hiddenTaskTokens = taskContextProjector.hiddenTaskPrompt(for: session).map {
             ApproximateTokenCounter.estimate($0)
         } ?? 0
         let rawTokens = rawMessages.reduce(0) { partialResult, message in
@@ -73,7 +77,7 @@ enum ContextUsageEstimator {
         }
 
         return ContextUsageSnapshot(
-            usedTokens: fixedTokenOverhead + renderedSummaryTokens + hiddenResearchTokens + rawTokens,
+            usedTokens: fixedTokenOverhead + renderedSummaryTokens + hiddenResearchTokens + hiddenTaskTokens + rawTokens,
             maxTokens: configuration.maximumContextTokenCount,
             compactionCount: session.compactionCount
         )
@@ -131,6 +135,7 @@ final class ContextCompactor {
     private let modelRuntime: AgentModelRuntime
     private let defaultConfiguration: ContextCompactionConfiguration
     private let toolContextProjector: ToolContextProjector
+    private let taskContextProjector: TaskContextProjector
     private let promptCatalog: HiddenWorkerPromptCatalog
 
     private struct CompactionPlan {
@@ -145,11 +150,13 @@ final class ContextCompactor {
         modelRuntime: AgentModelRuntime,
         configuration: ContextCompactionConfiguration = .default(),
         toolContextProjector: ToolContextProjector = ToolContextProjector(),
+        taskContextProjector: TaskContextProjector = TaskContextProjector(),
         promptCatalog: HiddenWorkerPromptCatalog = HiddenWorkerPromptCatalog()
     ) {
         self.modelRuntime = modelRuntime
         self.defaultConfiguration = configuration
         self.toolContextProjector = toolContextProjector
+        self.taskContextProjector = taskContextProjector
         self.promptCatalog = promptCatalog
     }
 
@@ -233,7 +240,8 @@ final class ContextCompactor {
             for: session,
             configuration: activeConfiguration,
             fixedTokenOverhead: fixedTokenOverhead,
-            toolContextProjector: toolContextProjector
+            toolContextProjector: toolContextProjector,
+            taskContextProjector: taskContextProjector
         )
         let summaryTargetTokenCount = recommendedSummaryTokenCount(
             totalUsedTokens: contextSnapshot.usedTokens,
@@ -256,13 +264,12 @@ final class ContextCompactor {
             ),
             .user(
                 """
-                已有隐藏摘要：
-                \(plan.existingSummary?.isEmpty == false ? plan.existingSummary! : "（无）")
-
-                下面是需要整合进新摘要的完整历史原文。
-                它包含用户消息、assistant 文本、assistant 发起的工具调用参数，以及工具结果投影。
-                现在请把它们与已有隐藏摘要合并成一份新的隐藏摘要：
-
+                Existing hidden summary:
+                \(plan.existingSummary?.isEmpty == false ? plan.existingSummary! : "(none)")
+                Older raw history to merge:
+                It may include user messages, assistant text, assistant tool-call arguments, and projected tool results.
+                Merge the existing summary and this raw history into one updated hidden summary.
+                Raw history:
                 \(plan.compactedTranscript)
                 """
             )
@@ -272,11 +279,12 @@ final class ContextCompactor {
             AgentModelRequest(
                 selection: AgentModelSelection(
                     providerID: providerID,
+                    modelRole: .lightweightModel,
                     reasoning: .disabled,
-                    configurationOverride: modelOverrides.override(for: .reasoningModel)
+                    configurationOverride: modelOverrides.override(for: .lightweightModel)
                 ),
-            apiMessages: compactionMessages,
-            tools: [],
+                apiMessages: compactionMessages,
+                tools: [],
                 toolIntent: .none,
                 temperatureOverride: 0
             )
@@ -318,7 +326,8 @@ final class ContextCompactor {
             for: session,
             configuration: configuration,
             fixedTokenOverhead: fixedTokenOverhead,
-            toolContextProjector: toolContextProjector
+            toolContextProjector: toolContextProjector,
+            taskContextProjector: taskContextProjector
         )
         let compactedPrefixCount = session.hiddenContextSummary?.compactedMessageCount ?? 0
         let rawMessages = Array(session.messages.dropFirst(compactedPrefixCount))
@@ -372,6 +381,11 @@ final class ContextCompactor {
             cutCount = min(minimumMaxCut, max(configuration.minimumMessagesToCompact, 1))
         }
 
+        cutCount = nearestSafeCutCount(
+            atMost: cutCount,
+            in: rawMessages,
+            minimumMessagesToCompact: configuration.minimumMessagesToCompact
+        )
         guard cutCount >= configuration.minimumMessagesToCompact else {
             return nil
         }
@@ -387,6 +401,40 @@ final class ContextCompactor {
             compactedTranscript: serialize(messages: messagesToCompact, session: session),
             existingSummary: existingSummary
         )
+    }
+
+    private func nearestSafeCutCount(
+        atMost proposedCutCount: Int,
+        in rawMessages: [AgentMessage],
+        minimumMessagesToCompact: Int
+    ) -> Int {
+        let maximum = min(max(0, proposedCutCount), rawMessages.count)
+        guard maximum >= minimumMessagesToCompact else { return 0 }
+        var candidate = maximum
+        while candidate >= minimumMessagesToCompact {
+            if isSafeCutBoundary(candidate, in: rawMessages) {
+                return candidate
+            }
+            candidate -= 1
+        }
+        return 0
+    }
+
+    private func isSafeCutBoundary(_ cutCount: Int, in rawMessages: [AgentMessage]) -> Bool {
+        guard cutCount > 0 else { return false }
+        guard cutCount <= rawMessages.count else { return false }
+        if cutCount < rawMessages.count {
+            let firstRetained = rawMessages[cutCount]
+            if firstRetained.role == .tool {
+                return false
+            }
+        }
+        let lastCompacted = rawMessages[cutCount - 1]
+        if lastCompacted.role == .assistant,
+           !lastCompacted.toolUses.isEmpty {
+            return false
+        }
+        return true
     }
 
     private func serialize(messages: [AgentMessage], session: AgentSession) -> String {

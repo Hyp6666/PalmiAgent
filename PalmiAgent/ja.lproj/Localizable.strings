@@ -29,8 +29,11 @@
 "chat.composer.goalMode" = "目標モード";
 "chat.composer.plan" = "計画";
 "chat.contextCompaction.completed" = "コンテキストを圧縮しました";
+"chat.contextCompaction.completed.detail" = "%d 件のメッセージを圧縮し、%d 件を保持しました";
 "chat.contextCompaction.running" = "コンテキストを圧縮中";
-"chat.contextCompaction.skipped" = "コンテキスト圧縮は実行されませんでした";
+"chat.contextCompaction.running.automatic" = "コンテキストを自動圧縮中";
+"chat.contextCompaction.running.manual" = "コンテキストを手動圧縮中";
+"chat.contextCompaction.skipped" = "コンテキスト圧縮は不要です";
 "chat.error.callFailed" = "呼び出しに失敗しました：%@";
 "chat.error.interruptedAfterRestart" = "前回の実行は、App の終了またはシステム回収後に中断されました。";
 "chat.error.selectSessionFirst" = "先にセッションを選択してください。";
@@ -135,6 +138,10 @@
 "context.compact" = "圧縮";
 "context.compactedCount" = "%d 回圧縮済み · %@";
 "context.compacting" = "圧縮中";
+"context.compaction.event.automaticStarted" = "コンテキストを自動圧縮";
+"context.compaction.event.completed" = "%d 件のメッセージを圧縮し、%d 件を保持しました";
+"context.compaction.event.manualStarted" = "コンテキストを手動圧縮";
+"context.compaction.event.skipped" = "コンテキスト圧縮は不要";
 "context.segment.messages" = "メッセージ";
 "context.segment.skills" = "スキル";
 "context.segment.systemPrompt" = "システムプロンプト";

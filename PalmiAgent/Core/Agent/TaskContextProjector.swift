@@ -1,6 +1,8 @@
 import Foundation
 
 struct TaskContextProjector {
+    nonisolated init() {}
+
     func hiddenTaskPrompt(for session: AgentSession) -> String? {
         guard let state = session.taskStateSnapshot?.activeState else {
             return nil

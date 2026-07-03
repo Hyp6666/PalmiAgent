@@ -34,11 +34,6 @@ struct ContextAssembler {
         let layeredPrompt = layerManager.mergedSystemPrompt(composedSystemPrompt: composedSystemPrompt)
 
         var apiMessages: [AgentModelMessage] = [.system(layeredPrompt.prompt)]
-
-        let compactedCount = session.hiddenContextSummary?.compactedMessageCount ?? 0
-        for message in session.messages.dropFirst(compactedCount) {
-            apiMessages.append(contentsOf: convert(message, session: session))
-        }
         var hiddenContextRecords: [ContextLayerRecord] = []
         if surface == .professional {
             let hiddenContext = layerManager.hiddenContextPrompt(
@@ -50,6 +45,10 @@ struct ContextAssembler {
                 apiMessages.append(.user(prompt))
             }
             hiddenContextRecords = hiddenContext.records
+        }
+        let compactedCount = session.hiddenContextSummary?.compactedMessageCount ?? 0
+        for message in session.messages.dropFirst(compactedCount) {
+            apiMessages.append(contentsOf: convert(message, session: session))
         }
         let layerSnapshot = ContextLayerSnapshot(
             records: layeredPrompt.snapshot.records + hiddenContextRecords
@@ -71,6 +70,10 @@ struct ContextAssembler {
         var apiMessages: [AgentModelMessage] = [
             .system(trimmedSystemPrompt)
         ]
+        if let hiddenSummary = session.hiddenContextSummary,
+           !hiddenSummary.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            apiMessages.append(.user(layerManager.chatHiddenSummaryPrompt(for: hiddenSummary)))
+        }
 
         let compactedCount = session.hiddenContextSummary?.compactedMessageCount ?? 0
         for message in session.messages.dropFirst(compactedCount) {
@@ -112,6 +115,10 @@ struct ContextAssembler {
     ) -> AssembledAgentContext {
         let trimmedSystemPrompt = baseSystemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         var apiMessages: [AgentModelMessage] = [.system(trimmedSystemPrompt)]
+        if let hiddenSummary = session.hiddenContextSummary,
+           !hiddenSummary.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            apiMessages.append(.user(layerManager.chatHiddenSummaryPrompt(for: hiddenSummary)))
+        }
 
         let compactedCount = session.hiddenContextSummary?.compactedMessageCount ?? 0
         for message in session.messages.dropFirst(compactedCount) {

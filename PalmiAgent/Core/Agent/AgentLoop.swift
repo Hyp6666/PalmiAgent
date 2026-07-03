@@ -172,10 +172,12 @@ final class AgentLoop {
     func currentContextCompositionSnapshot(actions: [ToolAction]) -> ContextCompositionSnapshot {
         let runProfile = currentAgentRunProfile()
         let surface = currentSurface()
+        let exposesPhaseThought = surface == .professional && isExternalReasoningEnabled
+        let exposesTaskStateTool = false
         let baseSystemPrompt = makeBaseSystemPrompt(
             actions: actions,
             runProfile: runProfile,
-            phaseThoughtEnabled: isExternalReasoningEnabled,
+            phaseThoughtEnabled: exposesPhaseThought,
             surface: surface
         )
         let activeProjectID = try? workspaceManager.currentSelection().projectID
@@ -184,8 +186,8 @@ final class AgentLoop {
             basePrompt: baseSystemPrompt,
             skills: activeSkills,
             actions: actions,
-            exposesTools: !actions.isEmpty,
-            exposesPhaseThought: isExternalReasoningEnabled,
+            exposesTools: !actions.isEmpty || exposesPhaseThought,
+            exposesPhaseThought: exposesPhaseThought,
             surface: surface
         )
 
@@ -206,7 +208,11 @@ final class AgentLoop {
         let hiddenTaskTokens = contextAssembler.taskContextProjector.hiddenTaskPrompt(for: session).map {
             ApproximateTokenCounter.estimate($0)
         } ?? 0
-        let toolDefinitionContribution = toolDefinitionContextContribution(for: actions)
+        let toolDefinitionContribution = toolDefinitionContextContribution(
+            for: actions,
+            exposesPhaseThought: exposesPhaseThought,
+            exposesTaskStateTool: exposesTaskStateTool
+        )
 
         var messageTokens = hiddenSummaryTokens + hiddenResearchTokens + hiddenTaskTokens
         var messageCount = hiddenSummaryCount + (hiddenResearchTokens > 0 ? 1 : 0) + (hiddenTaskTokens > 0 ? 1 : 0)
@@ -241,23 +247,34 @@ final class AgentLoop {
     ) async throws -> Bool {
         let runProfile = currentAgentRunProfile()
         let surface = currentSurface()
+        let phaseThoughtEnabled = surface == .professional && isExternalReasoningEnabled
         let baseSystemPrompt = makeBaseSystemPrompt(
             actions: actions,
             runProfile: runProfile,
-            phaseThoughtEnabled: isExternalReasoningEnabled,
+            phaseThoughtEnabled: phaseThoughtEnabled,
             surface: surface
         )
         let activeProjectID = try? workspaceManager.currentSelection().projectID
         let activeSkills = skillRegistry.enabledSkills(for: activeProjectID)
+        let fixedTokenOverhead = compactionFixedTokenOverhead(
+            baseSystemPrompt: baseSystemPrompt,
+            skills: activeSkills,
+            actions: actions,
+            exposesTools: !actions.isEmpty || phaseThoughtEnabled,
+            exposesPhaseThought: phaseThoughtEnabled,
+            exposesTaskStateTool: false,
+            surface: surface
+        )
         let shouldCompact = contextCompactor.shouldCompact(
             session: session,
             force: true,
-            configuration: runProfile.contextCompaction
-            )
-            if shouldCompact {
-                appendEventLog(.contextCompactionStarted, summary: "手动压缩上下文")
-                emit(.contextCompactionStarted(source: .manual))
-            }
+            configuration: runProfile.contextCompaction,
+            fixedTokenOverhead: fixedTokenOverhead
+        )
+        if shouldCompact {
+            appendEventLog(.contextCompactionStarted, summary: PalmiL10n.tr("context.compaction.event.manualStarted"))
+            emit(.contextCompactionStarted(source: .manual))
+        }
         do {
             let compaction = try await contextCompactor.forceCompact(
                 session: session,
@@ -265,7 +282,8 @@ final class AgentLoop {
                 modelOverrides: modelOverrides,
                 baseSystemPrompt: baseSystemPrompt,
                 skills: activeSkills,
-                configuration: runProfile.contextCompaction
+                configuration: runProfile.contextCompaction,
+                fixedTokenOverhead: fixedTokenOverhead
             )
             return apply(compaction: compaction, source: .manual, emitCompletionEvent: shouldCompact)
         } catch {
@@ -291,21 +309,32 @@ final class AgentLoop {
     ) async throws -> Bool {
         let runProfile = currentAgentRunProfile()
         let surface = currentSurface()
+        let phaseThoughtEnabled = surface == .professional && isExternalReasoningEnabled
         let baseSystemPrompt = makeBaseSystemPrompt(
             actions: actions,
             runProfile: runProfile,
-            phaseThoughtEnabled: isExternalReasoningEnabled,
+            phaseThoughtEnabled: phaseThoughtEnabled,
             surface: surface
         )
         let activeProjectID = try? workspaceManager.currentSelection().projectID
         let activeSkills = skillRegistry.enabledSkills(for: activeProjectID)
+        let fixedTokenOverhead = compactionFixedTokenOverhead(
+            baseSystemPrompt: baseSystemPrompt,
+            skills: activeSkills,
+            actions: actions,
+            exposesTools: !actions.isEmpty || phaseThoughtEnabled,
+            exposesPhaseThought: phaseThoughtEnabled,
+            exposesTaskStateTool: false,
+            surface: surface
+        )
         return await maybeCompactContext(
             providerID: providerID,
             modelOverrides: modelOverrides,
             baseSystemPrompt: baseSystemPrompt,
             skills: activeSkills,
             protectedRecentMessageCount: protectedRecentMessageCount,
-            configuration: runProfile.contextCompaction
+            configuration: runProfile.contextCompaction,
+            fixedTokenOverhead: fixedTokenOverhead
         )
     }
 
@@ -313,7 +342,8 @@ final class AgentLoop {
         ContextUsageEstimator.snapshot(
             for: session,
             configuration: currentAgentRunProfile().contextCompaction,
-            toolContextProjector: toolContextProjector
+            toolContextProjector: toolContextProjector,
+            taskContextProjector: contextAssembler.taskContextProjector
         )
     }
 
@@ -461,16 +491,24 @@ final class AgentLoop {
                 )
                 let activeProjectID = try? workspaceManager.currentSelection().projectID
                 let activeSkills = skillRegistry.enabledSkills(for: activeProjectID)
-                if surface == .professional {
-                    _ = await maybeCompactContext(
-                        providerID: providerID,
-                        modelOverrides: modelOverrides,
-                        baseSystemPrompt: baseSystemPrompt,
-                        skills: activeSkills,
-                        protectedRecentMessageCount: session.messages.count - turnContext.turnStartMessageIndex,
-                        configuration: contextCompactionConfiguration
-                    )
-                }
+                let fixedTokenOverhead = compactionFixedTokenOverhead(
+                    baseSystemPrompt: baseSystemPrompt,
+                    skills: activeSkills,
+                    actions: actions,
+                    exposesTools: exposesAnyTools,
+                    exposesPhaseThought: phaseThoughtEnabled,
+                    exposesTaskStateTool: exposesTaskStateTool,
+                    surface: surface
+                )
+                _ = await maybeCompactContext(
+                    providerID: providerID,
+                    modelOverrides: modelOverrides,
+                    baseSystemPrompt: baseSystemPrompt,
+                    skills: activeSkills,
+                    protectedRecentMessageCount: session.messages.count - turnContext.turnStartMessageIndex,
+                    configuration: contextCompactionConfiguration,
+                    fixedTokenOverhead: fixedTokenOverhead
+                )
                 if consumePendingInterruptions() {
                     continue
                 }
@@ -1010,16 +1048,25 @@ final class AgentLoop {
                     if exposesTaskStateTool {
                         summaryToolDefinitions.append(TaskStateToolDefinitionFactory.makeToolDefinition())
                     }
-                    if surface == .professional {
-                        _ = await maybeCompactContext(
-                            providerID: providerID,
-                            modelOverrides: modelOverrides,
-                            baseSystemPrompt: baseSystemPrompt,
-                            skills: activeSkills,
-                            protectedRecentMessageCount: session.messages.count - turnContext.turnStartMessageIndex,
-                            configuration: contextCompactionConfiguration
-                        )
-                    }
+                    let summaryExposesAnyTools = !summaryToolDefinitions.isEmpty
+                    let fixedTokenOverhead = compactionFixedTokenOverhead(
+                        baseSystemPrompt: baseSystemPrompt,
+                        skills: activeSkills,
+                        actions: actions,
+                        exposesTools: summaryExposesAnyTools,
+                        exposesPhaseThought: phaseThoughtEnabled,
+                        exposesTaskStateTool: exposesTaskStateTool,
+                        surface: surface
+                    )
+                    _ = await maybeCompactContext(
+                        providerID: providerID,
+                        modelOverrides: modelOverrides,
+                        baseSystemPrompt: baseSystemPrompt,
+                        skills: activeSkills,
+                        protectedRecentMessageCount: session.messages.count - turnContext.turnStartMessageIndex,
+                        configuration: contextCompactionConfiguration,
+                        fixedTokenOverhead: fixedTokenOverhead
+                    )
                     let assembledContext: AssembledAgentContext
                     if surface == .chat {
                         assembledContext = contextAssembler.assembleChatTool(
@@ -1119,6 +1166,17 @@ final class AgentLoop {
             exposesTools: false,
             exposesPhaseThought: false,
             surface: .chat
+        )
+        let runProfile = AgentRunProfile.profile(for: .speed)
+        let fixedTokenOverhead = ApproximateTokenCounter.estimate(baseSystemPrompt)
+        _ = await maybeCompactContext(
+            providerID: providerID,
+            modelOverrides: modelOverrides,
+            baseSystemPrompt: baseSystemPrompt,
+            skills: [],
+            protectedRecentMessageCount: 1,
+            configuration: runProfile.contextCompaction,
+            fixedTokenOverhead: fixedTokenOverhead
         )
         let assembledContext = contextAssembler.assemblePlainChat(
             baseSystemPrompt: baseSystemPrompt,
@@ -1569,10 +1627,17 @@ final class AgentLoop {
         }
     }
 
-    private func toolDefinitionContextContribution(for actions: [ToolAction]) -> (tokens: Int, count: Int) {
+    private func toolDefinitionContextContribution(
+        for actions: [ToolAction],
+        exposesPhaseThought: Bool,
+        exposesTaskStateTool: Bool
+    ) -> (tokens: Int, count: Int) {
         var toolDefinitions = LLMToolDefinitionBuilder.makeToolDefinitions(for: actions)
-        if isExternalReasoningEnabled {
+        if exposesPhaseThought {
             toolDefinitions.append(phaseThoughtToolDefinition())
+        }
+        if exposesTaskStateTool {
+            toolDefinitions.append(TaskStateToolDefinitionFactory.makeToolDefinition())
         }
         guard !toolDefinitions.isEmpty else {
             return (0, 0)
@@ -1593,6 +1658,32 @@ final class AgentLoop {
         )
     }
 
+    private func compactionFixedTokenOverhead(
+        baseSystemPrompt: String,
+        skills: [SkillPackage],
+        actions: [ToolAction],
+        exposesTools: Bool,
+        exposesPhaseThought: Bool,
+        exposesTaskStateTool: Bool,
+        surface: WorkspaceProjectSurface
+    ) -> Int {
+        let composedSystemPrompt = contextAssembler.promptComposer.compose(
+            basePrompt: baseSystemPrompt,
+            skills: skills,
+            actions: actions,
+            exposesTools: exposesTools,
+            exposesPhaseThought: exposesPhaseThought,
+            surface: surface
+        )
+        let systemTokens = ApproximateTokenCounter.estimate(composedSystemPrompt)
+        let toolTokens = toolDefinitionContextContribution(
+            for: actions,
+            exposesPhaseThought: exposesPhaseThought,
+            exposesTaskStateTool: exposesTaskStateTool
+        ).tokens
+        return systemTokens + toolTokens
+    }
+
     @discardableResult
     private func maybeCompactContext(
         providerID: APIProviderID,
@@ -1600,17 +1691,19 @@ final class AgentLoop {
         baseSystemPrompt: String,
         skills: [SkillPackage],
         protectedRecentMessageCount: Int,
-        configuration: ContextCompactionConfiguration
+        configuration: ContextCompactionConfiguration,
+        fixedTokenOverhead: Int
     ) async -> Bool {
         do {
             let shouldCompact = contextCompactor.shouldCompact(
                 session: session,
                 force: false,
                 protectedRecentMessageCount: protectedRecentMessageCount,
-                configuration: configuration
+                configuration: configuration,
+                fixedTokenOverhead: fixedTokenOverhead
             )
             if shouldCompact {
-                appendEventLog(.contextCompactionStarted, summary: "自动压缩上下文")
+                appendEventLog(.contextCompactionStarted, summary: PalmiL10n.tr("context.compaction.event.automaticStarted"))
                 emit(.contextCompactionStarted(source: .automatic))
             }
             let compaction = try await contextCompactor.maybeCompact(
@@ -1620,7 +1713,8 @@ final class AgentLoop {
                 baseSystemPrompt: baseSystemPrompt,
                 skills: skills,
                 protectedRecentMessageCount: protectedRecentMessageCount,
-                configuration: configuration
+                configuration: configuration,
+                fixedTokenOverhead: fixedTokenOverhead
             )
             return apply(compaction: compaction, source: .automatic, emitCompletionEvent: shouldCompact)
         } catch {
@@ -1656,7 +1750,7 @@ final class AgentLoop {
         promptBuilder.build(
             actions: actions,
             tier: runProfile.professionalTier,
-            exposesTools: !actions.isEmpty,
+            exposesTools: !actions.isEmpty || phaseThoughtEnabled,
             exposesPhaseThought: phaseThoughtEnabled,
             surface: surface
         )
@@ -1907,7 +2001,7 @@ final class AgentLoop {
 
         guard let notice = compaction.notice else {
             if emitCompletionEvent {
-                appendEventLog(.contextCompactionFinished, summary: "上下文无需压缩")
+                appendEventLog(.contextCompactionFinished, summary: PalmiL10n.tr("context.compaction.event.skipped"))
                 emit(
                     .contextCompactionFinished(
                         source: source,
@@ -1923,7 +2017,11 @@ final class AgentLoop {
         if emitCompletionEvent {
             appendEventLog(
                 .contextCompactionFinished,
-                summary: "已压缩 \(notice.compactedMessageCount) 条，保留 \(notice.retainedMessageCount) 条"
+                summary: PalmiL10n.tr(
+                    "context.compaction.event.completed",
+                    notice.compactedMessageCount,
+                    notice.retainedMessageCount
+                )
             )
             emit(
                 .contextCompactionFinished(

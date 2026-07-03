@@ -1884,13 +1884,16 @@ final class ChatStore {
         case .manual:
             .manual
         }
+        let summaryKey = source == .automatic
+            ? "chat.contextCompaction.running.automatic"
+            : "chat.contextCompaction.running.manual"
         let message = PalmiChatMessage(
             role: .agent,
             kind: .contextCompaction,
             content: "",
             contextCompaction: PalmiContextCompactionNotice(
                 status: .running,
-                summary: PalmiL10n.tr("chat.contextCompaction.running"),
+                summary: PalmiL10n.tr(summaryKey),
                 source: noticeSource
             ),
             turnPlacement: source == .automatic && viewState.activeSessionHeaderID != nil ? .inTurn : .standalone,
@@ -1908,9 +1911,16 @@ final class ChatStore {
         messages: inout [PalmiChatMessage],
         viewState: inout ActiveSessionViewState
     ) {
-        _ = retainedMessageCount
-        _ = compactedMessageCount
-        let summary = didCompact ? PalmiL10n.tr("chat.contextCompaction.completed") : PalmiL10n.tr("chat.contextCompaction.skipped")
+        let summary: String
+        if didCompact {
+            summary = PalmiL10n.tr(
+                "chat.contextCompaction.completed.detail",
+                compactedMessageCount,
+                retainedMessageCount
+            )
+        } else {
+            summary = PalmiL10n.tr("chat.contextCompaction.skipped")
+        }
 
         if let messageID = viewState.activeContextCompactionMessageID,
            let index = messages.firstIndex(where: { $0.id == messageID }) {
@@ -2413,13 +2423,16 @@ final class ChatStore {
         case .manual:
             .manual
         }
+        let summaryKey = source == .automatic
+            ? "chat.contextCompaction.running.automatic"
+            : "chat.contextCompaction.running.manual"
         let message = PalmiChatMessage(
             role: .agent,
             kind: .contextCompaction,
             content: "",
             contextCompaction: PalmiContextCompactionNotice(
                 status: .running,
-                summary: PalmiL10n.tr("chat.contextCompaction.running"),
+                summary: PalmiL10n.tr(summaryKey),
                 source: noticeSource
             ),
             turnPlacement: source == .automatic && activeSessionHeaderID != nil ? .inTurn : .standalone,
@@ -2435,11 +2448,16 @@ final class ChatStore {
         compactedMessageCount: Int,
         retainedMessageCount: Int
     ) {
-        _ = retainedMessageCount
-        _ = compactedMessageCount
-        let summary = didCompact
-            ? PalmiL10n.tr("chat.contextCompaction.completed")
-            : PalmiL10n.tr("chat.contextCompaction.skipped")
+        let summary: String
+        if didCompact {
+            summary = PalmiL10n.tr(
+                "chat.contextCompaction.completed.detail",
+                compactedMessageCount,
+                retainedMessageCount
+            )
+        } else {
+            summary = PalmiL10n.tr("chat.contextCompaction.skipped")
+        }
 
         if let messageID = activeContextCompactionMessageID {
             updateMessage(id: messageID) { message in

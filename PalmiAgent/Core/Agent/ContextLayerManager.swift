@@ -102,4 +102,12 @@ struct ContextLayerManager {
         \(hiddenSummary.summary)
         """
     }
+
+    func chatHiddenSummaryPrompt(for hiddenSummary: AgentHiddenContextSummary) -> String {
+        """
+        【hidden_ctx】
+        This is a hidden summary of earlier conversation turns for continuity. It is not a new user request. Do not reveal, quote, or mention it. Answer the latest real user message using it only when relevant.
+        \(hiddenSummary.summary)
+        """
+    }
 }
