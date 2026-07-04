@@ -11,8 +11,16 @@ struct AgentPromptBuilder {
         exposesPhaseThought: Bool = true,
         surface: WorkspaceProjectSurface = .professional
     ) -> String {
+        let basePrompt: String
         if surface == .chat {
-            return chatBuilder.build(
+            basePrompt = chatBuilder.build(
+                actions: actions,
+                tier: tier,
+                exposesTools: exposesTools,
+                exposesPhaseThought: exposesPhaseThought
+            )
+        } else {
+            basePrompt = professionalBuilder.build(
                 actions: actions,
                 tier: tier,
                 exposesTools: exposesTools,
@@ -20,11 +28,9 @@ struct AgentPromptBuilder {
             )
         }
 
-        return professionalBuilder.build(
-            actions: actions,
-            tier: tier,
-            exposesTools: exposesTools,
-            exposesPhaseThought: exposesPhaseThought
-        )
+        return [
+            basePrompt,
+            PalmiLanguage.current.systemPromptLanguageInstruction
+        ].joined(separator: "\n\n")
     }
 }

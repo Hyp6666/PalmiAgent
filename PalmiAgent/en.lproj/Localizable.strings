@@ -29,7 +29,7 @@
 "chat.composer.goalMode" = "Goal Mode";
 "chat.composer.plan" = "Plan";
 "chat.contextCompaction.completed" = "Context compressed";
-"chat.contextCompaction.completed.detail" = "Compressed %d messages, retained %d";
+"chat.contextCompaction.completed.detail" = "Context compressed";
 "chat.contextCompaction.running" = "Compressing context";
 "chat.contextCompaction.running.automatic" = "Auto-compressing context";
 "chat.contextCompaction.running.manual" = "Compressing context manually";
@@ -370,6 +370,7 @@
 "model.status.validated" = "Validated";
 "onboarding.mode.title" = "Choose a mode";
 "onboarding.model.skip.confirm" = "Confirm";
+"onboarding.model.skipInline" = "skip";
 "onboarding.model.skip.message" = "You can still configure a model later in Settings.";
 "onboarding.model.skip.title" = "Skip model setup?";
 "onboarding.policy.agreeContinue" = "Agree and Continue";

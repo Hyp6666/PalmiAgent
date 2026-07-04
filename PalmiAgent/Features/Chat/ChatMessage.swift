@@ -106,6 +106,7 @@ struct PalmiContextCompactionNotice: Codable, Sendable {
     enum Status: String, Codable, Sendable {
         case running
         case completed
+        case skipped
     }
 
     enum Source: String, Codable, Sendable {
@@ -127,6 +128,22 @@ struct PalmiContextCompactionNotice: Codable, Sendable {
         self.source = source
     }
 
+    var localizedSummary: String {
+        switch status {
+        case .running:
+            switch source {
+            case .automatic:
+                return PalmiL10n.tr("chat.contextCompaction.running.automatic")
+            case .manual:
+                return PalmiL10n.tr("chat.contextCompaction.running.manual")
+            }
+        case .completed:
+            return PalmiL10n.tr("chat.contextCompaction.completed")
+        case .skipped:
+            return PalmiL10n.tr("chat.contextCompaction.skipped")
+        }
+    }
+
     private enum CodingKeys: String, CodingKey {
         case status
         case summary
@@ -136,7 +153,7 @@ struct PalmiContextCompactionNotice: Codable, Sendable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let status = try container.decode(Status.self, forKey: .status)
-        let summary = try container.decode(String.self, forKey: .summary)
+        let summary = try container.decodeIfPresent(String.self, forKey: .summary) ?? ""
         let source = try container.decodeIfPresent(Source.self, forKey: .source) ?? .manual
         self.init(status: status, summary: summary, source: source)
     }

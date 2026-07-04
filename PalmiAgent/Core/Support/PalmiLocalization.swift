@@ -26,6 +26,21 @@ enum PalmiLanguage: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    var systemPromptLanguageInstruction: String {
+        switch self {
+        case .zhHans:
+            return "无特殊要求默认用简体中文回答"
+        case .zhHant:
+            return "無特殊要求預設用繁體中文回答"
+        case .en:
+            return "Unless otherwise specified, please answer in English."
+        case .ja:
+            return "特に指定がない限り、回答は日本語で行われます。"
+        case .ko:
+            return "별도의 언급이 없는 한, 답변은 한국어로 제공됩니다."
+        }
+    }
+
     static var current: PalmiLanguage {
         resolve(UserDefaults.standard.string(forKey: storageKey))
     }

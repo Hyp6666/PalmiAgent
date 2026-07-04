@@ -28,8 +28,8 @@
 "chat.composer.goalHint" = "目前是目標模式，請輸入內容以設立目標讓 Palmi 完成";
 "chat.composer.goalMode" = "目標模式";
 "chat.composer.plan" = "規劃";
-"chat.contextCompaction.completed" = "上下文已壓縮";
-"chat.contextCompaction.completed.detail" = "已壓縮 %d 則訊息，保留 %d 則";
+"chat.contextCompaction.completed" = "已壓縮上下文";
+"chat.contextCompaction.completed.detail" = "已壓縮上下文";
 "chat.contextCompaction.running" = "正在壓縮上下文";
 "chat.contextCompaction.running.automatic" = "正在自動壓縮上下文";
 "chat.contextCompaction.running.manual" = "正在手動壓縮上下文";
@@ -370,6 +370,7 @@
 "model.status.validated" = "已驗證";
 "onboarding.mode.title" = "選擇使用模式";
 "onboarding.model.skip.confirm" = "跳过";
+"onboarding.model.skipInline" = "跳過";
 "onboarding.model.skip.message" = "稍後仍可在設定中設定模型。";
 "onboarding.model.skip.title" = "跳过模型設定？";
 "onboarding.policy.agreeContinue" = "同意並繼續";

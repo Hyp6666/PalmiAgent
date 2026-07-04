@@ -95,6 +95,7 @@ struct ChatScreen: View {
     @State private var isMessageAutoFollowEnabled = true
     @State private var pendingLinkAction: LinkOpenRequest?
     @State private var measuredLinkActionPopoverSize: CGSize = .zero
+    @State private var measuredContextWheelFrame: CGRect = .zero
     @State private var linkSharePayload: SharePayload?
     // 缓存模型选择快照。原计算路径要 UserDefaults + JSON decode，
     // 在 body 里每次访问都会触发，正好卡在弹窗动画收尾那帧。
@@ -112,6 +113,8 @@ struct ChatScreen: View {
     private let linkActionPopoverWidth: CGFloat = 286
     private let linkActionPopoverVerticalGap: CGFloat = 10
     private let linkActionPopoverScreenMargin: CGFloat = 12
+    private let contextInspectorExpandedSize = CGSize(width: 244, height: 318)
+    private let contextInspectorScreenMargin: CGFloat = 12
 
     private struct ModelSelectionState {
         let plans: [ModelPlanSnapshot]
@@ -407,6 +410,9 @@ struct ChatScreen: View {
         .overlay(alignment: .top) {
             topChromeBar()
                 .frame(height: 90)
+        }
+        .overlay {
+            contextInspectorOverlayAnchor
         }
         .overlay {
             linkActionPopoverAnchor
@@ -1100,6 +1106,69 @@ struct ChatScreen: View {
             .ignoresSafeArea(.container, edges: .bottom)
             .allowsHitTesting(false)
             .zIndex(0.5)
+    }
+
+    @ViewBuilder
+    private var contextInspectorOverlayAnchor: some View {
+        GeometryReader { proxy in
+            if isShowingContextInfo {
+                let origin = contextInspectorOverlayOrigin(in: proxy.size)
+
+                ZStack(alignment: .topLeading) {
+                    Color.black.opacity(0.001)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            dismissTransientUI()
+                        }
+
+                    ContextInspectorModal(
+                        snapshot: store.contextCompositionSnapshot,
+                        isCompacting: store.isCompactingContext,
+                        isTurnRunning: store.isLoading,
+                        onCompact: { store.compactContextNow() },
+                        embedsInParentSurface: false
+                    )
+                    .frame(
+                        width: contextInspectorExpandedSize.width,
+                        height: contextInspectorExpandedSize.height
+                    )
+                    .position(
+                        x: origin.x + contextInspectorExpandedSize.width / 2,
+                        y: origin.y + contextInspectorExpandedSize.height / 2
+                    )
+                    .zIndex(10)
+                }
+            }
+        }
+        .allowsHitTesting(isShowingContextInfo)
+    }
+
+    private func contextInspectorOverlayOrigin(in size: CGSize) -> CGPoint {
+        let anchorMaxX = measuredContextWheelFrame == .zero
+            ? size.width - contextInspectorScreenMargin
+            : measuredContextWheelFrame.maxX
+        let anchorMaxY = measuredContextWheelFrame == .zero
+            ? size.height - composerSectionHeight
+            : measuredContextWheelFrame.maxY
+
+        let proposedX = anchorMaxX - contextInspectorExpandedSize.width
+        let proposedY = anchorMaxY - contextInspectorExpandedSize.height
+
+        let minX = contextInspectorScreenMargin
+        let maxX = max(
+            minX,
+            size.width - contextInspectorScreenMargin - contextInspectorExpandedSize.width
+        )
+        let minY = contextInspectorScreenMargin
+        let maxY = max(
+            minY,
+            size.height - contextInspectorScreenMargin - contextInspectorExpandedSize.height
+        )
+
+        return CGPoint(
+            x: min(max(proposedX, minX), maxX),
+            y: min(max(proposedY, minY), maxY)
+        )
     }
 
     @ViewBuilder
@@ -2064,31 +2133,32 @@ struct ChatScreen: View {
     }
 
     private var contextInspectorHost: some View {
-        BottomAnchoredGlassHost(
-            isExpanded: isShowingContextInfo,
-            anchor: .bottomTrailing,
-            collapsedSize: CGSize(width: composerControlSize, height: composerControlSize),
-            expandedSize: CGSize(width: 244, height: 318),
-            collapsedCornerRadius: composerControlSize / 2,
-            expandedCornerRadius: 30,
-            animation: floatingBubbleAnimation
-        ) {
+        Button {
             toggleContextInfo()
-        } collapsedContent: {
+        } label: {
             ContextUsageWheel(
                 progress: store.contextCompositionSnapshot.usedRatio,
                 showsGlassSurface: false
             )
-        } expandedContent: {
-            ContextInspectorModal(
-                snapshot: store.contextCompositionSnapshot,
-                isCompacting: store.isCompactingContext,
-                isTurnRunning: store.isLoading,
-                onCompact: { store.compactContextNow() },
-                embedsInParentSurface: true
-            )
+            .frame(width: composerControlSize, height: composerControlSize)
+            .contentShape(Circle())
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: ContextWheelFramePreferenceKey.self,
+                        value: proxy.frame(in: .named("chat-root"))
+                    )
+                }
+            }
         }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .circle)
+        .clipShape(Circle())
         .accessibilityLabel(PalmiL10n.tr("context.title"))
+        .onPreferenceChange(ContextWheelFramePreferenceKey.self) { frame in
+            guard frame != .zero else { return }
+            measuredContextWheelFrame = frame
+        }
     }
 
     private func topChromeBar() -> some View {
@@ -3183,7 +3253,7 @@ private struct ContextCompactionDivider: View {
                         .controlSize(.small)
                 }
 
-                Text(notice.summary)
+                Text(notice.localizedSummary)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -4362,6 +4432,16 @@ private struct ChatComposerSectionHeightPreferenceKey: PreferenceKey {
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
+    }
+}
+
+private struct ContextWheelFramePreferenceKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        guard next != .zero else { return }
+        value = next
     }
 }
 

@@ -29,7 +29,7 @@
 "chat.composer.goalMode" = "目標モード";
 "chat.composer.plan" = "計画";
 "chat.contextCompaction.completed" = "コンテキストを圧縮しました";
-"chat.contextCompaction.completed.detail" = "%d 件のメッセージを圧縮し、%d 件を保持しました";
+"chat.contextCompaction.completed.detail" = "コンテキストを圧縮しました";
 "chat.contextCompaction.running" = "コンテキストを圧縮中";
 "chat.contextCompaction.running.automatic" = "コンテキストを自動圧縮中";
 "chat.contextCompaction.running.manual" = "コンテキストを手動圧縮中";
@@ -370,6 +370,7 @@
 "model.status.validated" = "検証済み";
 "onboarding.mode.title" = "使用モードを選択";
 "onboarding.model.skip.confirm" = "スキップ";
+"onboarding.model.skipInline" = "スキップ";
 "onboarding.model.skip.message" = "後で設定からモデルを構成できます。";
 "onboarding.model.skip.title" = "モデル設定をスキップしますか？";
 "onboarding.policy.agreeContinue" = "同意して続ける";

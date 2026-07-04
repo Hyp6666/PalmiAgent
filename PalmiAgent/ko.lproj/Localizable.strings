@@ -28,8 +28,8 @@
 "chat.composer.goalHint" = "목표 모드입니다. Palmi가 완료할 목표를 입력하세요";
 "chat.composer.goalMode" = "목표 모드";
 "chat.composer.plan" = "계획";
-"chat.contextCompaction.completed" = "컨텍스트가 압축됨";
-"chat.contextCompaction.completed.detail" = "%d개 메시지를 압축하고 %d개를 유지했습니다";
+"chat.contextCompaction.completed" = "컨텍스트가 압축되었습니다";
+"chat.contextCompaction.completed.detail" = "컨텍스트가 압축되었습니다";
 "chat.contextCompaction.running" = "컨텍스트 압축 중";
 "chat.contextCompaction.running.automatic" = "컨텍스트 자동 압축 중";
 "chat.contextCompaction.running.manual" = "컨텍스트 수동 압축 중";
@@ -370,6 +370,7 @@
 "model.status.validated" = "검증됨";
 "onboarding.mode.title" = "사용 모드 선택";
 "onboarding.model.skip.confirm" = "건너뛰기";
+"onboarding.model.skipInline" = "건너뛰기";
 "onboarding.model.skip.message" = "나중에 설정에서 모델을 구성할 수 있습니다.";
 "onboarding.model.skip.title" = "모델 구성을 건너뛸까요?";
 "onboarding.policy.agreeContinue" = "동의하고 계속";

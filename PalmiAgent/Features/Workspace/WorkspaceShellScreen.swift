@@ -505,6 +505,7 @@ private struct WorkspaceSidebar: View {
         }
         pendingDeletion = nil
     }
+
 }
 
 private struct WorkspaceProjectRow: View {
@@ -1223,37 +1224,47 @@ private struct OnboardingLanguageStep: View {
             RotatingLanguageTitle()
                 .frame(height: 54)
 
-            Picker(selection: Binding(
-                get: { selectedLanguageID },
-                set: { newValue in
-                    selectedLanguageID = newValue
-                    UserDefaults.standard.set(newValue, forKey: PalmiLanguage.storageKey)
-                }
-            )) {
-                ForEach(PalmiLanguage.allCases) { language in
-                    Text(language.displayTitle)
-                        .tag(language.rawValue)
-                }
-            } label: {
-                HStack(spacing: 14) {
-                    Text(selectedLanguage.displayTitle)
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.primary)
+            ZStack {
+                Capsule()
+                    .fill(Color.white.opacity(0.96))
+                    .shadow(color: .black.opacity(0.08), radius: 16, y: 8)
 
-                    Spacer(minLength: 24)
+                Picker(selection: Binding(
+                    get: { selectedLanguageID },
+                    set: { newValue in
+                        selectedLanguageID = newValue
+                        UserDefaults.standard.set(newValue, forKey: PalmiLanguage.storageKey)
+                    }
+                )) {
+                    ForEach(PalmiLanguage.allCases) { language in
+                        Text(language.displayTitle)
+                            .tag(language.rawValue)
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Spacer(minLength: 0)
 
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.secondary)
+                        Text(selectedLanguage.displayTitle)
+                            .font(.headline.weight(.semibold))
+
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption.weight(.bold))
+                            .accessibilityHidden(true)
+
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(Color.blue)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 56)
+                    .contentShape(Capsule())
                 }
-                .padding(.horizontal, 22)
-                .frame(height: 62)
-                .frame(maxWidth: 360)
-                .contentShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-                .glassEffect(.regular.tint(.white.opacity(0.16)), in: .rect(cornerRadius: 28))
+                .pickerStyle(.menu)
+                .id(selectedLanguageID)
+                .frame(maxWidth: .infinity)
+                .frame(height: 56)
             }
-            .pickerStyle(.menu)
-            .id(selectedLanguageID)
+            .frame(maxWidth: 360)
+            .frame(height: 56)
 
             Button {
                 onContinue()
@@ -1383,7 +1394,7 @@ private struct OnboardingModelConfigurationStep: View {
     @State private var isConfirmingSkip = false
 
     private var canContinue: Bool {
-        store.modelPlanStore.activePlanSnapshot()?.isUsable == true
+        store.modelPlanStore.plans.contains { $0.isUsable }
     }
 
     var body: some View {
@@ -1395,48 +1406,49 @@ private struct OnboardingModelConfigurationStep: View {
                             onBack()
                         } label: {
                             Image(systemName: "chevron.left")
-                                .font(.system(size: 22, weight: .semibold))
+                                .font(.system(size: 18, weight: .semibold))
                                 .foregroundStyle(.primary)
-                                .frame(width: 56, height: 56)
+                                .frame(width: 48, height: 48)
                                 .contentShape(Circle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(PalmiL10n.tr("common.back"))
-                    }
-
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            isConfirmingSkip = true
-                        } label: {
-                            Image(systemName: "forward.end.fill")
-                                .font(.system(size: 21, weight: .semibold))
-                                .foregroundStyle(.primary)
-                                .frame(width: 56, height: 56)
-                                .contentShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(PalmiL10n.tr("common.skip"))
                     }
                 }
                 .safeAreaInset(edge: .bottom) {
                     VStack(spacing: 0) {
                         Divider().opacity(0.35)
 
-                        Button {
-                            onContinue()
-                        } label: {
-                            Text(PalmiL10n.tr("common.done"))
-                                .font(.headline.weight(.semibold))
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 54)
-                                .foregroundStyle(canContinue ? .white : .secondary)
-                                .background(
-                                    canContinue ? Color.blue : Color.secondary.opacity(0.14),
-                                    in: Capsule()
-                                )
+                        VStack(spacing: 8) {
+                            Button {
+                                onContinue()
+                            } label: {
+                                Text(PalmiL10n.tr("common.done"))
+                                    .font(.headline.weight(.semibold))
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 54)
+                                    .foregroundStyle(canContinue ? .white : .secondary)
+                                    .background(
+                                        canContinue ? Color.blue : Color.secondary.opacity(0.14),
+                                        in: Capsule()
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(!canContinue)
+
+                            Button {
+                                isConfirmingSkip = true
+                            } label: {
+                                Text(PalmiL10n.tr("onboarding.model.skipInline"))
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(Color.blue)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 28)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(PalmiL10n.tr("common.skip"))
                         }
-                        .buttonStyle(.plain)
-                        .disabled(!canContinue)
                         .padding(.horizontal, 20)
                         .padding(.top, 12)
                         .padding(.bottom, 12)
@@ -2156,7 +2168,12 @@ private struct ModelConfigurationManagerScreen: View {
                     presentedPlan = ModelPlanPresentation(planID: planID)
                 } label: {
                     Image(systemName: "plus")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 48, height: 48)
+                        .contentShape(Circle())
                 }
+                .buttonStyle(.plain)
                 .accessibilityLabel(PalmiL10n.tr("model.plan.add"))
             }
         }
