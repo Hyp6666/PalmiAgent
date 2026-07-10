@@ -110,7 +110,7 @@ final class LLMToolCallingService {
         providerID: APIProviderID,
         actions: [ToolAction],
         onEvent: (@MainActor (LLMToolSessionEvent) -> Void)? = nil,
-        execute: @escaping @MainActor (ToolAction, ToolArguments) async -> ToolExecutionOutcome
+        execute: @escaping @MainActor (ToolAction, ToolArguments) async throws -> ToolExecutionOutcome
     ) async throws -> LLMToolSession {
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPrompt.isEmpty else {
@@ -168,7 +168,7 @@ final class LLMToolCallingService {
             let stepID = UUID()
             let argumentsJSON = arguments.normalizedJSONString()
             onEvent?(.toolStarted(stepID: stepID, action: action, argumentsJSON: argumentsJSON))
-            let outcome = await execute(action, arguments)
+            let outcome = try await execute(action, arguments)
             let step = LLMToolExecutionStep(
                 id: stepID,
                 action: action,
@@ -325,6 +325,10 @@ final class LLMToolCallingService {
                         attempts: attempts
                     )
                 )
+            case .malformedStreamPayload(let attempts):
+                throw AppError.operationFailed(retryAnnotatedMessage("模型流包含无法解析的数据帧。", attempts: attempts))
+            case .incompleteStream(let attempts):
+                throw AppError.operationFailed(retryAnnotatedMessage("模型流在返回完成标记前中断。", attempts: attempts))
             }
         }
 
@@ -434,6 +438,10 @@ final class LLMToolCallingService {
                         attempts: attempts
                     )
                 )
+            case .malformedStreamPayload(let attempts):
+                throw AppError.operationFailed(retryAnnotatedMessage("模型流包含无法解析的数据帧。", attempts: attempts))
+            case .incompleteStream(let attempts):
+                throw AppError.operationFailed(retryAnnotatedMessage("模型流在返回完成标记前中断。", attempts: attempts))
             }
         }
     }
@@ -904,6 +912,10 @@ final class APIConnectionValidationService {
                         attempts: attempts
                     )
                 )
+            case .malformedStreamPayload(let attempts):
+                throw AppError.operationFailed(validationRetryMessage("联通验证失败：模型流数据无法解析。", attempts: attempts))
+            case .incompleteStream(let attempts):
+                throw AppError.operationFailed(validationRetryMessage("联通验证失败：模型流提前中断。", attempts: attempts))
             }
         }
 

@@ -333,6 +333,7 @@ enum AgentEvent: Sendable {
     case taskStateChanged(AgentTaskStateSnapshot)
     case toolStarted(stepID: UUID, action: ToolAction, argumentsJSON: String)
     case toolFinished(step: LLMToolExecutionStep)
+    case persistenceBarrier(UUID)
 }
 
 struct AgentTurnResult: Sendable {

@@ -37,26 +37,30 @@ struct ContextLayerManager {
         return (composedSystemPrompt, ContextLayerSnapshot(records: records))
     }
 
-    func hiddenContextPrompt(
-        hiddenSummary: AgentHiddenContextSummary?,
+    func stableSummaryPrompt(
+        hiddenSummary: AgentHiddenContextSummary?
+    ) -> (prompt: String?, records: [ContextLayerRecord]) {
+        guard let hiddenSummary,
+              !hiddenSummary.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return (nil, [])
+        }
+        let prompt = hiddenSummaryPrompt(for: hiddenSummary)
+        return (
+            prompt,
+            [ContextLayerRecord(
+                kind: .hiddenSummary,
+                approximateTokens: ApproximateTokenCounter.estimate(prompt),
+                isEvidenceSource: false
+            )]
+        )
+    }
+
+    func volatileContextPrompt(
         hiddenResearch: String?,
         hiddenTaskState: String?
     ) -> (prompt: String?, records: [ContextLayerRecord]) {
         var sections: [String] = []
         var records: [ContextLayerRecord] = []
-
-        if let hiddenSummary,
-           !hiddenSummary.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let layer = hiddenSummaryPrompt(for: hiddenSummary)
-            sections.append(layer)
-            records.append(
-                ContextLayerRecord(
-                    kind: .hiddenSummary,
-                    approximateTokens: ApproximateTokenCounter.estimate(layer),
-                    isEvidenceSource: false
-                )
-            )
-        }
 
         if let hiddenResearch,
            !hiddenResearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

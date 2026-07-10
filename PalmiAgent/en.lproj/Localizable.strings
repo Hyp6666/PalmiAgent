@@ -36,6 +36,7 @@
 "chat.contextCompaction.skipped" = "No context compression needed";
 "chat.error.callFailed" = "Call failed: %@";
 "chat.error.interruptedAfterRestart" = "The previous run was interrupted after the app quit or the system reclaimed it.";
+"chat.error.sideEffectUnknown" = "The previous run stopped with an unknown tool side-effect state (%@). It will not retry automatically; verify the actual result first.";
 "chat.error.selectSessionFirst" = "Select a session first.";
 "chat.error.sessionBusy" = "This session is still processing. Send again later.";
 "chat.export.attachments" = "Attachments";

@@ -28,8 +28,8 @@ struct RouteOpenResult {
 @MainActor
 final class LocationService: NSObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
-    private var locationContinuation: CheckedContinuation<CLLocation, Error>?
-    private var authorizationContinuation: CheckedContinuation<Void, Error>?
+    private let locationBroker = LocationRequestBroker<CLLocation>()
+    private let authorizationBroker = LocationRequestBroker<Void>()
 
     override init() {
         super.init()
@@ -270,16 +270,14 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     private func requestLocation() async throws -> CLLocation {
         let status = manager.authorizationStatus
         if status == .notDetermined {
-            try await withCheckedThrowingContinuation { continuation in
-                authorizationContinuation = continuation
+            try await authorizationBroker.wait {
                 manager.requestWhenInUseAuthorization()
             }
         } else if status == .denied || status == .restricted {
             throw AppError.permissionDenied("定位权限被拒绝，请先在设置里授权。")
         }
 
-        return try await withCheckedThrowingContinuation { continuation in
-            locationContinuation = continuation
+        return try await locationBroker.wait {
             manager.requestLocation()
         }
     }
@@ -287,28 +285,23 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         switch manager.authorizationStatus {
         case .authorizedAlways, .authorizedWhenInUse:
-            authorizationContinuation?.resume()
-            authorizationContinuation = nil
+            authorizationBroker.resolve(.success(()))
         case .denied, .restricted:
-            authorizationContinuation?.resume(throwing: AppError.permissionDenied("定位权限被拒绝。"))
-            authorizationContinuation = nil
+            authorizationBroker.resolve(.failure(AppError.permissionDenied("定位权限被拒绝。")))
         case .notDetermined:
             break
         @unknown default:
-            authorizationContinuation?.resume(throwing: AppError.operationFailed("未知的定位权限状态。"))
-            authorizationContinuation = nil
+            authorizationBroker.resolve(.failure(AppError.operationFailed("未知的定位权限状态。")))
         }
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         if let location = locations.first {
-            locationContinuation?.resume(returning: location)
-            locationContinuation = nil
+            locationBroker.resolve(.success(location))
         }
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: any Error) {
-        locationContinuation?.resume(throwing: error)
-        locationContinuation = nil
+        locationBroker.resolve(.failure(error))
     }
 }

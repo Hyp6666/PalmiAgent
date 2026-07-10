@@ -239,7 +239,8 @@ enum OpenAICompatibleChatAdapter {
         toolChoice: String?,
         temperature: Double,
         stream: Bool?,
-        runtimeProfile: LLMProviderRuntimeProfile
+        runtimeProfile: LLMProviderRuntimeProfile,
+        promptCacheKey: String? = nil
     ) -> OpenAIChatCompletionRequest {
         let reasoningResolution = reasoningResolution(for: runtimeProfile)
         let resolvedModelID = runtimeProfile.model.id.isEmpty ? model : runtimeProfile.model.id
@@ -256,8 +257,19 @@ enum OpenAICompatibleChatAdapter {
             thinkingBudget: reasoningResolution.thinkingBudget,
             reasoningSplit: reasoningResolution.reasoningSplit,
             reasoningFormat: reasoningResolution.reasoningFormat,
-            reasoning: reasoningResolution.reasoning
+            reasoning: reasoningResolution.reasoning,
+            promptCacheKey: resolvedPromptCacheKey(
+                promptCacheKey,
+                providerID: runtimeProfile.providerID
+            )
         )
+    }
+
+    nonisolated static func resolvedPromptCacheKey(
+        _ requestedKey: String?,
+        providerID: APIProviderID
+    ) -> String? {
+        providerID == .openai ? requestedKey : nil
     }
 
     static func reasoningResolution(

@@ -160,11 +160,21 @@ final class ChatStore {
     private final class ActiveRun {
         let selection: WorkspaceSelection
         let loop: AgentLoop
+        let runID: UUID
         var eventTask: Task<Void, Never>?
+        var executionTask: Task<Void, Never>?
+        var continuedProcessingIdentifier: String?
+        var modelRequestID = UUID()
+        var draftContent = ""
+        var draftReasoning = ""
+        var lastDraftFlushNanoseconds: UInt64 = 0
+        var journalError: Error?
+        var persistenceBarrierContinuations: [UUID: CheckedContinuation<Void, Never>] = [:]
 
-        init(selection: WorkspaceSelection, loop: AgentLoop) {
+        init(selection: WorkspaceSelection, loop: AgentLoop, runID: UUID) {
             self.selection = selection
             self.loop = loop
+            self.runID = runID
         }
     }
 
@@ -210,6 +220,8 @@ final class ChatStore {
     private var activeStreamingReasoningBuffer: LiveReasoningBuffer?
     private var activeContextCompactionMessageID: UUID?
     private var activeRuns: [WorkspaceSelection: ActiveRun] = [:]
+    private let runJournalStore = AgentRunJournalStore()
+    private let continuedProcessingCoordinator = AgentContinuedProcessingCoordinator()
     private var agentEventTask: Task<Void, Never>?
     private var loadedSelection: WorkspaceSelection?
     private var composerStatesBySelection: [WorkspaceSelection: SessionComposerState] = [:]
@@ -380,7 +392,9 @@ final class ChatStore {
         self.workspaceStore = workspaceStore
         self.toolPermissionStore = toolPermissionStore
         self.toolAuthorizationStore = toolAuthorizationStore
-        markAllStaleRunLedgersInterruptedIfNeeded()
+        Task { [weak self] in
+            await self?.reconcileStaleRunJournals()
+        }
         observeAgentEvents()
     }
 
@@ -437,10 +451,21 @@ final class ChatStore {
         let startedAt = Date()
         let runLoop = makePreparedRunLoop(for: turnSelection)
         let pendingAutoTitleTarget = autoTitleTargetIfNeeded(for: turnSelection, loop: runLoop)
-        let activeRun = ActiveRun(selection: turnSelection, loop: runLoop)
+        let runID = UUID()
+        let activeRun = ActiveRun(selection: turnSelection, loop: runLoop, runID: runID)
+        runLoop.setToolExecutionCheckpoint { [weak self, weak activeRun] stepID, action, argumentsJSON in
+            guard let self, let activeRun else { throw CancellationError() }
+            try await self.checkpointToolStart(
+                stepID: stepID,
+                action: action,
+                argumentsJSON: argumentsJSON,
+                run: activeRun
+            )
+        }
         activeRun.eventTask = observeAgentEvents(for: turnSelection, loop: runLoop)
         activeRuns[turnSelection] = activeRun
         let runLedger = AgentRunLedger(
+            runID: runID,
             projectID: turnSelection.projectID,
             threadID: turnSelection.threadID,
             sessionID: runLoop.currentSessionSnapshot().id,
@@ -486,7 +511,12 @@ final class ChatStore {
             )
         }
 
-        Task {
+        activeRun.executionTask = Task {
+            do {
+                _ = try await runJournalStore.append(runID: runID, payload: .runStarted)
+            } catch {
+                activeRun.journalError = error
+            }
             await workspaceManager.withSelection(turnSelection) {
                 do {
                     let modelInput = await inputWithAgentRuntimeContext(
@@ -504,6 +534,7 @@ final class ChatStore {
                         imagePaths: turnImagePaths,
                         modelOverrides: modelOverrides
                     )
+                    try await finishJournalEventStream(for: activeRun)
 
                     if isRunSelectionDisplayed(turnSelection) {
                         if !result.finalReply.isEmpty {
@@ -531,11 +562,17 @@ final class ChatStore {
                             errorMessage: nil
                         )
                     }
+                    try await flushJournalDraft(for: activeRun)
+                    _ = try await runJournalStore.append(runID: runID, payload: .runCompleted)
                     updateRunLedger(
                         for: turnSelection,
                         status: .completed,
                         phase: "completed",
                         errorMessage: nil
+                    )
+                    continuedProcessingCoordinator.complete(
+                        identifier: activeRun.continuedProcessingIdentifier,
+                        success: true
                     )
                     persistAgentSession(runLoop, for: turnSelection)
                     await autoCompactIfNeeded(
@@ -544,7 +581,54 @@ final class ChatStore {
                         modelOverrides: modelOverrides
                     )
                     syncDisplayedAgentLoopIfNeeded(for: turnSelection, from: runLoop)
+                } catch is CancellationError {
+                    await finishJournalEventStreamIgnoringFailure(for: activeRun)
+                    if isRunSelectionDisplayed(turnSelection) {
+                        finalizeStreamingReasoning()
+                        finalizeActiveSession()
+                    }
+                    let checkpointError = await recordTerminalCheckpoint(
+                        for: activeRun,
+                        payload: .runInterrupted(reason: "cancelled")
+                    )
+                    updateRunLedger(
+                        for: turnSelection,
+                        status: .interrupted,
+                        phase: checkpointError == nil ? "cancelled" : "cancelled_checkpoint_failed",
+                        errorMessage: checkpointError
+                    )
+                    continuedProcessingCoordinator.complete(
+                        identifier: activeRun.continuedProcessingIdentifier,
+                        success: false
+                    )
+                    persistAgentSession(runLoop, for: turnSelection)
+                    syncDisplayedAgentLoopIfNeeded(for: turnSelection, from: runLoop)
+                } catch let budgetError as AgentRunControlError {
+                    await finishJournalEventStreamIgnoringFailure(for: activeRun)
+                    let message = budgetError.errorDescription ?? "运行预算已耗尽"
+                    if isRunSelectionDisplayed(turnSelection) {
+                        finalizeStreamingReasoning()
+                        finalizeActiveSession()
+                        appendAgentMessage(kind: .summary, content: message)
+                    }
+                    let checkpointError = await recordTerminalCheckpoint(
+                        for: activeRun,
+                        payload: .runInterrupted(reason: message)
+                    )
+                    updateRunLedger(
+                        for: turnSelection,
+                        status: .interrupted,
+                        phase: checkpointError == nil ? "budget_stop" : "budget_stop_checkpoint_failed",
+                        errorMessage: checkpointError ?? message
+                    )
+                    continuedProcessingCoordinator.complete(
+                        identifier: activeRun.continuedProcessingIdentifier,
+                        success: false
+                    )
+                    persistAgentSession(runLoop, for: turnSelection)
+                    syncDisplayedAgentLoopIfNeeded(for: turnSelection, from: runLoop)
                 } catch {
+                    await finishJournalEventStreamIgnoringFailure(for: activeRun)
                     let message = (error as? AppError)?.localizedDescription ?? error.localizedDescription
                     if isRunSelectionDisplayed(turnSelection) {
                         errorMessage = message
@@ -558,11 +642,19 @@ final class ChatStore {
                             errorMessage: message
                         )
                     }
+                    let checkpointError = await recordTerminalCheckpoint(
+                        for: activeRun,
+                        payload: .runFailed(reason: message)
+                    )
                     updateRunLedger(
                         for: turnSelection,
                         status: .failed,
-                        phase: "failed",
-                        errorMessage: message
+                        phase: checkpointError == nil ? "failed" : "failed_checkpoint_failed",
+                        errorMessage: checkpointError ?? message
+                    )
+                    continuedProcessingCoordinator.complete(
+                        identifier: activeRun.continuedProcessingIdentifier,
+                        success: false
                     )
                     persistAgentSession(runLoop, for: turnSelection)
                     syncDisplayedAgentLoopIfNeeded(for: turnSelection, from: runLoop)
@@ -592,6 +684,25 @@ final class ChatStore {
             }
             refreshWorkspaceContents(afterUpdating: turnSelection)
         }
+        activeRun.continuedProcessingIdentifier = continuedProcessingCoordinator.begin(
+            runID: runID,
+            onExpiration: { [weak self, weak activeRun] in
+                guard let self, let activeRun else { return }
+                await self.finishJournalEventStreamIgnoringFailure(for: activeRun)
+                do {
+                    try await self.flushJournalDraft(for: activeRun)
+                } catch {
+                    activeRun.journalError = error
+                }
+                activeRun.executionTask?.cancel()
+            }
+        )
+    }
+
+    func stopDisplayedRun() {
+        guard let selection = displayedSelection,
+              let run = activeRuns[selection] else { return }
+        run.executionTask?.cancel()
     }
 
     func compactContextNow() {
@@ -825,10 +936,7 @@ final class ChatStore {
             errorMessage = nil
             loadedSelection = selection
             if !isReturningToRunningSession {
-                let didMarkStaleRun = markStaleRunLedgerInterruptedIfNeeded(for: selection)
-                if !didMarkStaleRun {
-                    closeDanglingSessions(finishedAt: .now)
-                }
+                closeDanglingSessions(finishedAt: .now)
             }
         } catch {
             messages = []
@@ -1141,41 +1249,82 @@ final class ChatStore {
         }
     }
 
-    @discardableResult
-    private func markStaleRunLedgerInterruptedIfNeeded(for selection: WorkspaceSelection) -> Bool {
-        do {
-            return try workspaceManager.withSelection(selection) {
-                guard var ledger = try workspaceManager.loadRunLedgerForCurrentThread(),
-                      ledger.status == .running || ledger.status == .waitingApproval else {
-                    return false
-                }
-                let interruptionMessage = PalmiL10n.tr("chat.error.interruptedAfterRestart")
-                ledger.status = .interrupted
-                ledger.phase = "interrupted_after_restart"
-                ledger.updatedAt = .now
-                ledger.errorMessage = interruptionMessage
-                try workspaceManager.saveRunLedgerForCurrentThread(ledger)
-                markDanglingMessagesInterrupted(
-                    for: selection,
-                    message: interruptionMessage
-                )
-                return true
-            }
-        } catch {
-            errorMessage = error.localizedDescription
-            return false
-        }
-    }
-
-    private func markAllStaleRunLedgersInterruptedIfNeeded() {
+    private func reconcileStaleRunJournals() async {
         do {
             var didChange = false
             for project in try workspaceManager.listProjects(on: nil) {
                 for thread in try workspaceManager.listThreads(in: project.id) {
                     let selection = WorkspaceSelection(projectID: project.id, threadID: thread.id)
-                    if markStaleRunLedgerInterruptedIfNeeded(for: selection) {
-                        didChange = true
+                    let staleLedger = try workspaceManager.withSelection(selection) {
+                        try workspaceManager.loadRunLedgerForCurrentThread()
                     }
+                    guard let staleLedger,
+                          staleLedger.status == .running || staleLedger.status == .waitingApproval else {
+                        continue
+                    }
+
+                    let recovery = try? await runJournalStore.recovery(runID: staleLedger.runID)
+                    let interruptionMessage: String
+                    if case let .requiresUserDecision(toolCallID) = recovery?.status {
+                        interruptionMessage = PalmiL10n.tr(
+                            "chat.error.sideEffectUnknown",
+                            toolCallID
+                        )
+                    } else {
+                        interruptionMessage = PalmiL10n.tr("chat.error.interruptedAfterRestart")
+                    }
+                    let draft = recovery?.latestDraft?.content
+
+                    try workspaceManager.withSelection(selection) {
+                        guard var ledger = try workspaceManager.loadRunLedgerForCurrentThread(),
+                              ledger.status == .running || ledger.status == .waitingApproval else {
+                            return
+                        }
+                        if recovery?.status == .completed {
+                            ledger.status = .completed
+                            ledger.phase = "recovered_completed"
+                            ledger.errorMessage = nil
+                        } else {
+                            ledger.status = .interrupted
+                            ledger.phase = "interrupted_after_restart"
+                            ledger.errorMessage = interruptionMessage
+                        }
+                        ledger.updatedAt = .now
+                        try workspaceManager.saveRunLedgerForCurrentThread(ledger)
+
+                        var storedMessages = finalizedDanglingSessionMessages(
+                            normalizeMessages(try workspaceManager.loadChatMessagesForCurrentThread()),
+                            outputTokens: nil,
+                            finishedAt: .now
+                        )
+                        if let draft,
+                           !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                           !storedMessages.contains(where: {
+                               $0.role == .agent && $0.kind == .normal && $0.content == draft
+                           }) {
+                            storedMessages.append(
+                                PalmiChatMessage(role: .agent, kind: .normal, content: draft)
+                            )
+                        }
+                        if recovery?.status != .completed {
+                            storedMessages = appendInterruptionNoticeIfNeeded(
+                                to: storedMessages,
+                                message: interruptionMessage
+                            )
+                        }
+                        try workspaceManager.saveChatMessagesForCurrentThread(
+                            normalizeMessages(storedMessages)
+                        )
+                    }
+                    if selection == loadedSelection {
+                        messages = normalizeMessages(
+                            try workspaceManager.withSelection(selection) {
+                                try workspaceManager.loadChatMessagesForCurrentThread()
+                            }
+                        )
+                        clearActiveSessionState()
+                    }
+                    didChange = true
                 }
             }
             if didChange {
@@ -1195,42 +1344,6 @@ final class ChatStore {
                 }
                 ledger.updatedAt = .now
                 try workspaceManager.saveRunLedgerForCurrentThread(ledger)
-            }
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private func markDanglingMessagesInterrupted(
-        for selection: WorkspaceSelection,
-        message interruptionMessage: String
-    ) {
-        if loadedSelection == selection {
-            messages = appendInterruptionNoticeIfNeeded(
-                to: finalizedDanglingSessionMessages(
-                    messages,
-                    outputTokens: nil,
-                    finishedAt: .now
-                ),
-                message: interruptionMessage
-            )
-            persistMessages()
-            clearActiveSessionState()
-            return
-        }
-
-        do {
-            try workspaceManager.withSelection(selection) {
-                let storedMessages = normalizeMessages(try workspaceManager.loadChatMessagesForCurrentThread())
-                let interruptedMessages = appendInterruptionNoticeIfNeeded(
-                    to: finalizedDanglingSessionMessages(
-                        storedMessages,
-                        outputTokens: nil,
-                        finishedAt: .now
-                    ),
-                    message: interruptionMessage
-                )
-                try workspaceManager.saveChatMessagesForCurrentThread(normalizeMessages(interruptedMessages))
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -1521,7 +1634,7 @@ final class ChatStore {
                 presentBrowserIfNeeded(from: step)
             }
             persistIfNeeded()
-        case .eventLogged, .taskStateChanged, .approvalRequested, .approvalResolved:
+        case .eventLogged, .taskStateChanged, .approvalRequested, .approvalResolved, .persistenceBarrier:
             break
         }
 
@@ -1546,7 +1659,7 @@ final class ChatStore {
                     to: storedMessages,
                     viewState: viewState,
                     composerState: composerState,
-                    persistTransientEvents: true
+                    persistTransientEvents: false
                 )
                 storedMessages = result.messages
                 viewState = result.viewState
@@ -1667,7 +1780,7 @@ final class ChatStore {
         case let .toolFinished(step):
             finishToolCard(step, messages: &messages, viewState: viewState)
             markPersistent()
-        case .eventLogged, .taskStateChanged, .approvalRequested, .approvalResolved:
+        case .eventLogged, .taskStateChanged, .approvalRequested, .approvalResolved, .persistenceBarrier:
             break
         }
 
@@ -1690,7 +1803,8 @@ final class ChatStore {
         case .eventLogged,
              .taskStateChanged,
              .approvalRequested,
-             .approvalResolved:
+             .approvalResolved,
+             .persistenceBarrier:
             return false
         }
     }
@@ -1711,7 +1825,8 @@ final class ChatStore {
              .eventLogged,
              .taskStateChanged,
              .approvalRequested,
-             .approvalResolved:
+             .approvalResolved,
+             .persistenceBarrier:
             return false
         }
     }
@@ -2601,8 +2716,163 @@ final class ChatStore {
         Task { [weak self] in
             guard let self else { return }
             for await event in loop.events {
+                if let run = self.activeRuns[selection], run.loop === loop {
+                    do {
+                        try await self.journalAgentEvent(event, for: run)
+                    } catch {
+                        run.journalError = error
+                    }
+                }
                 self.handleAgentEvent(event, selection: selection, loop: loop)
+                if case let .persistenceBarrier(id) = event,
+                   let run = self.activeRuns[selection] {
+                    run.persistenceBarrierContinuations.removeValue(forKey: id)?.resume()
+                }
             }
+        }
+    }
+
+    private func finishJournalEventStream(for run: ActiveRun) async throws {
+        await waitForPersistenceBarrier(for: run)
+        if let journalError = run.journalError {
+            throw journalError
+        }
+    }
+
+    private func finishJournalEventStreamIgnoringFailure(for run: ActiveRun) async {
+        await waitForPersistenceBarrier(for: run)
+    }
+
+    private func waitForPersistenceBarrier(for run: ActiveRun) async {
+        let id = UUID()
+        await withCheckedContinuation { continuation in
+            run.persistenceBarrierContinuations[id] = continuation
+            run.loop.emitPersistenceBarrier(id)
+        }
+    }
+
+    private func checkpointToolStart(
+        stepID: UUID,
+        action: ToolAction,
+        argumentsJSON: String,
+        run: ActiveRun
+    ) async throws {
+        if let journalError = run.journalError {
+            throw journalError
+        }
+        await waitForPersistenceBarrier(for: run)
+        if let journalError = run.journalError {
+            throw journalError
+        }
+        let toolCallID = stepID.uuidString.lowercased()
+        _ = try await runJournalStore.append(
+            runID: run.runID,
+            payload: .toolIntent(
+                toolCallID: toolCallID,
+                toolName: action.id.rawValue,
+                argumentsJSON: argumentsJSON,
+                isIdempotent: action.id.policyMetadata.isIdempotent
+            )
+        )
+        _ = try await runJournalStore.append(
+            runID: run.runID,
+            payload: .toolStarted(toolCallID: toolCallID)
+        )
+    }
+
+    private func journalAgentEvent(_ event: AgentEvent, for run: ActiveRun) async throws {
+        continuedProcessingCoordinator.reportProgress(identifier: run.continuedProcessingIdentifier)
+        switch event {
+        case let .eventLogged(entry) where entry.kind == .modelRequest:
+            try await flushJournalDraft(for: run)
+            run.draftContent = ""
+            run.draftReasoning = ""
+            run.modelRequestID = UUID()
+            _ = try await runJournalStore.append(
+                runID: run.runID,
+                payload: .modelRequestStarted(requestID: run.modelRequestID)
+            )
+        case let .eventLogged(entry) where entry.kind == .modelResponse:
+            try await flushJournalDraft(for: run)
+            _ = try await runJournalStore.append(
+                runID: run.runID,
+                payload: .modelCompleted(requestID: run.modelRequestID)
+            )
+        case let .streamingDelta(text):
+            run.draftContent += text
+            try await flushJournalDraftIfNeeded(for: run)
+        case let .reasoningDelta(text):
+            run.draftReasoning += text
+            try await flushJournalDraftIfNeeded(for: run)
+        case .toolStarted:
+            break
+        case let .toolFinished(step):
+            _ = try await runJournalStore.append(
+                runID: run.runID,
+                payload: .toolCompleted(
+                    toolCallID: step.id.uuidString.lowercased(),
+                    output: step.result.details,
+                    isError: step.result.status == .failure
+                )
+            )
+        case let .approvalRequested(request):
+            _ = try await runJournalStore.append(
+                runID: run.runID,
+                payload: .approvalRequested(
+                    approvalID: request.id,
+                    toolCallID: request.toolUseID
+                )
+            )
+        case let .approvalResolved(id, approved):
+            _ = try await runJournalStore.append(
+                runID: run.runID,
+                payload: .approvalResolved(approvalID: id, approved: approved)
+            )
+        case .persistenceBarrier:
+            break
+        default:
+            break
+        }
+    }
+
+    private func flushJournalDraftIfNeeded(for run: ActiveRun) async throws {
+        let now = DispatchTime.now().uptimeNanoseconds
+        let bytes = run.draftContent.utf8.count + run.draftReasoning.utf8.count
+        guard bytes >= 4_096 || now - run.lastDraftFlushNanoseconds >= 750_000_000 else { return }
+        try await flushJournalDraft(for: run, nowNanoseconds: now)
+    }
+
+    private func flushJournalDraft(
+        for run: ActiveRun,
+        nowNanoseconds: UInt64 = DispatchTime.now().uptimeNanoseconds
+    ) async throws {
+        guard !run.draftContent.isEmpty || !run.draftReasoning.isEmpty else { return }
+        _ = try await runJournalStore.append(
+            runID: run.runID,
+            payload: .streamDraft(
+                requestID: run.modelRequestID,
+                content: run.draftContent,
+                reasoning: run.draftReasoning.isEmpty ? nil : run.draftReasoning
+            )
+        )
+        run.lastDraftFlushNanoseconds = nowNanoseconds
+    }
+
+    private func recordTerminalCheckpoint(
+        for run: ActiveRun,
+        payload: AgentRunJournalPayload
+    ) async -> String? {
+        do {
+            try await flushJournalDraft(for: run)
+            _ = try await runJournalStore.append(runID: run.runID, payload: payload)
+            return nil
+        } catch {
+            run.journalError = error
+            let message = "运行检查点写入失败：\(error.localizedDescription)"
+            if isRunSelectionDisplayed(run.selection) {
+                errorMessage = message
+            }
+            return message
         }
     }
 

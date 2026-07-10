@@ -152,9 +152,20 @@ final class ManualLabStore {
     func run(_ action: ToolAction) {
         runningActionID = action.id
         Task {
-            let outcome = await executor.execute(action, arguments: .empty)
-            self.runningActionID = nil
-            self.applyExecutionOutcome(outcome, for: action)
+            defer { self.runningActionID = nil }
+            do {
+                let outcome = try await executor.execute(action, arguments: .empty)
+                self.applyExecutionOutcome(outcome, for: action)
+            } catch is CancellationError {
+                return
+            } catch {
+                self.appendCallbackResult(
+                    for: action.id,
+                    summary: "执行失败",
+                    details: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription,
+                    status: .failure
+                )
+            }
         }
     }
 
@@ -226,7 +237,7 @@ final class ManualLabStore {
                         }
                     }
                 ) { action, arguments in
-                    let outcome = await self.executor.execute(action, arguments: arguments)
+                    let outcome = try await self.executor.execute(action, arguments: arguments)
                     self.applyExecutionOutcome(outcome, for: action)
                     return outcome
                 }

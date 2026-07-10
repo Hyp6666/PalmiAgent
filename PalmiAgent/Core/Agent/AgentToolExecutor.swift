@@ -53,8 +53,8 @@ final class AgentToolExecutor {
         _ prepared: AgentPreparedToolExecution,
         stepID: UUID,
         modelOverrides: AgentModelRoleOverrides = .empty
-    ) async -> AgentToolExecutionResult {
-        let outcome = await actionExecutor.execute(
+    ) async throws -> AgentToolExecutionResult {
+        let outcome = try await actionExecutor.execute(
             prepared.action,
             arguments: prepared.arguments,
             modelOverrides: modelOverrides

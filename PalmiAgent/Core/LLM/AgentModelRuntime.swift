@@ -183,19 +183,22 @@ struct AgentModelRequest: Sendable {
     let tools: [AgentModelToolDefinition]
     let toolIntent: AgentModelToolIntent
     let temperatureOverride: Double?
+    let promptCacheKey: String?
 
     init(
         selection: AgentModelSelection,
         apiMessages: [AgentModelMessage],
         tools: [AgentModelToolDefinition] = [],
         toolIntent: AgentModelToolIntent = .auto,
-        temperatureOverride: Double? = nil
+        temperatureOverride: Double? = nil,
+        promptCacheKey: String? = nil
     ) {
         self.selection = selection
         self.apiMessages = apiMessages
         self.tools = tools
         self.toolIntent = toolIntent
         self.temperatureOverride = temperatureOverride
+        self.promptCacheKey = promptCacheKey
     }
 }
 
@@ -208,6 +211,7 @@ struct AgentModelStreamingRequest {
     let onReasoningDelta: @MainActor (String) -> Void
     let onTokenEstimate: (@MainActor (Int) -> Void)?
     let temperatureOverride: Double?
+    let promptCacheKey: String?
 
     init(
         selection: AgentModelSelection,
@@ -217,7 +221,8 @@ struct AgentModelStreamingRequest {
         onDelta: @escaping @MainActor (String) -> Void,
         onReasoningDelta: @escaping @MainActor (String) -> Void = { _ in },
         onTokenEstimate: (@MainActor (Int) -> Void)? = nil,
-        temperatureOverride: Double? = nil
+        temperatureOverride: Double? = nil,
+        promptCacheKey: String? = nil
     ) {
         self.selection = selection
         self.apiMessages = apiMessages
@@ -227,6 +232,7 @@ struct AgentModelStreamingRequest {
         self.onReasoningDelta = onReasoningDelta
         self.onTokenEstimate = onTokenEstimate
         self.temperatureOverride = temperatureOverride
+        self.promptCacheKey = promptCacheKey
     }
 }
 

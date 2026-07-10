@@ -36,6 +36,7 @@
 "chat.contextCompaction.skipped" = "無需壓縮上下文";
 "chat.error.callFailed" = "呼叫失敗：%@";
 "chat.error.interruptedAfterRestart" = "上次运行在 App 退出或系統回收后中断。";
+"chat.error.sideEffectUnknown" = "上次運行在工具副作用狀態未知時中斷（%@）。不會自動重試，請先確認實際結果。";
 "chat.error.selectSessionFirst" = "請先選擇一個對話。";
 "chat.error.sessionBusy" = "目前對話正在處理，請稍後再傳送。";
 "chat.export.attachments" = "附件";

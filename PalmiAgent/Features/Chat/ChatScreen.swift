@@ -831,7 +831,7 @@ struct ChatScreen: View {
             try? await Task.sleep(nanoseconds: 1_200_000_000)
             await MainActor.run {
                 withAnimation(.easeInOut(duration: 0.16)) {
-                    copiedAnswerMessageIDs.remove(messageID)
+                    _ = copiedAnswerMessageIDs.remove(messageID)
                 }
             }
         }
@@ -3133,22 +3133,27 @@ private struct ComposerSendButton: View {
 
     var body: some View {
         Button {
-            guard store.canSend else { return }
-            onSend()
+            if store.isLoading {
+                store.stopDisplayedRun()
+            } else {
+                guard store.canSend else { return }
+                onSend()
+            }
         } label: {
-            Image(systemName: "arrow.up")
+            Image(systemName: store.isLoading ? "stop.fill" : "arrow.up")
                 .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(store.canSend ? Color.white : Color.secondary.opacity(0.45))
+                .foregroundStyle(store.isLoading || store.canSend ? Color.white : Color.secondary.opacity(0.45))
                 .frame(width: composerControlSize, height: composerControlSize)
                 .background {
                     Circle()
-                        .fill(store.canSend ? Color.accentColor : Color.primary.opacity(0.06))
+                        .fill(store.isLoading || store.canSend ? Color.accentColor : Color.primary.opacity(0.06))
                 }
         }
         .buttonStyle(.plain)
-        .disabled(!store.canSend)
-        .accessibilityLabel(PalmiL10n.tr("chat.send"))
+        .disabled(!store.isLoading && !store.canSend)
+        .accessibilityLabel(store.isLoading ? "停止生成" : PalmiL10n.tr("chat.send"))
         .animation(animation, value: store.canSend)
+        .animation(animation, value: store.isLoading)
     }
 }
 

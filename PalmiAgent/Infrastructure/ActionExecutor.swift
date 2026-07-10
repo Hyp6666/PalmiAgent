@@ -78,7 +78,7 @@ final class ActionExecutor {
         _ action: ToolAction,
         arguments: ToolArguments,
         modelOverrides: AgentModelRoleOverrides = .empty
-    ) async -> ToolExecutionOutcome {
+    ) async throws -> ToolExecutionOutcome {
         do {
             switch action.id {
             case .fileRead:
@@ -86,7 +86,7 @@ final class ActionExecutor {
                 let readMode = WorkspaceReadMode(
                     rawValue: arguments.string("mode")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
                 ) ?? .auto
-                let result = try workspaceReadService.read(
+                let result = try await workspaceReadService.read(
                     at: path,
                     recursive: false,
                     maxCharacters: arguments.int("max_chars") ?? 20_000,
@@ -151,7 +151,7 @@ final class ActionExecutor {
                     let readMode = WorkspaceReadMode(
                         rawValue: arguments.string("mode")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
                     ) ?? .auto
-                    let result = try workspaceReadService.read(
+                    let result = try await workspaceReadService.read(
                         at: path,
                         recursive: recursive,
                         maxCharacters: arguments.int("max_chars") ?? 20_000,
@@ -359,7 +359,7 @@ final class ActionExecutor {
                 )
                 let beforeText = workspaceItemSnapshot(at: beforeTextPath)
                 let beforeJSON = workspaceItemSnapshot(at: beforeJSONPath)
-                let result = try ocrService.recognizeImageText(
+                let result = try await ocrService.recognizeImageText(
                     at: path,
                     outputDirectory: outputDirectory,
                     recognitionLanguages: arguments.stringArray("recognition_languages") ?? ["zh-Hans", "en-US"],
@@ -1197,6 +1197,8 @@ final class ActionExecutor {
                 activity.becomeCurrent()
                 return success(action, "继续活动已发布", details: "Handoff 活动已发布。\nactivityType：\(activity.activityType)\n标题：\(activity.title ?? "无")")
             }
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             return ToolExecutionOutcome(
                 result: makeResult(

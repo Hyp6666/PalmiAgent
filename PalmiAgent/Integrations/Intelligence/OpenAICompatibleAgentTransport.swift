@@ -15,6 +15,7 @@ struct OpenAIChatCompletionRequest: Encodable {
     let reasoningSplit: Bool?
     let reasoningFormat: String?
     let reasoning: OpenAIChatReasoningConfig?
+    let promptCacheKey: String?
 
     init(
         model: String,
@@ -30,7 +31,8 @@ struct OpenAIChatCompletionRequest: Encodable {
         thinkingBudget: Int? = nil,
         reasoningSplit: Bool? = nil,
         reasoningFormat: String? = nil,
-        reasoning: OpenAIChatReasoningConfig? = nil
+        reasoning: OpenAIChatReasoningConfig? = nil,
+        promptCacheKey: String? = nil
     ) {
         self.model = model
         self.messages = messages
@@ -46,6 +48,7 @@ struct OpenAIChatCompletionRequest: Encodable {
         self.reasoningSplit = reasoningSplit
         self.reasoningFormat = reasoningFormat
         self.reasoning = reasoning
+        self.promptCacheKey = promptCacheKey
     }
 
     enum CodingKeys: String, CodingKey {
@@ -63,6 +66,7 @@ struct OpenAIChatCompletionRequest: Encodable {
         case reasoningSplit = "reasoning_split"
         case reasoningFormat = "reasoning_format"
         case reasoning
+        case promptCacheKey = "prompt_cache_key"
     }
 }
 

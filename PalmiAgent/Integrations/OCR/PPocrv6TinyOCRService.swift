@@ -1,6 +1,4 @@
 import Foundation
-import UIKit
-import Vision
 
 struct TinyOCRModelAsset: Codable, Hashable, Sendable {
     let role: String
@@ -36,13 +34,16 @@ struct TinyOCRResult: Codable, Sendable {
 final class PPocrv6TinyOCRService {
     private let workspaceManager: WorkspaceManager
     private let fileManager: FileManager
+    private let recognitionWorker: OCRRecognitionWorker
 
     init(
         workspaceManager: WorkspaceManager,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        recognitionWorker: OCRRecognitionWorker = OCRRecognitionWorker()
     ) {
         self.workspaceManager = workspaceManager
         self.fileManager = fileManager
+        self.recognitionWorker = recognitionWorker
     }
 
     func recognizeImageText(
@@ -50,21 +51,15 @@ final class PPocrv6TinyOCRService {
         outputDirectory: String?,
         recognitionLanguages: [String],
         usesLanguageCorrection: Bool
-    ) throws -> TinyOCRResult {
+    ) async throws -> TinyOCRResult {
         let imageURL = try workspaceManager.url(for: relativePath)
         guard fileManager.fileExists(atPath: imageURL.path) else {
             throw AppError.invalidState("图片不存在：\(relativePath)")
         }
 
         let modelAssets = try resolveModelAssets()
-        let imageData = try Data(contentsOf: imageURL)
-        guard let image = UIImage(data: imageData),
-              let cgImage = image.cgImage else {
-            throw AppError.invalidState("目标文件不是可识别的图片：\(relativePath)")
-        }
-
-        let lines = try recognizeWithSystemVision(
-            cgImage: cgImage,
+        let recognition = try await recognitionWorker.recognize(
+            imageURL: imageURL,
             recognitionLanguages: recognitionLanguages,
             usesLanguageCorrection: usesLanguageCorrection
         )
@@ -82,47 +77,15 @@ final class PPocrv6TinyOCRService {
             jsonPath: jsonPath,
             engine: "pp-ocrv6-tiny-bundled-assets+vision-runtime",
             modelName: "PP-OCRv6_tiny",
-            imageWidth: cgImage.width,
-            imageHeight: cgImage.height,
-            lines: lines,
+            imageWidth: recognition.imageWidth,
+            imageHeight: recognition.imageHeight,
+            lines: recognition.lines,
             modelAssets: modelAssets
         )
 
         _ = try workspaceManager.writeText(result.plainText, to: textPath)
         _ = try workspaceManager.writeText(try encodeResult(result), to: jsonPath)
         return result
-    }
-
-    private func recognizeWithSystemVision(
-        cgImage: CGImage,
-        recognitionLanguages: [String],
-        usesLanguageCorrection: Bool
-    ) throws -> [TinyOCRLine] {
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = usesLanguageCorrection
-        request.recognitionLanguages = recognitionLanguages.isEmpty
-            ? ["zh-Hans", "en-US"]
-            : recognitionLanguages
-
-        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-        try handler.perform([request])
-
-        let observations = request.results ?? []
-        return observations.compactMap { observation in
-            guard let candidate = observation.topCandidates(1).first else {
-                return nil
-            }
-            let text = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else {
-                return nil
-            }
-            return TinyOCRLine(
-                text: text,
-                confidence: candidate.confidence,
-                boundingBox: observation.boundingBox
-            )
-        }
     }
 
     private func resolveModelAssets() throws -> [TinyOCRModelAsset] {

@@ -36,19 +36,30 @@ struct ContextAssembler {
         var apiMessages: [AgentModelMessage] = [.system(layeredPrompt.prompt)]
         var hiddenContextRecords: [ContextLayerRecord] = []
         if surface == .professional {
-            let hiddenContext = layerManager.hiddenContextPrompt(
-                hiddenSummary: session.hiddenContextSummary,
+            let stableSummary = layerManager.stableSummaryPrompt(
+                hiddenSummary: session.hiddenContextSummary
+            )
+            if let prompt = stableSummary.prompt {
+                apiMessages.append(.user(prompt))
+            }
+            let volatileContext = layerManager.volatileContextPrompt(
                 hiddenResearch: researchStateAssembler.hiddenResearchPrompt(for: session),
                 hiddenTaskState: taskContextProjector.hiddenTaskPrompt(for: session)
             )
-            if let prompt = hiddenContext.prompt {
+            hiddenContextRecords = stableSummary.records + volatileContext.records
+
+            let compactedCount = session.hiddenContextSummary?.compactedMessageCount ?? 0
+            for message in session.messages.dropFirst(compactedCount) {
+                apiMessages.append(contentsOf: convert(message, session: session))
+            }
+            if let prompt = volatileContext.prompt {
                 apiMessages.append(.user(prompt))
             }
-            hiddenContextRecords = hiddenContext.records
-        }
-        let compactedCount = session.hiddenContextSummary?.compactedMessageCount ?? 0
-        for message in session.messages.dropFirst(compactedCount) {
-            apiMessages.append(contentsOf: convert(message, session: session))
+        } else {
+            let compactedCount = session.hiddenContextSummary?.compactedMessageCount ?? 0
+            for message in session.messages.dropFirst(compactedCount) {
+                apiMessages.append(contentsOf: convert(message, session: session))
+            }
         }
         let layerSnapshot = ContextLayerSnapshot(
             records: layeredPrompt.snapshot.records + hiddenContextRecords

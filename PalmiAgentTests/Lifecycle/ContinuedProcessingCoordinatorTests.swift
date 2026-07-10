@@ -1,0 +1,158 @@
+import BackgroundTasks
+import XCTest
+@testable import PalmiAgent
+
+@MainActor
+final class ContinuedProcessingCoordinatorTests: XCTestCase {
+    func testSubmitFailureDoesNotCreateActiveHandle() {
+        let scheduler = FakeScheduler()
+        scheduler.submitError = FakeError.unavailable
+        let coordinator = AgentContinuedProcessingCoordinator(scheduler: scheduler)
+
+        let identifier = coordinator.begin(runID: UUID(), onExpiration: {})
+
+        XCTAssertNil(identifier)
+        XCTAssertEqual(scheduler.submitCount, 1)
+    }
+
+    func testProgressIsMonotonicAndCompletionOccursOnce() throws {
+        let scheduler = FakeScheduler()
+        let coordinator = AgentContinuedProcessingCoordinator(scheduler: scheduler)
+        let identifier = try XCTUnwrap(coordinator.begin(runID: UUID(), onExpiration: {}))
+
+        coordinator.reportProgress(identifier: identifier)
+        XCTAssertEqual(scheduler.task.progress.completedUnitCount, 2)
+        coordinator.reportProgress(identifier: identifier)
+        XCTAssertEqual(scheduler.task.progress.completedUnitCount, 3)
+        coordinator.reportProgress(identifier: identifier)
+        XCTAssertEqual(scheduler.task.progress.completedUnitCount, 4)
+        coordinator.complete(identifier: identifier, success: true)
+        coordinator.complete(identifier: identifier, success: true)
+
+        XCTAssertEqual(scheduler.task.progress.completedUnitCount, 100)
+        XCTAssertEqual(scheduler.task.completions, [true])
+    }
+
+    func testExpirationAwaitsCheckpointBeforeCompletingSystemTask() async throws {
+        let scheduler = FakeScheduler()
+        let coordinator = AgentContinuedProcessingCoordinator(scheduler: scheduler)
+        var events: [String] = []
+        scheduler.task.onComplete = { success in events.append("complete:\(success)") }
+        _ = try XCTUnwrap(
+            coordinator.begin(runID: UUID()) {
+                events.append("checkpoint")
+            }
+        )
+
+        scheduler.task.expirationHandler?()
+        for _ in 0..<10 where events.count < 2 {
+            await Task.yield()
+        }
+
+        XCTAssertEqual(events, ["checkpoint", "complete:false"])
+    }
+
+    func testNormalCompletionDuringExpirationCompletesSystemTaskOnlyOnce() async throws {
+        let scheduler = FakeScheduler()
+        let coordinator = AgentContinuedProcessingCoordinator(scheduler: scheduler)
+        let gate = AsyncGate()
+        let identifier = try XCTUnwrap(
+            coordinator.begin(runID: UUID()) {
+                await gate.wait()
+            }
+        )
+
+        scheduler.task.expirationHandler?()
+        await Task.yield()
+        coordinator.complete(identifier: identifier, success: true)
+        await gate.open()
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+
+        XCTAssertEqual(scheduler.task.completions, [true])
+    }
+
+    func testLateLaunchAfterLocalCompletionIsRejectedAndCompleted() throws {
+        let scheduler = FakeScheduler()
+        scheduler.autoLaunch = false
+        let coordinator = AgentContinuedProcessingCoordinator(scheduler: scheduler)
+        let identifier = try XCTUnwrap(coordinator.begin(runID: UUID(), onExpiration: {}))
+
+        coordinator.complete(identifier: identifier, success: true)
+        scheduler.launchPendingTask()
+
+        XCTAssertEqual(scheduler.cancelCount, 1)
+        XCTAssertEqual(scheduler.task.completions, [false])
+    }
+
+    private enum FakeError: Error {
+        case unavailable
+    }
+
+    private final class FakeTask: ContinuedProcessingTaskHandle {
+        var title = "Palmi Agent"
+        let progress: Progress = Progress(totalUnitCount: 100)
+        var expirationHandler: (() -> Void)?
+        var completions: [Bool] = []
+        var onComplete: ((Bool) -> Void)?
+
+        func updateTitle(_ title: String, subtitle: String) {
+            self.title = title
+        }
+
+        func complete(success: Bool) {
+            completions.append(success)
+            onComplete?(success)
+        }
+    }
+
+    private final class FakeScheduler: ContinuedProcessingScheduling {
+        let task = FakeTask()
+        var submitError: Error?
+        var submitCount = 0
+        var cancelCount = 0
+        var autoLaunch = true
+        private var launchHandler: (@MainActor (any ContinuedProcessingTaskHandle) -> Void)?
+
+        func register(
+            identifier: String,
+            launchHandler: @escaping @MainActor (any ContinuedProcessingTaskHandle) -> Void
+        ) -> Bool {
+            self.launchHandler = launchHandler
+            return true
+        }
+
+        func submit(_ request: BGContinuedProcessingTaskRequest) throws {
+            submitCount += 1
+            if let submitError { throw submitError }
+            if autoLaunch {
+                launchPendingTask()
+            }
+        }
+
+        func cancel(identifier: String) {
+            cancelCount += 1
+        }
+
+        func launchPendingTask() {
+            launchHandler?(task)
+        }
+    }
+}
+
+private nonisolated actor AsyncGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var isOpen = false
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func open() {
+        isOpen = true
+        continuation?.resume()
+        continuation = nil
+    }
+}

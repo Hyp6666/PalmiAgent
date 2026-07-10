@@ -18,14 +18,8 @@ struct WorkspaceReadResult: Sendable {
 
 @MainActor
 final class WorkspaceReadService {
-    private struct ReadExtraction: Sendable {
-        let text: String
-        let wasTruncated: Bool
-        let note: String?
-    }
-
     private let workspaceManager: WorkspaceManager
-    private let fileManager = FileManager.default
+    private let worker = WorkspaceReadWorker()
 
     init(workspaceManager: WorkspaceManager) {
         self.workspaceManager = workspaceManager
@@ -40,8 +34,45 @@ final class WorkspaceReadService {
         offset: Int = 0,
         chunkSize: Int? = nil,
         focus: String? = nil
-    ) throws -> WorkspaceReadResult {
+    ) async throws -> WorkspaceReadResult {
         let targetURL = try workspaceManager.url(for: relativePath)
+        let rootURL = try workspaceManager.currentThreadWorkspaceURL()
+        return try await worker.read(
+            targetURL: targetURL,
+            rootURL: rootURL,
+            relativePath: relativePath,
+            recursive: recursive,
+            maxCharacters: maxCharacters,
+            maxFiles: maxFiles,
+            mode: mode,
+            offset: offset,
+            chunkSize: chunkSize,
+            focus: focus
+        )
+    }
+}
+
+private actor WorkspaceReadWorker {
+    private struct ReadExtraction: Sendable {
+        let text: String
+        let wasTruncated: Bool
+        let note: String?
+    }
+
+    private let fileManager = FileManager.default
+
+    func read(
+        targetURL: URL,
+        rootURL: URL,
+        relativePath: String,
+        recursive: Bool = true,
+        maxCharacters: Int = 20_000,
+        maxFiles: Int = 64,
+        mode: WorkspaceReadMode = .auto,
+        offset: Int = 0,
+        chunkSize: Int? = nil,
+        focus: String? = nil
+    ) throws -> WorkspaceReadResult {
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: targetURL.path, isDirectory: &isDirectory) else {
             throw AppError.invalidState("目标不存在：\(relativePath)")
@@ -50,6 +81,7 @@ final class WorkspaceReadService {
         if isDirectory.boolValue {
             return try readDirectory(
                 targetURL,
+                rootURL: rootURL,
                 relativePath: normalizedRelativePath(relativePath),
                 recursive: recursive,
                 maxCharacters: maxCharacters,
@@ -109,6 +141,7 @@ final class WorkspaceReadService {
 
     private func readDirectory(
         _ url: URL,
+        rootURL: URL,
         relativePath: String,
         recursive: Bool,
         maxCharacters: Int,
@@ -118,14 +151,31 @@ final class WorkspaceReadService {
         chunkSize: Int?,
         focus: String?
     ) throws -> WorkspaceReadResult {
-        let rootURL = try workspaceManager.currentThreadWorkspaceURL()
         let candidateURLs: [URL]
         if recursive {
-            candidateURLs = try workspaceManager.listFileURLsRecursively(at: relativePath)
+            let keys: [URLResourceKey] = [.isRegularFileKey]
+            guard let enumerator = fileManager.enumerator(
+                at: url,
+                includingPropertiesForKeys: keys,
+                options: [.skipsHiddenFiles]
+            ) else {
+                throw AppError.invalidState("无法读取目录：\(relativePath)")
+            }
+            candidateURLs = try enumerator.compactMap { element -> URL? in
+                guard let fileURL = element as? URL,
+                      try fileURL.resourceValues(forKeys: Set(keys)).isRegularFile == true else {
+                    return nil
+                }
+                return fileURL
+            }
         } else {
-            candidateURLs = try workspaceManager.listEntries(at: relativePath)
-                .filter { !$0.isDirectory }
-                .map(\.url)
+            candidateURLs = try fileManager.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            ).filter {
+                try $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true
+            }
         }
 
         let rankedURLs = rankCandidateURLs(candidateURLs, focus: focus)

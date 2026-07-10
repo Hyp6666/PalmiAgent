@@ -41,7 +41,7 @@ final class AgentLoop {
     private(set) var session = AgentSession()
     private(set) var state: AgentState = .idle
     private var pendingInterruptions: [PendingUserGuidance] = []
-    private var pendingApprovalContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
+    private let approvalWaiter = AgentApprovalWaiter()
     private var pendingApprovalRequests: [UUID: AgentApprovalRequest] = [:]
 
     // 目标 / 深度研究模式：当前一轮的注入态。runTurn 进入时置位、退出时（defer）清回。
@@ -53,6 +53,7 @@ final class AgentLoop {
 
     let events: AsyncStream<AgentEvent>
     private let eventContinuation: AsyncStream<AgentEvent>.Continuation
+    private var toolExecutionCheckpoint: ((UUID, ToolAction, String) async throws -> Void)?
 
     init(
         modelRuntime: AgentModelRuntime,
@@ -106,6 +107,16 @@ final class AgentLoop {
 
     func currentSessionSnapshot() -> AgentSession {
         session
+    }
+
+    func setToolExecutionCheckpoint(
+        _ checkpoint: @escaping (UUID, ToolAction, String) async throws -> Void
+    ) {
+        toolExecutionCheckpoint = checkpoint
+    }
+
+    func emitPersistenceBarrier(_ id: UUID) {
+        emit(.persistenceBarrier(id))
     }
 
     private func refreshTaskSnapshotFromDiskIfAvailable() {
@@ -163,10 +174,9 @@ final class AgentLoop {
             toolAuthorizationStore.approve(actionID: request.toolActionID, in: request.sessionID)
         }
 
-        guard let continuation = pendingApprovalContinuations.removeValue(forKey: id) else {
+        guard approvalWaiter.resolve(id: id, approved: resolution.isApproved) else {
             return
         }
-        continuation.resume(returning: resolution.isApproved)
     }
 
     func currentContextCompositionSnapshot(actions: [ToolAction]) -> ContextCompositionSnapshot {
@@ -397,6 +407,7 @@ final class AgentLoop {
             activeTurnMultimodalScannerAvailable = false
         }
         let selection = try workspaceManager.currentSelection()
+        let promptCacheKey = "palmi:thread:v1:\(selection.threadID.uuidString.lowercased())"
         let surface = (try? workspaceManager.currentProject().surface) ?? .professional
         let runProfile = surface == .chat ? AgentRunProfile.profile(for: .speed) : currentAgentRunProfile()
         activeTurnHasImageAttachments = !imagePaths.isEmpty
@@ -407,7 +418,8 @@ final class AgentLoop {
                 userInput: trimmedInput,
                 providerID: providerID,
                 imagePaths: imagePaths,
-                modelOverrides: modelOverrides
+                modelOverrides: modelOverrides,
+                promptCacheKey: promptCacheKey
             )
         }
 
@@ -426,8 +438,13 @@ final class AgentLoop {
             sessionID: session.id,
             taskRunID: nil
         )
+        var runBudget = AgentRunBudget(
+            limits: .default,
+            startedAtNanoseconds: DispatchTime.now().uptimeNanoseconds
+        )
 
         do {
+            try Task.checkCancellation()
             if surface == .professional {
                 taskStateRuntime.beginTurn()
                 session.taskStateSnapshot = taskStateRuntime.loadSnapshot(
@@ -474,6 +491,8 @@ final class AgentLoop {
             var iterations = 0
 
             while true {
+                try Task.checkCancellation()
+                try runBudget.admitIteration(nowNanoseconds: DispatchTime.now().uptimeNanoseconds)
                 _ = consumePendingInterruptions()
                 var toolDefinitions = actionToolDefinitions
                 if phaseThoughtEnabled {
@@ -533,7 +552,7 @@ final class AgentLoop {
                 state = .thinking
                 let response: AgentModelResponse
                 do {
-                    iterations += 1
+                    iterations = runBudget.iterationCount
                     appendEventLog(.modelRequest, summary: "请求模型第 \(iterations) 次")
                     // 主循环改用流式：reasoning 逐字经 onReasoningDelta 实时上屏；正文仍由响应整体处理
                     //（onDelta 留空），响应结构与 complete 完全一致，循环逻辑不变。
@@ -551,9 +570,14 @@ final class AgentLoop {
                             onDelta: { _ in },
                             onReasoningDelta: { [weak self] text in
                                 self?.emit(.reasoningDelta(text: text))
-                            }
+                            },
+                            promptCacheKey: promptCacheKey
                         )
                     )
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch let controlError as AgentRunControlError {
+                    throw controlError
                 } catch {
                     appendEventLog(
                         .modelFailure,
@@ -605,6 +629,10 @@ final class AgentLoop {
                     admittedMessage.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
                 )
                 let toolUses = admittedMessage.toolUses
+                try runBudget.admitToolCalls(
+                    toolUses.count,
+                    nowNanoseconds: DispatchTime.now().uptimeNanoseconds
+                )
 
                 if toolUses.isEmpty {
                     if consumePendingInterruptions() {
@@ -649,6 +677,7 @@ final class AgentLoop {
                 let batches = toolPlanner.plan(routedCalls)
 
                 batchLoop: for batch in batches {
+                    try Task.checkCancellation()
                     if case .parallelReadOnly = batch.kind {
                         var parallelCalls: [AgentParallelToolCall] = []
 
@@ -703,6 +732,12 @@ final class AgentLoop {
                                 summary: "并发执行 \(prepared.action.title)",
                                 payloadJSON: prepared.argumentsJSON
                             )
+                            try await toolExecutionCheckpoint?(
+                                stepID,
+                                prepared.action,
+                                prepared.argumentsJSON
+                            )
+                            try Task.checkCancellation()
                             emit(.toolStarted(stepID: stepID, action: prepared.action, argumentsJSON: prepared.argumentsJSON))
                             parallelCalls.append(
                                 AgentParallelToolCall(
@@ -715,7 +750,7 @@ final class AgentLoop {
                             )
                         }
 
-                        let completedParallelCalls = await executeParallelReadOnlyCalls(
+                        let completedParallelCalls = try await executeParallelReadOnlyCalls(
                             parallelCalls,
                             modelOverrides: modelOverrides
                         )
@@ -890,7 +925,7 @@ final class AgentLoop {
                         }
 
                         if let policy = routedCall.policy {
-                            let approved = await requestApprovalIfNeeded(
+                            let approved = try await requestApprovalIfNeeded(
                                 toolUse: toolUse,
                                 prepared: prepared,
                                 policy: policy,
@@ -940,13 +975,20 @@ final class AgentLoop {
                             summary: "开始执行 \(prepared.action.title)",
                             payloadJSON: prepared.argumentsJSON
                         )
+                        try await toolExecutionCheckpoint?(
+                            stepID,
+                            prepared.action,
+                            prepared.argumentsJSON
+                        )
+                        try Task.checkCancellation()
                         emit(.toolStarted(stepID: stepID, action: prepared.action, argumentsJSON: prepared.argumentsJSON))
 
-                        let execution = await toolExecutor.execute(
+                        let execution = try await toolExecutor.execute(
                             prepared,
                             stepID: stepID,
                             modelOverrides: modelOverrides
                         )
+                        try Task.checkCancellation()
                         let fileDeltas = attachToolUseID(
                             execution.step.fileDeltas,
                             toolUseID: toolUse.id
@@ -1088,6 +1130,9 @@ final class AgentLoop {
                     let summaryResponse: AgentModelResponse
                     let baseSummaryTokens = outputTokens
                     do {
+                        try Task.checkCancellation()
+                        try runBudget.admitIteration(nowNanoseconds: DispatchTime.now().uptimeNanoseconds)
+                        iterations = runBudget.iterationCount
                         summaryResponse = try await modelRuntime.stream(
                             AgentModelStreamingRequest(
                                 selection: AgentModelSelection(
@@ -1104,9 +1149,14 @@ final class AgentLoop {
                                 },
                                 onTokenEstimate: { estimatedRequestTokens in
                                     self.emit(.tokenUpdate(totalTokens: baseSummaryTokens + estimatedRequestTokens))
-                                }
+                                },
+                                promptCacheKey: promptCacheKey
                             )
                         )
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch let controlError as AgentRunControlError {
+                        throw controlError
                     } catch {
                         state = .completed
                         let finalReply = fallbackReply(
@@ -1143,6 +1193,13 @@ final class AgentLoop {
                     )
                 }
             }
+        } catch let error as AgentRunControlError {
+            appendEventLog(
+                .budgetStop,
+                summary: error.errorDescription ?? "运行预算已耗尽"
+            )
+            state = .failed(error.errorDescription ?? "运行预算已耗尽")
+            throw error
         } catch {
             state = .failed((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
             throw error
@@ -1153,7 +1210,8 @@ final class AgentLoop {
         userInput: String,
         providerID: APIProviderID,
         imagePaths: [String],
-        modelOverrides: AgentModelRoleOverrides
+        modelOverrides: AgentModelRoleOverrides,
+        promptCacheKey: String
     ) async throws -> AgentTurnResult {
         _ = imagePaths
 
@@ -1201,7 +1259,8 @@ final class AgentLoop {
                     onDelta: { text in
                         self.emit(.streamingDelta(text: text))
                     },
-                    onReasoningDelta: { _ in }
+                    onReasoningDelta: { _ in },
+                    promptCacheKey: promptCacheKey
                 )
             )
 
@@ -1296,13 +1355,14 @@ final class AgentLoop {
     private func executeParallelReadOnlyCalls(
         _ calls: [AgentParallelToolCall],
         modelOverrides: AgentModelRoleOverrides
-    ) async -> [AgentParallelToolCompletion] {
+    ) async throws -> [AgentParallelToolCompletion] {
         guard !calls.isEmpty else { return [] }
 
-        return await withTaskGroup(of: AgentParallelToolCompletion.self) { group in
+        return try await withThrowingTaskGroup(of: AgentParallelToolCompletion.self) { group in
             for call in calls {
-                group.addTask { @MainActor in
-                    let execution = await self.toolExecutor.execute(
+                group.addTask {
+                    try Task.checkCancellation()
+                    let execution = try await self.toolExecutor.execute(
                         call.prepared,
                         stepID: call.stepID,
                         modelOverrides: modelOverrides
@@ -1312,7 +1372,7 @@ final class AgentLoop {
             }
 
             var completions: [AgentParallelToolCompletion] = []
-            for await completion in group {
+            for try await completion in group {
                 completions.append(completion)
             }
             return completions.sorted { $0.index < $1.index }
@@ -1326,7 +1386,7 @@ final class AgentLoop {
         providerID: APIProviderID,
         modelOverrides: AgentModelRoleOverrides,
         userGoal: String
-    ) async -> Bool {
+    ) async throws -> Bool {
         if policy.confirmationPolicy == .allow {
             return true
         }
@@ -1403,9 +1463,13 @@ final class AgentLoop {
         )
         emit(.approvalRequested(request))
 
-        let approved = await withCheckedContinuation { continuation in
-            pendingApprovalContinuations[request.id] = continuation
-            pendingApprovalRequests[request.id] = request
+        pendingApprovalRequests[request.id] = request
+        let approved: Bool
+        do {
+            approved = try await approvalWaiter.wait(id: request.id)
+        } catch {
+            pendingApprovalRequests.removeValue(forKey: request.id)
+            throw error
         }
         pendingApprovalRequests.removeValue(forKey: request.id)
         recordApprovalResolution(
@@ -1550,12 +1614,8 @@ final class AgentLoop {
     }
 
     private func resolvePendingApprovals(approved: Bool) {
-        let continuations = pendingApprovalContinuations
-        pendingApprovalContinuations.removeAll()
         pendingApprovalRequests.removeAll()
-        for (_, continuation) in continuations {
-            continuation.resume(returning: approved)
-        }
+        approvalWaiter.resolveAll(approved: approved)
     }
 
     private func attachToolUseID(_ deltas: [FileDelta], toolUseID: String) -> [FileDelta] {
@@ -2223,7 +2283,7 @@ private struct AgentParallelToolCompletion: Sendable {
     let startedAt: Date
     let execution: AgentToolExecutionResult
 
-    init(call: AgentParallelToolCall, execution: AgentToolExecutionResult) {
+    nonisolated init(call: AgentParallelToolCall, execution: AgentToolExecutionResult) {
         index = call.index
         toolUse = call.toolUse
         prepared = call.prepared

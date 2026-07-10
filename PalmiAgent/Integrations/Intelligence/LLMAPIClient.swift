@@ -8,6 +8,9 @@ final class LLMAPIClient: AgentModelRuntime {
     private let session: URLSession
     private let userDefaults: UserDefaults
     private let lmStudioDiscoveryService: LMStudioDiscoveryService
+#if DEBUG
+    private var previousMessageHashesByScope: [String: [String]] = [:]
+#endif
 
     private struct RuntimeModelSelection {
         let model: APIModelDefinition
@@ -36,7 +39,8 @@ final class LLMAPIClient: AgentModelRuntime {
             preferredReasoning: request.selection.reasoning,
             toolChoice: request.toolIntent.wireToolChoice ?? "none",
             temperatureOverride: request.temperatureOverride,
-            configurationOverride: request.selection.configurationOverride
+            configurationOverride: request.selection.configurationOverride,
+            promptCacheKey: request.promptCacheKey
         )
     }
 
@@ -51,7 +55,8 @@ final class LLMAPIClient: AgentModelRuntime {
                 modelRole: request.selection.modelRole,
                 preferredReasoning: request.selection.reasoning,
                 temperatureOverride: request.temperatureOverride,
-                configurationOverride: request.selection.configurationOverride
+                configurationOverride: request.selection.configurationOverride,
+                promptCacheKey: request.promptCacheKey
             )
         }
         // 有工具：走带工具的流式完成（reasoning + 正文逐字流式，tool_calls 累积返回）。
@@ -66,7 +71,8 @@ final class LLMAPIClient: AgentModelRuntime {
             preferredReasoning: request.selection.reasoning,
             toolChoice: request.toolIntent.wireToolChoice ?? "auto",
             temperatureOverride: request.temperatureOverride,
-            configurationOverride: request.selection.configurationOverride
+            configurationOverride: request.selection.configurationOverride,
+            promptCacheKey: request.promptCacheKey
         )
     }
 
@@ -102,7 +108,8 @@ final class LLMAPIClient: AgentModelRuntime {
         preferredReasoning: ModelReasoningRequest = .automatic,
         toolChoice: String = "auto",
         temperatureOverride: Double? = nil,
-        configurationOverride: AgentModelConfigurationOverride? = nil
+        configurationOverride: AgentModelConfigurationOverride? = nil,
+        promptCacheKey: String? = nil
     ) async throws -> LLMAPIClientResponse {
         try await createChatCompletion(
             providerID: providerID,
@@ -112,7 +119,8 @@ final class LLMAPIClient: AgentModelRuntime {
             preferredReasoning: preferredReasoning,
             toolChoice: toolChoice,
             temperatureOverride: temperatureOverride,
-            configurationOverride: configurationOverride
+            configurationOverride: configurationOverride,
+            promptCacheKey: promptCacheKey
         )
     }
 
@@ -124,7 +132,8 @@ final class LLMAPIClient: AgentModelRuntime {
         preferredReasoning: ModelReasoningRequest = .automatic,
         toolChoice: String = "auto",
         temperatureOverride: Double? = nil,
-        configurationOverride: AgentModelConfigurationOverride? = nil
+        configurationOverride: AgentModelConfigurationOverride? = nil,
+        promptCacheKey: String? = nil
     ) async throws -> LLMAPIClientResponse {
         let override = try resolvedOverride(configurationOverride)
         let configuration = try resolvedConfiguration(for: providerID, override: override)
@@ -161,7 +170,8 @@ final class LLMAPIClient: AgentModelRuntime {
             toolChoice: requestTools.isEmpty ? nil : toolChoice,
             temperature: resolvedInteractiveTemperature(override: temperatureOverride),
             stream: nil,
-            runtimeProfile: runtimeProfile
+            runtimeProfile: runtimeProfile,
+            promptCacheKey: promptCacheKey
         )
 
         let endpoint = OpenAICompatibleChatAdapter.chatCompletionsURL(
@@ -179,7 +189,8 @@ final class LLMAPIClient: AgentModelRuntime {
         debugLogPromptCacheFingerprint(
             requestBody: requestBody,
             requestData: requestData,
-            runtimeProfile: runtimeProfile
+            runtimeProfile: runtimeProfile,
+            promptCacheKey: promptCacheKey
         )
 
         let transportResponse: LLMHTTPResponse
@@ -210,6 +221,10 @@ final class LLMAPIClient: AgentModelRuntime {
                         attempts: attempts
                     )
                 )
+            case .malformedStreamPayload(let attempts):
+                throw AppError.operationFailed(retryAnnotatedMessage("模型流包含无法解析的数据帧。", attempts: attempts))
+            case .incompleteStream(let attempts):
+                throw AppError.operationFailed(retryAnnotatedMessage("模型流在返回完成标记前中断，已保留收到的内容。", attempts: attempts))
             }
         }
 
@@ -259,7 +274,8 @@ final class LLMAPIClient: AgentModelRuntime {
         preferredReasoning: ModelReasoningRequest = .automatic,
         toolChoice: String = "auto",
         temperatureOverride: Double? = nil,
-        configurationOverride: AgentModelConfigurationOverride? = nil
+        configurationOverride: AgentModelConfigurationOverride? = nil,
+        promptCacheKey: String? = nil
     ) async throws -> LLMAPIClientResponse {
         let override = try resolvedOverride(configurationOverride)
         let configuration = try resolvedConfiguration(for: providerID, override: override)
@@ -302,7 +318,8 @@ final class LLMAPIClient: AgentModelRuntime {
             toolChoice: requestTools.isEmpty ? nil : toolChoice,
             temperature: resolvedInteractiveTemperature(override: temperatureOverride),
             stream: true,
-            runtimeProfile: runtimeProfile
+            runtimeProfile: runtimeProfile,
+            promptCacheKey: promptCacheKey
         )
 
         let endpoint = OpenAICompatibleChatAdapter.chatCompletionsURL(
@@ -320,7 +337,8 @@ final class LLMAPIClient: AgentModelRuntime {
         debugLogPromptCacheFingerprint(
             requestBody: requestBody,
             requestData: requestData,
-            runtimeProfile: runtimeProfile
+            runtimeProfile: runtimeProfile,
+            promptCacheKey: promptCacheKey
         )
 
         let promptEstimate = approximatePromptTokenCount(for: requestMessages)
@@ -390,6 +408,10 @@ final class LLMAPIClient: AgentModelRuntime {
                         attempts: attempts
                     )
                 )
+            case .malformedStreamPayload(let attempts):
+                throw AppError.operationFailed(retryAnnotatedMessage("模型流包含无法解析的数据帧。", attempts: attempts))
+            case .incompleteStream(let attempts):
+                throw AppError.operationFailed(retryAnnotatedMessage("模型流在返回完成标记前中断，已保留收到的内容。", attempts: attempts))
             }
         }
     }
@@ -404,7 +426,8 @@ final class LLMAPIClient: AgentModelRuntime {
         modelRole: APIModelRole = .reasoningModel,
         preferredReasoning: ModelReasoningRequest = .automatic,
         temperatureOverride: Double? = nil,
-        configurationOverride: AgentModelConfigurationOverride? = nil
+        configurationOverride: AgentModelConfigurationOverride? = nil,
+        promptCacheKey: String? = nil
     ) async throws -> LLMAPIClientResponse {
         try await createStreamingChatCompletion(
             providerID: providerID,
@@ -414,7 +437,8 @@ final class LLMAPIClient: AgentModelRuntime {
             modelRole: modelRole,
             preferredReasoning: preferredReasoning,
             temperatureOverride: temperatureOverride,
-            configurationOverride: configurationOverride
+            configurationOverride: configurationOverride,
+            promptCacheKey: promptCacheKey
         )
     }
 
@@ -426,7 +450,8 @@ final class LLMAPIClient: AgentModelRuntime {
         modelRole: APIModelRole = .reasoningModel,
         preferredReasoning: ModelReasoningRequest = .automatic,
         temperatureOverride: Double? = nil,
-        configurationOverride: AgentModelConfigurationOverride? = nil
+        configurationOverride: AgentModelConfigurationOverride? = nil,
+        promptCacheKey: String? = nil
     ) async throws -> LLMAPIClientResponse {
         let override = try resolvedOverride(configurationOverride)
         let configuration = try resolvedConfiguration(for: providerID, override: override)
@@ -459,7 +484,8 @@ final class LLMAPIClient: AgentModelRuntime {
             toolChoice: nil,
             temperature: resolvedInteractiveTemperature(override: temperatureOverride),
             stream: true,
-            runtimeProfile: resolvedRuntimeProfile
+            runtimeProfile: resolvedRuntimeProfile,
+            promptCacheKey: promptCacheKey
         )
 
         let endpoint = OpenAICompatibleChatAdapter.chatCompletionsURL(
@@ -477,7 +503,8 @@ final class LLMAPIClient: AgentModelRuntime {
         debugLogPromptCacheFingerprint(
             requestBody: requestBody,
             requestData: requestData,
-            runtimeProfile: resolvedRuntimeProfile
+            runtimeProfile: resolvedRuntimeProfile,
+            promptCacheKey: promptCacheKey
         )
 
         let promptEstimate = approximatePromptTokenCount(for: requestMessages)
@@ -538,6 +565,10 @@ final class LLMAPIClient: AgentModelRuntime {
                         attempts: attempts
                     )
                 )
+            case .malformedStreamPayload(let attempts):
+                throw AppError.operationFailed(retryAnnotatedMessage("模型流包含无法解析的数据帧。", attempts: attempts))
+            case .incompleteStream(let attempts):
+                throw AppError.operationFailed(retryAnnotatedMessage("模型流在返回完成标记前中断，已保留收到的内容。", attempts: attempts))
             }
         }
     }
@@ -968,7 +999,8 @@ final class LLMAPIClient: AgentModelRuntime {
     private func debugLogPromptCacheFingerprint(
         requestBody: OpenAIChatCompletionRequest,
         requestData: Data,
-        runtimeProfile: LLMProviderRuntimeProfile
+        runtimeProfile: LLMProviderRuntimeProfile,
+        promptCacheKey: String?
     ) {
         let toolsData: Data
         if let tools = requestBody.tools {
@@ -985,9 +1017,29 @@ final class LLMAPIClient: AgentModelRuntime {
         let bodyHash = fnv1a64Hex(requestData)
         let toolCount = requestBody.tools?.count ?? 0
         let messageCount = requestBody.messages.count
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let messageHashes = requestBody.messages.map { message in
+            fnv1a64Hex((try? encoder.encode(message)) ?? Data())
+        }
+        var cumulativeSeed = Data()
+        let cumulativeHashes = messageHashes.map { hash in
+            cumulativeSeed.append(contentsOf: hash.utf8)
+            return fnv1a64Hex(cumulativeSeed)
+        }
+        let scopeHash = promptCacheKey.map(fnv1a64Hex) ?? "none"
+        let traceScope = "\(runtimeProfile.providerID.rawValue):\(runtimeProfile.model.id):\(scopeHash)"
+        let previous = previousMessageHashesByScope[traceScope] ?? []
+        let sharedCount = min(previous.count, messageHashes.count)
+        let firstDifference = (0..<sharedCount).first(where: { previous[$0] != messageHashes[$0] })
+            ?? (previous.count == messageHashes.count ? nil : sharedCount)
+        previousMessageHashesByScope[traceScope] = messageHashes
+        let tokenCounts = requestBody.messages.map {
+            ApproximateTokenCounter.estimate($0.content ?? "")
+        }
 
         print(
-            "[PalmiPromptCache] provider=\(runtimeProfile.providerID.rawValue) model=\(runtimeProfile.model.id) messages=\(messageCount) tools=\(toolCount) systemHash=\(systemHash) toolsHash=\(toolsHash) bodyHash=\(bodyHash) bytes=\(requestData.count)"
+            "[PalmiPromptCache] request=\(UUID().uuidString.lowercased()) scopeHash=\(scopeHash) provider=\(runtimeProfile.providerID.rawValue) model=\(runtimeProfile.model.id) messages=\(messageCount) tools=\(toolCount) systemHash=\(systemHash) toolsHash=\(toolsHash) bodyHash=\(bodyHash) messageHashes=\(messageHashes.joined(separator: ",")) cumulativeHashes=\(cumulativeHashes.joined(separator: ",")) firstDifference=\(firstDifference.map(String.init) ?? "none") messageTokens=\(tokenCounts.map(String.init).joined(separator: ",")) bytes=\(requestData.count)"
         )
     }
 
@@ -1007,11 +1059,13 @@ final class LLMAPIClient: AgentModelRuntime {
     private func debugLogPromptCacheFingerprint(
         requestBody: OpenAIChatCompletionRequest,
         requestData: Data,
-        runtimeProfile: LLMProviderRuntimeProfile
+        runtimeProfile: LLMProviderRuntimeProfile,
+        promptCacheKey: String?
     ) {
         _ = requestBody
         _ = requestData
         _ = runtimeProfile
+        _ = promptCacheKey
     }
 #endif
 
@@ -1156,11 +1210,13 @@ enum LLMHTTPTransportError: Error {
     case http(statusCode: Int, data: Data, attempts: Int)
     case invalidHTTPResponse(attempts: Int)
     case transport(underlying: Error, attempts: Int)
+    case malformedStreamPayload(attempts: Int)
+    case incompleteStream(attempts: Int)
 }
 
 enum LLMHTTPTransport {
-    static let defaultTimeoutInterval: TimeInterval = 180
-    private static let maxAttempts = 4
+    static let defaultTimeoutInterval: TimeInterval = 60
+    private static let maxAttempts = 3
     private static let baseDelayNanoseconds: UInt64 = 1_000_000_000
 
     // MARK: - Streaming (SSE)
@@ -1191,12 +1247,15 @@ enum LLMHTTPTransport {
         onReasoningDelta: @escaping @Sendable (String) async -> Void = { _ in }
     ) async throws -> StreamingResult {
         var preparedRequest = request
-        preparedRequest.timeoutInterval = max(preparedRequest.timeoutInterval, defaultTimeoutInterval)
+        if preparedRequest.timeoutInterval <= 0 {
+            preparedRequest.timeoutInterval = defaultTimeoutInterval
+        }
 
         for attempt in 1...maxAttempts {
             var emittedAnyDelta = false
 
             do {
+                try Task.checkCancellation()
                 let (bytes, response) = try await session.bytes(for: preparedRequest)
 
                 guard let httpResponse = response as? HTTPURLResponse else {
@@ -1230,76 +1289,100 @@ enum LLMHTTPTransport {
                 var reasoningDetails: JSONRuntimeValue?
                 var totalTokens = 0
                 var finalUsage: SSEUsage?
+                var decoder = SSEEventDecoder()
+                var termination = SSEStreamTerminationTracker()
                 // 按 index 累积 tool_calls 分片（id/name 取首个非空，arguments 持续拼接）。
                 var toolCallOrder: [Int] = []
                 var toolCallAccumulators: [Int: (id: String, name: String, arguments: String)] = [:]
 
-                for try await line in bytes.lines {
-                    guard line.hasPrefix("data: ") else { continue }
-                    let payload = String(line.dropFirst(6))
-
-                    if payload == "[DONE]" { break }
-
-                    guard let data = payload.data(using: .utf8),
-                          let chunk = try? JSONDecoder().decode(SSEChatChunk.self, from: data) else {
-                        continue
-                    }
-
-                    if let delta = chunk.choices.first?.delta,
-                       let text = delta.content, !text.isEmpty {
-                        emittedAnyDelta = true
-                        fullContent += text
-                        await onDelta(text)
-                    }
-
-                    if let delta = chunk.choices.first?.delta {
-                        if let text = delta.reasoningContent, !text.isEmpty {
-                            emittedAnyDelta = true
-                            reasoningContent += text
-                            await onReasoningDelta(text)
+                func process(_ frames: [SSEFrame]) async throws {
+                    for frame in frames {
+                        termination.observe(frame)
+                        guard case let .payload(payload) = frame else { continue }
+                        guard let data = payload.data(using: .utf8) else {
+                            throw LLMHTTPTransportError.malformedStreamPayload(attempts: attempt)
                         }
-                        if let text = delta.reasoning, !text.isEmpty {
-                            emittedAnyDelta = true
-                            reasoningContent += text
-                            await onReasoningDelta(text)
+                        let chunk: SSEChatChunk
+                        do {
+                            chunk = try JSONDecoder().decode(SSEChatChunk.self, from: data)
+                        } catch {
+                            throw LLMHTTPTransportError.malformedStreamPayload(attempts: attempt)
                         }
-                        if let text = delta.thinking, !text.isEmpty {
+
+                        termination.observeFinishReason(chunk.choices.first?.finishReason)
+
+                        if let delta = chunk.choices.first?.delta,
+                           let text = delta.content, !text.isEmpty {
                             emittedAnyDelta = true
-                            reasoningContent += text
-                            await onReasoningDelta(text)
+                            fullContent += text
+                            await onDelta(text)
                         }
-                        if let details = delta.reasoningDetails {
-                            reasoningDetails = Self.mergingReasoningDetails(
-                                existing: reasoningDetails,
-                                incoming: details
-                            )
-                        }
-                        if let toolCallDeltas = delta.toolCalls {
-                            emittedAnyDelta = true
-                            for toolCallDelta in toolCallDeltas {
-                                let index = toolCallDelta.index ?? 0
-                                if toolCallAccumulators[index] == nil {
-                                    toolCallAccumulators[index] = (id: "", name: "", arguments: "")
-                                    toolCallOrder.append(index)
-                                }
-                                if let id = toolCallDelta.id, !id.isEmpty {
-                                    toolCallAccumulators[index]?.id = id
-                                }
-                                if let name = toolCallDelta.function?.name, !name.isEmpty {
-                                    toolCallAccumulators[index]?.name = name
-                                }
-                                if let arguments = toolCallDelta.function?.arguments {
-                                    toolCallAccumulators[index]?.arguments += arguments
+
+                        if let delta = chunk.choices.first?.delta {
+                            if let text = delta.reasoningContent, !text.isEmpty {
+                                emittedAnyDelta = true
+                                reasoningContent += text
+                                await onReasoningDelta(text)
+                            }
+                            if let text = delta.reasoning, !text.isEmpty {
+                                emittedAnyDelta = true
+                                reasoningContent += text
+                                await onReasoningDelta(text)
+                            }
+                            if let text = delta.thinking, !text.isEmpty {
+                                emittedAnyDelta = true
+                                reasoningContent += text
+                                await onReasoningDelta(text)
+                            }
+                            if let details = delta.reasoningDetails {
+                                reasoningDetails = Self.mergingReasoningDetails(
+                                    existing: reasoningDetails,
+                                    incoming: details
+                                )
+                            }
+                            if let toolCallDeltas = delta.toolCalls {
+                                emittedAnyDelta = true
+                                for toolCallDelta in toolCallDeltas {
+                                    let index = toolCallDelta.index ?? 0
+                                    if toolCallAccumulators[index] == nil {
+                                        toolCallAccumulators[index] = (id: "", name: "", arguments: "")
+                                        toolCallOrder.append(index)
+                                    }
+                                    if let id = toolCallDelta.id, !id.isEmpty {
+                                        toolCallAccumulators[index]?.id = id
+                                    }
+                                    if let name = toolCallDelta.function?.name, !name.isEmpty {
+                                        toolCallAccumulators[index]?.name = name
+                                    }
+                                    if let arguments = toolCallDelta.function?.arguments {
+                                        toolCallAccumulators[index]?.arguments += arguments
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    if let usage = chunk.usage {
-                        finalUsage = usage
-                        totalTokens = usage.totalTokens
-                            ?? (usage.promptTokens ?? 0) + (usage.completionTokens ?? 0)
+                        if let usage = chunk.usage {
+                            finalUsage = usage
+                            totalTokens = usage.totalTokens
+                                ?? (usage.promptTokens ?? 0) + (usage.completionTokens ?? 0)
+                        }
                     }
+                }
+
+                streamLines: for try await line in bytes.lines {
+                    try Task.checkCancellation()
+                    let frames = try decoder.consume(line: line)
+                    try await process(frames)
+                    if frames.contains(.done) {
+                        break streamLines
+                    }
+                }
+                try await process(decoder.finish())
+
+                do {
+                    try termination.validateEndOfStream()
+                } catch {
+                    throw LLMHTTPTransportError.incompleteStream(attempts: attempt)
                 }
 
                 let accumulatedToolCalls = toolCallOrder.compactMap { index -> StreamedToolCall? in
@@ -1322,6 +1405,8 @@ enum LLMHTTPTransport {
                     tokenUsage: LLMAPIClient.modelTokenUsage(from: finalUsage),
                     response: httpResponse
                 )
+            } catch is CancellationError {
+                throw CancellationError()
             } catch let error as LLMHTTPTransportError {
                 throw error
             } catch {
@@ -1343,7 +1428,9 @@ enum LLMHTTPTransport {
         using session: URLSession
     ) async throws -> LLMHTTPResponse {
         var preparedRequest = request
-        preparedRequest.timeoutInterval = max(preparedRequest.timeoutInterval, defaultTimeoutInterval)
+        if preparedRequest.timeoutInterval <= 0 {
+            preparedRequest.timeoutInterval = defaultTimeoutInterval
+        }
 
         for attempt in 1...maxAttempts {
             do {
@@ -1525,7 +1612,7 @@ extension URLSession {
     static let palmiLLM: URLSession = {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = LLMHTTPTransport.defaultTimeoutInterval
-        configuration.timeoutIntervalForResource = .greatestFiniteMagnitude
+        configuration.timeoutIntervalForResource = 600
         configuration.waitsForConnectivity = true
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         return URLSession(configuration: configuration)

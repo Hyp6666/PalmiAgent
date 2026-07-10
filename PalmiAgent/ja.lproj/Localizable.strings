@@ -36,6 +36,7 @@
 "chat.contextCompaction.skipped" = "コンテキスト圧縮は不要です";
 "chat.error.callFailed" = "呼び出しに失敗しました：%@";
 "chat.error.interruptedAfterRestart" = "前回の実行は、App の終了またはシステム回収後に中断されました。";
+"chat.error.sideEffectUnknown" = "前回の実行はツールの副作用状態が不明なまま中断しました（%@）。自動再試行は行いません。実際の結果を確認してください。";
 "chat.error.selectSessionFirst" = "先にセッションを選択してください。";
 "chat.error.sessionBusy" = "このセッションは処理中です。後でもう一度送信してください。";
 "chat.export.attachments" = "添付ファイル";
