@@ -4,10 +4,37 @@ import XCTest
 
 @MainActor
 final class ContinuedProcessingCoordinatorTests: XCTestCase {
+    func testPreferenceDefaultsToDisabledAndPersistsExplicitSelection() throws {
+        let suiteName = "ContinuedProcessingCoordinatorTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertFalse(AgentContinuedProcessingPreference.isEnabled(defaults: defaults))
+        defaults.set(true, forKey: AgentContinuedProcessingPreference.storageKey)
+        XCTAssertTrue(AgentContinuedProcessingPreference.isEnabled(defaults: defaults))
+        defaults.set(false, forKey: AgentContinuedProcessingPreference.storageKey)
+        XCTAssertFalse(AgentContinuedProcessingPreference.isEnabled(defaults: defaults))
+    }
+
+    func testDisabledPreferenceSkipsRegistrationAndSubmission() {
+        let scheduler = FakeScheduler()
+        let coordinator = AgentContinuedProcessingCoordinator(
+            scheduler: scheduler,
+            isEnabled: { false }
+        )
+
+        XCTAssertNil(coordinator.begin(runID: UUID(), onExpiration: {}))
+        XCTAssertEqual(scheduler.registerCount, 0)
+        XCTAssertEqual(scheduler.submitCount, 0)
+    }
+
     func testSubmitFailureDoesNotCreateActiveHandle() {
         let scheduler = FakeScheduler()
         scheduler.submitError = FakeError.unavailable
-        let coordinator = AgentContinuedProcessingCoordinator(scheduler: scheduler)
+        let coordinator = AgentContinuedProcessingCoordinator(
+            scheduler: scheduler,
+            isEnabled: { true }
+        )
 
         let identifier = coordinator.begin(runID: UUID(), onExpiration: {})
 
@@ -17,7 +44,10 @@ final class ContinuedProcessingCoordinatorTests: XCTestCase {
 
     func testProgressIsMonotonicAndCompletionOccursOnce() throws {
         let scheduler = FakeScheduler()
-        let coordinator = AgentContinuedProcessingCoordinator(scheduler: scheduler)
+        let coordinator = AgentContinuedProcessingCoordinator(
+            scheduler: scheduler,
+            isEnabled: { true }
+        )
         let identifier = try XCTUnwrap(coordinator.begin(runID: UUID(), onExpiration: {}))
 
         coordinator.reportProgress(identifier: identifier)
@@ -35,26 +65,38 @@ final class ContinuedProcessingCoordinatorTests: XCTestCase {
 
     func testExpirationAwaitsCheckpointBeforeCompletingSystemTask() async throws {
         let scheduler = FakeScheduler()
-        let coordinator = AgentContinuedProcessingCoordinator(scheduler: scheduler)
+        let coordinator = AgentContinuedProcessingCoordinator(
+            scheduler: scheduler,
+            isEnabled: { true }
+        )
         var events: [String] = []
         scheduler.task.onComplete = { success in events.append("complete:\(success)") }
         _ = try XCTUnwrap(
-            coordinator.begin(runID: UUID()) {
-                events.append("checkpoint")
-            }
+            coordinator.begin(
+                runID: UUID(),
+                onExpiration: {
+                    events.append("checkpoint")
+                },
+                cancelRun: {
+                    events.append("cancel")
+                }
+            )
         )
 
         scheduler.task.expirationHandler?()
-        for _ in 0..<10 where events.count < 2 {
+        for _ in 0..<10 where events.count < 3 {
             await Task.yield()
         }
 
-        XCTAssertEqual(events, ["checkpoint", "complete:false"])
+        XCTAssertEqual(events, ["checkpoint", "cancel", "complete:false"])
     }
 
     func testNormalCompletionDuringExpirationCompletesSystemTaskOnlyOnce() async throws {
         let scheduler = FakeScheduler()
-        let coordinator = AgentContinuedProcessingCoordinator(scheduler: scheduler)
+        let coordinator = AgentContinuedProcessingCoordinator(
+            scheduler: scheduler,
+            isEnabled: { true }
+        )
         let gate = AsyncGate()
         let identifier = try XCTUnwrap(
             coordinator.begin(runID: UUID()) {
@@ -73,10 +115,47 @@ final class ContinuedProcessingCoordinatorTests: XCTestCase {
         XCTAssertEqual(scheduler.task.completions, [true])
     }
 
+    func testRevokeDuringExpirationCheckpointDoesNotCancelRun() async throws {
+        let scheduler = FakeScheduler()
+        let checkpointStarted = AsyncGate()
+        let checkpointRelease = AsyncGate()
+        var didCancelRun = false
+        let coordinator = AgentContinuedProcessingCoordinator(
+            scheduler: scheduler,
+            isEnabled: { true }
+        )
+        let identifier = try XCTUnwrap(
+            coordinator.begin(
+                runID: UUID(),
+                onExpiration: {
+                    await checkpointStarted.open()
+                    await checkpointRelease.wait()
+                },
+                cancelRun: {
+                    didCancelRun = true
+                }
+            )
+        )
+
+        scheduler.task.expirationHandler?()
+        await checkpointStarted.wait()
+        coordinator.revoke(identifier: identifier)
+        await checkpointRelease.open()
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+
+        XCTAssertFalse(didCancelRun)
+        XCTAssertEqual(scheduler.task.completions, [false])
+    }
+
     func testLateLaunchAfterLocalCompletionIsRejectedAndCompleted() throws {
         let scheduler = FakeScheduler()
         scheduler.autoLaunch = false
-        let coordinator = AgentContinuedProcessingCoordinator(scheduler: scheduler)
+        let coordinator = AgentContinuedProcessingCoordinator(
+            scheduler: scheduler,
+            isEnabled: { true }
+        )
         let identifier = try XCTUnwrap(coordinator.begin(runID: UUID(), onExpiration: {}))
 
         coordinator.complete(identifier: identifier, success: true)
@@ -84,6 +163,26 @@ final class ContinuedProcessingCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(scheduler.cancelCount, 1)
         XCTAssertEqual(scheduler.task.completions, [false])
+    }
+
+    func testRevokeEndsSystemTaskWithoutInvokingExpiration() throws {
+        let scheduler = FakeScheduler()
+        var didExpire = false
+        let coordinator = AgentContinuedProcessingCoordinator(
+            scheduler: scheduler,
+            isEnabled: { true }
+        )
+        let identifier = try XCTUnwrap(
+            coordinator.begin(runID: UUID()) {
+                didExpire = true
+            }
+        )
+
+        coordinator.revoke(identifier: identifier)
+
+        XCTAssertEqual(scheduler.cancelCount, 1)
+        XCTAssertEqual(scheduler.task.completions, [false])
+        XCTAssertFalse(didExpire)
     }
 
     private enum FakeError: Error {
@@ -110,6 +209,7 @@ final class ContinuedProcessingCoordinatorTests: XCTestCase {
     private final class FakeScheduler: ContinuedProcessingScheduling {
         let task = FakeTask()
         var submitError: Error?
+        var registerCount = 0
         var submitCount = 0
         var cancelCount = 0
         var autoLaunch = true
@@ -119,6 +219,7 @@ final class ContinuedProcessingCoordinatorTests: XCTestCase {
             identifier: String,
             launchHandler: @escaping @MainActor (any ContinuedProcessingTaskHandle) -> Void
         ) -> Bool {
+            registerCount += 1
             self.launchHandler = launchHandler
             return true
         }

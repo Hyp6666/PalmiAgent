@@ -1289,7 +1289,7 @@ enum LLMHTTPTransport {
                 var reasoningDetails: JSONRuntimeValue?
                 var totalTokens = 0
                 var finalUsage: SSEUsage?
-                var decoder = SSEEventDecoder()
+                var decoder = SSEByteDecoder()
                 var termination = SSEStreamTerminationTracker()
                 // 按 index 累积 tool_calls 分片（id/name 取首个非空，arguments 持续拼接）。
                 var toolCallOrder: [Int] = []
@@ -1369,15 +1369,26 @@ enum LLMHTTPTransport {
                     }
                 }
 
-                streamLines: for try await line in bytes.lines {
+                streamBytes: for try await byte in bytes {
                     try Task.checkCancellation()
-                    let frames = try decoder.consume(line: line)
+                    let frames: [SSEFrame]
+                    do {
+                        frames = try decoder.consume(byte: byte)
+                    } catch {
+                        throw LLMHTTPTransportError.malformedStreamPayload(attempts: attempt)
+                    }
                     try await process(frames)
                     if frames.contains(.done) {
-                        break streamLines
+                        break streamBytes
                     }
                 }
-                try await process(decoder.finish())
+                do {
+                    try await process(try decoder.finish())
+                } catch let error as LLMHTTPTransportError {
+                    throw error
+                } catch {
+                    throw LLMHTTPTransportError.malformedStreamPayload(attempts: attempt)
+                }
 
                 do {
                     try termination.validateEndOfStream()
@@ -1405,11 +1416,13 @@ enum LLMHTTPTransport {
                     tokenUsage: LLMAPIClient.modelTokenUsage(from: finalUsage),
                     response: httpResponse
                 )
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch let error as LLMHTTPTransportError {
-                throw error
             } catch {
+                if isCancellation(error) {
+                    throw CancellationError()
+                }
+                if let transportError = error as? LLMHTTPTransportError {
+                    throw transportError
+                }
                 if !emittedAnyDelta, shouldRetry(error: error), attempt < maxAttempts {
                     try await sleepBeforeRetry(after: transportDelay(for: error, attempt: attempt))
                     continue
@@ -1434,6 +1447,7 @@ enum LLMHTTPTransport {
 
         for attempt in 1...maxAttempts {
             do {
+                try Task.checkCancellation()
                 let (data, response) = try await session.data(for: preparedRequest)
                 guard let httpResponse = response as? HTTPURLResponse else {
                     if attempt < maxAttempts {
@@ -1457,9 +1471,13 @@ enum LLMHTTPTransport {
                     data: data,
                     attempts: attempt
                 )
-            } catch let error as LLMHTTPTransportError {
-                throw error
             } catch {
+                if isCancellation(error) {
+                    throw CancellationError()
+                }
+                if let transportError = error as? LLMHTTPTransportError {
+                    throw transportError
+                }
                 if shouldRetry(error: error), attempt < maxAttempts {
                     try await sleepBeforeRetry(after: transportDelay(for: error, attempt: attempt))
                     continue
@@ -1509,6 +1527,14 @@ enum LLMHTTPTransport {
         default:
             return false
         }
+    }
+
+    private static func isCancellation(_ error: Error) -> Bool {
+        if Task.isCancelled || error is CancellationError {
+            return true
+        }
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
     }
 
     private static func httpResponseDelay(for response: HTTPURLResponse?, attempt: Int) -> UInt64 {

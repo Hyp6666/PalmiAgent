@@ -12,6 +12,8 @@
 "attachment.goal.subtitle" = "Set a goal and keep Palmi moving toward it";
 "attachment.photos" = "Photos";
 "attachment.remove" = "Remove attachment";
+"backgroundProcessing.status.processing" = "Processing conversation";
+"backgroundProcessing.status.progress" = "Processing · %d%%";
 "chat.accessibility.backToWorkspace" = "Back to workspace";
 "chat.accessibility.chatTools" = "Chat Tools";
 "chat.answer.copied" = "Answer copied";
@@ -440,7 +442,10 @@
 "settings.row.systemSettings" = "System Settings";
 "settings.row.systemInfo" = "System information";
 "settings.row.toolManagement" = "Tool Management";
+"settings.backgroundProcessing.note" = "Starting with the next conversation, tasks may continue for as long as iOS allows after you leave PalmiAgent or lock your device. Generic progress appears on the Lock Screen and Dynamic Island and may use more data and battery. Turning this off immediately ends the system background activity without cancelling the current foreground response.";
+"settings.backgroundProcessing.toggle" = "Continue Processing in Background";
 "settings.section.about" = "About";
+"settings.section.backgroundProcessing" = "Background Processing";
 "settings.section.data" = "Data";
 "settings.section.experience" = "Experience";
 "settings.section.general" = "General";

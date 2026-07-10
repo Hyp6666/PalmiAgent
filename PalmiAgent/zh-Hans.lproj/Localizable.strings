@@ -12,6 +12,8 @@
 "attachment.goal.subtitle" = "设立目标并持续推进";
 "attachment.photos" = "照片";
 "attachment.remove" = "移除附件";
+"backgroundProcessing.status.processing" = "正在处理对话";
+"backgroundProcessing.status.progress" = "正在处理 · %d%%";
 "chat.accessibility.backToWorkspace" = "返回工作区";
 "chat.accessibility.chatTools" = "聊天工具";
 "chat.answer.copied" = "已复制回答";
@@ -440,7 +442,10 @@
 "settings.row.systemSettings" = "系统设置";
 "settings.row.systemInfo" = "系统信息";
 "settings.row.toolManagement" = "工具管理";
+"settings.backgroundProcessing.note" = "开启后，从下一次对话开始，离开 PalmiAgent 或锁屏时，任务可在系统允许的时间内继续；锁屏和灵动岛会显示通用进度，可能增加流量和耗电。关闭会立即结束系统后台状态，但不会取消当前前台回答。";
+"settings.backgroundProcessing.toggle" = "后台继续处理";
 "settings.section.about" = "关于";
+"settings.section.backgroundProcessing" = "后台运行";
 "settings.section.data" = "数据";
 "settings.section.experience" = "体验";
 "settings.section.general" = "通用";

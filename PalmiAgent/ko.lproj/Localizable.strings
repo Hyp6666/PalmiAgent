@@ -12,6 +12,8 @@
 "attachment.goal.subtitle" = "목표를 세우고 계속 진행합니다";
 "attachment.photos" = "사진";
 "attachment.remove" = "첨부 파일 제거";
+"backgroundProcessing.status.processing" = "대화 처리 중";
+"backgroundProcessing.status.progress" = "처리 중 · %d%%";
 "chat.accessibility.backToWorkspace" = "작업 공간으로 돌아가기";
 "chat.accessibility.chatTools" = "채팅 도구";
 "chat.answer.copied" = "답변을 복사했습니다";
@@ -440,7 +442,10 @@
 "settings.row.systemSettings" = "시스템 설정";
 "settings.row.systemInfo" = "시스템 정보";
 "settings.row.toolManagement" = "도구 관리";
+"settings.backgroundProcessing.note" = "활성화하면 다음 대화부터 PalmiAgent를 나가거나 화면을 잠근 뒤에도 iOS가 허용하는 시간 동안 작업을 계속할 수 있습니다. 잠금 화면과 Dynamic Island에 일반 진행 상태가 표시되며 데이터와 배터리를 더 사용할 수 있습니다. 비활성화하면 시스템 백그라운드 상태는 즉시 종료되지만 현재 포그라운드 응답은 취소되지 않습니다.";
+"settings.backgroundProcessing.toggle" = "백그라운드에서 계속 처리";
 "settings.section.about" = "정보";
+"settings.section.backgroundProcessing" = "백그라운드 처리";
 "settings.section.data" = "데이터";
 "settings.section.experience" = "경험";
 "settings.section.general" = "일반";

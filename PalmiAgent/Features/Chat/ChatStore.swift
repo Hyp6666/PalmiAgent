@@ -694,7 +694,9 @@ final class ChatStore {
                 } catch {
                     activeRun.journalError = error
                 }
-                activeRun.executionTask?.cancel()
+            },
+            cancelRun: { [weak activeRun] in
+                activeRun?.executionTask?.cancel()
             }
         )
     }
@@ -703,6 +705,16 @@ final class ChatStore {
         guard let selection = displayedSelection,
               let run = activeRuns[selection] else { return }
         run.executionTask?.cancel()
+    }
+
+    func handleContinuedProcessingPreferenceChange(isEnabled: Bool) {
+        guard !isEnabled else { return }
+        for run in activeRuns.values {
+            continuedProcessingCoordinator.revoke(
+                identifier: run.continuedProcessingIdentifier
+            )
+            run.continuedProcessingIdentifier = nil
+        }
     }
 
     func compactContextNow() {

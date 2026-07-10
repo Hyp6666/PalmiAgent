@@ -12,6 +12,8 @@
 "attachment.goal.subtitle" = "目標を設定して継続的に進めます";
 "attachment.photos" = "写真";
 "attachment.remove" = "添付ファイルを削除";
+"backgroundProcessing.status.processing" = "会話を処理中";
+"backgroundProcessing.status.progress" = "処理中 · %d%%";
 "chat.accessibility.backToWorkspace" = "ワークスペースに戻る";
 "chat.accessibility.chatTools" = "チャットツール";
 "chat.answer.copied" = "回答をコピーしました";
@@ -440,7 +442,10 @@
 "settings.row.systemSettings" = "システム設定";
 "settings.row.systemInfo" = "システム情報";
 "settings.row.toolManagement" = "ツール管理";
+"settings.backgroundProcessing.note" = "有効にすると、次の会話から、PalmiAgent を離れたり画面をロックした後も、iOS が許可する時間内で処理を継続できます。ロック画面と Dynamic Island に汎用の進捗が表示され、通信量や電池消費が増える場合があります。無効にするとシステムのバックグラウンド表示は直ちに終了しますが、現在のフォアグラウンド応答はキャンセルされません。";
+"settings.backgroundProcessing.toggle" = "バックグラウンドで処理を続ける";
 "settings.section.about" = "情報";
+"settings.section.backgroundProcessing" = "バックグラウンド処理";
 "settings.section.data" = "データ";
 "settings.section.experience" = "体験";
 "settings.section.general" = "一般";

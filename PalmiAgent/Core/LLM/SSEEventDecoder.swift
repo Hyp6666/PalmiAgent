@@ -7,6 +7,59 @@ enum SSEFrame: Equatable, Sendable {
 
 enum SSEStreamProtocolError: Error, Equatable, Sendable {
     case incompleteStream
+    case invalidUTF8
+}
+
+/// Preserves SSE blank-line event boundaries that Foundation's async `lines`
+/// sequence omits, then delegates field parsing to `SSEEventDecoder`.
+struct SSEByteDecoder: Sendable {
+    private var lineBytes: [UInt8] = []
+    private var eventDecoder = SSEEventDecoder()
+    private var previousByteWasCarriageReturn = false
+    private var isFirstLine = true
+
+    mutating func consume(byte: UInt8) throws -> [SSEFrame] {
+        if byte == 0x0A { // LF; a preceding CR already ended this line.
+            if previousByteWasCarriageReturn {
+                previousByteWasCarriageReturn = false
+                return []
+            }
+            return try dispatchBufferedLine()
+        }
+
+        previousByteWasCarriageReturn = false
+        if byte == 0x0D { // CR also terminates an SSE line on its own.
+            previousByteWasCarriageReturn = true
+            return try dispatchBufferedLine()
+        }
+
+        lineBytes.append(byte)
+        return []
+    }
+
+    mutating func finish() throws -> [SSEFrame] {
+        var frames: [SSEFrame] = []
+        if !lineBytes.isEmpty {
+            frames.append(contentsOf: try dispatchBufferedLine())
+        }
+        frames.append(contentsOf: eventDecoder.finish())
+        return frames
+    }
+
+    private mutating func dispatchBufferedLine() throws -> [SSEFrame] {
+        guard var line = String(bytes: lineBytes, encoding: .utf8) else {
+            lineBytes.removeAll(keepingCapacity: true)
+            throw SSEStreamProtocolError.invalidUTF8
+        }
+        lineBytes.removeAll(keepingCapacity: true)
+        if isFirstLine {
+            isFirstLine = false
+            if line.first == "\u{FEFF}" {
+                line.removeFirst()
+            }
+        }
+        return try eventDecoder.consume(line: line)
+    }
 }
 
 struct SSEEventDecoder: Sendable {

@@ -79,6 +79,9 @@ struct WorkspaceShellScreen: View {
             AppSettingsScreen(
                 store: manualLabStore,
                 skillRegistry: skillRegistry,
+                onContinuedProcessingPreferenceChange: { isEnabled in
+                    chatStore.handleContinuedProcessingPreferenceChange(isEnabled: isEnabled)
+                },
                 onStartOnboarding: presentOnboardingFromSettings,
                 onFactoryResetCompleted: handleFactoryResetCompleted
             )
@@ -1517,6 +1520,7 @@ private struct AppSettingsScreen: View {
     @AppStorage(PalmiLanguage.storageKey) private var selectedLanguageID = PalmiLanguage.zhHans.rawValue
     @Bindable var store: ManualLabStore
     @Bindable var skillRegistry: SkillRegistry
+    let onContinuedProcessingPreferenceChange: (Bool) -> Void
     let onStartOnboarding: () -> Void
     let onFactoryResetCompleted: () -> Void
 
@@ -1568,6 +1572,7 @@ private struct AppSettingsScreen: View {
         case .systemSettings:
             SystemSettingsScreen(
                 store: store,
+                onContinuedProcessingPreferenceChange: onContinuedProcessingPreferenceChange,
                 onStartOnboarding: onStartOnboarding,
                 onFactoryResetCompleted: onFactoryResetCompleted
             )
@@ -1578,7 +1583,10 @@ private struct AppSettingsScreen: View {
 }
 
 private struct SystemSettingsScreen: View {
+    @AppStorage(AgentContinuedProcessingPreference.storageKey)
+    private var isContinuedProcessingEnabled = AgentContinuedProcessingPreference.defaultValue
     @Bindable var store: ManualLabStore
+    let onContinuedProcessingPreferenceChange: (Bool) -> Void
     let onStartOnboarding: () -> Void
     let onFactoryResetCompleted: () -> Void
 
@@ -1590,6 +1598,17 @@ private struct SystemSettingsScreen: View {
                 } label: {
                     Label(PalmiL10n.tr("settings.row.language"), systemImage: "globe")
                 }
+            }
+
+            Section {
+                Toggle(
+                    PalmiL10n.tr("settings.backgroundProcessing.toggle"),
+                    isOn: $isContinuedProcessingEnabled
+                )
+            } header: {
+                Text(PalmiL10n.tr("settings.section.backgroundProcessing"))
+            } footer: {
+                Text(PalmiL10n.tr("settings.backgroundProcessing.note"))
             }
 
             Section(PalmiL10n.tr("settings.section.launch")) {
@@ -1622,6 +1641,9 @@ private struct SystemSettingsScreen: View {
         .listStyle(.insetGrouped)
         .navigationTitle(PalmiL10n.tr("settings.system.title"))
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: isContinuedProcessingEnabled) { _, isEnabled in
+            onContinuedProcessingPreferenceChange(isEnabled)
+        }
     }
 }
 

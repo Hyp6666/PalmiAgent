@@ -1,6 +1,18 @@
 import BackgroundTasks
 import Foundation
 
+enum AgentContinuedProcessingPreference {
+    static let storageKey = "palmi.agent.continued-processing-enabled"
+    static let defaultValue = false
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: storageKey) != nil else {
+            return defaultValue
+        }
+        return defaults.bool(forKey: storageKey)
+    }
+}
+
 @MainActor
 protocol ContinuedProcessingTaskHandle: AnyObject {
     var title: String { get }
@@ -52,30 +64,51 @@ final class SystemContinuedProcessingScheduler: ContinuedProcessingScheduling {
 
 @MainActor
 final class AgentContinuedProcessingCoordinator {
+    private struct ExpirationHandler {
+        let checkpoint: () async -> Void
+        let cancelRun: () -> Void
+    }
+
     private static let identifierPrefix = "com.hongyupeng.PalmiAgent.agent-run."
     private let scheduler: any ContinuedProcessingScheduling
+    private let isEnabled: () -> Bool
     private var activeTasks: [String: any ContinuedProcessingTaskHandle] = [:]
-    private var cancellationHandlers: [String: () async -> Void] = [:]
+    private var expirationHandlers: [String: ExpirationHandler] = [:]
     private var progressUnits: [String: Int64] = [:]
 
     convenience init() {
-        self.init(scheduler: SystemContinuedProcessingScheduler())
+        self.init(
+            scheduler: SystemContinuedProcessingScheduler(),
+            isEnabled: { AgentContinuedProcessingPreference.isEnabled() }
+        )
     }
 
-    init(scheduler: any ContinuedProcessingScheduling) {
+    init(
+        scheduler: any ContinuedProcessingScheduling,
+        isEnabled: @escaping () -> Bool
+    ) {
         self.scheduler = scheduler
+        self.isEnabled = isEnabled
     }
 
-    func begin(runID: UUID, onExpiration: @escaping () async -> Void) -> String? {
+    func begin(
+        runID: UUID,
+        onExpiration: @escaping () async -> Void,
+        cancelRun: @escaping () -> Void = {}
+    ) -> String? {
+        guard isEnabled() else { return nil }
         let identifier = Self.identifierPrefix + runID.uuidString.lowercased()
-        cancellationHandlers[identifier] = onExpiration
+        expirationHandlers[identifier] = ExpirationHandler(
+            checkpoint: onExpiration,
+            cancelRun: cancelRun
+        )
         progressUnits[identifier] = 1
 
         let registered = scheduler.register(identifier: identifier) { [weak self] task in
             self?.attach(task, identifier: identifier)
         }
         guard registered else {
-            cancellationHandlers.removeValue(forKey: identifier)
+            expirationHandlers.removeValue(forKey: identifier)
             progressUnits.removeValue(forKey: identifier)
             return nil
         }
@@ -83,14 +116,14 @@ final class AgentContinuedProcessingCoordinator {
         let request = BGContinuedProcessingTaskRequest(
             identifier: identifier,
             title: "Palmi Agent",
-            subtitle: "正在处理对话"
+            subtitle: PalmiL10n.tr("backgroundProcessing.status.processing")
         )
         request.strategy = .queue
         do {
             try scheduler.submit(request)
             return identifier
         } catch {
-            cancellationHandlers.removeValue(forKey: identifier)
+            expirationHandlers.removeValue(forKey: identifier)
             progressUnits.removeValue(forKey: identifier)
             return nil
         }
@@ -98,11 +131,18 @@ final class AgentContinuedProcessingCoordinator {
 
     func reportProgress(identifier: String?) {
         guard let identifier else { return }
+        guard isEnabled() else {
+            revoke(identifier: identifier)
+            return
+        }
         let next = min(95, (progressUnits[identifier] ?? 1) + 1)
         progressUnits[identifier] = next
         guard let task = activeTasks[identifier] else { return }
         task.progress.completedUnitCount = next
-        task.updateTitle(task.title, subtitle: "正在处理 · \(next)%")
+        task.updateTitle(
+            task.title,
+            subtitle: PalmiL10n.tr("backgroundProcessing.status.progress", Int(next))
+        )
     }
 
     func complete(identifier: String?, success: Bool) {
@@ -114,12 +154,30 @@ final class AgentContinuedProcessingCoordinator {
         } else {
             scheduler.cancel(identifier: identifier)
         }
-        cancellationHandlers.removeValue(forKey: identifier)
+        expirationHandlers.removeValue(forKey: identifier)
+        progressUnits.removeValue(forKey: identifier)
+    }
+
+    /// Withdraws only the system continued-processing request. The local agent
+    /// run remains active and its expiration callback is intentionally not run.
+    func revoke(identifier: String?) {
+        guard let identifier else { return }
+        guard expirationHandlers[identifier] != nil
+                || activeTasks[identifier] != nil
+                || progressUnits[identifier] != nil else { return }
+        scheduler.cancel(identifier: identifier)
+        if let task = activeTasks.removeValue(forKey: identifier) {
+            task.expirationHandler = nil
+            task.complete(success: false)
+        }
+        expirationHandlers.removeValue(forKey: identifier)
         progressUnits.removeValue(forKey: identifier)
     }
 
     private func attach(_ task: any ContinuedProcessingTaskHandle, identifier: String) {
-        guard cancellationHandlers[identifier] != nil else {
+        guard isEnabled(), expirationHandlers[identifier] != nil else {
+            expirationHandlers.removeValue(forKey: identifier)
+            progressUnits.removeValue(forKey: identifier)
             task.expirationHandler = nil
             task.complete(success: false)
             return
@@ -130,18 +188,19 @@ final class AgentContinuedProcessingCoordinator {
         task.expirationHandler = { [weak self, weak task] in
             Task { @MainActor in
                 guard let self else { return }
-                if let expiration = self.cancellationHandlers[identifier] {
-                    await expiration()
-                }
+                guard let handler = self.expirationHandlers[identifier] else { return }
+                await handler.checkpoint()
                 guard let task,
                       let activeTask = self.activeTasks[identifier],
-                      activeTask === task else {
+                      activeTask === task,
+                      self.expirationHandlers[identifier] != nil else {
                     return
                 }
                 self.activeTasks.removeValue(forKey: identifier)
-                self.cancellationHandlers.removeValue(forKey: identifier)
+                self.expirationHandlers.removeValue(forKey: identifier)
                 self.progressUnits.removeValue(forKey: identifier)
                 task.expirationHandler = nil
+                handler.cancelRun()
                 task.complete(success: false)
             }
         }
