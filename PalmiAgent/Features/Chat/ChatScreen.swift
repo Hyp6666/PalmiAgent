@@ -665,10 +665,10 @@ struct ChatScreen: View {
                         messageID: message.id,
                         toolCall: toolCall,
                         liveReasoningBuffer: store.liveReasoningBuffer(for: message.id),
-                        isExpanded: expandedToolMessageIDs.contains(message.id)
-                    ) {
-                        toggleToolExpansion(message.id)
-                    }
+                        isExpanded: expandedToolMessageIDs.contains(message.id),
+                        onToggle: { toggleToolExpansion(message.id) },
+                        onOpenRelatedThread: openRelatedThread
+                    )
                 }
             case .contextCompaction:
                 if let notice = message.contextCompaction {
@@ -689,6 +689,15 @@ struct ChatScreen: View {
             suffix.insert(message, at: 0)
         }
         return suffix
+    }
+
+    private func openRelatedThread(_ threadID: UUID) {
+        for project in workspaceStore.projects {
+            if let thread = workspaceStore.threads(for: project.id).first(where: { $0.id == threadID }) {
+                workspaceStore.selectThread(thread)
+                return
+            }
+        }
     }
 
     // loop 迭代边界判断：
@@ -3366,6 +3375,10 @@ private struct SessionHeaderStrip: View {
                         .rotationEffect(.degrees(isCollapsed ? -90 : 0))
                 }
 
+                if !isCollapsed, let taskProgress = header.taskProgress {
+                    taskProgressView(taskProgress)
+                }
+
                 if showsDivider {
                     Capsule()
                         .fill(Color.black.opacity(0.08))
@@ -3379,6 +3392,75 @@ private struct SessionHeaderStrip: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.plain)
+    }
+
+    private func taskProgressView(_ progress: PalmiTaskProgressSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 8) {
+                Image(systemName: "checklist")
+                    .foregroundStyle(.blue)
+                Text(progress.title)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Text("\(progress.completedCount)/\(progress.totalCount)")
+                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            ProgressView(
+                value: Double(progress.completedCount),
+                total: Double(max(1, progress.totalCount))
+            )
+            .tint(progress.lifecycle == .blocked ? .orange : .blue)
+            if let focusID = progress.focusItemID,
+               let focus = progress.items.first(where: { $0.id == focusID }) {
+                Text(PalmiL10n.tr("task.progress.current", focus.title))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            ForEach(Array(progress.items.prefix(6))) { item in
+                HStack(spacing: 7) {
+                    Image(systemName: taskItemIcon(item.status))
+                        .font(.caption2)
+                        .foregroundStyle(taskItemColor(item.status))
+                    Text(item.title)
+                        .font(.caption2)
+                        .foregroundStyle(item.status.isTerminal ? .secondary : .primary)
+                        .lineLimit(1)
+                }
+            }
+        }
+        .padding(10)
+        .background(Color.blue.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func taskItemIcon(_ status: AgentTaskItemStatus) -> String {
+        switch status {
+        case .completed:
+            return "checkmark.circle.fill"
+        case .inProgress:
+            return "circle.dotted"
+        case .blocked:
+            return "exclamationmark.circle.fill"
+        case .skipped, .canceled:
+            return "minus.circle"
+        case .pending:
+            return "circle"
+        }
+    }
+
+    private func taskItemColor(_ status: AgentTaskItemStatus) -> Color {
+        switch status {
+        case .completed:
+            return .green
+        case .inProgress:
+            return .blue
+        case .blocked:
+            return .orange
+        case .skipped, .canceled, .pending:
+            return .secondary
+        }
     }
 
     @ViewBuilder
@@ -4050,6 +4132,7 @@ private struct ToolCallCard: View {
     let liveReasoningBuffer: LiveReasoningBuffer?
     let isExpanded: Bool
     let onToggle: () -> Void
+    let onOpenRelatedThread: (UUID) -> Void
 
     var body: some View {
         switch toolCall.cardKind {
@@ -4212,6 +4295,26 @@ private struct ToolCallCard: View {
                                 .font(.caption)
                                 .foregroundStyle(.orange)
                         }
+
+                        if let threadIDs = toolCall.relatedThreadIDs, !threadIDs.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(PalmiL10n.tr("subagent.relatedThreads"))
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                ForEach(threadIDs, id: \.self) { threadID in
+                                    Button {
+                                        onOpenRelatedThread(threadID)
+                                    } label: {
+                                        Label(
+                                            PalmiL10n.tr("subagent.openThread"),
+                                            systemImage: "person.2"
+                                        )
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                }
+                            }
+                        }
                     } else if !toolCall.details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         ToolCallDetailSection(
                             title: PalmiL10n.tr("tool.detail.content"),
@@ -4287,6 +4390,9 @@ private struct ToolCallCard: View {
         }
         if lowercasedName.contains("reminder") {
             return "checklist"
+        }
+        if lowercasedName.contains("subagent") {
+            return "person.2"
         }
 
         switch toolCall.presentationKind {

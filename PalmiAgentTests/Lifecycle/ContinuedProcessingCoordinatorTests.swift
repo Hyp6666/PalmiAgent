@@ -42,7 +42,7 @@ final class ContinuedProcessingCoordinatorTests: XCTestCase {
         XCTAssertEqual(scheduler.submitCount, 1)
     }
 
-    func testProgressIsMonotonicAndCompletionOccursOnce() throws {
+    func testProgressUsesAbsoluteSemanticSnapshotsInsteadOfEventCounting() throws {
         let scheduler = FakeScheduler()
         let coordinator = AgentContinuedProcessingCoordinator(
             scheduler: scheduler,
@@ -50,17 +50,59 @@ final class ContinuedProcessingCoordinatorTests: XCTestCase {
         )
         let identifier = try XCTUnwrap(coordinator.begin(runID: UUID(), onExpiration: {}))
 
-        coordinator.reportProgress(identifier: identifier)
+        coordinator.update(
+            identifier: identifier,
+            snapshot: AgentRunProgressSnapshot(phase: .thinking)
+        )
+        XCTAssertTrue(scheduler.task.progress.isIndeterminate)
+
+        coordinator.update(
+            identifier: identifier,
+            snapshot: AgentRunProgressSnapshot(
+                phase: .executing,
+                completedUnitCount: 2,
+                totalUnitCount: 5
+            )
+        )
         XCTAssertEqual(scheduler.task.progress.completedUnitCount, 2)
-        coordinator.reportProgress(identifier: identifier)
-        XCTAssertEqual(scheduler.task.progress.completedUnitCount, 3)
-        coordinator.reportProgress(identifier: identifier)
-        XCTAssertEqual(scheduler.task.progress.completedUnitCount, 4)
+        XCTAssertEqual(scheduler.task.progress.totalUnitCount, 5)
+
+        // Repeating a semantic snapshot never manufactures another unit.
+        coordinator.update(
+            identifier: identifier,
+            snapshot: AgentRunProgressSnapshot(
+                phase: .executing,
+                completedUnitCount: 2,
+                totalUnitCount: 5
+            )
+        )
+        XCTAssertEqual(scheduler.task.progress.completedUnitCount, 2)
+    }
+
+    func testSuccessfulCompletionPublishes100PercentBeforeCompletingExactlyOnce() throws {
+        let scheduler = FakeScheduler()
+        let coordinator = AgentContinuedProcessingCoordinator(
+            scheduler: scheduler,
+            isEnabled: { true }
+        )
+        let identifier = try XCTUnwrap(coordinator.begin(runID: UUID(), onExpiration: {}))
+
+        coordinator.update(
+            identifier: identifier,
+            snapshot: AgentRunProgressSnapshot(
+                phase: .summarizing,
+                completedUnitCount: 3,
+                totalUnitCount: 4
+            )
+        )
         coordinator.complete(identifier: identifier, success: true)
         coordinator.complete(identifier: identifier, success: true)
 
         XCTAssertEqual(scheduler.task.progress.completedUnitCount, 100)
         XCTAssertEqual(scheduler.task.completions, [true])
+        XCTAssertEqual(scheduler.task.events.suffix(2).map(\.kind), [.title, .completion])
+        XCTAssertTrue(scheduler.task.events.dropLast().last?.subtitle?.contains("100%") == true)
+        XCTAssertEqual(scheduler.task.events.last?.completedUnitCount, 100)
     }
 
     func testExpirationAwaitsCheckpointBeforeCompletingSystemTask() async throws {
@@ -190,18 +232,44 @@ final class ContinuedProcessingCoordinatorTests: XCTestCase {
     }
 
     private final class FakeTask: ContinuedProcessingTaskHandle {
+        struct Event {
+            enum Kind: Equatable {
+                case title
+                case completion
+            }
+
+            let kind: Kind
+            let subtitle: String?
+            let completedUnitCount: Int64
+        }
+
         var title = "Palmi Agent"
         let progress: Progress = Progress(totalUnitCount: 100)
         var expirationHandler: (() -> Void)?
         var completions: [Bool] = []
+        var events: [Event] = []
         var onComplete: ((Bool) -> Void)?
 
         func updateTitle(_ title: String, subtitle: String) {
             self.title = title
+            events.append(
+                Event(
+                    kind: .title,
+                    subtitle: subtitle,
+                    completedUnitCount: progress.completedUnitCount
+                )
+            )
         }
 
         func complete(success: Bool) {
             completions.append(success)
+            events.append(
+                Event(
+                    kind: .completion,
+                    subtitle: nil,
+                    completedUnitCount: progress.completedUnitCount
+                )
+            )
             onComplete?(success)
         }
     }

@@ -4,6 +4,7 @@ import Foundation
 final class TaskStateRuntime {
     private let fileStore: TaskStateFileStore
     private let decoder = JSONDecoder()
+    private let reducer = AgentTaskStateReducer()
 
     private var updatesThisTurn = 0
     private var noOpsThisTurn = 0
@@ -76,10 +77,11 @@ final class TaskStateRuntime {
                 updatedAt: .now
             )
             let oldState = currentSnapshot.currentState
-            let state = try makeState(
+            let state = try reducer.reduce(
                 args: args,
                 identity: identity,
-                existingState: oldState
+                existingState: oldState,
+                now: .now
             )
             let isNoOp = oldState.map { equivalent(lhs: $0, rhs: state) } ?? false
             if isNoOp {
@@ -95,7 +97,14 @@ final class TaskStateRuntime {
 
             updatesThisTurn += 1
             lastMutationWasTaskUpdate = true
-            let savedSnapshot = try fileStore.save(state: state, reason: normalized(args.reason, limit: 120))
+            let expectedPersistedRevision = oldState?.lifecycle.isActiveLike == true
+                ? args.expectedRevision
+                : nil
+            let savedSnapshot = try fileStore.save(
+                state: state,
+                reason: normalized(args.reason, limit: 120),
+                expectedRevision: expectedPersistedRevision
+            )
             return AgentTaskUpdateResult(
                 state: state,
                 snapshot: savedSnapshot,
@@ -106,170 +115,31 @@ final class TaskStateRuntime {
             )
         } catch {
             updatesThisTurn += 1
-            lastMutationWasTaskUpdate = true
+            // A rejected decode/CAS did not mutate state. Keep retry possible
+            // after projecting the latest disk snapshot back to the model.
+            lastMutationWasTaskUpdate = false
             let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            let fallbackSnapshot = snapshot ?? AgentTaskStateSnapshot(
-                projectID: identity.projectID,
-                threadID: identity.threadID,
-                sessionID: identity.sessionID,
-                currentRunID: nil,
-                currentState: nil,
-                recentRuns: [],
-                unavailableReason: nil,
-                updatedAt: .now
-            )
+            let fallbackSnapshot = (try? fileStore.loadSnapshot(identity: identity, fallback: snapshot))
+                ?? snapshot
+                ?? AgentTaskStateSnapshot(
+                    projectID: identity.projectID,
+                    threadID: identity.threadID,
+                    sessionID: identity.sessionID,
+                    currentRunID: nil,
+                    currentState: nil,
+                    recentRuns: [],
+                    unavailableReason: nil,
+                    updatedAt: .now
+                )
             return AgentTaskUpdateResult(
                 state: fallbackSnapshot.currentState,
                 snapshot: fallbackSnapshot,
-                payload: errorPayload(message),
+                payload: errorPayload(message, snapshot: fallbackSnapshot),
                 summary: message,
                 isError: true,
                 isNoOp: false
             )
         }
-    }
-
-    private func makeState(
-        args: UpdateTaskStateArgs,
-        identity: AgentTaskStateIdentity,
-        existingState: AgentTaskState?
-    ) throws -> AgentTaskState {
-        guard !args.items.isEmpty else {
-            throw AppError.invalidState("任务列表不能为空。")
-        }
-        guard args.items.count <= 6 else {
-            throw AppError.invalidState("任务最多只能有 6 项，请合并后重试。")
-        }
-
-        let now = Date()
-        let shouldCreateNewRun = existingState == nil || existingState?.lifecycle.isActiveLike == false
-        let taskRunID = shouldCreateNewRun ? UUID() : existingState!.taskRunID
-        let oldItems = existingState?.items ?? []
-        let oldItemsByID = Dictionary(uniqueKeysWithValues: oldItems.map { ($0.id, $0) })
-        var usedIDs: Set<String> = []
-        var nextIDIndex = nextGeneratedIDIndex(from: oldItems)
-
-        var items: [AgentTaskItem] = []
-        for (index, input) in args.items.enumerated() {
-            let candidateID = normalizedOptional(input.id)
-                ?? (index < oldItems.count ? oldItems[index].id : nil)
-                ?? nextID(usedIDs: usedIDs, nextIDIndex: &nextIDIndex)
-            let id = uniqueID(candidateID, usedIDs: &usedIDs, nextIDIndex: &nextIDIndex)
-            let previous = oldItemsByID[id]
-            items.append(
-                AgentTaskItem(
-                    id: id,
-                    title: normalized(input.title, limit: 48, fallback: previous?.title ?? "任务"),
-                    status: input.status,
-                    displaySummary: normalized(
-                        input.displaySummary ?? previous?.displaySummary ?? input.title,
-                        limit: 160,
-                        fallback: previous?.displaySummary ?? input.title
-                    ),
-                    hiddenDetail: normalizedOptional(input.hiddenDetail) ?? previous?.hiddenDetail,
-                    detailPath: previous?.detailPath,
-                    acceptanceCriteria: normalizedList(input.acceptanceCriteria ?? previous?.acceptanceCriteria ?? [], limit: 4, itemLimit: 160),
-                    evidenceReferences: evidenceReferences(
-                        toolUseIDs: input.evidenceToolUseIDs,
-                        previous: previous?.evidenceReferences ?? []
-                    ),
-                    createdAt: previous?.createdAt ?? now,
-                    updatedAt: now
-                )
-            )
-        }
-
-        let missingCompleted = oldItems.filter { oldItem in
-            oldItem.status.isTerminal && !items.contains(where: { $0.id == oldItem.id })
-        }
-        for oldItem in missingCompleted where items.count < 6 {
-            items.append(oldItem)
-            usedIDs.insert(oldItem.id)
-        }
-
-        normalizeInProgress(&items)
-        let lifecycle = resolvedLifecycle(
-            requested: args.lifecycle,
-            items: items,
-            existing: existingState?.lifecycle
-        )
-        let focusItemID = normalizedOptional(args.focusItemID)
-            ?? items.first(where: { $0.status == .inProgress })?.id
-            ?? items.first?.id
-
-        return AgentTaskState(
-            schemaVersion: 1,
-            id: existingState?.id ?? UUID(),
-            projectID: identity.projectID,
-            threadID: identity.threadID,
-            sessionID: identity.sessionID,
-            taskRunID: taskRunID,
-            mode: existingState?.mode ?? .auto,
-            lifecycle: lifecycle,
-            revision: (existingState?.revision ?? 0) + 1,
-            title: normalized(items.first?.title ?? "任务", limit: 48, fallback: "任务"),
-            summary: normalized(args.reason, limit: 160, fallback: "更新任务状态"),
-            focusItemID: focusItemID,
-            items: items,
-            metadata: existingState?.metadata ?? .empty,
-            createdAt: existingState?.createdAt ?? now,
-            updatedAt: now
-        )
-    }
-
-    private func normalizeInProgress(_ items: inout [AgentTaskItem]) {
-        let activeIndices = items.indices.filter { items[$0].status == .inProgress }
-        if !activeIndices.isEmpty {
-            for index in activeIndices.dropFirst() {
-                items[index].status = .pending
-            }
-            return
-        }
-
-        guard let firstPending = items.firstIndex(where: { $0.status == .pending }) else {
-            return
-        }
-        items[firstPending].status = .inProgress
-    }
-
-    private func resolvedLifecycle(
-        requested: AgentTaskLifecycle?,
-        items: [AgentTaskItem],
-        existing: AgentTaskLifecycle?
-    ) -> AgentTaskLifecycle {
-        if let requested {
-            return requested
-        }
-        if items.allSatisfy({ $0.status.isTerminal }) {
-            return .completed
-        }
-        if items.contains(where: { $0.status == .blocked }) {
-            return .blocked
-        }
-        if existing == .waitingForUser {
-            return .waitingForUser
-        }
-        return .active
-    }
-
-    private func evidenceReferences(
-        toolUseIDs: [String]?,
-        previous: [AgentTaskEvidenceRef]
-    ) -> [AgentTaskEvidenceRef] {
-        guard let toolUseIDs else { return previous }
-        return toolUseIDs
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .prefix(6)
-            .map { toolUseID in
-                AgentTaskEvidenceRef(
-                    kind: .toolResult,
-                    toolUseID: toolUseID,
-                    fileDeltaID: nil,
-                    eventLogID: nil,
-                    title: toolUseID
-                )
-            }
     }
 
     private func equivalent(lhs: AgentTaskState, rhs: AgentTaskState) -> Bool {
@@ -279,56 +149,6 @@ final class TaskStateRuntime {
             lhs.items.map(\.title) == rhs.items.map(\.title) &&
             lhs.items.map(\.status) == rhs.items.map(\.status) &&
             lhs.items.map(\.displaySummary) == rhs.items.map(\.displaySummary)
-    }
-
-    private func nextGeneratedIDIndex(from items: [AgentTaskItem]) -> Int {
-        let values = items.compactMap { item -> Int? in
-            guard item.id.first == "t" else { return nil }
-            return Int(item.id.dropFirst())
-        }
-        return (values.max() ?? 0) + 1
-    }
-
-    private func nextID(usedIDs: Set<String>, nextIDIndex: inout Int) -> String {
-        while usedIDs.contains("t\(nextIDIndex)") {
-            nextIDIndex += 1
-        }
-        let value = "t\(nextIDIndex)"
-        nextIDIndex += 1
-        return value
-    }
-
-    private func uniqueID(
-        _ candidate: String,
-        usedIDs: inout Set<String>,
-        nextIDIndex: inout Int
-    ) -> String {
-        let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedCandidate = trimmed.isEmpty
-            ? nextID(usedIDs: usedIDs, nextIDIndex: &nextIDIndex)
-            : normalized(trimmed, limit: 32)
-        if !usedIDs.contains(normalizedCandidate) {
-            usedIDs.insert(normalizedCandidate)
-            return normalizedCandidate
-        }
-        let generated = nextID(usedIDs: usedIDs, nextIDIndex: &nextIDIndex)
-        usedIDs.insert(generated)
-        return generated
-    }
-
-    private func normalizedList(_ values: [String], limit: Int, itemLimit: Int) -> [String] {
-        Array(
-            values
-                .map { normalized($0, limit: itemLimit) }
-                .filter { !$0.isEmpty }
-                .prefix(limit)
-        )
-    }
-
-    private func normalizedOptional(_ value: String?) -> String? {
-        guard let value else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func normalized(_ value: String, limit: Int, fallback: String = "") -> String {
@@ -352,11 +172,19 @@ final class TaskStateRuntime {
         return jsonString(payload)
     }
 
-    private func errorPayload(_ message: String) -> String {
-        jsonString([
+    private func errorPayload(
+        _ message: String,
+        snapshot: AgentTaskStateSnapshot
+    ) -> String {
+        var payload: [String: Any] = [
             "status": "error",
             "message": message
-        ])
+        ]
+        if let state = snapshot.currentState {
+            payload["current_revision"] = state.revision
+            payload["task_run_id"] = state.taskRunID.uuidString
+        }
+        return jsonString(payload)
     }
 
     private func limitedResult(
@@ -377,7 +205,7 @@ final class TaskStateRuntime {
         return AgentTaskUpdateResult(
             state: resolvedSnapshot.currentState,
             snapshot: resolvedSnapshot,
-            payload: errorPayload(reason),
+            payload: errorPayload(reason, snapshot: resolvedSnapshot),
             summary: reason,
             isError: true,
             isNoOp: false

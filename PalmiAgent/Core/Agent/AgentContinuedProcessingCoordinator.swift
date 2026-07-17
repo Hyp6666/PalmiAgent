@@ -74,7 +74,7 @@ final class AgentContinuedProcessingCoordinator {
     private let isEnabled: () -> Bool
     private var activeTasks: [String: any ContinuedProcessingTaskHandle] = [:]
     private var expirationHandlers: [String: ExpirationHandler] = [:]
-    private var progressUnits: [String: Int64] = [:]
+    private var progressSnapshots: [String: AgentRunProgressSnapshot] = [:]
 
     convenience init() {
         self.init(
@@ -102,14 +102,14 @@ final class AgentContinuedProcessingCoordinator {
             checkpoint: onExpiration,
             cancelRun: cancelRun
         )
-        progressUnits[identifier] = 1
+        progressSnapshots[identifier] = AgentRunProgressSnapshot(phase: .preparing)
 
         let registered = scheduler.register(identifier: identifier) { [weak self] task in
             self?.attach(task, identifier: identifier)
         }
         guard registered else {
             expirationHandlers.removeValue(forKey: identifier)
-            progressUnits.removeValue(forKey: identifier)
+            progressSnapshots.removeValue(forKey: identifier)
             return nil
         }
 
@@ -124,38 +124,49 @@ final class AgentContinuedProcessingCoordinator {
             return identifier
         } catch {
             expirationHandlers.removeValue(forKey: identifier)
-            progressUnits.removeValue(forKey: identifier)
+            progressSnapshots.removeValue(forKey: identifier)
             return nil
         }
     }
 
-    func reportProgress(identifier: String?) {
+    func update(identifier: String?, snapshot: AgentRunProgressSnapshot) {
         guard let identifier else { return }
         guard isEnabled() else {
             revoke(identifier: identifier)
             return
         }
-        let next = min(95, (progressUnits[identifier] ?? 1) + 1)
-        progressUnits[identifier] = next
+        progressSnapshots[identifier] = snapshot
         guard let task = activeTasks[identifier] else { return }
-        task.progress.completedUnitCount = next
-        task.updateTitle(
-            task.title,
-            subtitle: PalmiL10n.tr("backgroundProcessing.status.progress", Int(next))
-        )
+        apply(snapshot, to: task)
     }
 
     func complete(identifier: String?, success: Bool) {
         guard let identifier else { return }
         if let task = activeTasks.removeValue(forKey: identifier) {
             task.expirationHandler = nil
-            task.progress.completedUnitCount = success ? 100 : task.progress.completedUnitCount
+            if success {
+                task.progress.totalUnitCount = 100
+                task.progress.completedUnitCount = 100
+                task.updateTitle(
+                    task.title,
+                    subtitle: AgentRunProgressSnapshot(
+                        phase: .completed,
+                        completedUnitCount: 100,
+                        totalUnitCount: 100
+                    ).localizedSubtitle
+                )
+            } else {
+                task.updateTitle(
+                    task.title,
+                    subtitle: AgentRunProgressSnapshot(phase: .failed).localizedSubtitle
+                )
+            }
             task.complete(success: success)
         } else {
             scheduler.cancel(identifier: identifier)
         }
         expirationHandlers.removeValue(forKey: identifier)
-        progressUnits.removeValue(forKey: identifier)
+        progressSnapshots.removeValue(forKey: identifier)
     }
 
     /// Withdraws only the system continued-processing request. The local agent
@@ -164,27 +175,26 @@ final class AgentContinuedProcessingCoordinator {
         guard let identifier else { return }
         guard expirationHandlers[identifier] != nil
                 || activeTasks[identifier] != nil
-                || progressUnits[identifier] != nil else { return }
+                || progressSnapshots[identifier] != nil else { return }
         scheduler.cancel(identifier: identifier)
         if let task = activeTasks.removeValue(forKey: identifier) {
             task.expirationHandler = nil
             task.complete(success: false)
         }
         expirationHandlers.removeValue(forKey: identifier)
-        progressUnits.removeValue(forKey: identifier)
+        progressSnapshots.removeValue(forKey: identifier)
     }
 
     private func attach(_ task: any ContinuedProcessingTaskHandle, identifier: String) {
         guard isEnabled(), expirationHandlers[identifier] != nil else {
             expirationHandlers.removeValue(forKey: identifier)
-            progressUnits.removeValue(forKey: identifier)
+            progressSnapshots.removeValue(forKey: identifier)
             task.expirationHandler = nil
             task.complete(success: false)
             return
         }
         activeTasks[identifier] = task
-        task.progress.totalUnitCount = 100
-        task.progress.completedUnitCount = progressUnits[identifier] ?? 1
+        apply(progressSnapshots[identifier] ?? AgentRunProgressSnapshot(phase: .preparing), to: task)
         task.expirationHandler = { [weak self, weak task] in
             Task { @MainActor in
                 guard let self else { return }
@@ -198,11 +208,25 @@ final class AgentContinuedProcessingCoordinator {
                 }
                 self.activeTasks.removeValue(forKey: identifier)
                 self.expirationHandlers.removeValue(forKey: identifier)
-                self.progressUnits.removeValue(forKey: identifier)
+                self.progressSnapshots.removeValue(forKey: identifier)
                 task.expirationHandler = nil
                 handler.cancelRun()
                 task.complete(success: false)
             }
         }
+    }
+
+    private func apply(
+        _ snapshot: AgentRunProgressSnapshot,
+        to task: any ContinuedProcessingTaskHandle
+    ) {
+        if let totalUnitCount = snapshot.totalUnitCount {
+            task.progress.totalUnitCount = totalUnitCount
+            task.progress.completedUnitCount = snapshot.completedUnitCount
+        } else {
+            task.progress.totalUnitCount = -1
+            task.progress.completedUnitCount = 0
+        }
+        task.updateTitle(task.title, subtitle: snapshot.localizedSubtitle)
     }
 }

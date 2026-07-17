@@ -20,9 +20,14 @@ enum AgentPreparedToolResult {
 @MainActor
 final class AgentToolExecutor {
     private let actionExecutor: ActionExecutor
+    private let executionCoordinator: ToolExecutionCoordinator
 
-    init(actionExecutor: ActionExecutor) {
+    init(
+        actionExecutor: ActionExecutor,
+        executionCoordinator: ToolExecutionCoordinator
+    ) {
         self.actionExecutor = actionExecutor
+        self.executionCoordinator = executionCoordinator
     }
 
     func prepare(
@@ -54,11 +59,37 @@ final class AgentToolExecutor {
         stepID: UUID,
         modelOverrides: AgentModelRoleOverrides = .empty
     ) async throws -> AgentToolExecutionResult {
-        let outcome = try await actionExecutor.execute(
-            prepared.action,
-            arguments: prepared.arguments,
-            modelOverrides: modelOverrides
-        )
+        let access: ToolExecutionAccess = prepared.action.id.policyMetadata.parallelPolicy == .parallelReadOnly
+            ? .shared
+            : .exclusive
+        let permit = try await executionCoordinator.acquire(access)
+        defer { executionCoordinator.release(permit) }
+        try Task.checkCancellation()
+
+        let outcome: ToolExecutionOutcome
+        do {
+            outcome = try await actionExecutor.execute(
+                prepared.action,
+                arguments: prepared.arguments,
+                modelOverrides: modelOverrides
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            if Task.isCancelled {
+                throw CancellationError()
+            }
+            outcome = ToolExecutionOutcome(
+                result: ToolResult(
+                    status: .failure,
+                    title: prepared.action.title,
+                    summary: "执行失败",
+                    details: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription,
+                    actionID: prepared.action.id,
+                    createdAt: .now
+                )
+            )
+        }
         let step = LLMToolExecutionStep(
             id: stepID,
             action: prepared.action,

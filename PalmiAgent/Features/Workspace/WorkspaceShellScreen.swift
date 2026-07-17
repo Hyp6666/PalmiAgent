@@ -501,9 +501,33 @@ private struct WorkspaceSidebar: View {
     private func handleDeletion(_ target: WorkspaceDeletionTarget) {
         switch target {
         case .project(let project):
+            let hasRunningThread = store.threads(for: project.id).contains { thread in
+                chatStore.isRunning(
+                    selection: WorkspaceSelection(projectID: project.id, threadID: thread.id)
+                )
+            }
+            guard !hasRunningThread else {
+                store.statusMessage = PalmiL10n.tr("workspace.delete.runningBlocked")
+                pendingDeletion = nil
+                return
+            }
             expandedProjectIDs.remove(project.id)
             store.deleteProject(project)
         case .thread(let thread):
+            let selection = WorkspaceSelection(projectID: thread.projectID, threadID: thread.id)
+            let hasRunningChild = store.threads(for: thread.projectID).contains { candidate in
+                candidate.subagentOrigin?.parentThreadID == thread.id &&
+                    chatStore.isRunning(
+                        selection: WorkspaceSelection(projectID: candidate.projectID, threadID: candidate.id)
+                    )
+            }
+            guard !chatStore.isRunning(selection: selection),
+                  !chatStore.isOwnedByRunningParent(selection: selection),
+                  !hasRunningChild else {
+                store.statusMessage = PalmiL10n.tr("workspace.delete.runningBlocked")
+                pendingDeletion = nil
+                return
+            }
             store.deleteThread(thread)
         }
         pendingDeletion = nil
@@ -527,6 +551,22 @@ private struct WorkspaceProjectRow: View {
     let onSelectThread: (WorkspaceThreadRecord) -> Void
     let onRenameThread: (WorkspaceThreadRecord) -> Void
     let onDeleteThread: (WorkspaceThreadRecord) -> Void
+
+    private var orderedThreads: [WorkspaceThreadRecord] {
+        let IDs = Set(threads.map(\.id))
+        let roots = threads.filter {
+            guard let parentID = $0.subagentOrigin?.parentThreadID else { return true }
+            return !IDs.contains(parentID)
+        }
+        var ordered: [WorkspaceThreadRecord] = []
+        for root in roots {
+            ordered.append(root)
+            ordered.append(contentsOf: threads.filter { $0.subagentOrigin?.parentThreadID == root.id })
+        }
+        let included = Set(ordered.map(\.id))
+        ordered.append(contentsOf: threads.filter { !included.contains($0.id) })
+        return ordered
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: isExpanded ? 10 : 0) {
@@ -585,7 +625,7 @@ private struct WorkspaceProjectRow: View {
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(threads) { thread in
+                    ForEach(orderedThreads) { thread in
                         WorkspaceThreadRow(
                             thread: thread,
                             isSelected: selectedThreadID == thread.id,
@@ -594,6 +634,7 @@ private struct WorkspaceProjectRow: View {
                             onRename: { onRenameThread(thread) },
                             onDelete: { onDeleteThread(thread) }
                         )
+                        .padding(.leading, thread.subagentOrigin == nil ? 0 : 18)
                     }
                 }
                 .padding(.leading, 28)
@@ -615,7 +656,9 @@ private struct WorkspaceThreadRow: View {
     var body: some View {
         HStack(spacing: 12) {
             HStack(spacing: 12) {
-                Image(systemName: isSelected ? "message.fill" : "message")
+                Image(systemName: thread.subagentOrigin == nil
+                    ? (isSelected ? "message.fill" : "message")
+                    : "person.2")
                     .foregroundStyle(.mint)
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -624,6 +667,12 @@ private struct WorkspaceThreadRow: View {
                     Text(thread.updatedAt.formatted(date: .abbreviated, time: .shortened))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+
+                    if thread.subagentOrigin != nil {
+                        Label(subagentStatusText, systemImage: subagentStatusIcon)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(subagentStatusColor)
+                    }
 
                     if let runningBadgeText {
                         Label(runningBadgeText, systemImage: "sparkles")
@@ -657,6 +706,55 @@ private struct WorkspaceThreadRow: View {
         .padding(.vertical, 4)
         .onTapGesture {
             onSelect()
+        }
+    }
+
+    private var subagentStatusText: String {
+        switch thread.subagentStatus {
+        case .queued:
+            return PalmiL10n.tr("subagent.status.queued")
+        case .running:
+            return PalmiL10n.tr("subagent.status.running")
+        case .waitingApproval:
+            return PalmiL10n.tr("subagent.status.waitingApproval")
+        case .completed:
+            return PalmiL10n.tr("subagent.status.completed")
+        case .failed:
+            return PalmiL10n.tr("subagent.status.failed")
+        case .cancelled:
+            return PalmiL10n.tr("subagent.status.cancelled")
+        case nil:
+            return PalmiL10n.tr("subagent.status.child")
+        }
+    }
+
+    private var subagentStatusIcon: String {
+        switch thread.subagentStatus {
+        case .completed:
+            return "checkmark.circle.fill"
+        case .failed:
+            return "xmark.circle.fill"
+        case .cancelled:
+            return "stop.circle"
+        case .waitingApproval:
+            return "person.crop.circle.badge.questionmark"
+        case .queued, .running, nil:
+            return "person.2"
+        }
+    }
+
+    private var subagentStatusColor: Color {
+        switch thread.subagentStatus {
+        case .completed:
+            return .green
+        case .failed:
+            return .red
+        case .cancelled:
+            return .secondary
+        case .waitingApproval:
+            return .orange
+        case .queued, .running, nil:
+            return .blue
         }
     }
 }

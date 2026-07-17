@@ -170,6 +170,8 @@ final class ChatStore {
         var lastDraftFlushNanoseconds: UInt64 = 0
         var journalError: Error?
         var persistenceBarrierContinuations: [UUID: CheckedContinuation<Void, Never>] = [:]
+        var ownedSubagentThreadIDs: Set<UUID> = []
+        var subagentRecord: AgentSubagentRecord?
 
         init(selection: WorkspaceSelection, loop: AgentLoop, runID: UUID) {
             self.selection = selection
@@ -227,6 +229,7 @@ final class ChatStore {
     private var composerStatesBySelection: [WorkspaceSelection: SessionComposerState] = [:]
     private var pendingApprovalRequestsBySelection: [WorkspaceSelection: AgentApprovalRequest] = [:]
     private var activeSessionViewStatesBySelection: [WorkspaceSelection: ActiveSessionViewState] = [:]
+    private var subagentRecordsByThreadID: [UUID: AgentSubagentRecord] = [:]
 
     var activeTurnHeaderID: UUID? {
         activeSessionHeaderID
@@ -246,6 +249,13 @@ final class ChatStore {
 
     func isRunning(selection: WorkspaceSelection) -> Bool {
         activeRuns[selection] != nil
+    }
+
+    func isOwnedByRunningParent(selection: WorkspaceSelection) -> Bool {
+        activeRuns.values.contains { run in
+            run.selection.projectID == selection.projectID &&
+                run.ownedSubagentThreadIDs.contains(selection.threadID)
+        }
     }
 
     func runningBadgeText(for selection: WorkspaceSelection) -> String? {
@@ -453,6 +463,16 @@ final class ChatStore {
         let pendingAutoTitleTarget = autoTitleTargetIfNeeded(for: turnSelection, loop: runLoop)
         let runID = UUID()
         let activeRun = ActiveRun(selection: turnSelection, loop: runLoop, runID: runID)
+        if workspaceStore.thread(for: turnSelection)?.subagentOrigin == nil {
+            runLoop.setSubagentRuntimeBridge(
+                makeSubagentRuntimeBridge(
+                    parentRun: activeRun,
+                    providerID: runProviderID,
+                    actions: turnActions,
+                    modelOverrides: modelOverrides
+                )
+            )
+        }
         runLoop.setToolExecutionCheckpoint { [weak self, weak activeRun] stepID, action, argumentsJSON in
             guard let self, let activeRun else { throw CancellationError() }
             try await self.checkpointToolStart(
@@ -563,8 +583,10 @@ final class ChatStore {
                         )
                     }
                     try await flushJournalDraft(for: activeRun)
+                    try verifyTerminalChatProjectionPersisted(for: turnSelection)
+                    try persistAgentSessionThrowing(runLoop, for: turnSelection)
                     _ = try await runJournalStore.append(runID: runID, payload: .runCompleted)
-                    updateRunLedger(
+                    try updateRunLedgerThrowing(
                         for: turnSelection,
                         status: .completed,
                         phase: "completed",
@@ -574,7 +596,6 @@ final class ChatStore {
                         identifier: activeRun.continuedProcessingIdentifier,
                         success: true
                     )
-                    persistAgentSession(runLoop, for: turnSelection)
                     await autoCompactIfNeeded(
                         loop: runLoop,
                         selection: turnSelection,
@@ -582,6 +603,7 @@ final class ChatStore {
                     )
                     syncDisplayedAgentLoopIfNeeded(for: turnSelection, from: runLoop)
                 } catch is CancellationError {
+                    await cancelOwnedSubagentRuns(for: activeRun)
                     await finishJournalEventStreamIgnoringFailure(for: activeRun)
                     if isRunSelectionDisplayed(turnSelection) {
                         finalizeStreamingReasoning()
@@ -604,6 +626,7 @@ final class ChatStore {
                     persistAgentSession(runLoop, for: turnSelection)
                     syncDisplayedAgentLoopIfNeeded(for: turnSelection, from: runLoop)
                 } catch let budgetError as AgentRunControlError {
+                    await cancelOwnedSubagentRuns(for: activeRun)
                     await finishJournalEventStreamIgnoringFailure(for: activeRun)
                     let message = budgetError.errorDescription ?? "运行预算已耗尽"
                     if isRunSelectionDisplayed(turnSelection) {
@@ -628,6 +651,7 @@ final class ChatStore {
                     persistAgentSession(runLoop, for: turnSelection)
                     syncDisplayedAgentLoopIfNeeded(for: turnSelection, from: runLoop)
                 } catch {
+                    await cancelOwnedSubagentRuns(for: activeRun)
                     await finishJournalEventStreamIgnoringFailure(for: activeRun)
                     let message = (error as? AppError)?.localizedDescription ?? error.localizedDescription
                     if isRunSelectionDisplayed(turnSelection) {
@@ -699,6 +723,713 @@ final class ChatStore {
                 activeRun?.executionTask?.cancel()
             }
         )
+    }
+
+    private func makeSubagentRuntimeBridge(
+        parentRun: ActiveRun,
+        providerID: APIProviderID,
+        actions: [ToolAction],
+        modelOverrides: AgentModelRoleOverrides
+    ) -> AgentSubagentRuntimeBridge {
+        AgentSubagentRuntimeBridge(
+            execute: { [weak self, weak parentRun] invocation in
+                guard let self, let parentRun else {
+                    return Self.subagentErrorResult("parent run 已结束，不能继续操作 subagent。")
+                }
+                return await self.executeSubagentInvocation(
+                    invocation,
+                    parentRun: parentRun,
+                    providerID: providerID,
+                    actions: actions,
+                    modelOverrides: modelOverrides
+                )
+            },
+            records: { [weak self, weak parentRun] threadIDs in
+                guard let self, let parentRun else { return [] }
+                let allowed = threadIDs.isEmpty
+                    ? parentRun.ownedSubagentThreadIDs
+                    : Set(threadIDs).intersection(parentRun.ownedSubagentThreadIDs)
+                return allowed.compactMap { self.subagentRecordsByThreadID[$0] }
+            }
+        )
+    }
+
+    private func cancelOwnedSubagentRuns(for parentRun: ActiveRun) async {
+        let childTasks = parentRun.ownedSubagentThreadIDs.compactMap { threadID -> Task<Void, Never>? in
+            let selection = WorkspaceSelection(
+                projectID: parentRun.selection.projectID,
+                threadID: threadID
+            )
+            return activeRuns[selection]?.executionTask
+        }
+        for task in childTasks {
+            task.cancel()
+        }
+        // Parent cancellation is not terminal until every owned child has
+        // actually unwound and removed its active run.
+        for task in childTasks {
+            await task.value
+        }
+    }
+
+    private func executeSubagentInvocation(
+        _ invocation: AgentSubagentToolInvocation,
+        parentRun: ActiveRun,
+        providerID: APIProviderID,
+        actions: [ToolAction],
+        modelOverrides: AgentModelRoleOverrides
+    ) async -> AgentSubagentToolResult {
+        switch invocation.toolName {
+        case SubagentToolDefinitionFactory.spawnToolName:
+            return await spawnSubagents(
+                invocation,
+                parentRun: parentRun,
+                providerID: providerID,
+                actions: actions,
+                modelOverrides: modelOverrides
+            )
+        case SubagentToolDefinitionFactory.listToolName:
+            return subagentResult(
+                status: "ok",
+                summary: PalmiL10n.tr("subagent.result.listed"),
+                records: recordsOwned(by: parentRun)
+            )
+        case SubagentToolDefinitionFactory.sendToolName:
+            return sendSubagentMessage(invocation.input, parentRun: parentRun)
+        case SubagentToolDefinitionFactory.waitToolName:
+            return await waitForSubagents(invocation.input, parentRun: parentRun)
+        case SubagentToolDefinitionFactory.closeToolName:
+            return await closeSubagents(invocation.input, parentRun: parentRun)
+        default:
+            return Self.subagentErrorResult("未知 subagent 工具：\(invocation.toolName)")
+        }
+    }
+
+    private func spawnSubagents(
+        _ invocation: AgentSubagentToolInvocation,
+        parentRun: ActiveRun,
+        providerID: APIProviderID,
+        actions: [ToolAction],
+        modelOverrides: AgentModelRoleOverrides
+    ) async -> AgentSubagentToolResult {
+        let arguments: SpawnSubagentsArguments
+        do {
+            arguments = try SpawnSubagentsArguments.decode(invocation.input)
+        } catch {
+            return Self.subagentErrorResult(
+                (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            )
+        }
+
+        let groupID = UUID()
+        var accepted: [AgentSubagentRecord] = []
+        var errors: [String] = []
+        // Count actual live run tasks, not only persisted status. A close request
+        // marks UI state immediately, while cooperative cancellation may still be
+        // unwinding; those children must continue occupying concurrency slots.
+        let parentActiveCount = activeRuns.values.filter {
+            $0.subagentRecord?.parentRunID == parentRun.runID
+        }.count
+        let globalActiveCount = activeRuns.values.filter { $0.subagentRecord != nil }.count
+        var remainingParentSlots = max(0, 4 - parentActiveCount)
+        var remainingGlobalSlots = max(0, 8 - globalActiveCount)
+
+        for taskRequest in arguments.tasks {
+            let taskID = taskRequest.taskID.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let existing = subagentRecordsByThreadID.values.first(where: {
+                $0.parentRunID == parentRun.runID &&
+                $0.parentSessionID == parentRun.loop.currentSessionSnapshot().id &&
+                    $0.spawnToolUseID == invocation.toolUseID &&
+                    $0.taskID == taskID
+            }) {
+                accepted.append(existing)
+                parentRun.ownedSubagentThreadIDs.insert(existing.childThreadID)
+                continue
+            }
+            guard parentRun.ownedSubagentThreadIDs.count < 16 else {
+                errors.append("\(taskID)：本次 parent run 的 subagent 总量已达到 16 个")
+                continue
+            }
+            guard remainingParentSlots > 0, remainingGlobalSlots > 0 else {
+                errors.append("\(taskID)：subagent 并发槽已满")
+                continue
+            }
+
+            let childRunID = UUID()
+            let childSession = AgentSubagentContextFork.makeSession(
+                parent: invocation.committedParentSession,
+                forkTurns: arguments.forkTurns
+            )
+            let origin = WorkspaceSubagentOrigin(
+                groupID: groupID,
+                taskID: taskID,
+                parentThreadID: parentRun.selection.threadID,
+                parentSessionID: parentRun.loop.currentSessionSnapshot().id,
+                parentRunID: parentRun.runID,
+                spawnToolUseID: invocation.toolUseID
+            )
+
+            do {
+                let thread = try workspaceManager.createThread(
+                    named: taskRequest.title,
+                    in: parentRun.selection.projectID,
+                    subagentOrigin: origin,
+                    subagentStatus: .queued
+                )
+                if let parentOverride = workspaceStore.thread(for: parentRun.selection)?.modelPlanOverride {
+                    try? workspaceManager.updateThreadModelPlanOverride(
+                        projectID: thread.projectID,
+                        threadID: thread.id,
+                        override: parentOverride
+                    )
+                }
+                var record = AgentSubagentRecord(
+                    groupID: groupID,
+                    taskID: taskID,
+                    title: taskRequest.title,
+                    instruction: taskRequest.instruction,
+                    parentProjectID: parentRun.selection.projectID,
+                    parentThreadID: parentRun.selection.threadID,
+                    parentSessionID: parentRun.loop.currentSessionSnapshot().id,
+                    parentRunID: parentRun.runID,
+                    spawnToolUseID: invocation.toolUseID,
+                    childThreadID: thread.id,
+                    childSessionID: childSession.id,
+                    childRunID: childRunID,
+                    status: .queued,
+                    result: nil,
+                    errorMessage: nil,
+                    createdAt: .now,
+                    updatedAt: .now
+                )
+                subagentRecordsByThreadID[thread.id] = record
+                parentRun.ownedSubagentThreadIDs.insert(thread.id)
+                try startSubagentRun(
+                    record: record,
+                    session: childSession,
+                    providerID: providerID,
+                    actions: actions,
+                    modelOverrides: modelOverrides
+                )
+                record = subagentRecordsByThreadID[thread.id] ?? record
+                accepted.append(record)
+                remainingParentSlots -= 1
+                remainingGlobalSlots -= 1
+            } catch {
+                let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                errors.append("\(taskID)：\(message)")
+                if let record = subagentRecordsByThreadID.values.first(where: {
+                    $0.parentRunID == parentRun.runID && $0.taskID == taskID && $0.spawnToolUseID == invocation.toolUseID
+                }) {
+                    updateSubagentRecord(record.childThreadID, status: .failed, result: nil, errorMessage: message)
+                }
+            }
+        }
+
+        workspaceStore.refreshThreadMetadata(in: parentRun.selection.projectID)
+        let status = errors.isEmpty ? "accepted" : (accepted.isEmpty ? "error" : "partial_failure")
+        let summary = if accepted.isEmpty {
+            PalmiL10n.tr("subagent.result.spawnFailed")
+        } else if errors.isEmpty {
+            PalmiL10n.tr("subagent.result.spawned", accepted.count)
+        } else {
+            PalmiL10n.tr("subagent.result.partial", accepted.count, errors.count)
+        }
+        return subagentResult(
+            status: status,
+            summary: summary,
+            records: accepted,
+            errors: errors,
+            isError: accepted.isEmpty,
+            ownedThreadIDs: accepted.map(\.childThreadID)
+        )
+    }
+
+    private func startSubagentRun(
+        record: AgentSubagentRecord,
+        session: AgentSession,
+        providerID: APIProviderID,
+        actions: [ToolAction],
+        modelOverrides: AgentModelRoleOverrides
+    ) throws {
+        let selection = WorkspaceSelection(
+            projectID: record.parentProjectID,
+            threadID: record.childThreadID
+        )
+        let loop = makeAgentLoop()
+        workspaceManager.withSelection(selection) {
+            loop.replaceSession(session)
+        }
+        let run = ActiveRun(selection: selection, loop: loop, runID: record.childRunID)
+        run.subagentRecord = record
+        loop.setToolExecutionCheckpoint { [weak self, weak run] stepID, action, argumentsJSON in
+            guard let self, let run else { throw CancellationError() }
+            try await self.checkpointToolStart(
+                stepID: stepID,
+                action: action,
+                argumentsJSON: argumentsJSON,
+                run: run
+            )
+        }
+
+        let startedAt = Date()
+        let childInstruction = """
+        【Subagent delegation：\(record.title)】
+        \(record.instruction)
+
+        你是独立只读 child。可以读取项目文件、检索网页并分析；不得修改工作区、个人数据或系统状态。返回可直接交给 parent 汇总的结论、证据和未决风险。
+        """
+        let userMessage = PalmiChatMessage(role: .user, content: record.instruction)
+        let headerMessage = PalmiChatMessage(
+            role: .agent,
+            kind: .sessionHeader,
+            content: "",
+            sessionHeader: PalmiChatSessionHeader(startedAt: startedAt),
+            timestamp: startedAt
+        )
+        let initialMessages = [userMessage, headerMessage]
+        let ledger = AgentRunLedger(
+            runID: record.childRunID,
+            projectID: selection.projectID,
+            threadID: selection.threadID,
+            sessionID: session.id,
+            providerID: providerID,
+            mode: .standard,
+            startedAt: startedAt,
+            userInputPreview: Self.previewText(for: record.instruction)
+        )
+
+        try workspaceManager.withSelection(selection) {
+            try workspaceManager.saveAgentSessionForCurrentThread(session)
+            try workspaceManager.saveChatMessagesForCurrentThread(initialMessages)
+            try workspaceManager.saveRunLedgerForCurrentThread(ledger)
+        }
+        activeSessionViewStatesBySelection[selection] = ActiveSessionViewState(
+            activeSessionHeaderID: headerMessage.id
+        )
+        activeRuns[selection] = run
+        run.eventTask = observeAgentEvents(for: selection, loop: loop)
+        updateSubagentRecord(record.childThreadID, status: .running, result: nil, errorMessage: nil)
+
+        // Children are intentionally read-only in v1. Root owns all mutations,
+        // eliminating stale-read/last-writer-wins conflicts in the shared project workspace.
+        let childActions = actions.filter {
+            $0.id.policyMetadata.parallelPolicy == .parallelReadOnly
+        }
+
+        run.executionTask = Task { [weak self, weak run] in
+            guard let self, let run else { return }
+            do {
+                _ = try await runJournalStore.append(runID: run.runID, payload: .runStarted)
+                let result = try await workspaceManager.withSelection(selection) {
+                    try await loop.runTurn(
+                        userInput: childInstruction,
+                        providerID: providerID,
+                        actions: childActions,
+                        mode: .standard,
+                        imagePaths: [],
+                        modelOverrides: modelOverrides
+                    )
+                }
+                try Task.checkCancellation()
+                try await finishJournalEventStream(for: run)
+                if isRunSelectionDisplayed(selection) {
+                    if !result.finalReply.isEmpty,
+                       !finalizeStreamingMessage(with: result.finalReply) {
+                        appendParsedAssistantContent(result.finalReply, preferSummaryForTrailingText: true)
+                    }
+                    finalizeActiveSession(
+                        outputTokens: result.outputTokens,
+                        tokenUsage: tokenUsageSnapshot(for: result, session: loop.currentSessionSnapshot())
+                    )
+                } else {
+                    appendPersistedBackgroundResult(
+                        for: selection,
+                        finalReply: result.finalReply,
+                        outputTokens: result.outputTokens,
+                        tokenUsage: tokenUsageSnapshot(for: result, session: loop.currentSessionSnapshot()),
+                        errorMessage: nil
+                    )
+                }
+                try await flushJournalDraft(for: run)
+                try Task.checkCancellation()
+                try verifyTerminalChatProjectionPersisted(for: selection)
+                try persistAgentSessionThrowing(loop, for: selection)
+                _ = try await runJournalStore.append(runID: run.runID, payload: .runCompleted)
+                try updateRunLedgerThrowing(
+                    for: selection,
+                    status: .completed,
+                    phase: "completed",
+                    errorMessage: nil
+                )
+                updateSubagentRecord(
+                    record.childThreadID,
+                    status: .completed,
+                    result: result.finalReply,
+                    errorMessage: nil
+                )
+            } catch is CancellationError {
+                await finishJournalEventStreamIgnoringFailure(for: run)
+                if isRunSelectionDisplayed(selection) {
+                    finalizeStreamingReasoning()
+                    finalizeActiveSession()
+                } else {
+                    appendPersistedBackgroundResult(
+                        for: selection,
+                        finalReply: "",
+                        outputTokens: nil,
+                        errorMessage: PalmiL10n.tr("chat.tool.interrupted")
+                    )
+                }
+                let checkpointError = await recordTerminalCheckpoint(
+                    for: run,
+                    payload: .runInterrupted(reason: "cancelled")
+                )
+                updateRunLedger(
+                    for: selection,
+                    status: .interrupted,
+                    phase: "cancelled",
+                    errorMessage: checkpointError
+                )
+                persistAgentSession(loop, for: selection)
+                updateSubagentRecord(
+                    record.childThreadID,
+                    status: .cancelled,
+                    result: nil,
+                    errorMessage: checkpointError
+                )
+            } catch {
+                await finishJournalEventStreamIgnoringFailure(for: run)
+                let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                _ = await recordTerminalCheckpoint(for: run, payload: .runFailed(reason: message))
+                if isRunSelectionDisplayed(selection) {
+                    errorMessage = message
+                    finalizeActiveSession()
+                    appendAgentMessage(kind: .summary, content: PalmiL10n.tr("chat.error.callFailed", message))
+                } else {
+                    appendPersistedBackgroundResult(
+                        for: selection,
+                        finalReply: "",
+                        outputTokens: nil,
+                        errorMessage: message
+                    )
+                }
+                updateRunLedger(for: selection, status: .failed, phase: "failed", errorMessage: message)
+                persistAgentSession(loop, for: selection)
+                updateSubagentRecord(
+                    record.childThreadID,
+                    status: .failed,
+                    result: nil,
+                    errorMessage: message
+                )
+            }
+
+            let wasDisplayed = isRunSelectionDisplayed(selection)
+            let finished = activeRuns.removeValue(forKey: selection)
+            finished?.eventTask?.cancel()
+            pendingApprovalRequestsBySelection.removeValue(forKey: selection)
+            activeSessionViewStatesBySelection.removeValue(forKey: selection)
+            if wasDisplayed {
+                pendingApprovalRequest = nil
+                isLoading = false
+                clearActiveSessionState()
+            }
+            refreshWorkspaceContents(afterUpdating: selection)
+        }
+    }
+
+    private func sendSubagentMessage(
+        _ input: String,
+        parentRun: ActiveRun
+    ) -> AgentSubagentToolResult {
+        do {
+            let arguments = try ToolArguments(jsonString: input)
+            guard let targetText = arguments.string("target"),
+                  let target = UUID(uuidString: targetText),
+                  parentRun.ownedSubagentThreadIDs.contains(target) else {
+                return Self.subagentErrorResult("target 不是当前 parent 拥有的 child thread。")
+            }
+            let message = try arguments.requiredString("message")
+            guard message.utf8.count <= 16_000 else {
+                return Self.subagentErrorResult("补充消息最多 16KB。")
+            }
+            let selection = WorkspaceSelection(projectID: parentRun.selection.projectID, threadID: target)
+            guard let childRun = activeRuns[selection], childRun.loop.acceptsQueuedUserGuidance else {
+                return Self.subagentErrorResult("目标 child 当前不能接收补充消息。")
+            }
+            childRun.loop.enqueueUserGuidance(message, visibleText: message)
+            return subagentResult(
+                status: "queued",
+                summary: PalmiL10n.tr("subagent.result.messageQueued"),
+                records: records(for: [target])
+            )
+        } catch {
+            return Self.subagentErrorResult(
+                (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            )
+        }
+    }
+
+    private func waitForSubagents(
+        _ input: String,
+        parentRun: ActiveRun
+    ) async -> AgentSubagentToolResult {
+        let arguments: ToolArguments
+        do {
+            arguments = try ToolArguments(jsonString: input)
+        } catch {
+            return Self.subagentErrorResult(error.localizedDescription)
+        }
+        let requested = arguments.stringArray("targets")?.compactMap(UUID.init(uuidString:)) ?? []
+        let targets = requested.isEmpty ? parentRun.ownedSubagentThreadIDs : Set(requested)
+        guard !targets.isEmpty, targets.isSubset(of: parentRun.ownedSubagentThreadIDs) else {
+            return Self.subagentErrorResult("targets 为空或包含不属于当前 parent 的 child。")
+        }
+        let timeoutMilliseconds = min(60_000, max(0, arguments.int("timeout_ms") ?? 30_000))
+        let deadline = DispatchTime.now().uptimeNanoseconds + UInt64(timeoutMilliseconds) * 1_000_000
+        var current = records(for: Array(targets))
+        while current.contains(where: { !$0.status.isTerminal }),
+              DispatchTime.now().uptimeNanoseconds < deadline,
+              !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(150))
+            current = records(for: Array(targets))
+        }
+        let terminalIDs = current.filter { $0.status.isTerminal }.map(\.childThreadID)
+        let status = current.allSatisfy { $0.status.isTerminal } ? "completed" : "timeout"
+        return subagentResult(
+            status: status,
+            summary: status == "completed"
+                ? PalmiL10n.tr("subagent.result.collected", terminalIDs.count)
+                : PalmiL10n.tr("subagent.result.timeout"),
+            records: current,
+            includeResults: true,
+            joinedThreadIDs: terminalIDs
+        )
+    }
+
+    private func closeSubagents(
+        _ input: String,
+        parentRun: ActiveRun
+    ) async -> AgentSubagentToolResult {
+        do {
+            let arguments = try ToolArguments(jsonString: input)
+            let targets = Set(arguments.stringArray("targets")?.compactMap(UUID.init(uuidString:)) ?? [])
+            guard !targets.isEmpty, targets.isSubset(of: parentRun.ownedSubagentThreadIDs) else {
+                return Self.subagentErrorResult("targets 为空或包含不属于当前 parent 的 child。")
+            }
+            var childTasks: [Task<Void, Never>] = []
+            for target in targets {
+                let selection = WorkspaceSelection(projectID: parentRun.selection.projectID, threadID: target)
+                if let task = activeRuns[selection]?.executionTask {
+                    childTasks.append(task)
+                    task.cancel()
+                } else if subagentRecordsByThreadID[target]?.status.isTerminal == false {
+                    updateSubagentRecord(target, status: .cancelled, result: nil, errorMessage: "由 parent 关闭")
+                }
+            }
+            for task in childTasks {
+                await task.value
+            }
+            let closed = targets.filter { target in
+                let selection = WorkspaceSelection(projectID: parentRun.selection.projectID, threadID: target)
+                return activeRuns[selection] == nil && subagentRecordsByThreadID[target]?.status.isTerminal == true
+            }
+            let errors = targets.subtracting(closed).map { "\($0.uuidString)：child 尚未到达终态" }
+            return subagentResult(
+                status: errors.isEmpty ? "closed" : "partial_failure",
+                summary: PalmiL10n.tr("subagent.result.closed", closed.count),
+                records: records(for: Array(targets)),
+                errors: errors,
+                isError: closed.isEmpty && !errors.isEmpty,
+                closedThreadIDs: Array(closed)
+            )
+        } catch {
+            return Self.subagentErrorResult(error.localizedDescription)
+        }
+    }
+
+    private func recordsOwned(by run: ActiveRun) -> [AgentSubagentRecord] {
+        records(for: Array(run.ownedSubagentThreadIDs))
+    }
+
+    private func records(for threadIDs: [UUID]) -> [AgentSubagentRecord] {
+        threadIDs.compactMap { subagentRecordsByThreadID[$0] }
+            .sorted { $0.createdAt < $1.createdAt }
+    }
+
+    private func updateSubagentRecord(
+        _ threadID: UUID,
+        status: AgentSubagentStatus,
+        result: String?,
+        errorMessage: String?
+    ) {
+        guard var record = subagentRecordsByThreadID[threadID] else { return }
+        record.status = status
+        record.result = result ?? record.result
+        record.errorMessage = errorMessage
+        record.updatedAt = .now
+        subagentRecordsByThreadID[threadID] = record
+        activeRuns[WorkspaceSelection(projectID: record.parentProjectID, threadID: threadID)]?.subagentRecord = record
+        do {
+            try workspaceManager.updateThreadSubagentStatus(
+                projectID: record.parentProjectID,
+                threadID: threadID,
+                status: status
+            )
+        } catch {
+            // Keep the in-memory terminal record truthful and surface the
+            // persistence failure. Startup reconciliation uses the authoritative
+            // run ledger/journal to repair a stale nonterminal manifest.
+            self.errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+        if let parentRun = activeRuns.values.first(where: { $0.runID == record.parentRunID }) {
+            updateContinuedProcessingProgress(for: parentRun, phase: .executing)
+        }
+        workspaceStore.refreshThreadMetadata(in: record.parentProjectID)
+    }
+
+    private func subagentResult(
+        status: String,
+        summary: String,
+        records: [AgentSubagentRecord],
+        errors: [String] = [],
+        isError: Bool = false,
+        includeResults: Bool = false,
+        ownedThreadIDs: [UUID] = [],
+        joinedThreadIDs: [UUID] = [],
+        closedThreadIDs: [UUID] = []
+    ) -> AgentSubagentToolResult {
+        var remainingResultBytes = includeResults ? 32_000 : 0
+        var resultsTruncated = false
+        var recordObjects: [[String: Any]] = records.map { record in
+            let fullResult = record.result ?? ""
+            let resultLimit = min(12_000, remainingResultBytes)
+            let resultText = Self.utf8Prefix(fullResult, maximumBytes: resultLimit)
+            remainingResultBytes = max(0, remainingResultBytes - resultText.utf8.count)
+            if includeResults && resultText.utf8.count < fullResult.utf8.count {
+                resultsTruncated = true
+            }
+            return [
+                "task_id": Self.utf8Prefix(record.taskID, maximumBytes: 128),
+                "title": Self.utf8Prefix(record.title, maximumBytes: 512),
+                "thread_id": record.childThreadID.uuidString,
+                "session_id": record.childSessionID.uuidString,
+                "run_id": record.childRunID.uuidString,
+                "status": record.status.rawValue,
+                "has_result": record.result != nil,
+                "result": resultText,
+                "error": Self.utf8Prefix(record.errorMessage ?? "", maximumBytes: 2_000)
+            ]
+        }
+        var object: [String: Any] = [
+            "status": status,
+            "agents": recordObjects,
+            "errors": errors,
+            "results_included": includeResults,
+            "results_truncated": resultsTruncated
+        ]
+        var data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        if let encoded = data, encoded.count > 32_000 {
+            // Preserve a valid bounded control payload. The caller can issue a
+            // targeted wait for any child whose result was omitted.
+            recordObjects = recordObjects.map { recordObject in
+                var bounded = recordObject
+                bounded["result"] = ""
+                bounded["error"] = Self.utf8Prefix(
+                    bounded["error"] as? String ?? "",
+                    maximumBytes: 256
+                )
+                return bounded
+            }
+            object["agents"] = recordObjects
+            object["results_included"] = false
+            object["results_truncated"] = true
+            data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        }
+        if let encoded = data, encoded.count > 32_000 {
+            data = try? JSONSerialization.data(
+                withJSONObject: [
+                    "status": "truncated",
+                    "message": "subagent 输出超过 32KB，请按 thread_id 定向 wait。"
+                ],
+                options: [.sortedKeys]
+            )
+        }
+        let payload = data.flatMap { String(data: $0, encoding: .utf8) }
+            ?? #"{"status":"error","message":"无法序列化 subagent 结果。"}"#
+        var remainingDetailBytes = includeResults ? 12_000 : 0
+        let recordDetails = records.map { record in
+            let fullResult = record.result ?? ""
+            let detailLimit = min(2_000, remainingDetailBytes)
+            let resultText = Self.utf8Prefix(fullResult, maximumBytes: detailLimit)
+            remainingDetailBytes = max(0, remainingDetailBytes - resultText.utf8.count)
+            return "\(record.title) · \(record.status.rawValue)\(resultText.isEmpty ? "" : "\n\(resultText)")"
+        }.joined(separator: "\n\n")
+        let errorDetails = errors.map { "⚠︎ \($0)" }.joined(separator: "\n")
+        let details = [recordDetails, errorDetails]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
+        return AgentSubagentToolResult(
+            payload: payload,
+            summary: summary,
+            details: details,
+            cardStatus: isError ? .failure : (errors.isEmpty ? .success : .warning),
+            relatedThreadIDs: records.map(\.childThreadID),
+            ownedThreadIDs: ownedThreadIDs,
+            joinedThreadIDs: joinedThreadIDs,
+            closedThreadIDs: closedThreadIDs
+        )
+    }
+
+    private static func utf8Prefix(_ value: String, maximumBytes: Int) -> String {
+        guard maximumBytes > 0 else { return "" }
+        guard value.utf8.count > maximumBytes else { return value }
+        var result = ""
+        var usedBytes = 0
+        for character in value {
+            let characterText = String(character)
+            let characterBytes = characterText.utf8.count
+            guard usedBytes + characterBytes <= maximumBytes else { break }
+            result.append(character)
+            usedBytes += characterBytes
+        }
+        return result
+    }
+
+    private static func subagentErrorResult(_ message: String) -> AgentSubagentToolResult {
+        let payload = AgentSubagentControlPayload.error(message: message)
+        return AgentSubagentToolResult(
+            payload: payload,
+            summary: PalmiL10n.tr("subagent.result.failed"),
+            details: Self.utf8Prefix(message, maximumBytes: 8_000),
+            cardStatus: .failure,
+            relatedThreadIDs: [],
+            ownedThreadIDs: [],
+            joinedThreadIDs: [],
+            closedThreadIDs: []
+        )
+    }
+
+    private func persistAgentSessionThrowing(
+        _ loop: AgentLoop,
+        for selection: WorkspaceSelection
+    ) throws {
+        try workspaceManager.withSelection(selection) {
+            try workspaceManager.saveAgentSessionForCurrentThread(loop.currentSessionSnapshot())
+        }
+    }
+
+    private func verifyTerminalChatProjectionPersisted(
+        for selection: WorkspaceSelection
+    ) throws {
+        let persisted = try workspaceManager.withSelection(selection) {
+            try workspaceManager.loadChatMessagesForCurrentThread()
+        }
+        guard !persisted.contains(where: {
+            $0.kind == .sessionHeader && $0.sessionHeader?.finishedAt == nil
+        }) else {
+            throw AppError.invalidState("最终会话投影尚未成功持久化。")
+        }
     }
 
     func stopDisplayedRun() {
@@ -1212,6 +1943,26 @@ final class ChatStore {
         finishedAt: Date
     ) -> [PalmiChatMessage] {
         storedMessages.map { message in
+            if message.kind == .toolCall,
+               let toolCall = message.toolCall,
+               toolCall.isRunning == true {
+                return rebuildMessage(
+                    from: message,
+                    toolCall: PalmiToolCallCard(
+                        cardKind: toolCall.cardKind,
+                        toolTitle: toolCall.toolTitle,
+                        toolName: toolCall.toolName,
+                        presentationKind: toolCall.presentationKind,
+                        status: .failure,
+                        summary: PalmiL10n.tr("chat.tool.interrupted"),
+                        details: PalmiL10n.tr("chat.tool.interrupted.details"),
+                        argumentsJSON: toolCall.argumentsJSON,
+                        requiresUserInteraction: false,
+                        isRunning: false,
+                        relatedThreadIDs: toolCall.relatedThreadIDs
+                    )
+                )
+            }
             guard message.kind == .sessionHeader,
                   let header = message.sessionHeader,
                   header.finishedAt == nil else {
@@ -1223,7 +1974,8 @@ final class ChatStore {
                     startedAt: header.startedAt,
                     finishedAt: finishedAt,
                     outputTokens: tokenUsage?.totalTokens ?? outputTokens ?? header.outputTokens,
-                    tokenUsage: tokenUsage ?? header.tokenUsage
+                    tokenUsage: tokenUsage ?? header.tokenUsage,
+                    taskProgress: header.taskProgress
                 )
             )
         }
@@ -1246,18 +1998,32 @@ final class ChatStore {
         errorMessage: String?
     ) {
         do {
-            try workspaceManager.withSelection(selection) {
-                guard var ledger = try workspaceManager.loadRunLedgerForCurrentThread() else {
-                    return
-                }
-                ledger.status = status
-                ledger.phase = phase
-                ledger.errorMessage = errorMessage
-                ledger.updatedAt = .now
-                try workspaceManager.saveRunLedgerForCurrentThread(ledger)
-            }
+            try updateRunLedgerThrowing(
+                for: selection,
+                status: status,
+                phase: phase,
+                errorMessage: errorMessage
+            )
         } catch {
             self.errorMessage = error.localizedDescription
+        }
+    }
+
+    private func updateRunLedgerThrowing(
+        for selection: WorkspaceSelection,
+        status: AgentRunLedgerStatus,
+        phase: String,
+        errorMessage: String?
+    ) throws {
+        try workspaceManager.withSelection(selection) {
+            guard var ledger = try workspaceManager.loadRunLedgerForCurrentThread() else {
+                throw AppError.invalidState("运行账本缺失，无法提交终态。")
+            }
+            ledger.status = status
+            ledger.phase = phase
+            ledger.errorMessage = errorMessage
+            ledger.updatedAt = .now
+            try workspaceManager.saveRunLedgerForCurrentThread(ledger)
         }
     }
 
@@ -1270,12 +2036,40 @@ final class ChatStore {
                     let staleLedger = try workspaceManager.withSelection(selection) {
                         try workspaceManager.loadRunLedgerForCurrentThread()
                     }
-                    guard let staleLedger,
-                          staleLedger.status == .running || staleLedger.status == .waitingApproval else {
+                    let hasStaleActiveLedger = staleLedger?.status == .running
+                        || staleLedger?.status == .waitingApproval
+                    guard hasStaleActiveLedger, let staleLedger else {
+                        // Child creation persists the manifest before its ledger.
+                        // A crash in that window, or a crash after a terminal ledger
+                        // but before the manifest update, must never leave a queued/
+                        // running badge forever.
+                        if thread.subagentOrigin != nil,
+                           thread.subagentStatus?.isTerminal != true {
+                            let recoveredStatus: AgentSubagentStatus = switch staleLedger?.status {
+                            case .completed:
+                                .completed
+                            case .failed:
+                                .failed
+                            case .interrupted, .running, .waitingApproval, nil:
+                                .cancelled
+                            }
+                            try workspaceManager.updateThreadSubagentStatus(
+                                projectID: project.id,
+                                threadID: thread.id,
+                                status: recoveredStatus
+                            )
+                            didChange = true
+                        }
+                        continue
+                    }
+                    guard activeRuns[selection] == nil else {
                         continue
                     }
 
                     let recovery = try? await runJournalStore.recovery(runID: staleLedger.runID)
+                    guard activeRuns[selection] == nil else {
+                        continue
+                    }
                     let interruptionMessage: String
                     if case let .requiresUserDecision(toolCallID) = recovery?.status {
                         interruptionMessage = PalmiL10n.tr(
@@ -1287,10 +2081,11 @@ final class ChatStore {
                     }
                     let draft = recovery?.latestDraft?.content
 
-                    try workspaceManager.withSelection(selection) {
+                    let didReconcileSelection = try workspaceManager.withSelection(selection) { () -> Bool in
                         guard var ledger = try workspaceManager.loadRunLedgerForCurrentThread(),
+                              ledger.runID == staleLedger.runID,
                               ledger.status == .running || ledger.status == .waitingApproval else {
-                            return
+                            return false
                         }
                         if recovery?.status == .completed {
                             ledger.status = .completed
@@ -1326,6 +2121,21 @@ final class ChatStore {
                         }
                         try workspaceManager.saveChatMessagesForCurrentThread(
                             normalizeMessages(storedMessages)
+                        )
+                        return true
+                    }
+                    guard didReconcileSelection, activeRuns[selection] == nil else {
+                        continue
+                    }
+                    if thread.subagentOrigin != nil,
+                       thread.subagentStatus?.isTerminal != true {
+                        let recoveredStatus: AgentSubagentStatus = recovery?.status == .completed
+                            ? .completed
+                            : .cancelled
+                        try workspaceManager.updateThreadSubagentStatus(
+                            projectID: project.id,
+                            threadID: thread.id,
+                            status: recoveredStatus
                         )
                     }
                     if selection == loadedSelection {
@@ -1531,9 +2341,11 @@ final class ChatStore {
         }
 
         switch event {
-        case .eventLogged, .taskStateChanged:
+        case .eventLogged:
             persistAgentSession(loop, for: selection)
             return
+        case .taskStateChanged:
+            persistAgentSession(loop, for: selection)
         case .approvalRequested(let request):
             pendingApprovalRequestsBySelection[selection] = request
             updateRunLedger(
@@ -1544,6 +2356,14 @@ final class ChatStore {
             )
             if isRunSelectionDisplayed(selection) {
                 pendingApprovalRequest = request
+            }
+            if let childThreadID = activeRuns[selection]?.subagentRecord?.childThreadID {
+                updateSubagentRecord(
+                    childThreadID,
+                    status: .waitingApproval,
+                    result: nil,
+                    errorMessage: nil
+                )
             }
             persistAgentSession(loop, for: selection)
             return
@@ -1560,6 +2380,14 @@ final class ChatStore {
                 phase: "approval_resolved",
                 errorMessage: nil
             )
+            if let childThreadID = activeRuns[selection]?.subagentRecord?.childThreadID {
+                updateSubagentRecord(
+                    childThreadID,
+                    status: .running,
+                    result: nil,
+                    errorMessage: nil
+                )
+            }
             persistAgentSession(loop, for: selection)
             return
         default:
@@ -1646,7 +2474,18 @@ final class ChatStore {
                 presentBrowserIfNeeded(from: step)
             }
             persistIfNeeded()
-        case .eventLogged, .taskStateChanged, .approvalRequested, .approvalResolved, .persistenceBarrier:
+        case let .internalToolStarted(step):
+            appendInternalToolCard(step)
+            persistIfNeeded()
+        case let .internalToolFinished(step):
+            finishInternalToolCard(step)
+            persistIfNeeded()
+        case let .taskStateChanged(snapshot):
+            if let state = snapshot.currentState {
+                updateSessionHeader(taskProgress: PalmiTaskProgressSnapshot(state: state))
+                persistIfNeeded()
+            }
+        case .eventLogged, .approvalRequested, .approvalResolved, .persistenceBarrier:
             break
         }
 
@@ -1792,7 +2631,23 @@ final class ChatStore {
         case let .toolFinished(step):
             finishToolCard(step, messages: &messages, viewState: viewState)
             markPersistent()
-        case .eventLogged, .taskStateChanged, .approvalRequested, .approvalResolved, .persistenceBarrier:
+        case let .internalToolStarted(step):
+            appendInternalToolCard(step, messages: &messages, viewState: &viewState)
+            markPersistent()
+        case let .internalToolFinished(step):
+            finishInternalToolCard(step, messages: &messages, viewState: viewState)
+            markPersistent()
+        case let .taskStateChanged(snapshot):
+            if let state = snapshot.currentState {
+                updateSessionHeader(
+                    outputTokens: nil,
+                    taskProgress: PalmiTaskProgressSnapshot(state: state),
+                    messages: &messages,
+                    viewState: viewState
+                )
+                markPersistent()
+            }
+        case .eventLogged, .approvalRequested, .approvalResolved, .persistenceBarrier:
             break
         }
 
@@ -1808,12 +2663,14 @@ final class ChatStore {
              .contextCompactionFinished,
              .toolStarted,
              .toolFinished,
+             .internalToolStarted,
+             .internalToolFinished,
+             .taskStateChanged,
              .streamingDelta,
              .reasoningDelta,
              .tokenUpdate:
             return true
         case .eventLogged,
-             .taskStateChanged,
              .approvalRequested,
              .approvalResolved,
              .persistenceBarrier:
@@ -1830,7 +2687,9 @@ final class ChatStore {
              .contextCompactionStarted,
              .contextCompactionFinished,
              .toolStarted,
-             .toolFinished:
+             .toolFinished,
+             .internalToolStarted,
+             .internalToolFinished:
             return true
         case .reasoningDelta,
              .tokenUpdate,
@@ -1980,6 +2839,7 @@ final class ChatStore {
     private func updateSessionHeader(
         outputTokens: Int?,
         tokenUsage: PalmiTokenUsageSnapshot? = nil,
+        taskProgress: PalmiTaskProgressSnapshot? = nil,
         messages: inout [PalmiChatMessage],
         viewState: ActiveSessionViewState
     ) {
@@ -1995,7 +2855,8 @@ final class ChatStore {
                 startedAt: currentHeader.startedAt,
                 finishedAt: currentHeader.finishedAt,
                 outputTokens: tokenUsage?.totalTokens ?? outputTokens ?? currentHeader.outputTokens,
-                tokenUsage: tokenUsage ?? currentHeader.tokenUsage
+                tokenUsage: tokenUsage ?? currentHeader.tokenUsage,
+                taskProgress: taskProgress ?? currentHeader.taskProgress
             )
         )
     }
@@ -2118,6 +2979,44 @@ final class ChatStore {
         messages[index] = rebuildMessage(from: messages[index], toolCall: makeToolCard(from: step))
     }
 
+    private func appendInternalToolCard(
+        _ step: AgentInternalToolStep,
+        messages: inout [PalmiChatMessage],
+        viewState: inout ActiveSessionViewState
+    ) {
+        let message = PalmiChatMessage(
+            role: .agent,
+            kind: .toolCall,
+            content: "",
+            toolCall: makeInternalToolCard(from: step)
+        )
+        messages.append(message)
+        viewState.activeToolMessageIDs[step.id] = message.id
+    }
+
+    private func finishInternalToolCard(
+        _ step: AgentInternalToolStep,
+        messages: inout [PalmiChatMessage],
+        viewState: ActiveSessionViewState
+    ) {
+        guard let messageID = viewState.activeToolMessageIDs[step.id],
+              let index = messages.firstIndex(where: { $0.id == messageID }) else {
+            messages.append(
+                PalmiChatMessage(
+                    role: .agent,
+                    kind: .toolCall,
+                    content: "",
+                    toolCall: makeInternalToolCard(from: step)
+                )
+            )
+            return
+        }
+        messages[index] = rebuildMessage(
+            from: messages[index],
+            toolCall: makeInternalToolCard(from: step)
+        )
+    }
+
     private func rebuildMessage(
         from message: PalmiChatMessage,
         kind: PalmiChatMessage.Kind? = nil,
@@ -2208,6 +3107,34 @@ final class ChatStore {
         }
     }
 
+    private func appendInternalToolCard(_ step: AgentInternalToolStep) {
+        let message = PalmiChatMessage(
+            role: .agent,
+            kind: .toolCall,
+            content: "",
+            toolCall: makeInternalToolCard(from: step)
+        )
+        messages.append(message)
+        activeToolMessageIDs[step.id] = message.id
+    }
+
+    private func finishInternalToolCard(_ step: AgentInternalToolStep) {
+        guard let messageID = activeToolMessageIDs[step.id] else {
+            messages.append(
+                PalmiChatMessage(
+                    role: .agent,
+                    kind: .toolCall,
+                    content: "",
+                    toolCall: makeInternalToolCard(from: step)
+                )
+            )
+            return
+        }
+        updateMessage(id: messageID) { message in
+            rebuildMessage(from: message, toolCall: makeInternalToolCard(from: step))
+        }
+    }
+
     private func presentBrowserIfNeeded(from step: LLMToolExecutionStep) {
         guard let presentation = step.presentation else { return }
         if case .safari = presentation {
@@ -2230,6 +3157,22 @@ final class ChatStore {
             argumentsJSON: step.argumentsJSON,
             requiresUserInteraction: step.requiresUserInteraction,
             isRunning: false
+        )
+    }
+
+    private func makeInternalToolCard(from step: AgentInternalToolStep) -> PalmiToolCallCard {
+        PalmiToolCallCard(
+            cardKind: .tool,
+            toolTitle: step.title,
+            toolName: step.toolName,
+            presentationKind: .data,
+            status: step.status,
+            summary: step.summary,
+            details: step.details,
+            argumentsJSON: step.argumentsJSON,
+            requiresUserInteraction: false,
+            isRunning: step.isRunning,
+            relatedThreadIDs: step.relatedThreadIDs
         )
     }
 
@@ -2506,6 +3449,7 @@ final class ChatStore {
     private func updateSessionHeader(
         outputTokens: Int? = nil,
         tokenUsage: PalmiTokenUsageSnapshot? = nil,
+        taskProgress: PalmiTaskProgressSnapshot? = nil,
         finishedAt: Date? = nil
     ) {
         guard let headerID = activeSessionHeaderID else { return }
@@ -2517,7 +3461,8 @@ final class ChatStore {
                     startedAt: currentHeader.startedAt,
                     finishedAt: finishedAt ?? currentHeader.finishedAt,
                     outputTokens: tokenUsage?.totalTokens ?? outputTokens ?? currentHeader.outputTokens,
-                    tokenUsage: tokenUsage ?? currentHeader.tokenUsage
+                    tokenUsage: tokenUsage ?? currentHeader.tokenUsage,
+                    taskProgress: taskProgress ?? currentHeader.taskProgress
                 )
             )
         }
@@ -2528,8 +3473,35 @@ final class ChatStore {
         tokenUsage: PalmiTokenUsageSnapshot? = nil
     ) {
         finalizeStreamingReasoning()
+        finalizeRunningToolCards()
         updateSessionHeader(outputTokens: outputTokens, tokenUsage: tokenUsage, finishedAt: .now)
         persistMessages()
+    }
+
+    private func finalizeRunningToolCards() {
+        messages = messages.map { message in
+            guard message.kind == .toolCall,
+                  let toolCall = message.toolCall,
+                  toolCall.isRunning == true else {
+                return message
+            }
+            return rebuildMessage(
+                from: message,
+                toolCall: PalmiToolCallCard(
+                    cardKind: toolCall.cardKind,
+                    toolTitle: toolCall.toolTitle,
+                    toolName: toolCall.toolName,
+                    presentationKind: toolCall.presentationKind,
+                    status: .failure,
+                    summary: PalmiL10n.tr("chat.tool.interrupted"),
+                    details: PalmiL10n.tr("chat.tool.interrupted.details"),
+                    argumentsJSON: toolCall.argumentsJSON,
+                    requiresUserInteraction: false,
+                    isRunning: false,
+                    relatedThreadIDs: toolCall.relatedThreadIDs
+                )
+            )
+        }
     }
 
     private func beginContextCompactionNotice(source: AgentContextCompactionSource) {
@@ -2625,7 +3597,8 @@ final class ChatStore {
                     startedAt: header.startedAt,
                     finishedAt: finishedAt,
                     outputTokens: header.outputTokens,
-                    tokenUsage: header.tokenUsage
+                    tokenUsage: header.tokenUsage,
+                    taskProgress: header.taskProgress
                 )
             )
         }
@@ -2793,7 +3766,24 @@ final class ChatStore {
     }
 
     private func journalAgentEvent(_ event: AgentEvent, for run: ActiveRun) async throws {
-        continuedProcessingCoordinator.reportProgress(identifier: run.continuedProcessingIdentifier)
+        switch event {
+        case let .eventLogged(entry) where entry.kind == .modelRequest:
+            updateContinuedProcessingProgress(for: run, phase: .thinking)
+        case .toolStarted, .internalToolStarted:
+            updateContinuedProcessingProgress(for: run, phase: .executing)
+        case .approvalRequested:
+            updateContinuedProcessingProgress(for: run, phase: .waitingForUser)
+        case .streamingDelta:
+            updateContinuedProcessingProgress(for: run, phase: .summarizing)
+        case let .taskStateChanged(snapshot):
+            let lifecycle = snapshot.currentState?.lifecycle
+            let phase: AgentRunProgressPhase = lifecycle == .waitingForUser || lifecycle == .blocked
+                ? .waitingForUser
+                : .executing
+            updateContinuedProcessingProgress(for: run, phase: phase)
+        default:
+            break
+        }
         switch event {
         case let .eventLogged(entry) where entry.kind == .modelRequest:
             try await flushJournalDraft(for: run)
@@ -2816,7 +3806,7 @@ final class ChatStore {
         case let .reasoningDelta(text):
             run.draftReasoning += text
             try await flushJournalDraftIfNeeded(for: run)
-        case .toolStarted:
+        case .toolStarted, .internalToolStarted:
             break
         case let .toolFinished(step):
             _ = try await runJournalStore.append(
@@ -2845,6 +3835,26 @@ final class ChatStore {
         default:
             break
         }
+    }
+
+    private func updateContinuedProcessingProgress(
+        for run: ActiveRun,
+        phase: AgentRunProgressPhase
+    ) {
+        let taskState = run.loop.currentSessionSnapshot().taskStateSnapshot?.currentState
+        let childRecords = records(for: Array(run.ownedSubagentThreadIDs))
+        let taskTotal = taskState?.totalCount ?? 0
+        let childTotal = childRecords.count
+        let hasMeasurableUnits = taskTotal > 0 || childTotal > 0
+        let snapshot = AgentRunProgressSnapshot(
+            phase: phase,
+            completedUnitCount: Int64((taskState?.completedCount ?? 0) + childRecords.filter(\.status.isTerminal).count),
+            totalUnitCount: hasMeasurableUnits ? Int64(taskTotal + childTotal + 1) : nil
+        )
+        continuedProcessingCoordinator.update(
+            identifier: run.continuedProcessingIdentifier,
+            snapshot: snapshot
+        )
     }
 
     private func flushJournalDraftIfNeeded(for run: ActiveRun) async throws {

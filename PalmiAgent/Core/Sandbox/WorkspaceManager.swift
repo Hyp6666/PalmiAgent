@@ -535,7 +535,12 @@ final class WorkspaceManager {
         }
     }
 
-    func createThread(named name: String, in projectID: UUID) throws -> WorkspaceThreadRecord {
+    func createThread(
+        named name: String,
+        in projectID: UUID,
+        subagentOrigin: WorkspaceSubagentOrigin? = nil,
+        subagentStatus: AgentSubagentStatus? = nil
+    ) throws -> WorkspaceThreadRecord {
         _ = try ensureWorkspaceStorage()
         let threadsURL = threadsDirectoryURL(for: projectID)
         try fileManager.createDirectory(at: threadsURL, withIntermediateDirectories: true, attributes: nil)
@@ -546,12 +551,32 @@ final class WorkspaceManager {
             name: normalizedDisplayName(name, fallback: "新会话"),
             createdAt: .now,
             updatedAt: .now,
-            modelPlanOverride: nil
+            modelPlanOverride: nil,
+            subagentOrigin: subagentOrigin,
+            subagentStatus: subagentStatus
         )
         let directoryURL = threadDirectoryURL(for: projectID, threadID: thread.id)
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
         try writeJSON(thread, to: threadManifestURL(for: projectID, threadID: thread.id))
         return thread
+    }
+
+    func updateThreadSubagentStatus(
+        projectID: UUID,
+        threadID: UUID,
+        status: AgentSubagentStatus
+    ) throws {
+        let directoryURL = threadDirectoryURL(for: projectID, threadID: threadID)
+        guard fileManager.fileExists(atPath: directoryURL.path) else {
+            throw AppError.invalidState("目标 subagent 会话不存在。")
+        }
+        var thread = try readThread(at: directoryURL)
+        guard thread.subagentOrigin != nil else {
+            throw AppError.invalidState("目标会话不是 subagent。")
+        }
+        thread.subagentStatus = status
+        thread.updatedAt = .now
+        try writeJSON(thread, to: threadManifestURL(for: projectID, threadID: threadID))
     }
 
     func renameThread(projectID: UUID, threadID: UUID, to newName: String) throws {

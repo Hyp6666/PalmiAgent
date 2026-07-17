@@ -43,6 +43,9 @@ final class AgentLoop {
     private var pendingInterruptions: [PendingUserGuidance] = []
     private let approvalWaiter = AgentApprovalWaiter()
     private var pendingApprovalRequests: [UUID: AgentApprovalRequest] = [:]
+    private var subagentRuntimeBridge: AgentSubagentRuntimeBridge?
+    private var ownedSubagentThreadIDs: Set<UUID> = []
+    private var joinedSubagentThreadIDs: Set<UUID> = []
 
     // 目标 / 深度研究模式：当前一轮的注入态。runTurn 进入时置位、退出时（defer）清回。
     // 这些动态内容只追加到本轮隐藏 user 文本，不改变稳定 system prompt，也不重复保存完整用户输入。
@@ -95,6 +98,8 @@ final class AgentLoop {
         session = AgentSession()
         state = .idle
         pendingInterruptions = []
+        ownedSubagentThreadIDs = []
+        joinedSubagentThreadIDs = []
     }
 
     func replaceSession(_ session: AgentSession) {
@@ -103,6 +108,12 @@ final class AgentLoop {
         refreshTaskSnapshotFromDiskIfAvailable()
         state = .idle
         pendingInterruptions = []
+        ownedSubagentThreadIDs = []
+        joinedSubagentThreadIDs = []
+    }
+
+    func setSubagentRuntimeBridge(_ bridge: AgentSubagentRuntimeBridge?) {
+        subagentRuntimeBridge = bridge
     }
 
     func currentSessionSnapshot() -> AgentSession {
@@ -183,7 +194,8 @@ final class AgentLoop {
         let runProfile = currentAgentRunProfile()
         let surface = currentSurface()
         let exposesPhaseThought = surface == .professional && isExternalReasoningEnabled
-        let exposesTaskStateTool = false
+        let exposesTaskStateTool = surface == .professional
+        let exposesSubagentTools = surface == .professional && subagentRuntimeBridge != nil
         let baseSystemPrompt = makeBaseSystemPrompt(
             actions: actions,
             runProfile: runProfile,
@@ -196,7 +208,7 @@ final class AgentLoop {
             basePrompt: baseSystemPrompt,
             skills: activeSkills,
             actions: actions,
-            exposesTools: !actions.isEmpty || exposesPhaseThought,
+            exposesTools: !actions.isEmpty || exposesPhaseThought || exposesTaskStateTool || exposesSubagentTools,
             exposesPhaseThought: exposesPhaseThought,
             surface: surface
         )
@@ -221,7 +233,8 @@ final class AgentLoop {
         let toolDefinitionContribution = toolDefinitionContextContribution(
             for: actions,
             exposesPhaseThought: exposesPhaseThought,
-            exposesTaskStateTool: exposesTaskStateTool
+            exposesTaskStateTool: exposesTaskStateTool,
+            exposesSubagentTools: exposesSubagentTools
         )
 
         var messageTokens = hiddenSummaryTokens + hiddenResearchTokens + hiddenTaskTokens
@@ -270,9 +283,10 @@ final class AgentLoop {
             baseSystemPrompt: baseSystemPrompt,
             skills: activeSkills,
             actions: actions,
-            exposesTools: !actions.isEmpty || phaseThoughtEnabled,
+            exposesTools: !actions.isEmpty || phaseThoughtEnabled || surface == .professional,
             exposesPhaseThought: phaseThoughtEnabled,
-            exposesTaskStateTool: false,
+            exposesTaskStateTool: surface == .professional,
+            exposesSubagentTools: surface == .professional && subagentRuntimeBridge != nil,
             surface: surface
         )
         let shouldCompact = contextCompactor.shouldCompact(
@@ -332,9 +346,10 @@ final class AgentLoop {
             baseSystemPrompt: baseSystemPrompt,
             skills: activeSkills,
             actions: actions,
-            exposesTools: !actions.isEmpty || phaseThoughtEnabled,
+            exposesTools: !actions.isEmpty || phaseThoughtEnabled || surface == .professional,
             exposesPhaseThought: phaseThoughtEnabled,
-            exposesTaskStateTool: false,
+            exposesTaskStateTool: surface == .professional,
+            exposesSubagentTools: surface == .professional && subagentRuntimeBridge != nil,
             surface: surface
         )
         return await maybeCompactContext(
@@ -393,6 +408,24 @@ final class AgentLoop {
         imagePaths: [String] = [],
         modelOverrides: AgentModelRoleOverrides = .empty
     ) async throws -> AgentTurnResult {
+        try await runTurnCore(
+            userInput: userInput,
+            providerID: providerID,
+            actions: actions,
+            mode: mode,
+            imagePaths: imagePaths,
+            modelOverrides: modelOverrides
+        )
+    }
+
+    private func runTurnCore(
+        userInput: String,
+        providerID: APIProviderID,
+        actions: [ToolAction],
+        mode: AgentComposerMode = .standard,
+        imagePaths: [String] = [],
+        modelOverrides: AgentModelRoleOverrides = .empty
+    ) async throws -> AgentTurnResult {
         let trimmedInput = userInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedInput.isEmpty else {
             throw AppError.invalidState("请输入要让模型执行的自然语言指令。")
@@ -426,12 +459,14 @@ final class AgentLoop {
         let turnRequestRole: APIModelRole = .reasoningModel
         let toolRouter = ToolRouter(
             phaseThoughtToolName: Self.phaseThoughtToolName,
-            taskStateToolName: TaskStateToolDefinitionFactory.toolName
+            taskStateToolName: TaskStateToolDefinitionFactory.toolName,
+            subagentToolNames: subagentRuntimeBridge == nil ? [] : SubagentToolDefinitionFactory.toolNames
         )
         let toolPlanner = ToolExecutionPlanner()
         let runVerifier = RunVerifier()
         let contextCompactionConfiguration = runProfile.contextCompaction
         let phaseThoughtEnabled = surface == .chat ? false : isExternalReasoningEnabled
+        let subagentToolsEnabled = surface == .professional && subagentRuntimeBridge != nil
         let taskIdentity = AgentTaskStateIdentity(
             projectID: selection.projectID,
             threadID: selection.threadID,
@@ -453,6 +488,8 @@ final class AgentLoop {
                 )
             }
             pendingInterruptions = []
+            ownedSubagentThreadIDs = []
+            joinedSubagentThreadIDs = []
             defer {
                 switch state {
                 case .completed, .failed:
@@ -489,6 +526,7 @@ final class AgentLoop {
             var evidenceStore = EvidenceStore(references: session.evidenceReferences)
             var outputTokens = 0
             var iterations = 0
+            var didRequestTaskFinalization = false
 
             while true {
                 try Task.checkCancellation()
@@ -500,6 +538,9 @@ final class AgentLoop {
                 }
                 if exposesTaskStateTool {
                     toolDefinitions.append(TaskStateToolDefinitionFactory.makeToolDefinition())
+                }
+                if subagentToolsEnabled {
+                    toolDefinitions.append(contentsOf: SubagentToolDefinitionFactory.makeToolDefinitions())
                 }
                 let exposesAnyTools = !toolDefinitions.isEmpty
                 let baseSystemPrompt = makeBaseSystemPrompt(
@@ -517,6 +558,7 @@ final class AgentLoop {
                     exposesTools: exposesAnyTools,
                     exposesPhaseThought: phaseThoughtEnabled,
                     exposesTaskStateTool: exposesTaskStateTool,
+                    exposesSubagentTools: subagentToolsEnabled,
                     surface: surface
                 )
                 _ = await maybeCompactContext(
@@ -583,7 +625,16 @@ final class AgentLoop {
                         .modelFailure,
                         summary: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                     )
+                    if let mailboxPayload = await collectUnjoinedSubagentsIfNeeded(
+                        committedParentSession: session
+                    ) {
+                        appendSubagentMailbox(mailboxPayload)
+                        continue
+                    }
                     if executedSteps.isEmpty {
+                        throw error
+                    }
+                    if session.taskStateSnapshot?.currentState?.needsFinalizationBeforeReply == true {
                         throw error
                     }
                     state = .completed
@@ -607,6 +658,9 @@ final class AgentLoop {
                     from: response.message
                 )
                 let admittedMessage = phaseAdmission.message
+                // Delegation must fork only history committed before the assistant
+                // message that contains the spawn tool call.
+                let committedSessionForSubagents = session
                 session.append(admittedMessage)
 
                 var responseSummary = "模型返回 \(response.totalTokens) tokens，接纳工具调用 \(admittedMessage.toolUses.count) 个"
@@ -636,6 +690,21 @@ final class AgentLoop {
 
                 if toolUses.isEmpty {
                     if consumePendingInterruptions() {
+                        continue
+                    }
+
+                    if let mailboxPayload = await collectUnjoinedSubagentsIfNeeded(
+                        committedParentSession: committedSessionForSubagents
+                    ) {
+                        appendSubagentMailbox(mailboxPayload)
+                        continue
+                    }
+                    if session.taskStateSnapshot?.currentState?.needsFinalizationBeforeReply == true {
+                        guard !didRequestTaskFinalization else {
+                            throw AppError.invalidState("任务列表仍有未对账项目，已拒绝伪装为成功完成。")
+                        }
+                        didRequestTaskFinalization = true
+                        appendTaskFinalizationReminder()
                         continue
                     }
 
@@ -680,45 +749,44 @@ final class AgentLoop {
                     try Task.checkCancellation()
                     if case .parallelReadOnly = batch.kind {
                         var parallelCalls: [AgentParallelToolCall] = []
+                        var orderedToolResults: [Int: AgentMessage] = [:]
 
                         for (index, routedCall) in batch.calls.enumerated() {
                             let toolUse = routedCall.toolUse
 
                             if let routingError = routedCall.routingError {
-                                session.append(
-                                    .toolResult(
-                                        toolUseID: toolUse.id,
-                                        toolName: toolUse.name,
-                                        output: routingError,
-                                        isError: true
-                                    )
+                                orderedToolResults[index] = .toolResult(
+                                    toolUseID: toolUse.id,
+                                    toolName: toolUse.name,
+                                    output: routingError,
+                                    isError: true
                                 )
+                                emitRejectedToolCard(toolUse: toolUse, message: routingError)
                                 continue
                             }
 
                             guard let routedPrepared = routedCall.prepared else {
-                                session.append(
-                                    .toolResult(
-                                        toolUseID: toolUse.id,
-                                        toolName: toolUse.name,
-                                        output: "工具路由失败：没有生成可执行调用。",
-                                        isError: true
-                                    )
+                                let errorOutput = "工具路由失败：没有生成可执行调用。"
+                                orderedToolResults[index] = .toolResult(
+                                    toolUseID: toolUse.id,
+                                    toolName: toolUse.name,
+                                    output: errorOutput,
+                                    isError: true
                                 )
+                                emitRejectedToolCard(toolUse: toolUse, message: errorOutput)
                                 continue
                             }
 
                             let prepared: AgentPreparedToolExecution
                             switch toolExecutor.prepare(toolUse, actions: [routedPrepared.action]) {
                             case .failure(let errorOutput):
-                                session.append(
-                                    .toolResult(
-                                        toolUseID: toolUse.id,
-                                        toolName: toolUse.name,
-                                        output: errorOutput,
-                                        isError: true
-                                    )
+                                orderedToolResults[index] = .toolResult(
+                                    toolUseID: toolUse.id,
+                                    toolName: toolUse.name,
+                                    output: errorOutput,
+                                    isError: true
                                 )
+                                emitRejectedToolCard(toolUse: toolUse, message: errorOutput)
                                 continue
                             case .ready(let preparedExecution):
                                 prepared = preparedExecution
@@ -752,7 +820,28 @@ final class AgentLoop {
 
                         let completedParallelCalls = try await executeParallelReadOnlyCalls(
                             parallelCalls,
-                            modelOverrides: modelOverrides
+                            modelOverrides: modelOverrides,
+                            onCompletion: { [weak self] completed in
+                                guard let self else { return }
+                                let immediateStep = LLMToolExecutionStep(
+                                    id: completed.execution.step.id,
+                                    action: completed.execution.step.action,
+                                    argumentsJSON: completed.execution.step.argumentsJSON,
+                                    result: completed.execution.step.result,
+                                    requiresUserInteraction: completed.execution.step.requiresUserInteraction,
+                                    presentation: completed.execution.step.presentation,
+                                    fileDeltas: self.attachToolUseID(
+                                        completed.execution.step.fileDeltas,
+                                        toolUseID: completed.toolUse.id
+                                    )
+                                )
+                                self.appendEventLog(
+                                    .toolFinished,
+                                    summary: "\(immediateStep.action.title)：\(immediateStep.result.summary)",
+                                    payloadJSON: immediateStep.result.details
+                                )
+                                self.emit(.toolFinished(step: immediateStep))
+                            }
                         )
                         for completed in completedParallelCalls {
                             let fileDeltas = attachToolUseID(
@@ -789,13 +878,11 @@ final class AgentLoop {
                                 evidenceStore.ingest(fileDeltas: fileDeltas)
                                 session.evidenceReferences = evidenceStore.references
                             }
-                            session.append(
-                                .toolResult(
-                                    toolUseID: completed.toolUse.id,
-                                    toolName: executionStep.action.id.rawValue,
-                                    output: completed.execution.payload,
-                                    isError: executionStep.result.status == .failure
-                                )
+                            orderedToolResults[completed.index] = .toolResult(
+                                toolUseID: completed.toolUse.id,
+                                toolName: executionStep.action.id.rawValue,
+                                output: completed.execution.payload,
+                                isError: executionStep.result.status == .failure
                             )
                             if surface == .professional,
                                let hiddenArtifacts = await toolArtifactPipeline.ingest(
@@ -814,12 +901,18 @@ final class AgentLoop {
                                 evidenceStore.ingest(hiddenArtifacts: hiddenArtifacts)
                                 session.evidenceReferences = evidenceStore.references
                             }
+                        }
+                        for toolResult in AgentParallelToolResultOrdering.ordered(
+                            orderedToolResults,
+                            callCount: batch.calls.count
+                        ) {
+                            session.append(toolResult)
+                        }
+                        if !orderedToolResults.isEmpty {
                             appendEventLog(
                                 .toolFinished,
-                                summary: "\(executionStep.action.title)：\(executionStep.result.summary)",
-                                payloadJSON: executionStep.result.details
+                                summary: "并发工具结果已按原调用顺序提交到模型上下文"
                             )
-                            emit(.toolFinished(step: executionStep))
                         }
                     } else {
                     for routedCall in batch.calls {
@@ -884,6 +977,80 @@ final class AgentLoop {
                             continue
                         }
 
+                        if case .subagent = routedCall.kind {
+                            guard surface == .professional,
+                                  let subagentRuntimeBridge else {
+                                session.append(
+                                    .toolResult(
+                                        toolUseID: toolUse.id,
+                                        toolName: toolUse.name,
+                                        output: #"{"status":"error","message":"当前运行不支持 subagent。"}"#,
+                                        isError: true
+                                    )
+                                )
+                                continue
+                            }
+
+                            let stepID = UUID()
+                            let title = internalToolTitle(toolUse.name)
+                            let startedStep = AgentInternalToolStep(
+                                id: stepID,
+                                toolName: toolUse.name,
+                                title: title,
+                                status: .warning,
+                                summary: "正在执行",
+                                details: "等待 subagent 控制面返回结果。",
+                                argumentsJSON: toolUse.input,
+                                isRunning: true,
+                                relatedThreadIDs: []
+                            )
+                            taskStateRuntime.recordNonTaskProgress()
+                            appendEventLog(
+                                .toolStarted,
+                                summary: "开始执行 \(title)",
+                                payloadJSON: toolUse.input
+                            )
+                            emit(.internalToolStarted(startedStep))
+
+                            let result = await subagentRuntimeBridge.execute(
+                                AgentSubagentToolInvocation(
+                                    toolUseID: toolUse.id,
+                                    toolName: toolUse.name,
+                                    input: toolUse.input,
+                                    committedParentSession: committedSessionForSubagents
+                                )
+                            )
+                            ownedSubagentThreadIDs.formUnion(result.ownedThreadIDs)
+                            joinedSubagentThreadIDs.formUnion(result.joinedThreadIDs)
+                            joinedSubagentThreadIDs.formUnion(result.closedThreadIDs)
+                            session.append(
+                                .toolResult(
+                                    toolUseID: toolUse.id,
+                                    toolName: toolUse.name,
+                                    output: result.payload,
+                                    isError: result.isError
+                                )
+                            )
+                            let finishedStep = AgentInternalToolStep(
+                                id: stepID,
+                                toolName: toolUse.name,
+                                title: title,
+                                status: result.cardStatus,
+                                summary: result.summary,
+                                details: result.details,
+                                argumentsJSON: toolUse.input,
+                                isRunning: false,
+                                relatedThreadIDs: result.relatedThreadIDs
+                            )
+                            appendEventLog(
+                                .toolFinished,
+                                summary: "\(title)：\(result.summary)",
+                                payloadJSON: result.payload
+                            )
+                            emit(.internalToolFinished(finishedStep))
+                            continue
+                        }
+
                         if let routingError = routedCall.routingError {
                             session.append(
                                 .toolResult(
@@ -893,18 +1060,21 @@ final class AgentLoop {
                                     isError: true
                                 )
                             )
+                            emitRejectedToolCard(toolUse: toolUse, message: routingError)
                             continue
                         }
 
                         guard let routedPrepared = routedCall.prepared else {
+                            let errorOutput = "工具路由失败：没有生成可执行调用。"
                             session.append(
                                 .toolResult(
                                     toolUseID: toolUse.id,
                                     toolName: toolUse.name,
-                                    output: "工具路由失败：没有生成可执行调用。",
+                                    output: errorOutput,
                                     isError: true
                                 )
                             )
+                            emitRejectedToolCard(toolUse: toolUse, message: errorOutput)
                             continue
                         }
 
@@ -919,6 +1089,7 @@ final class AgentLoop {
                                     isError: true
                                 )
                             )
+                            emitRejectedToolCard(toolUse: toolUse, message: errorOutput)
                             continue
                         case .ready(let preparedExecution):
                             prepared = preparedExecution
@@ -1055,6 +1226,7 @@ final class AgentLoop {
                             payloadJSON: executionStep.result.details
                         )
                         emit(.toolFinished(step: executionStep))
+                        shouldStopAfterBatch = shouldStopAfterBatch || execution.shouldStopAfterStep
                     }
                     }
 
@@ -1075,6 +1247,20 @@ final class AgentLoop {
                     if consumePendingInterruptions() {
                         continue
                     }
+                    if let mailboxPayload = await collectUnjoinedSubagentsIfNeeded(
+                        committedParentSession: session
+                    ) {
+                        appendSubagentMailbox(mailboxPayload)
+                        continue
+                    }
+                    if session.taskStateSnapshot?.currentState?.needsFinalizationBeforeReply == true {
+                        guard !didRequestTaskFinalization else {
+                            throw AppError.invalidState("任务列表仍有未对账项目，已拒绝伪装为成功完成。")
+                        }
+                        didRequestTaskFinalization = true
+                        appendTaskFinalizationReminder()
+                        continue
+                    }
                     let baseSystemPrompt = makeBaseSystemPrompt(
                         actions: actions,
                         runProfile: runProfile,
@@ -1090,6 +1276,9 @@ final class AgentLoop {
                     if exposesTaskStateTool {
                         summaryToolDefinitions.append(TaskStateToolDefinitionFactory.makeToolDefinition())
                     }
+                    if subagentToolsEnabled {
+                        summaryToolDefinitions.append(contentsOf: SubagentToolDefinitionFactory.makeToolDefinitions())
+                    }
                     let summaryExposesAnyTools = !summaryToolDefinitions.isEmpty
                     let fixedTokenOverhead = compactionFixedTokenOverhead(
                         baseSystemPrompt: baseSystemPrompt,
@@ -1098,6 +1287,7 @@ final class AgentLoop {
                         exposesTools: summaryExposesAnyTools,
                         exposesPhaseThought: phaseThoughtEnabled,
                         exposesTaskStateTool: exposesTaskStateTool,
+                        exposesSubagentTools: subagentToolsEnabled,
                         surface: surface
                     )
                     _ = await maybeCompactContext(
@@ -1354,7 +1544,8 @@ final class AgentLoop {
 
     private func executeParallelReadOnlyCalls(
         _ calls: [AgentParallelToolCall],
-        modelOverrides: AgentModelRoleOverrides
+        modelOverrides: AgentModelRoleOverrides,
+        onCompletion: (AgentParallelToolCompletion) -> Void
     ) async throws -> [AgentParallelToolCompletion] {
         guard !calls.isEmpty else { return [] }
 
@@ -1373,6 +1564,7 @@ final class AgentLoop {
 
             var completions: [AgentParallelToolCompletion] = []
             for try await completion in group {
+                onCompletion(completion)
                 completions.append(completion)
             }
             return completions.sorted { $0.index < $1.index }
@@ -1690,7 +1882,8 @@ final class AgentLoop {
     private func toolDefinitionContextContribution(
         for actions: [ToolAction],
         exposesPhaseThought: Bool,
-        exposesTaskStateTool: Bool
+        exposesTaskStateTool: Bool,
+        exposesSubagentTools: Bool
     ) -> (tokens: Int, count: Int) {
         var toolDefinitions = LLMToolDefinitionBuilder.makeToolDefinitions(for: actions)
         if exposesPhaseThought {
@@ -1698,6 +1891,9 @@ final class AgentLoop {
         }
         if exposesTaskStateTool {
             toolDefinitions.append(TaskStateToolDefinitionFactory.makeToolDefinition())
+        }
+        if exposesSubagentTools {
+            toolDefinitions.append(contentsOf: SubagentToolDefinitionFactory.makeToolDefinitions())
         }
         guard !toolDefinitions.isEmpty else {
             return (0, 0)
@@ -1725,6 +1921,7 @@ final class AgentLoop {
         exposesTools: Bool,
         exposesPhaseThought: Bool,
         exposesTaskStateTool: Bool,
+        exposesSubagentTools: Bool,
         surface: WorkspaceProjectSurface
     ) -> Int {
         let composedSystemPrompt = contextAssembler.promptComposer.compose(
@@ -1739,7 +1936,8 @@ final class AgentLoop {
         let toolTokens = toolDefinitionContextContribution(
             for: actions,
             exposesPhaseThought: exposesPhaseThought,
-            exposesTaskStateTool: exposesTaskStateTool
+            exposesTaskStateTool: exposesTaskStateTool,
+            exposesSubagentTools: exposesSubagentTools
         ).tokens
         return systemTokens + toolTokens
     }
@@ -1810,7 +2008,7 @@ final class AgentLoop {
         promptBuilder.build(
             actions: actions,
             tier: runProfile.professionalTier,
-            exposesTools: !actions.isEmpty || phaseThoughtEnabled,
+            exposesTools: !actions.isEmpty || phaseThoughtEnabled || surface == .professional,
             exposesPhaseThought: phaseThoughtEnabled,
             surface: surface
         )
@@ -2181,6 +2379,91 @@ final class AgentLoop {
         return trimmedAssistantText.isEmpty ? nil : trimmedAssistantText
     }
 
+    private func collectUnjoinedSubagentsIfNeeded(
+        committedParentSession: AgentSession
+    ) async -> String? {
+        guard let subagentRuntimeBridge else { return nil }
+        let pending = ownedSubagentThreadIDs.subtracting(joinedSubagentThreadIDs)
+        guard !pending.isEmpty else { return nil }
+        let targetValues = pending.map(\.uuidString).sorted()
+        let object: [String: Any] = [
+            "targets": targetValues,
+            "timeout_ms": 30_000
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
+              let input = String(data: data, encoding: .utf8) else {
+            return #"{"status":"error","message":"无法构造 subagent mailbox 请求。"}"#
+        }
+        let result = await subagentRuntimeBridge.execute(
+            AgentSubagentToolInvocation(
+                toolUseID: "runtime-auto-wait-\(UUID().uuidString.lowercased())",
+                toolName: SubagentToolDefinitionFactory.waitToolName,
+                input: input,
+                committedParentSession: committedParentSession
+            )
+        )
+        joinedSubagentThreadIDs.formUnion(result.joinedThreadIDs)
+        joinedSubagentThreadIDs.formUnion(result.closedThreadIDs)
+        return result.payload
+    }
+
+    private func appendSubagentMailbox(_ payload: String) {
+        session.append(
+            .user(
+                text: """
+                【subagent mailbox（内部）】
+                \(payload)
+                请基于这些 child 状态和结果继续；若仍在运行，调用 wait_subagents，不要提前最终答复。
+                """
+            )
+        )
+    }
+
+    private func appendTaskFinalizationReminder() {
+        taskStateRuntime.recordNonTaskProgress()
+        session.append(
+            .user(
+                text: """
+                【task ledger（内部）】
+                最终答复暂缓：当前完整 tasks 列表仍有非终态项。请依据真实证据调用 update_task_state 对账；完成项标 completed，不再需要的项标 skipped/canceled，仍受阻则使用 blocked/waiting_for_user。不得为了显示 100% 伪造完成，然后再给最终答复。
+                """
+            )
+        )
+    }
+
+    private func internalToolTitle(_ toolName: String) -> String {
+        switch toolName {
+        case SubagentToolDefinitionFactory.spawnToolName:
+            return PalmiL10n.tr("subagent.tool.spawn")
+        case SubagentToolDefinitionFactory.listToolName:
+            return PalmiL10n.tr("subagent.tool.list")
+        case SubagentToolDefinitionFactory.sendToolName:
+            return PalmiL10n.tr("subagent.tool.send")
+        case SubagentToolDefinitionFactory.waitToolName:
+            return PalmiL10n.tr("subagent.tool.wait")
+        case SubagentToolDefinitionFactory.closeToolName:
+            return PalmiL10n.tr("subagent.tool.close")
+        default:
+            return toolName
+        }
+    }
+
+    private func emitRejectedToolCard(toolUse: AgentToolUse, message: String) {
+        let step = AgentInternalToolStep(
+            id: UUID(),
+            toolName: toolUse.name,
+            title: toolUse.name,
+            status: .failure,
+            summary: "工具调用失败",
+            details: message,
+            argumentsJSON: toolUse.input,
+            isRunning: false,
+            relatedThreadIDs: []
+        )
+        appendEventLog(.toolFinished, summary: "\(toolUse.name)：\(message)")
+        emit(.internalToolFinished(step))
+    }
+
     private func fallbackReply(for steps: [LLMToolExecutionStep], trailingError: String? = nil) -> String {
         guard let last = steps.last else {
             let suffix = if let trailingError, !trailingError.isEmpty {
@@ -2197,6 +2480,9 @@ final class AgentLoop {
         }
         if last.action.id.presentationKind == .interactive || last.requiresUserInteraction {
             return "已调用 \(last.action.title)。这个工具需要你继续在系统界面中完成交互。\n\(suffix)".trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if last.result.status == .failure {
+            return "\(last.action.title) 执行失败：\(last.result.details)\n\(suffix)".trimmingCharacters(in: .whitespacesAndNewlines)
         }
         if last.action.id.presentationKind == .action {
             return "已调用 \(last.action.title)。系统动作已经成功发起。\n\(suffix)".trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2290,6 +2576,15 @@ private struct AgentParallelToolCompletion: Sendable {
         stepID = call.stepID
         startedAt = call.startedAt
         self.execution = execution
+    }
+}
+
+enum AgentParallelToolResultOrdering {
+    static func ordered(
+        _ resultsByIndex: [Int: AgentMessage],
+        callCount: Int
+    ) -> [AgentMessage] {
+        (0..<max(0, callCount)).compactMap { resultsByIndex[$0] }
     }
 }
 

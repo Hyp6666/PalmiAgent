@@ -1,5 +1,7 @@
 # PalmiAgent Agent Runtime Reliability Implementation Plan
 
+> **2026-07-13 验证规则更新：** 下文中的 Simulator 内容仅保留为 2026-07-10 的历史记录，不再是可执行验收方案。此后所有 XCTest、UI 测试、App 启动与设备运行验证必须仅使用 **device-hub**；device-hub 不可用时只能做 generic iOS 编译、`build-for-testing` 编译产物检查和静态检查，且不得宣称运行测试通过。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 完成可靠单 Agent 运行时、稳定缓存前缀、可恢复 journal/checkpoint 和 iOS 26 后台延续，并提交到本地 `main`。

@@ -5,17 +5,44 @@ struct PalmiChatSessionHeader: Codable, Sendable {
     let finishedAt: Date?
     let outputTokens: Int
     var tokenUsage: PalmiTokenUsageSnapshot?
+    var taskProgress: PalmiTaskProgressSnapshot?
 
     init(
         startedAt: Date,
         finishedAt: Date? = nil,
         outputTokens: Int = 0,
-        tokenUsage: PalmiTokenUsageSnapshot? = nil
+        tokenUsage: PalmiTokenUsageSnapshot? = nil,
+        taskProgress: PalmiTaskProgressSnapshot? = nil
     ) {
         self.startedAt = startedAt
         self.finishedAt = finishedAt
         self.outputTokens = outputTokens
         self.tokenUsage = tokenUsage
+        self.taskProgress = taskProgress
+    }
+}
+
+struct PalmiTaskProgressSnapshot: Codable, Sendable {
+    struct Item: Codable, Identifiable, Sendable {
+        let id: String
+        let title: String
+        let status: AgentTaskItemStatus
+    }
+
+    let title: String
+    let lifecycle: AgentTaskLifecycle
+    let completedCount: Int
+    let totalCount: Int
+    let focusItemID: String?
+    let items: [Item]
+
+    init(state: AgentTaskState) {
+        title = state.title
+        lifecycle = state.lifecycle
+        completedCount = state.completedCount
+        totalCount = state.totalCount
+        focusItemID = state.focusItemID
+        items = state.items.map { Item(id: $0.id, title: $0.title, status: $0.status) }
     }
 }
 
@@ -89,6 +116,33 @@ struct PalmiToolCallCard: Codable, Sendable {
     let argumentsJSON: String
     let requiresUserInteraction: Bool
     let isRunning: Bool?
+    let relatedThreadIDs: [UUID]?
+
+    init(
+        cardKind: PalmiCardKind,
+        toolTitle: String,
+        toolName: String,
+        presentationKind: ToolPresentationKind,
+        status: ToolResult.Status,
+        summary: String,
+        details: String,
+        argumentsJSON: String,
+        requiresUserInteraction: Bool,
+        isRunning: Bool? = nil,
+        relatedThreadIDs: [UUID]? = nil
+    ) {
+        self.cardKind = cardKind
+        self.toolTitle = toolTitle
+        self.toolName = toolName
+        self.presentationKind = presentationKind
+        self.status = status
+        self.summary = summary
+        self.details = details
+        self.argumentsJSON = argumentsJSON
+        self.requiresUserInteraction = requiresUserInteraction
+        self.isRunning = isRunning
+        self.relatedThreadIDs = relatedThreadIDs
+    }
 }
 
 enum PalmiChatTurnPlacement: String, Codable, Sendable {

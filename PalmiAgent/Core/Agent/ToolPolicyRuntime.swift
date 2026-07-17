@@ -226,6 +226,7 @@ extension ToolActionID {
 enum RoutedToolCallKind {
     case progress
     case taskState
+    case subagent
     case external
 }
 
@@ -240,6 +241,7 @@ struct RoutedToolCall {
 struct ToolRouter {
     let phaseThoughtToolName: String
     let taskStateToolName: String
+    let subagentToolNames: Set<String>
 
     func route(_ toolUse: AgentToolUse, actions: [ToolAction]) -> RoutedToolCall {
         if toolUse.name == phaseThoughtToolName {
@@ -256,6 +258,16 @@ struct ToolRouter {
             return RoutedToolCall(
                 toolUse: toolUse,
                 kind: .taskState,
+                prepared: nil,
+                policy: nil,
+                routingError: nil
+            )
+        }
+
+        if subagentToolNames.contains(toolUse.name) {
+            return RoutedToolCall(
+                toolUse: toolUse,
+                kind: .subagent,
                 prepared: nil,
                 policy: nil,
                 routingError: nil
@@ -337,6 +349,13 @@ struct ToolExecutionPlanner {
             }
 
             if case .taskState = call.kind {
+                flushParallel()
+                flushSequential()
+                batches.append(ToolExecutionBatch(kind: .progressOnly, calls: [call]))
+                continue
+            }
+
+            if case .subagent = call.kind {
                 flushParallel()
                 flushSequential()
                 batches.append(ToolExecutionBatch(kind: .progressOnly, calls: [call]))

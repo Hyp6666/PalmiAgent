@@ -68,7 +68,11 @@ final class AppContainer {
         modelRuntime: llmAPIClient
     )
 
-    lazy var agentToolExecutor = AgentToolExecutor(actionExecutor: executor)
+    let toolExecutionCoordinator = ToolExecutionCoordinator()
+    lazy var agentToolExecutor = AgentToolExecutor(
+        actionExecutor: executor,
+        executionCoordinator: toolExecutionCoordinator
+    )
     lazy var promptComposer = PromptComposer()
     let toolContextProjector = ToolContextProjector()
     let taskContextProjector = TaskContextProjector()

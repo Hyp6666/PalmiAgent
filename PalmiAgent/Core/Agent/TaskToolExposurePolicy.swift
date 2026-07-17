@@ -23,22 +23,27 @@ enum TaskStateToolDefinitionFactory {
                 [Agent 内部动作] 更新当前任务状态。只在本轮工作需要拆解、持续执行、同步进度或处理用户改口时调用。
                 规则：
                 - 简单问答、寒暄、单句解释不要调用。
-                - 一组任务保持 2 到 6 项，硬上限 6 项。
-                - 每次传完整 items 列表；每项 title 面向用户简短展示，hiddenDetail 保存内部目标和验收细节。
+                - 一次接受并提交完整 tasks 列表，通常 2 到 8 项，硬上限 12 项。
+                - 每项 title 面向用户简短展示，hiddenDetail 保存内部目标和验收细节。
                 - 同一时间最多一个 in_progress。已完成项不要回退为 pending。
+                - 更新已有列表时传 expectedRevision，陈旧版本会被拒绝而不会覆盖新状态。
                 - 调用后继续执行实际工作，不要连续只更新任务。
                 """,
                 parameters: ToolJSONSchema.object(
                     properties: [
                         "reason": ToolJSONSchema.string(description: "必填。为什么创建或更新任务，最多一句话。"),
+                        "expectedRevision": .object([
+                            "type": .string("integer"),
+                            "description": .string("创建首个列表时可省略；更新任何已有活动列表时必填当前 revision，磁盘 CAS 会拒绝陈旧写入。")
+                        ]),
                         "lifecycle": ToolJSONSchema.string(
                             description: "可选。整体任务生命周期。",
                             enumValues: ["active", "waiting_for_user", "blocked", "completed", "abandoned"]
                         ),
                         "focusItemID": ToolJSONSchema.string(description: "可选。当前正在处理的任务 id。"),
-                        "items": .object([
+                        "tasks": .object([
                             "type": .string("array"),
-                            "description": .string("必填。完整任务列表，通常 2 到 6 项，最多 6 项。"),
+                            "description": .string("必填。一次提交的完整任务列表，通常 2 到 8 项，最多 12 项。"),
                             "items": .object([
                                 "type": .string("object"),
                                 "additionalProperties": .bool(false),
@@ -58,7 +63,7 @@ enum TaskStateToolDefinitionFactory {
                             ])
                         ])
                     ],
-                    required: ["reason", "items"]
+                    required: ["reason", "tasks"]
                 )
             )
         )

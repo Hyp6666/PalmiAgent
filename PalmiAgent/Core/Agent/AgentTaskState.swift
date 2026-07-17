@@ -78,6 +78,15 @@ struct AgentTaskState: Codable, Sendable {
         items.count
     }
 
+    var progressFraction: Double {
+        guard totalCount > 0 else { return 0 }
+        return Double(completedCount) / Double(totalCount)
+    }
+
+    var needsFinalizationBeforeReply: Bool {
+        lifecycle == .active && items.contains(where: { !$0.status.isTerminal })
+    }
+
     var runSummary: AgentTaskRunSummary {
         AgentTaskRunSummary(
             taskRunID: taskRunID,
@@ -165,7 +174,37 @@ struct UpdateTaskStateArgs: Decodable, Sendable {
     var reason: String
     var lifecycle: AgentTaskLifecycle?
     var focusItemID: String?
-    var items: [AgentTaskItemInput]
+    var expectedRevision: Int?
+    var tasks: [AgentTaskItemInput]
+
+    /// Source compatibility for callers still using the pre-task-list name.
+    var items: [AgentTaskItemInput] { tasks }
+
+    private enum CodingKeys: String, CodingKey {
+        case reason
+        case lifecycle
+        case focusItemID
+        case focusItemIDSnake = "focus_item_id"
+        case expectedRevision
+        case expectedRevisionSnake = "expected_revision"
+        case tasks
+        case items
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        reason = try container.decodeIfPresent(String.self, forKey: .reason) ?? "更新任务列表"
+        lifecycle = try container.decodeIfPresent(AgentTaskLifecycle.self, forKey: .lifecycle)
+        focusItemID = try container.decodeIfPresent(String.self, forKey: .focusItemID)
+            ?? container.decodeIfPresent(String.self, forKey: .focusItemIDSnake)
+        expectedRevision = try container.decodeIfPresent(Int.self, forKey: .expectedRevision)
+            ?? container.decodeIfPresent(Int.self, forKey: .expectedRevisionSnake)
+        if let modernTasks = try container.decodeIfPresent([AgentTaskItemInput].self, forKey: .tasks) {
+            tasks = modernTasks
+        } else {
+            tasks = try container.decodeIfPresent([AgentTaskItemInput].self, forKey: .items) ?? []
+        }
+    }
 }
 
 struct AgentTaskItemInput: Decodable, Sendable {

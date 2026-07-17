@@ -39,6 +39,17 @@ struct WorkspaceThreadRecord: Identifiable, Hashable, Codable, Sendable {
     let createdAt: Date
     var updatedAt: Date
     var modelPlanOverride: ModelPlanSessionOverride?
+    var subagentOrigin: WorkspaceSubagentOrigin? = nil
+    var subagentStatus: AgentSubagentStatus? = nil
+}
+
+struct WorkspaceSubagentOrigin: Hashable, Codable, Sendable {
+    let groupID: UUID
+    let taskID: String
+    let parentThreadID: UUID
+    let parentSessionID: UUID
+    let parentRunID: UUID
+    let spawnToolUseID: String
 }
 
 struct WorkspaceSelection: Equatable, Hashable, Codable, Sendable {

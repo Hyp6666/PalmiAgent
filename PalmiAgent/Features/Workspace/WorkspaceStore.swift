@@ -126,6 +126,14 @@ final class WorkspaceStore {
         (selectedThreadID == selection.threadID ? selectedThread : nil)
     }
 
+    func refreshThreadMetadata(in projectID: UUID) {
+        do {
+            try refreshThreads(for: projectID)
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
     func reload() {
         do {
             let professionalProjects = try workspaceManager.listProjects(on: .professional)
@@ -537,6 +545,11 @@ final class WorkspaceStore {
             .surface ?? .professional
 
         do {
+            let descendants = try workspaceManager.listThreads(in: thread.projectID)
+                .filter { $0.subagentOrigin?.parentThreadID == thread.id }
+            for child in descendants {
+                try workspaceManager.deleteThread(projectID: child.projectID, threadID: child.id)
+            }
             try workspaceManager.deleteThread(projectID: thread.projectID, threadID: thread.id)
             reload()
             // 删除后重新解析激活选中：有剩余会话则切到下一个，没有则清空，

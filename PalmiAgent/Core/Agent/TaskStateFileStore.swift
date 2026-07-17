@@ -36,7 +36,7 @@ final class TaskStateFileStore {
             )
         }
 
-        let ledger = try readJSON(AgentTaskSessionLedger.self, from: ledgerURL)
+        var ledger = try readJSON(AgentTaskSessionLedger.self, from: ledgerURL)
         guard ledger.projectID == identity.projectID,
               ledger.threadID == identity.threadID,
               ledger.sessionID == identity.sessionID else {
@@ -46,7 +46,7 @@ final class TaskStateFileStore {
             )
         }
 
-        let currentRunID = ledger.currentRunID
+        var currentRunID = ledger.currentRunID
         let currentState: AgentTaskState?
         if let currentRunID {
             let stateURL = try runDirectoryURL(for: identity, taskRunID: currentRunID)
@@ -67,6 +67,33 @@ final class TaskStateFileStore {
             currentState = nil
         }
 
+        if let currentState, !currentState.lifecycle.isActiveLike {
+            // Recover a crash after terminal state.json was atomically replaced
+            // but before index.json/current.json cleared the active pointer.
+            currentRunID = nil
+            ledger.currentRunID = nil
+            ledger.updatedAt = currentState.updatedAt
+            if let index = ledger.runs.firstIndex(where: { $0.taskRunID == currentState.taskRunID }) {
+                ledger.runs[index] = currentState.runSummary
+            } else {
+                ledger.runs.append(currentState.runSummary)
+            }
+            ledger.runs = ledger.runs.sorted { $0.updatedAt > $1.updatedAt }
+            try writeJSON(ledger, to: ledgerURL)
+            try writeJSON(
+                AgentTaskCurrentPointer(
+                    schemaVersion: 1,
+                    projectID: identity.projectID,
+                    threadID: identity.threadID,
+                    sessionID: identity.sessionID,
+                    currentRunID: nil,
+                    revision: currentState.revision,
+                    updatedAt: currentState.updatedAt
+                ),
+                to: sessionURL.appendingPathComponent("current.json", isDirectory: false)
+            )
+        }
+
         return AgentTaskStateSnapshot(
             projectID: identity.projectID,
             threadID: identity.threadID,
@@ -81,13 +108,19 @@ final class TaskStateFileStore {
 
     func save(
         state: AgentTaskState,
-        reason: String
+        reason: String,
+        expectedRevision: Int?
     ) throws -> AgentTaskStateSnapshot {
         let identity = AgentTaskStateIdentity(
             projectID: state.projectID,
             threadID: state.threadID,
             sessionID: state.sessionID,
             taskRunID: state.taskRunID
+        )
+        try validateCompareAndSwap(
+            state: state,
+            identity: identity,
+            expectedRevision: expectedRevision
         )
         let runURL = try runDirectoryURL(for: identity, taskRunID: state.taskRunID)
         try fileManager.createDirectory(at: runURL, withIntermediateDirectories: true)
@@ -102,6 +135,51 @@ final class TaskStateFileStore {
 
         let snapshot = try updateLedger(with: state, identity: identity)
         return snapshot
+    }
+
+    private func validateCompareAndSwap(
+        state: AgentTaskState,
+        identity: AgentTaskStateIdentity,
+        expectedRevision: Int?
+    ) throws {
+        let sessionURL = try sessionDirectoryURL(for: identity)
+        let ledgerURL = sessionURL.appendingPathComponent("index.json", isDirectory: false)
+        guard fileManager.fileExists(atPath: ledgerURL.path) else {
+            guard expectedRevision == nil else {
+                throw AppError.invalidState("任务账本尚未创建，不能应用带 revision 的更新。")
+            }
+            return
+        }
+
+        let ledger = try readJSON(AgentTaskSessionLedger.self, from: ledgerURL)
+        guard ledger.projectID == identity.projectID,
+              ledger.threadID == identity.threadID,
+              ledger.sessionID == identity.sessionID else {
+            throw AppError.invalidState("任务账本身份与当前会话不一致，已拒绝覆盖。")
+        }
+        guard let currentRunID = ledger.currentRunID else {
+            guard expectedRevision == nil else {
+                throw AppError.invalidState("当前没有可更新的活动任务列表。")
+            }
+            return
+        }
+        guard currentRunID == state.taskRunID else {
+            throw AppError.invalidState("检测到另一个活动任务列表，已拒绝陈旧写入。")
+        }
+        guard let expectedRevision else {
+            throw AppError.invalidState("更新已有任务列表必须携带 expectedRevision。")
+        }
+        let stateURL = try runDirectoryURL(for: identity, taskRunID: currentRunID)
+            .appendingPathComponent("state.json", isDirectory: false)
+        guard fileManager.fileExists(atPath: stateURL.path) else {
+            throw AppError.invalidState("活动任务状态文件缺失，已拒绝覆盖。")
+        }
+        let persistedState = try readJSON(AgentTaskState.self, from: stateURL)
+        guard persistedState.revision == expectedRevision else {
+            throw AppError.invalidState(
+                "任务版本已变化（磁盘 \(persistedState.revision)，请求 \(expectedRevision)），请读取最新列表后重试。"
+            )
+        }
     }
 
     private func updateLedger(
@@ -160,7 +238,10 @@ final class TaskStateFileStore {
             threadID: state.threadID,
             sessionID: state.sessionID,
             currentRunID: ledger.currentRunID,
-            currentState: state.lifecycle.isActiveLike ? state : nil,
+            // Keep the just-saved terminal state in the in-memory/session
+            // projection so UI receives the final N/N update. A later disk load
+            // still uses ledger.currentRunID and therefore has no active state.
+            currentState: state,
             recentRuns: Array(ledger.runs.prefix(20)),
             unavailableReason: nil,
             updatedAt: state.updatedAt
