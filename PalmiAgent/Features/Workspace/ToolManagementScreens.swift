@@ -2,71 +2,100 @@ import SwiftUI
 
 struct ToolManagementOverviewScreen: View {
     @Bindable var permissionStore: ToolPermissionStore
-    @Bindable var authorizationStore: ToolAuthorizationStore
     let actions: [ToolAction]
     @State private var selectedGroup: ToolManagementGroupDefinition?
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 24) {
-                ToolAuthorizationModeCard(authorizationStore: authorizationStore)
-
-                ForEach(ToolManagementCatalog.sections) { section in
-                    ToolManagementSectionBlock(
-                        section: section,
-                        groups: ToolManagementCatalog.groups(in: section.id),
-                        permissionStore: permissionStore,
-                        onOpen: { group in
-                            selectedGroup = group
+            GlassEffectContainer(spacing: 18) {
+                LazyVStack(alignment: .leading, spacing: 24) {
+                    ForEach(ToolManagementCatalog.sections) { section in
+                        let groups = ToolManagementCatalog.settingsGroups(in: section.id)
+                        if !groups.isEmpty {
+                            ToolManagementSectionBlock(
+                                section: section,
+                                groups: groups,
+                                permissionStore: permissionStore,
+                                onOpen: { group in
+                                    selectedGroup = group
+                                }
+                            )
                         }
-                    )
+                    }
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
         }
-        .background(Color(uiColor: .systemGroupedBackground))
+        .background {
+            LinearGradient(
+                colors: [
+                    Color(uiColor: .systemGroupedBackground),
+                    Color.accentColor.opacity(0.08),
+                    Color(uiColor: .systemGroupedBackground)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+        }
         .navigationTitle(PalmiL10n.tr("tool.management.title"))
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $selectedGroup) { group in
             ToolManagementGroupScreen(
                 permissionStore: permissionStore,
-                actions: actions,
                 group: group
             )
         }
     }
 }
 
-private struct ToolAuthorizationModeCard: View {
+struct ToolAuthorizationSettingsScreen: View {
     @Bindable var authorizationStore: ToolAuthorizationStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(PalmiL10n.tr("tool.authorization.title"))
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(.primary)
-
-            Picker(PalmiL10n.tr("tool.authorization.title"), selection: Binding(
-                get: { authorizationStore.mode },
-                set: { authorizationStore.setMode($0) }
-            )) {
-                ForEach(ToolAuthorizationMode.allCases) { mode in
-                    Text(mode.localizedTitle).tag(mode)
+        List {
+            Section {
+                Picker(
+                    PalmiL10n.tr("tool.authorization.title"),
+                    selection: Binding(
+                        get: { authorizationStore.mode },
+                        set: { authorizationStore.setMode($0) }
+                    )
+                ) {
+                    ForEach(ToolAuthorizationMode.userSelectableCases) { mode in
+                        Text(mode.localizedTitle).tag(mode)
+                    }
                 }
+                .pickerStyle(.menu)
             }
-            .pickerStyle(.segmented)
+
+            Section {
+                ZStack(alignment: .topLeading) {
+                    if authorizationStore.customAutoReviewPolicy.isEmpty {
+                        Text(PalmiL10n.tr("tool.authorization.autoReviewPolicy.placeholder"))
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 8)
+                            .allowsHitTesting(false)
+                    }
+
+                    TextEditor(text: Binding(
+                        get: { authorizationStore.customAutoReviewPolicy },
+                        set: { authorizationStore.setCustomAutoReviewPolicy($0) }
+                    ))
+                    .frame(minHeight: 120)
+                    .scrollContentBackground(.hidden)
+                }
+            } header: {
+                Text(PalmiL10n.tr("tool.authorization.autoReviewPolicy.title"))
+            } footer: {
+                Text(PalmiL10n.tr("tool.authorization.autoReviewPolicy.note"))
+            }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 15)
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color(uiColor: .secondarySystemBackground))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.black.opacity(0.05), lineWidth: 1)
-        )
+        .listStyle(.insetGrouped)
+        .navigationTitle(PalmiL10n.tr("tool.authorization.title"))
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -118,14 +147,10 @@ private struct ToolManagementGroupCard: View {
                 HStack(spacing: 14) {
                     iconBadge
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(group.id.localizedTitle)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(group.localizedSettingsTitle)
                             .font(.body.weight(.semibold))
                             .foregroundStyle(.primary)
-
-                        Text(group.id.localizedSubtitle)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
 
                         statusPill
                     }
@@ -142,13 +167,9 @@ private struct ToolManagementGroupCard: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 15)
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color(uiColor: .secondarySystemBackground))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.black.opacity(0.05), lineWidth: 1)
+        .glassEffect(
+            .regular.tint(appearance.tint.opacity(0.06)).interactive(),
+            in: .rect(cornerRadius: 24)
         )
     }
 
@@ -178,42 +199,52 @@ private struct ToolManagementGroupCard: View {
 
 private struct ToolManagementGroupScreen: View {
     @Bindable var permissionStore: ToolPermissionStore
-    let actions: [ToolAction]
     let group: ToolManagementGroupDefinition
 
-    private var groupActions: [ToolAction] {
-        let actionMap = Dictionary(uniqueKeysWithValues: actions.map { ($0.id, $0) })
-        return group.actionIDs.compactMap { actionMap[$0] }
+    private var groupFacades: [AgentExternalToolFacade] {
+        ToolManagementCatalog.settingsFacades(in: group.id)
     }
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 14) {
-                ToolManagementGroupHeaderCard(
-                    group: group,
-                    enabledCount: permissionStore.enabledCount(in: group.id),
-                    totalCount: permissionStore.actionCount(in: group.id),
-                    isOn: Binding(
-                        get: { permissionStore.isEnabled(group.id) },
-                        set: { permissionStore.setEnabled($0, for: group.id) }
-                    )
-                )
-
-                ForEach(groupActions) { action in
-                    ToolManagementActionRow(
-                        action: action,
+            GlassEffectContainer(spacing: 14) {
+                LazyVStack(spacing: 14) {
+                    ToolManagementGroupHeaderCard(
+                        group: group,
+                        enabledCount: permissionStore.enabledCount(in: group.id),
+                        totalCount: permissionStore.actionCount(in: group.id),
                         isOn: Binding(
-                            get: { permissionStore.isEnabled(action.id) },
-                            set: { permissionStore.setEnabled($0, for: action.id) }
+                            get: { permissionStore.isEnabled(group.id) },
+                            set: { permissionStore.setEnabled($0, for: group.id) }
                         )
                     )
+
+                    ForEach(groupFacades) { facade in
+                        ToolManagementFacadeRow(
+                            facade: facade,
+                            isOn: Binding(
+                                get: { permissionStore.isEnabled(facade) },
+                                set: { permissionStore.setEnabled($0, for: facade) }
+                            )
+                        )
+                    }
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
         }
-        .background(Color(uiColor: .systemGroupedBackground))
-        .navigationTitle(group.id.localizedTitle)
+        .background {
+            LinearGradient(
+                colors: [
+                    Color(uiColor: .systemGroupedBackground),
+                    ToolManagementGroupAppearance.forGroup(group.id).tint.opacity(0.08)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+        }
+        .navigationTitle(group.localizedSettingsTitle)
         .navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -239,14 +270,10 @@ private struct ToolManagementGroupHeaderCard: View {
                         .foregroundStyle(appearance.tint)
                 }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(group.id.localizedTitle)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(group.localizedSettingsTitle)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.primary)
-
-                Text(group.id.localizedSubtitle)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
 
                 Text(PalmiL10n.tr("tool.enabledCount", enabledCount, totalCount))
                     .font(.caption.weight(.medium))
@@ -260,33 +287,25 @@ private struct ToolManagementGroupHeaderCard: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 15)
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color(uiColor: .secondarySystemBackground))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.black.opacity(0.05), lineWidth: 1)
+        .glassEffect(
+            .regular.tint(appearance.tint.opacity(0.06)).interactive(),
+            in: .rect(cornerRadius: 24)
         )
     }
 }
 
-private struct ToolManagementActionRow: View {
-    let action: ToolAction
+private struct ToolManagementFacadeRow: View {
+    let facade: AgentExternalToolFacade
     @Binding var isOn: Bool
 
     var body: some View {
         HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(action.localizedTitleForUI)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.primary)
+            settingsIcon
+                .frame(width: 24, height: 24)
 
-                Text(action.localizedEffectForUI)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text(facade.localizedTitle)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.primary)
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Toggle("", isOn: $isOn)
@@ -294,15 +313,66 @@ private struct ToolManagementActionRow: View {
                 .tint(.green)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 15)
-        .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color(uiColor: .secondarySystemBackground))
+        .padding(.vertical, 12)
+        .glassEffect(
+            .regular.interactive(),
+            in: .rect(cornerRadius: 22)
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.black.opacity(0.05), lineWidth: 1)
-        )
+    }
+
+    @ViewBuilder
+    private var settingsIcon: some View {
+        if facade.name == .python {
+            Image("PythonLogo")
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+        } else {
+            Image(systemName: facade.name.settingsSymbolName)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+private extension ToolManagementGroupDefinition {
+    var localizedSettingsTitle: String {
+        switch id {
+        case .timeAlarms:
+            ToolActionID.getCurrentDateTime.localizedTitleForUI
+        case .mapsLocation:
+            ToolActionID.requestLocation.localizedTitleForUI
+        default:
+            id.localizedTitle
+        }
+    }
+
+}
+
+private extension AgentExternalToolName {
+    var settingsSymbolName: String {
+        switch self {
+        case .read:
+            "doc.text"
+        case .edit:
+            "pencil"
+        case .workspace:
+            "folder"
+        case .python:
+            "chevron.left.forwardslash.chevron.right"
+        case .ocr:
+            "text.viewfinder"
+        case .vision:
+            "viewfinder"
+        case .webSearch, .fetch:
+            "globe"
+        case .systemTime:
+            "clock"
+        case .location:
+            "location"
+        }
     }
 }
 
@@ -319,9 +389,9 @@ private struct ToolManagementGroupAppearance {
         case .contacts:
             .init(symbolName: "person.crop.circle", tint: .blue)
         case .timeAlarms:
-            .init(symbolName: "alarm", tint: .purple)
+            .init(symbolName: "clock", tint: .purple)
         case .mapsLocation:
-            .init(symbolName: "map", tint: .green)
+            .init(symbolName: "location", tint: .green)
         case .cameraPhotos:
             .init(symbolName: "camera", tint: .pink)
         case .scanRecognition:
@@ -337,7 +407,7 @@ private struct ToolManagementGroupAppearance {
         case .multimodal:
             .init(symbolName: "viewfinder", tint: .purple)
         case .webResearch:
-            .init(symbolName: "globe", tint: .cyan)
+            .init(symbolName: "globe.americas.fill", tint: .cyan)
         }
     }
 }

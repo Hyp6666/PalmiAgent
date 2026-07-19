@@ -148,15 +148,66 @@ enum ToolManagementCatalog {
         )
     ]
 
+    static let settingsGroups: [ToolManagementGroupDefinition] = [
+        settingsGroup(.timeAlarms, actionIDs: [.getCurrentDateTime]),
+        settingsGroup(.mapsLocation, actionIDs: [.requestLocation]),
+        settingsGroup(.workspaceFiles),
+        settingsGroup(.multimodal),
+        settingsGroup(.webResearch, actionIDs: [.searchWeb, .fetchStaticWebPage])
+    ]
+
     static func groups(in sectionID: ToolManagementSectionID) -> [ToolManagementGroupDefinition] {
         groups.filter { $0.sectionID == sectionID }
     }
 
+    static func settingsGroups(in sectionID: ToolManagementSectionID) -> [ToolManagementGroupDefinition] {
+        settingsGroups.filter { $0.sectionID == sectionID }
+    }
+
+    static func settingsFacades(in groupID: ToolManagementGroupID) -> [AgentExternalToolFacade] {
+        let names: [AgentExternalToolName]
+        switch groupID {
+        case .timeAlarms:
+            names = [.systemTime]
+        case .mapsLocation:
+            names = [.location]
+        case .workspaceFiles:
+            names = [.read, .edit, .workspace, .python]
+        case .multimodal:
+            names = [.ocr, .vision]
+        case .webResearch:
+            names = [.webSearch, .fetch]
+        default:
+            names = []
+        }
+        let facadesByName = Dictionary(
+            uniqueKeysWithValues: AgentExternalToolFacadeCatalog.all.map { ($0.name, $0) }
+        )
+        return names.compactMap { facadesByName[$0] }
+    }
+
     static func group(for groupID: ToolManagementGroupID) -> ToolManagementGroupDefinition {
-        guard let group = groups.first(where: { $0.id == groupID }) else {
+        guard let group = settingsGroups.first(where: { $0.id == groupID })
+            ?? groups.first(where: { $0.id == groupID }) else {
             preconditionFailure("Missing tool management group for \(groupID.rawValue)")
         }
         return group
+    }
+
+    private static func settingsGroup(
+        _ groupID: ToolManagementGroupID,
+        actionIDs: [ToolActionID]? = nil
+    ) -> ToolManagementGroupDefinition {
+        guard let group = groups.first(where: { $0.id == groupID }) else {
+            preconditionFailure("Missing tool management group for \(groupID.rawValue)")
+        }
+        return ToolManagementGroupDefinition(
+            id: group.id,
+            sectionID: group.sectionID,
+            title: group.title,
+            subtitle: group.subtitle,
+            actionIDs: actionIDs ?? group.actionIDs
+        )
     }
 }
 
@@ -186,18 +237,56 @@ final class ToolPermissionStore {
         persist()
     }
 
+    func isEnabled(_ facade: AgentExternalToolFacade) -> Bool {
+        facade.backingActionIDs.allSatisfy(isEnabled(_:))
+    }
+
+    func setEnabled(_ enabled: Bool, for facade: AgentExternalToolFacade) {
+        for actionID in facade.backingActionIDs {
+            if enabled {
+                disabledActionIDs.remove(actionID)
+            } else {
+                disabledActionIDs.insert(actionID)
+            }
+        }
+        persist()
+    }
+
     func isEnabled(_ groupID: ToolManagementGroupID) -> Bool {
+        let facades = ToolManagementCatalog.settingsFacades(in: groupID)
+        if !facades.isEmpty {
+            return facades.allSatisfy(isEnabled(_:))
+        }
         let group = ToolManagementCatalog.group(for: groupID)
-        return group.actionIDs.contains(where: isEnabled(_:))
+        return group.actionIDs.allSatisfy(isEnabled(_:))
     }
 
     func isPartiallyEnabled(_ groupID: ToolManagementGroupID) -> Bool {
+        let facades = ToolManagementCatalog.settingsFacades(in: groupID)
+        if !facades.isEmpty {
+            let enabledCount = facades.filter(isEnabled(_:)).count
+            return enabledCount > 0 && enabledCount < facades.count
+        }
         let group = ToolManagementCatalog.group(for: groupID)
         let enabledCount = group.actionIDs.filter(isEnabled(_:)).count
         return enabledCount > 0 && enabledCount < group.actionIDs.count
     }
 
     func setEnabled(_ enabled: Bool, for groupID: ToolManagementGroupID) {
+        let facades = ToolManagementCatalog.settingsFacades(in: groupID)
+        if !facades.isEmpty {
+            for facade in facades {
+                for actionID in facade.backingActionIDs {
+                    if enabled {
+                        disabledActionIDs.remove(actionID)
+                    } else {
+                        disabledActionIDs.insert(actionID)
+                    }
+                }
+            }
+            persist()
+            return
+        }
         let group = ToolManagementCatalog.group(for: groupID)
         for actionID in group.actionIDs {
             if enabled {
@@ -210,11 +299,19 @@ final class ToolPermissionStore {
     }
 
     func enabledCount(in groupID: ToolManagementGroupID) -> Int {
-        ToolManagementCatalog.group(for: groupID).actionIDs.filter(isEnabled(_:)).count
+        let facades = ToolManagementCatalog.settingsFacades(in: groupID)
+        if !facades.isEmpty {
+            return facades.filter(isEnabled(_:)).count
+        }
+        return ToolManagementCatalog.group(for: groupID).actionIDs.filter(isEnabled(_:)).count
     }
 
     func actionCount(in groupID: ToolManagementGroupID) -> Int {
-        ToolManagementCatalog.group(for: groupID).actionIDs.count
+        let facades = ToolManagementCatalog.settingsFacades(in: groupID)
+        if !facades.isEmpty {
+            return facades.count
+        }
+        return ToolManagementCatalog.group(for: groupID).actionIDs.count
     }
 
     func enabledActionCount(in actions: [ToolAction]) -> Int {

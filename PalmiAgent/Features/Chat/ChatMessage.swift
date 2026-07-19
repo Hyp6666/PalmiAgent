@@ -117,6 +117,7 @@ struct PalmiToolCallCard: Codable, Sendable {
     let requiresUserInteraction: Bool
     let isRunning: Bool?
     let relatedThreadIDs: [UUID]?
+    let inlineMetadata: ToolCallInlineMetadata?
 
     init(
         cardKind: PalmiCardKind,
@@ -129,7 +130,8 @@ struct PalmiToolCallCard: Codable, Sendable {
         argumentsJSON: String,
         requiresUserInteraction: Bool,
         isRunning: Bool? = nil,
-        relatedThreadIDs: [UUID]? = nil
+        relatedThreadIDs: [UUID]? = nil,
+        inlineMetadata: ToolCallInlineMetadata? = nil
     ) {
         self.cardKind = cardKind
         self.toolTitle = toolTitle
@@ -142,6 +144,7 @@ struct PalmiToolCallCard: Codable, Sendable {
         self.requiresUserInteraction = requiresUserInteraction
         self.isRunning = isRunning
         self.relatedThreadIDs = relatedThreadIDs
+        self.inlineMetadata = inlineMetadata
     }
 }
 

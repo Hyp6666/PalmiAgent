@@ -1,6 +1,21 @@
 import Foundation
 
 enum ActionCatalog {
+    static let agentExposedActionIDs: [ToolActionID] = [
+        .fileRead,
+        .fileWrite,
+        .fileAppend,
+        .listDirectory,
+        .fileManage,
+        .runPython,
+        .recognizeImageText,
+        .scanImageWithMultimodalModel,
+        .searchWeb,
+        .fetchStaticWebPage,
+        .getCurrentDateTime,
+        .requestLocation
+    ]
+
     static let all: [ToolAction] = [
         .init(id: .fileRead, category: .workspace, title: "读取文件", effect: "读取工作区内单个文件的文本内容", details: "支持代码、Markdown、JSON、CSV、PDF、RTF、plist、ipynb 等文本内容；图片和其他二进制会自动忽略。支持用 mode / focus / offset / chunk_size 控制读取范围，适合精读长文档。", availability: .live),
         .init(id: .fileWrite, category: .workspace, title: "写入文件", effect: "创建或覆盖写入工作区内的文本文件", details: "由模型提供文件路径和内容，支持 .md、.py、.txt、.json 等所有文本格式。父目录会自动创建。", availability: .live),
@@ -20,13 +35,13 @@ enum ActionCatalog {
         .init(id: .listReminders, category: .personalData, title: "查看未完成提醒", effect: "读取未完成提醒", details: "验证提醒事项读取能力。", availability: .live),
         .init(id: .createContact, category: .personalData, title: "创建联系人", effect: "写入一个联系人", details: "支持姓名、组织、电话、邮箱和备注。", availability: .live),
         .init(id: .searchContacts, category: .personalData, title: "搜索联系人", effect: "按关键字搜索联系人", details: "验证通讯录读取能力。", availability: .live),
-        .init(id: .getCurrentDateTime, category: .personalData, title: "获取当前时间", effect: "读取设备当前本地日期时间", details: "返回当前本地时间、时区、今天和明天，用来避免相对日期和年份幻觉。", availability: .live),
+        .init(id: .getCurrentDateTime, category: .personalData, title: "获取时间", effect: "读取设备当前本地日期时间", details: "返回当前本地时间、时区、今天和明天，用来避免相对日期和年份幻觉。", availability: .live),
         .init(id: .requestAlarmPermission, category: .personalData, title: "请求闹钟权限", effect: "请求系统闹钟权限", details: "通过 AlarmKit 请求系统闹钟授权。", availability: .live),
         .init(id: .listAlarms, category: .personalData, title: "查看系统闹钟", effect: "读取当前系统闹钟和计时器", details: "返回闹钟 ID、状态和调度方式。", availability: .live),
         .init(id: .createAlarm, category: .personalData, title: "创建系统闹钟", effect: "创建系统时钟闹钟", details: "支持固定时间闹钟、按时分重复的闹钟，以及自定义 app 内闹钟声音名。", availability: .live),
         .init(id: .createClockTimer, category: .personalData, title: "创建系统倒计时", effect: "创建系统时钟倒计时", details: "支持指定倒计时秒数和 app 内闹钟声音名。", availability: .live),
         .init(id: .manageAlarm, category: .personalData, title: "管理系统闹钟", effect: "暂停、继续、停止或取消系统闹钟", details: "通过 AlarmKit 按闹钟 ID 管理当前闹钟。", availability: .live),
-        .init(id: .requestLocation, category: .personalData, title: "请求定位并反查", effect: "获取当前位置并反向地理编码", details: "验证定位和地址解析能力。", availability: .live),
+        .init(id: .requestLocation, category: .personalData, title: "获取定位", effect: "获取当前位置并反向地理编码", details: "验证定位和地址解析能力。", availability: .live),
         .init(id: .searchNearbyPlaces, category: .personalData, title: "搜索附近地点", effect: "按关键字搜索附近地点", details: "适合景点、餐厅、商场、医院、地铁站等 POI 搜索。", availability: .live),
         .init(id: .openMapsRoute, category: .personalData, title: "打开地图路线", effect: "跳转 Apple 地图规划路线", details: "验证系统地图 handoff。", availability: .live),
         .init(id: .openCamera, category: .media, title: "打开相机", effect: "弹出系统相机", details: "拉起系统相机供用户继续拍摄。", availability: .live),
@@ -58,5 +73,10 @@ enum ActionCatalog {
             let actions = all.filter { $0.category == category }
             return actions.isEmpty ? nil : (category, actions)
         }
+    }
+
+    static func agentExposedActions(from actions: [ToolAction]) -> [ToolAction] {
+        let actionsByID = Dictionary(uniqueKeysWithValues: actions.map { ($0.id, $0) })
+        return agentExposedActionIDs.compactMap { actionsByID[$0] }
     }
 }

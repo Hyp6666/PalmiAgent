@@ -1,5 +1,6 @@
 import BackgroundTasks
 import Foundation
+import OSLog
 
 enum AgentContinuedProcessingPreference {
     static let storageKey = "palmi.agent.continued-processing-enabled"
@@ -64,6 +65,11 @@ final class SystemContinuedProcessingScheduler: ContinuedProcessingScheduling {
 
 @MainActor
 final class AgentContinuedProcessingCoordinator {
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.hongyupeng.PalmiAgent",
+        category: "ContinuedProcessing"
+    )
+
     private struct ExpirationHandler {
         let checkpoint: () async -> Void
         let cancelRun: () -> Void
@@ -108,6 +114,9 @@ final class AgentContinuedProcessingCoordinator {
             self?.attach(task, identifier: identifier)
         }
         guard registered else {
+            Self.logger.error(
+                "Failed to register continued-processing task \(identifier, privacy: .public). Verify BGTaskSchedulerPermittedIdentifiers."
+            )
             expirationHandlers.removeValue(forKey: identifier)
             progressSnapshots.removeValue(forKey: identifier)
             return nil
@@ -123,6 +132,10 @@ final class AgentContinuedProcessingCoordinator {
             try scheduler.submit(request)
             return identifier
         } catch {
+            let nsError = error as NSError
+            Self.logger.error(
+                "Failed to submit continued-processing task \(identifier, privacy: .public): domain=\(nsError.domain, privacy: .public) code=\(nsError.code) description=\(nsError.localizedDescription, privacy: .public)"
+            )
             expirationHandlers.removeValue(forKey: identifier)
             progressSnapshots.removeValue(forKey: identifier)
             return nil

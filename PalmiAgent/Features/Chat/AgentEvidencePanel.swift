@@ -429,7 +429,7 @@ private struct ToolAuditRow: View {
     }
 
     private var localizedToolTitle: String {
-        ToolActionID(rawValue: record.toolName)?.localizedTitleForUI ?? record.toolName
+        AgentExternalToolFacadeCatalog.localizedTitle(for: record.toolName) ?? record.toolName
     }
 }
 
@@ -522,7 +522,7 @@ private struct ConfirmationRow: View {
     }
 
     private var localizedToolTitle: String {
-        ToolActionID(rawValue: record.toolName)?.localizedTitleForUI ?? record.toolName
+        AgentExternalToolFacadeCatalog.localizedTitle(for: record.toolName) ?? record.toolName
     }
 }
 
@@ -656,6 +656,8 @@ private extension AgentTaskItemStatus {
             "checkmark.circle.fill"
         case .blocked:
             "exclamationmark.circle.fill"
+        case .waitingForUser:
+            "person.crop.circle.badge.clock"
         case .skipped:
             "forward.circle"
         case .canceled:
@@ -673,6 +675,8 @@ private extension AgentTaskItemStatus {
             .green
         case .blocked:
             .orange
+        case .waitingForUser:
+            .purple
         case .skipped:
             .secondary
         case .canceled:

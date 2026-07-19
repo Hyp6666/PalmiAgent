@@ -24,8 +24,8 @@ final class ToolArtifactPipeline {
         modelOverrides: AgentModelRoleOverrides = .empty,
         userGoal: String
     ) async -> AgentHiddenArtifacts? {
-        guard let actionID = ToolActionID(rawValue: toolResult.toolName),
-              let payload = AgentToolPayload.decode(from: toolResult.output) else {
+        guard let payload = AgentToolPayload.decode(from: toolResult.output),
+              let actionID = payload.actionID ?? ToolActionID(rawValue: toolResult.toolName) else {
             return nil
         }
 

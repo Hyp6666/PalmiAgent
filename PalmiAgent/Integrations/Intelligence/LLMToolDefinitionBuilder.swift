@@ -3,17 +3,137 @@ import Foundation
 @MainActor
 enum LLMToolDefinitionBuilder {
     static func makeToolDefinitions(for actions: [ToolAction]) -> [AgentModelToolDefinition] {
-        actions.map(makeToolDefinition(for:))
+        let actionsByID = Dictionary(uniqueKeysWithValues: actions.map { ($0.id, $0) })
+        return AgentExternalToolFacadeCatalog.availableFacades(from: actions).compactMap { facade in
+            makeToolDefinition(for: facade, actionsByID: actionsByID)
+        }
     }
 
     static func makeToolDefinition(for action: ToolAction) -> AgentModelToolDefinition {
         AgentModelToolDefinition(
             function: AgentModelFunctionDefinition(
-                name: action.id.rawValue,
+                name: action.id.modelToolName,
                 description: toolDescription(for: action),
                 parameters: toolParametersSchema(for: action)
             )
         )
+    }
+
+    private static func makeToolDefinition(
+        for facade: AgentExternalToolFacade,
+        actionsByID: [ToolActionID: ToolAction]
+    ) -> AgentModelToolDefinition? {
+        let backingActions = facade.backingActionIDs.compactMap { actionsByID[$0] }
+        guard backingActions.count == facade.backingActionIDs.count,
+              let primaryAction = backingActions.first else {
+            return nil
+        }
+        return AgentModelToolDefinition(
+            function: AgentModelFunctionDefinition(
+                name: facade.modelToolName,
+                description: facadeDescription(
+                    for: facade,
+                    backingActions: backingActions
+                ),
+                parameters: facadeParametersSchema(for: facade, primaryAction: primaryAction)
+            )
+        )
+    }
+
+    private static func facadeDescription(
+        for facade: AgentExternalToolFacade,
+        backingActions: [ToolAction]
+    ) -> String {
+        var lines: [String]
+        switch facade.name {
+        case .read:
+            lines = [
+                "[工作区] 读取单个工作区文件的可读文本。长内容可通过 mode、focus、offset 和 chunk_size 定点读取；目录浏览使用 workspace(operation=list)。"
+            ]
+        case .edit:
+            lines = [
+                "[工作区] 编辑文本文件。operation=write 时创建或覆盖文件，operation=append 时在文件末尾追加内容。",
+                "这是通用工作区工具，不要用它模拟通知、闹钟、地图、短信、电话、邮件或在线搜索。"
+            ]
+        case .workspace:
+            lines = [
+                "[工作区] 查看目录结构，或创建目录、删除、移动、重命名、复制和检查工作区项目。通过 operation 选择具体动作。",
+                "operation=list 用于目录列表、递归目录树或批量读取；其他 operation 用于路径管理。"
+            ]
+        case .python:
+            lines = [
+                "[计算] 执行真实 CPython 3.14 脚本。只用于代码、已知数据的计算与转换，不得模拟网页、系统或个人数据工具。",
+                "支持标准库、内置 workspace 模块和随 app 提供的 Python 包；不支持 pip 动态安装、系统进程、GUI 或长期阻塞任务。"
+            ]
+        case .ocr:
+            lines = [
+                "[图片] 对工作区图片执行 OCR，并写出文本与结构化结果。只用于提取图片文字；通用画面理解优先使用 vision。"
+            ]
+        case .vision:
+            lines = [
+                "[图片] 使用当前会话配置的多模态模型理解一张工作区图片。传入图片相对路径和具体视觉问题；只提取文字时使用 ocr。"
+            ]
+        case .webSearch:
+            lines = [
+                "[网页] 搜索候选网页并返回标题、规范化 URL 和摘要。它用于发现来源，不读取正文；关键事实继续用 fetch 读取高价值来源。"
+            ]
+        case .fetch:
+            lines = [
+                "[网页] 读取一个或多个已知 URL 的实际内容，支持网页、PDF、文本、JSON 和 XML。用户已经给出 URL 时直接调用。"
+            ]
+        case .systemTime:
+            lines = [
+                "[设备] 获取设备当前本地日期、时间和时区。涉及今天、明天、相对日期或当前时间时先调用。"
+            ]
+        case .location:
+            lines = [
+                "[设备] 在任务确实依赖这里、附近或当前位置时获取定位并反向地理编码。"
+            ]
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func facadeParametersSchema(
+        for facade: AgentExternalToolFacade,
+        primaryAction: ToolAction
+    ) -> JSONValue {
+        switch facade.name {
+        case .edit:
+            return ToolJSONSchema.object(
+                properties: [
+                    "operation": ToolJSONSchema.string(
+                        description: "必填。write 创建或覆盖文件；append 在文件末尾追加内容。",
+                        enumValues: ["write", "append"]
+                    ),
+                    "path": ToolJSONSchema.string(description: "必填。工作区内的相对文件路径。"),
+                    "content": ToolJSONSchema.string(description: "必填。要写入或追加的文本内容。")
+                ],
+                required: ["operation", "path", "content"]
+            )
+        case .workspace:
+            return ToolJSONSchema.object(
+                properties: [
+                    "operation": ToolJSONSchema.string(
+                        description: "必填。list 查看目录；其他值执行对应的路径管理动作。",
+                        enumValues: ["list", "mkdir", "delete", "move", "rename", "copy", "info", "exists"]
+                    ),
+                    "path": ToolJSONSchema.string(description: "可选。目标相对路径；list 默认工作区根目录，其他操作必填。"),
+                    "destination": ToolJSONSchema.string(description: "可选。move、rename、copy 操作必填的目标相对路径。"),
+                    "recursive": ToolJSONSchema.bool(description: "可选。list 是否递归输出目录树，默认 true。"),
+                    "include_content": ToolJSONSchema.bool(description: "可选。list 是否同时读取可读文本内容，默认 false。"),
+                    "max_chars": ToolJSONSchema.integer(description: "可选。include_content=true 时总输出最大字符数，默认 20000。"),
+                    "max_files": ToolJSONSchema.integer(description: "可选。include_content=true 时最多展开的文件数，默认 64。"),
+                    "mode": ToolJSONSchema.string(
+                        description: "可选。include_content=true 时的读取模式。",
+                        enumValues: WorkspaceReadMode.allCases.map(\.rawValue)
+                    ),
+                    "focus": ToolJSONSchema.string(description: "可选。include_content=true 时围绕该主题抽取相关片段。")
+                ],
+                required: ["operation"]
+            )
+        default:
+            return toolParametersSchema(for: primaryAction)
+        }
     }
 
     private static func enabledWebSearchProviderEnumValues() -> [String] {
@@ -26,7 +146,7 @@ enum LLMToolDefinitionBuilder {
             action.details
         ]
 
-        if action.id == .detectWebSearchProviders || action.id == .searchWeb {
+        if action.id == .detectWebSearchProviders {
             lines.append("当前设置开启的搜索源：\(WebSearchProviderSettings.enabledProviderIDsDescription())")
         }
 
@@ -44,19 +164,19 @@ enum LLMToolDefinitionBuilder {
     private static func routingHint(for actionID: ToolActionID) -> String? {
         switch actionID {
         case .runPython:
-            return "只在用户明确需要编写/运行 Python，或你已经拿到了完整输入数据且需要计算/转换时使用。不要用它替代闹钟、地图、通知、短信、日历、联系人或网页搜索，也不要用它编造现实世界数据。文件操作请优先使用 fileRead/fileWrite/fileManage 等专用工具。"
+            return "只在用户明确需要编写/运行 Python，或你已经拿到了完整输入数据且需要计算/转换时使用。不要用它替代闹钟、地图、通知、短信、日历、联系人或网页搜索，也不要用它编造现实世界数据。文件操作请优先使用 read、edit、workspace。"
         case .recognizeImageText:
-            return "仅当当前轮次没有可直接查看的主模型多模态图像输入，且用户明确要求提取图片文字，或多模态图片扫描工具不可用/失败时使用。它只处理工作区内已有图片路径；若用户刚上传附件，从“附件：”块里取相对路径作为 path。"
+            return "用户明确要求提取图片文字，或 vision 不可用、失败、结果有歧义时使用。它只处理工作区内已有图片路径；若用户刚上传附件，从“附件：”块里取相对路径作为 path。"
         case .scanImageWithMultimodalModel:
-            return "当当前主请求没有内联图像能力、但任务需要理解非 OCR 图片内容时使用。必须传工作区图片相对路径 path 和你希望多模态模型回答的 prompt；若当前会话没有可用多模态模型，工具会返回失败，随后应改用 recognizeImageText 对同一路径做 OCR 兜底。"
+            return "任务需要理解图片画面而不只是提取文字时使用。必须传工作区图片相对路径 path 和具体 prompt；若当前会话没有可用多模态模型，随后可用 ocr 对同一路径提取文字。"
         case .fileWrite, .fileAppend:
             return "这是通用工作区工具，不是系统能力替身。不要用它模拟通知、闹钟、地图、短信、电话、邮件或在线搜索。"
         case .fileRead:
-            return "读取工作区内单个文件的可读文本。长文档优先围绕当前目标抽取关键事实；需要定点阅读时，使用 mode、focus、offset、chunk_size 控制读取范围。读取目录或批量浏览文件请使用 listDirectory 工具。"
+            return "读取工作区内单个文件的可读文本。长文档优先围绕当前目标抽取关键事实；需要定点阅读时，使用 mode、focus、offset、chunk_size 控制读取范围。读取目录或批量浏览文件请使用 workspace(operation=list)。"
         case .listDirectory:
-            return "查看目录结构和文件列表。设置 include_content=true 可批量读取目录下所有可读文本文件的内容。"
+            return "对应 workspace(operation=list)：查看目录结构和文件列表；设置 include_content=true 可批量读取目录下所有可读文本文件的内容。"
         case .fileManage:
-            return "文件管理操作（创建目录、删除、移动/重命名、复制、查看信息、检查存在）。通过 operation 参数选择具体操作。"
+            return "对应 workspace 的路径管理 operation：创建目录、删除、移动、重命名、复制、查看信息或检查存在。"
         case .getCurrentDateTime:
             return "凡是涉及今天、明天、下周、几点、哪一天、创建日程、提醒、通知、闹钟、倒计时或任何相对时间表达时，都应优先先调用它确认当前本地时间。"
         case .requestAlarmPermission, .listAlarms, .createAlarm, .createClockTimer, .manageAlarm:
@@ -66,7 +186,7 @@ enum LLMToolDefinitionBuilder {
         case .detectWebSearchProviders:
             return "只在用户明确要求检测网络/搜索源，或上一次搜索失败后使用。它不返回搜索结果，只返回环境探测。"
         case .searchWeb:
-            return "用于发现候选来源，只返回标题、规范化 URL 和摘要，不读取正文。涉及当前事实或未知网址时先搜索；得到候选后选择少量高价值来源调用网页浏览。不要把搜索摘要当作关键事实的最终证据。"
+            return "用于发现候选来源，只返回标题、规范化 URL 和摘要，不读取正文。涉及当前事实或未知网址时先搜索；调用前把用户需求整理成尽可能简短、自然且语义完整的检索短语，不要照抄整段问题，也不要机械拆成零散关键词；得到候选后选择少量高价值来源调用网页浏览。不要把搜索摘要当作关键事实的最终证据。"
         case .fetchStaticWebPage:
             return "用于读取已知 URL 的实际内容。内部会根据 Content-Type 处理 HTML、JavaScript 页面、PDF、纯文本、JSON 和 XML，并返回最终重定向 URL、元数据和结构化正文。用户已给出 URL 时直接调用，不要先重复搜索。"
         case .openInAppBrowser:
@@ -139,7 +259,7 @@ enum LLMToolDefinitionBuilder {
                     "script": ToolJSONSchema.string(description: "可选。直接执行的内联 Python 源码。和 script_path 二选一。"),
                     "save_to": ToolJSONSchema.string(description: "可选。执行内联 Python 时，先保存到工作区的相对路径。")
                 ],
-                description: "执行真实 CPython 3.14 脚本。优先使用标准库、内置 workspace 模块和以下预装纯 Python 包：\(PythonPackageCatalog.supportedImportsSentence)。\(PythonPackageCatalog.toolingSummary) 不要依赖 pip 动态装包、系统进程、GUI、长期阻塞任务或任何未列出的第三方库。文件操作请优先使用 fileRead/fileWrite/fileManage 等专用工具。"
+                description: "执行真实 CPython 3.14 脚本。优先使用标准库、内置 workspace 模块和以下预装纯 Python 包：\(PythonPackageCatalog.supportedImportsSentence)。\(PythonPackageCatalog.toolingSummary) 不要依赖 pip 动态装包、系统进程、GUI、长期阻塞任务或任何未列出的第三方库。文件操作请优先使用 read、edit、workspace。"
             )
         case .recognizeImageText:
             return ToolJSONSchema.object(
@@ -171,7 +291,7 @@ enum LLMToolDefinitionBuilder {
             return ToolJSONSchema.object(
                 properties: [
                     "query": ToolJSONSchema.string(
-                        description: "必填。用于发现候选来源的关键词或自然语言查询。只返回标题、URL 和摘要。"
+                        description: "必填。根据用户需求生成一个尽可能简短、自然且语义完整的检索短语。使用尽可能少但足以准确表达目标的词语，保留专有名词、产品名、年份、版本号、函数名、错误信息、地点等关键限定，以及表达它们关系所必需的连接词；删除寒暄、请求语气、回答格式和无关背景。不要直接复制用户整段问题，也不要机械拆成互不连贯的关键词。一次只表达一个明确的检索目标；技术名称和错误信息保留原始语言，其他内容使用最适合目标资料的自然语言。只返回标题、URL 和摘要。"
                     ),
                     "source": ToolJSONSchema.string(
                         description: "可选。搜索源；只能填写当前设置中开启的值。不填时使用默认搜索源。",
@@ -383,8 +503,6 @@ enum LLMToolDefinitionBuilder {
         case .requestLocation:
             return ToolJSONSchema.object(
                 properties: [
-                    "latitude": ToolJSONSchema.number(description: "可选。指定某个经纬度的纬度；传了经纬度就不再请求当前位置。"),
-                    "longitude": ToolJSONSchema.number(description: "可选。指定某个经纬度的经度；传了经纬度就不再请求当前位置。"),
                     "include_coordinates": ToolJSONSchema.bool(description: "可选。是否在结果里附带经纬度。默认 true。"),
                     "include_address": ToolJSONSchema.bool(description: "可选。是否在结果里附带地址。默认 true。")
                 ]

@@ -17,7 +17,7 @@ enum ToolPresentationKind: String, Codable, Sendable {
     }
 }
 
-enum ToolActionID: String, CaseIterable, Codable, Sendable {
+enum ToolActionID: String, CaseIterable, Codable, Hashable, Sendable {
     case fileRead
     case fileWrite
     case fileAppend
@@ -69,6 +69,14 @@ enum ToolActionID: String, CaseIterable, Codable, Sendable {
     case clearSpotlightIndex
     case appIntentsDiagnostics
     case publishHandoffActivity
+
+    var modelToolName: String {
+        AgentExternalToolFacadeCatalog.canonicalToolName(for: self)
+    }
+
+    func matchesModelToolName(_ name: String) -> Bool {
+        name == modelToolName || name == rawValue
+    }
 
     var presentationKind: ToolPresentationKind {
         switch self {

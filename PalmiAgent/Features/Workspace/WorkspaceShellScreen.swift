@@ -1658,9 +1658,10 @@ private struct AppSettingsScreen: View {
         case .toolManagement:
             ToolManagementOverviewScreen(
                 permissionStore: store.toolPermissionStore,
-                authorizationStore: store.toolAuthorizationStore,
                 actions: store.actions
             )
+        case .toolAuthorization:
+            ToolAuthorizationSettingsScreen(authorizationStore: store.toolAuthorizationStore)
         case .searchSources:
             WebSearchProviderSettingsScreen()
         case .skills:

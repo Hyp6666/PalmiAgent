@@ -227,6 +227,7 @@ enum RoutedToolCallKind {
     case progress
     case taskState
     case subagent
+    case compact
     case external
 }
 
@@ -240,10 +241,15 @@ struct RoutedToolCall {
 
 struct ToolRouter {
     let phaseThoughtToolName: String
-    let taskStateToolName: String
+    let taskStateToolNames: Set<String>
     let subagentToolNames: Set<String>
+    let compactToolName: String
 
-    func route(_ toolUse: AgentToolUse, actions: [ToolAction]) -> RoutedToolCall {
+    func route(
+        _ toolUse: AgentToolUse,
+        actions: [ToolAction],
+        prepareExternal: (AgentToolUse, [ToolAction]) -> AgentPreparedToolResult
+    ) -> RoutedToolCall {
         if toolUse.name == phaseThoughtToolName {
             return RoutedToolCall(
                 toolUse: toolUse,
@@ -254,7 +260,7 @@ struct ToolRouter {
             )
         }
 
-        if toolUse.name == taskStateToolName {
+        if taskStateToolNames.contains(toolUse.name) {
             return RoutedToolCall(
                 toolUse: toolUse,
                 kind: .taskState,
@@ -274,37 +280,32 @@ struct ToolRouter {
             )
         }
 
-        guard let action = actions.first(where: { $0.id.rawValue == toolUse.name }) else {
+        if toolUse.name == compactToolName {
+            return RoutedToolCall(
+                toolUse: toolUse,
+                kind: .compact,
+                prepared: nil,
+                policy: nil,
+                routingError: nil
+            )
+        }
+
+        switch prepareExternal(toolUse, actions) {
+        case .failure(let message):
             return RoutedToolCall(
                 toolUse: toolUse,
                 kind: .external,
                 prepared: nil,
                 policy: nil,
-                routingError: "未知工具：\(toolUse.name)"
+                routingError: message
             )
-        }
-
-        do {
-            let arguments = try ToolArguments(jsonString: toolUse.input)
+        case .ready(let prepared):
             return RoutedToolCall(
                 toolUse: toolUse,
                 kind: .external,
-                prepared: AgentPreparedToolExecution(
-                    action: action,
-                    arguments: arguments,
-                    argumentsJSON: arguments.normalizedJSONString()
-                ),
-                policy: action.id.policyMetadata,
+                prepared: prepared,
+                policy: prepared.action.id.policyMetadata,
                 routingError: nil
-            )
-        } catch {
-            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            return RoutedToolCall(
-                toolUse: toolUse,
-                kind: .external,
-                prepared: nil,
-                policy: action.id.policyMetadata,
-                routingError: "工具参数解析失败：\(message)"
             )
         }
     }
@@ -356,6 +357,13 @@ struct ToolExecutionPlanner {
             }
 
             if case .subagent = call.kind {
+                flushParallel()
+                flushSequential()
+                batches.append(ToolExecutionBatch(kind: .progressOnly, calls: [call]))
+                continue
+            }
+
+            if case .compact = call.kind {
                 flushParallel()
                 flushSequential()
                 batches.append(ToolExecutionBatch(kind: .progressOnly, calls: [call]))

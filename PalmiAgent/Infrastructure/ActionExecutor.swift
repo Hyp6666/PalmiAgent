@@ -341,7 +341,8 @@ final class ActionExecutor {
                     Python 源文件：\(result.sourcePath)
                     运行时：\(result.runtimeDescription)
                     """,
-                    fileDeltas: fileDeltas
+                    fileDeltas: fileDeltas,
+                    inlineMetadata: ToolCallInlineMetadataBuilder.workspaceMetadata(path: result.sourcePath)
                 )
 
             case .recognizeImageText:
@@ -511,6 +512,13 @@ final class ActionExecutor {
                     totalTimeoutSeconds: retrievalProfile.webContent.fetchStaticWebPageTotalTimeoutSeconds
                 )
                 let successCount = attempts.filter { $0.summary != nil }.count
+                let inlineMetadata = attempts.compactMap(\.summary).first.map { summary in
+                    ToolCallInlineMetadataBuilder.webMetadata(
+                        title: summary.title,
+                        url: summary.finalURL,
+                        trailingCount: max(0, uniqueURLs.count - 1)
+                    )
+                }
                 let unfinishedCount = max(0, urls.count - attempts.count)
                 let details = attempts.enumerated().map { index, attempt in
                     if let summary = attempt.summary {
@@ -569,7 +577,8 @@ final class ActionExecutor {
                     网页结果：
                     \(details.isEmpty ? "没有取得可用网页正文。" : details)
                     """,
-                    status: successCount == 0 || skippedCount > 0 || unfinishedCount > 0 ? .warning : .success
+                    status: successCount == 0 || skippedCount > 0 || unfinishedCount > 0 ? .warning : .success,
+                    inlineMetadata: inlineMetadata
                 )
 
             case .fetchWebBatch, .saveWebPageToWorkspace:
@@ -775,8 +784,7 @@ final class ActionExecutor {
             case .requestLocation:
                 let includeCoordinates = arguments.bool("include_coordinates") ?? true
                 let includeAddress = arguments.bool("include_address") ?? true
-                let coordinate = coordinateFromArguments(latitudeKey: "latitude", longitudeKey: "longitude", arguments: arguments)
-                let summary = try await locationService.requestCurrentLocationSummary(for: coordinate)
+                let summary = try await locationService.requestCurrentLocationSummary()
                 var detailLines: [String] = []
                 if includeAddress {
                     detailLines.append(summary.address)
@@ -785,7 +793,16 @@ final class ActionExecutor {
                     detailLines.append("纬度：\(summary.coordinate.latitude)")
                     detailLines.append("经度：\(summary.coordinate.longitude)")
                 }
-                return success(action, "定位成功", details: detailLines.joined(separator: "\n"))
+                let address = summary.address.trimmingCharacters(in: .whitespacesAndNewlines)
+                let displayLocation = includeAddress && !address.isEmpty
+                    ? address
+                    : "\(summary.coordinate.latitude), \(summary.coordinate.longitude)"
+                return success(
+                    action,
+                    "定位成功",
+                    details: detailLines.joined(separator: "\n"),
+                    inlineMetadata: ToolCallInlineMetadataBuilder.textMetadata(displayLocation)
+                )
 
             case .getCurrentDateTime:
                 let snapshot = currentDateTimeService.snapshot()
@@ -799,7 +816,8 @@ final class ActionExecutor {
                     今天：\(snapshot.todayDescription)
                     明天：\(snapshot.tomorrowDescription)
                     当前年份：\(Calendar.current.component(.year, from: snapshot.now))
-                    """
+                    """,
+                    inlineMetadata: ToolCallInlineMetadataBuilder.textMetadata(snapshot.localDateTime)
                 )
 
             case .searchNearbyPlaces:
@@ -1216,11 +1234,13 @@ final class ActionExecutor {
         _ summary: String,
         details: String,
         status: ToolResult.Status = .success,
-        fileDeltas: [FileDelta] = []
+        fileDeltas: [FileDelta] = [],
+        inlineMetadata: ToolCallInlineMetadata? = nil
     ) -> ToolExecutionOutcome {
         ToolExecutionOutcome(
             result: makeResult(action, status: status, summary: summary, details: details),
-            fileDeltas: fileDeltas
+            fileDeltas: fileDeltas,
+            inlineMetadata: inlineMetadata
         )
     }
 
@@ -1569,14 +1589,16 @@ final class ActionExecutor {
             return normalizedArgumentsJSONString(payload, fallback: arguments.normalizedJSONString())
 
         case .searchWeb:
-            let selectedSource = (try? selectedSearchProvider(from: arguments)) ?? enabledSearchProviderIDs().first ?? WebSearchProviderSettings.defaultProviderID
+            let selectedSource = (try? selectedSearchProvider(from: arguments))?.rawValue
+                ?? arguments.string("source")?.trimmingCharacters(in: .whitespacesAndNewlines)
+                ?? WebSearchProviderSettings.defaultProviderID.rawValue
             let maxResults = effectiveSearchWebMaxResults(
                 from: arguments,
                 profile: retrievalProfile.webSearch
             )
             var payload: [String: Any] = [
                 "max_results": maxResults,
-                "source": selectedSource.rawValue,
+                "source": selectedSource,
                 "timeout_seconds": Int(retrievalProfile.webSearch.timeoutSeconds)
             ]
             if let query = arguments.string("query")?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1659,18 +1681,6 @@ final class ActionExecutor {
             return fallback
         }
         return string
-    }
-
-    private func coordinateFromArguments(
-        latitudeKey: String,
-        longitudeKey: String,
-        arguments: ToolArguments
-    ) -> CLLocationCoordinate2D? {
-        guard let latitude = arguments.double(latitudeKey),
-              let longitude = arguments.double(longitudeKey) else {
-            return nil
-        }
-        return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
 
     private func searchResultTypes(from values: [String]?) -> MKLocalSearch.ResultType? {

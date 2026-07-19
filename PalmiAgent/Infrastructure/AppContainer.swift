@@ -128,8 +128,6 @@ final class AppContainer {
         agentLoop: agentLoop,
         makeAgentLoop: { [unowned self] in self.makeAgentLoop() },
         conversationTitleService: conversationTitleService,
-        currentDateTimeService: currentDateTimeService,
-        locationService: locationService,
         skillRegistry: skillRegistry,
         workspaceManager: workspaceManager,
         workspaceStore: workspaceStore,

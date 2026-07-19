@@ -149,6 +149,31 @@ struct AgentInternalToolStep: Sendable {
     let argumentsJSON: String
     let isRunning: Bool
     let relatedThreadIDs: [UUID]
+    let inlineMetadata: ToolCallInlineMetadata?
+
+    init(
+        id: UUID,
+        toolName: String,
+        title: String,
+        status: ToolResult.Status,
+        summary: String,
+        details: String,
+        argumentsJSON: String,
+        isRunning: Bool,
+        relatedThreadIDs: [UUID],
+        inlineMetadata: ToolCallInlineMetadata? = nil
+    ) {
+        self.id = id
+        self.toolName = toolName
+        self.title = title
+        self.status = status
+        self.summary = summary
+        self.details = details
+        self.argumentsJSON = argumentsJSON
+        self.isRunning = isRunning
+        self.relatedThreadIDs = relatedThreadIDs
+        self.inlineMetadata = inlineMetadata
+    }
 }
 
 struct AgentSubagentToolInvocation: Sendable {
@@ -307,12 +332,14 @@ enum AgentSubagentContextFork {
 }
 
 enum SubagentToolDefinitionFactory {
+    static let useAgentToolName = "use_agent"
     static let spawnToolName = "spawn_subagents"
     static let listToolName = "list_subagents"
     static let sendToolName = "send_subagent_message"
     static let waitToolName = "wait_subagents"
     static let closeToolName = "close_subagents"
     static let toolNames: Set<String> = [
+        useAgentToolName,
         spawnToolName,
         listToolName,
         sendToolName,
@@ -323,12 +350,17 @@ enum SubagentToolDefinitionFactory {
     static func makeToolDefinitions() -> [AgentModelToolDefinition] {
         [
             definition(
-                name: spawnToolName,
-                description: "[Agent 内部动作] 一次派发 1 到 4 个互相独立的只读 subagent 任务，每个 parent run 最多累计 16 个。立即返回 child thread 句柄，不等待任务完成；child 负责检索、阅读、分析和审查，工作区写入由 parent 汇总后执行。派发后你可以继续其他独立工具工作，收尾前必须 wait 或 close。",
+                name: useAgentToolName,
+                description: "[Agent 基础设施] 统一管理只读 child agent。用 action 选择 spawn、list、message、wait 或 close；派发后可以继续独立工作，最终答复前必须 wait 收集或 close 关闭全部 child。",
                 parameters: ToolJSONSchema.object(
                     properties: [
+                        "action": ToolJSONSchema.string(
+                            description: "必填。要执行的 agent 控制动作。",
+                            enumValues: ["spawn", "list", "message", "wait", "close"]
+                        ),
                         "tasks": .object([
                             "type": .string("array"),
+                            "description": .string("action=spawn 时必填。一次派发 1 到 4 个互相独立的只读任务。"),
                             "minItems": .number(1),
                             "maxItems": .number(4),
                             "items": .object([
@@ -343,50 +375,18 @@ enum SubagentToolDefinitionFactory {
                             ])
                         ]),
                         "fork_turns": .object([
-                            "description": .string("可选。all、none，或最近 1 到 8 个 turn；默认 all，fork 会过滤 reasoning 和工具消息。"),
+                            "description": .string("action=spawn 时可选。all、none，或最近 1 到 8 个 turn；默认 all。"),
                             "anyOf": .array([
                                 .object(["type": .string("string"), "enum": .array([.string("all"), .string("none")])]),
                                 .object(["type": .string("integer"), "minimum": .number(1), "maximum": .number(8)])
                             ])
-                        ])
+                        ]),
+                        "target": ToolJSONSchema.string(description: "action=message 时必填。child thread UUID。"),
+                        "message": ToolJSONSchema.string(description: "action=message 时必填。要补充的清晰指令。"),
+                        "targets": ToolJSONSchema.stringArray(description: "action=wait/close 时可选。child thread UUID 列表；wait 省略表示全部。"),
+                        "timeout_ms": ToolJSONSchema.integer(description: "action=wait 时可选。等待上限 0 到 60000ms，默认 30000。")
                     ],
-                    required: ["tasks"]
-                )
-            ),
-            definition(
-                name: listToolName,
-                description: "[Agent 内部动作] 列出本次 parent run 拥有的 subagent 状态摘要，不回传完整结果正文；用 wait_subagents 定向收集结果。",
-                parameters: ToolJSONSchema.object(properties: [:])
-            ),
-            definition(
-                name: sendToolName,
-                description: "[Agent 内部动作] 向一个仍在运行的 child 排队补充消息；不会创建第二个 child。",
-                parameters: ToolJSONSchema.object(
-                    properties: [
-                        "target": ToolJSONSchema.string(description: "child thread UUID。"),
-                        "message": ToolJSONSchema.string(description: "要补充的清晰指令。")
-                    ],
-                    required: ["target", "message"]
-                )
-            ),
-            definition(
-                name: waitToolName,
-                description: "[Agent 内部动作] 等待一个或多个 child 到达终态并收集结果；超时会返回当前状态，不算工具失败。",
-                parameters: ToolJSONSchema.object(
-                    properties: [
-                        "targets": ToolJSONSchema.stringArray(description: "child thread UUID 列表；省略或空数组表示全部 owned child。"),
-                        "timeout_ms": ToolJSONSchema.integer(description: "等待上限 0 到 60000ms，默认 30000。")
-                    ]
-                )
-            ),
-            definition(
-                name: closeToolName,
-                description: "[Agent 内部动作] 取消并关闭一个或多个 child；不会影响 sibling。",
-                parameters: ToolJSONSchema.object(
-                    properties: [
-                        "targets": ToolJSONSchema.stringArray(description: "要关闭的 child thread UUID 列表。")
-                    ],
-                    required: ["targets"]
+                    required: ["action"]
                 )
             )
         ]

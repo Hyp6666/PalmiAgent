@@ -16,7 +16,7 @@ struct TaskContextProjector {
             .map { "\($0.id) \($0.title)" }
             .joined(separator: "；")
         let pending = state.items
-            .filter { $0.status == .pending || $0.status == .blocked }
+            .filter { $0.status == .pending || $0.status == .blocked || $0.status == .waitingForUser }
             .prefix(4)
             .map { "\($0.id) \($0.title)" }
             .joined(separator: "；")
@@ -45,7 +45,7 @@ struct TaskContextProjector {
         if !completed.isEmpty {
             lines.append("已完成：\(completed)")
         }
-        lines.append("revision：\(state.revision)。约束：任务最多 12 项；更新时一次提交完整 tasks 并携带 expectedRevision；不要把完整列表重复写进最终回复。")
+        lines.append("revision：\(state.revision)。约束：任务最多 12 项；每次 update_task 只创建或更新一个 task；不要把完整列表重复写进最终回复。")
 
         let text = lines.joined(separator: "\n")
         if ApproximateTokenCounter.estimate(text) <= 420 {

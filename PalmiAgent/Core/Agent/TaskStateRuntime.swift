@@ -6,23 +6,13 @@ final class TaskStateRuntime {
     private let decoder = JSONDecoder()
     private let reducer = AgentTaskStateReducer()
 
-    private var updatesThisTurn = 0
-    private var noOpsThisTurn = 0
-    private var lastMutationWasTaskUpdate = false
-
     init(fileStore: TaskStateFileStore) {
         self.fileStore = fileStore
     }
 
-    func beginTurn() {
-        updatesThisTurn = 0
-        noOpsThisTurn = 0
-        lastMutationWasTaskUpdate = false
-    }
+    func beginTurn() {}
 
-    func recordNonTaskProgress() {
-        lastMutationWasTaskUpdate = false
-    }
+    func recordNonTaskProgress() {}
 
     func loadSnapshot(
         identity: AgentTaskStateIdentity,
@@ -49,88 +39,51 @@ final class TaskStateRuntime {
         identity: AgentTaskStateIdentity,
         snapshot: AgentTaskStateSnapshot?
     ) -> AgentTaskUpdateResult {
-        guard updatesThisTurn < 3 else {
-            return limitedResult(
-                identity: identity,
-                snapshot: snapshot,
-                reason: "本轮任务更新次数已达到上限，请继续执行或直接收尾。"
-            )
-        }
-        guard !lastMutationWasTaskUpdate else {
-            return limitedResult(
-                identity: identity,
-                snapshot: snapshot,
-                reason: "不能连续更新任务状态。请先推进实际执行或给出阶段性答复。"
-            )
-        }
-
         do {
-            let args = try decoder.decode(UpdateTaskStateArgs.self, from: Data(input.utf8))
-            let currentSnapshot = snapshot ?? AgentTaskStateSnapshot(
-                projectID: identity.projectID,
-                threadID: identity.threadID,
-                sessionID: identity.sessionID,
-                currentRunID: nil,
-                currentState: nil,
-                recentRuns: [],
-                unavailableReason: nil,
-                updatedAt: .now
-            )
-            let oldState = currentSnapshot.currentState
+            let args = try decoder.decode(UpdateTaskArgs.self, from: Data(input.utf8))
+            let latestSnapshot = try fileStore.loadSnapshot(identity: identity, fallback: snapshot)
+            let oldState = latestSnapshot.currentState
             let state = try reducer.reduce(
                 args: args,
                 identity: identity,
                 existingState: oldState,
                 now: .now
             )
-            let isNoOp = oldState.map { equivalent(lhs: $0, rhs: state) } ?? false
-            if isNoOp {
-                guard noOpsThisTurn < 1 else {
-                    return limitedResult(
-                        identity: identity,
-                        snapshot: snapshot,
-                        reason: "本轮任务状态没有实质变化，已停止重复更新。"
-                    )
-                }
-                noOpsThisTurn += 1
+            guard !equivalent(lhs: oldState, rhs: state) else {
+                throw AppError.invalidState("本次 update_task 没有产生任何变化。")
             }
-
-            updatesThisTurn += 1
-            lastMutationWasTaskUpdate = true
-            let expectedPersistedRevision = oldState?.lifecycle.isActiveLike == true
-                ? args.expectedRevision
+            let expectedRevision = oldState?.lifecycle.isActiveLike == true
+                ? oldState?.revision
                 : nil
+            let changedTaskID = normalizedTaskID(args.taskID)
+                ?? changedTaskID(from: oldState, to: state)
+                ?? state.focusItemID
+                ?? state.items.last?.id
+                ?? ""
+            let changedItem = state.items.first(where: { $0.id == changedTaskID })
             let savedSnapshot = try fileStore.save(
                 state: state,
-                reason: normalized(args.reason, limit: 120),
-                expectedRevision: expectedPersistedRevision
+                reason: "\(args.operation.rawValue)：\(changedItem?.title ?? changedTaskID)",
+                expectedRevision: expectedRevision
             )
             return AgentTaskUpdateResult(
                 state: state,
                 snapshot: savedSnapshot,
-                payload: successPayload(state: state, reason: args.reason, noOp: isNoOp),
-                summary: "\(state.title)：\(state.completedCount)/\(state.totalCount)",
+                payload: successPayload(
+                    state: state,
+                    operation: args.operation,
+                    taskID: changedTaskID,
+                    taskStatus: changedItem?.status
+                ),
+                summary: "\(args.operation == .create ? "创建" : "更新") · \(changedItem?.title ?? changedTaskID) · \(changedItem?.status.rawValue ?? state.lifecycle.rawValue)",
                 isError: false,
-                isNoOp: isNoOp
+                isNoOp: false
             )
         } catch {
-            updatesThisTurn += 1
-            // A rejected decode/CAS did not mutate state. Keep retry possible
-            // after projecting the latest disk snapshot back to the model.
-            lastMutationWasTaskUpdate = false
             let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             let fallbackSnapshot = (try? fileStore.loadSnapshot(identity: identity, fallback: snapshot))
                 ?? snapshot
-                ?? AgentTaskStateSnapshot(
-                    projectID: identity.projectID,
-                    threadID: identity.threadID,
-                    sessionID: identity.sessionID,
-                    currentRunID: nil,
-                    currentState: nil,
-                    recentRuns: [],
-                    unavailableReason: nil,
-                    updatedAt: .now
-                )
+                ?? emptySnapshot(identity: identity)
             return AgentTaskUpdateResult(
                 state: fallbackSnapshot.currentState,
                 snapshot: fallbackSnapshot,
@@ -142,40 +95,70 @@ final class TaskStateRuntime {
         }
     }
 
-    private func equivalent(lhs: AgentTaskState, rhs: AgentTaskState) -> Bool {
-        lhs.lifecycle == rhs.lifecycle &&
+    private func equivalent(lhs: AgentTaskState?, rhs: AgentTaskState) -> Bool {
+        guard let lhs else { return false }
+        return lhs.lifecycle == rhs.lifecycle &&
             lhs.focusItemID == rhs.focusItemID &&
             lhs.items.map(\.id) == rhs.items.map(\.id) &&
             lhs.items.map(\.title) == rhs.items.map(\.title) &&
             lhs.items.map(\.status) == rhs.items.map(\.status) &&
-            lhs.items.map(\.displaySummary) == rhs.items.map(\.displaySummary)
+            lhs.items.map(\.displaySummary) == rhs.items.map(\.displaySummary) &&
+            lhs.items.map(\.hiddenDetail) == rhs.items.map(\.hiddenDetail) &&
+            lhs.items.map(\.acceptanceCriteria) == rhs.items.map(\.acceptanceCriteria) &&
+            evidenceSignatures(lhs.items) == evidenceSignatures(rhs.items)
     }
 
-    private func normalized(_ value: String, limit: Int, fallback: String = "") -> String {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolved = trimmed.isEmpty ? fallback : trimmed
-        guard resolved.count > limit else { return resolved }
-        return String(resolved.prefix(limit))
+    private func evidenceSignatures(_ items: [AgentTaskItem]) -> [[String]] {
+        items.map { item in
+            item.evidenceReferences.map { reference in
+                [
+                    reference.kind.rawValue,
+                    reference.toolUseID ?? "",
+                    reference.fileDeltaID?.uuidString ?? "",
+                    reference.eventLogID?.uuidString ?? "",
+                    reference.title
+                ].joined(separator: "|")
+            }
+        }
     }
 
-    private func successPayload(state: AgentTaskState, reason: String, noOp: Bool) -> String {
-        let payload: [String: Any] = [
-            "status": "updated",
+    private func changedTaskID(from oldState: AgentTaskState?, to state: AgentTaskState) -> String? {
+        let oldItems = Dictionary(uniqueKeysWithValues: (oldState?.items ?? []).map { ($0.id, $0) })
+        return state.items.first { item in
+            guard let old = oldItems[item.id] else { return true }
+            return old.title != item.title ||
+                old.status != item.status ||
+                old.displaySummary != item.displaySummary ||
+                old.hiddenDetail != item.hiddenDetail ||
+                old.acceptanceCriteria != item.acceptanceCriteria
+        }?.id
+    }
+
+    private func normalizedTaskID(_ value: String?) -> String? {
+        let value = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? nil : value
+    }
+
+    private func successPayload(
+        state: AgentTaskState,
+        operation: UpdateTaskOperation,
+        taskID: String,
+        taskStatus: AgentTaskItemStatus?
+    ) -> String {
+        jsonString([
+            "status": operation == .create ? "created" : "updated",
+            "operation": operation.rawValue,
+            "task_id": taskID,
+            "task_status": taskStatus?.rawValue ?? "unknown",
             "task_run_id": state.taskRunID.uuidString,
             "revision": state.revision,
             "lifecycle": state.lifecycle.rawValue,
             "completed": state.completedCount,
-            "total": state.totalCount,
-            "no_op": noOp,
-            "reason": normalized(reason, limit: 120)
-        ]
-        return jsonString(payload)
+            "total": state.totalCount
+        ])
     }
 
-    private func errorPayload(
-        _ message: String,
-        snapshot: AgentTaskStateSnapshot
-    ) -> String {
+    private func errorPayload(_ message: String, snapshot: AgentTaskStateSnapshot) -> String {
         var payload: [String: Any] = [
             "status": "error",
             "message": message
@@ -187,12 +170,8 @@ final class TaskStateRuntime {
         return jsonString(payload)
     }
 
-    private func limitedResult(
-        identity: AgentTaskStateIdentity,
-        snapshot: AgentTaskStateSnapshot?,
-        reason: String
-    ) -> AgentTaskUpdateResult {
-        let resolvedSnapshot = snapshot ?? AgentTaskStateSnapshot(
+    private func emptySnapshot(identity: AgentTaskStateIdentity) -> AgentTaskStateSnapshot {
+        AgentTaskStateSnapshot(
             projectID: identity.projectID,
             threadID: identity.threadID,
             sessionID: identity.sessionID,
@@ -201,14 +180,6 @@ final class TaskStateRuntime {
             recentRuns: [],
             unavailableReason: nil,
             updatedAt: .now
-        )
-        return AgentTaskUpdateResult(
-            state: resolvedSnapshot.currentState,
-            snapshot: resolvedSnapshot,
-            payload: errorPayload(reason, snapshot: resolvedSnapshot),
-            summary: reason,
-            isError: true,
-            isNoOp: false
         )
     }
 

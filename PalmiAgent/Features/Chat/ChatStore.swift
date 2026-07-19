@@ -195,8 +195,6 @@ final class ChatStore {
     let agentLoop: AgentLoop
     let makeAgentLoop: () -> AgentLoop
     let conversationTitleService: ConversationTitleService
-    let currentDateTimeService: CurrentDateTimeService
-    let locationService: LocationService
     let skillRegistry: SkillRegistry
     let workspaceManager: WorkspaceManager
     let workspaceStore: WorkspaceStore
@@ -332,7 +330,9 @@ final class ChatStore {
                 return []
             }
         }
-        let enabledActions = toolPermissionStore.enabledActions(from: actions)
+        let enabledActions = ActionCatalog.agentExposedActions(
+            from: toolPermissionStore.enabledActions(from: actions)
+        )
         return ChatModeToolFilter.actions(
             for: surface,
             from: enabledActions
@@ -381,8 +381,6 @@ final class ChatStore {
         agentLoop: AgentLoop,
         makeAgentLoop: @escaping () -> AgentLoop,
         conversationTitleService: ConversationTitleService,
-        currentDateTimeService: CurrentDateTimeService,
-        locationService: LocationService,
         skillRegistry: SkillRegistry,
         workspaceManager: WorkspaceManager,
         workspaceStore: WorkspaceStore,
@@ -395,8 +393,6 @@ final class ChatStore {
         self.agentLoop = agentLoop
         self.makeAgentLoop = makeAgentLoop
         self.conversationTitleService = conversationTitleService
-        self.currentDateTimeService = currentDateTimeService
-        self.locationService = locationService
         self.skillRegistry = skillRegistry
         self.workspaceManager = workspaceManager
         self.workspaceStore = workspaceStore
@@ -438,7 +434,7 @@ final class ChatStore {
             errorMessage = nil
             saveVisibleComposerState()
             Task { @MainActor in
-                let modelInput = await inputWithAgentRuntimeContext(
+                let modelInput = inputWithAgentRuntimeContext(
                     hiddenText,
                     surface: turnSurface,
                     selection: turnSelection,
@@ -779,10 +775,45 @@ final class ChatStore {
         actions: [ToolAction],
         modelOverrides: AgentModelRoleOverrides
     ) async -> AgentSubagentToolResult {
-        switch invocation.toolName {
+        let routedInvocation: AgentSubagentToolInvocation
+        if invocation.toolName == SubagentToolDefinitionFactory.useAgentToolName {
+            let action: String
+            do {
+                action = try ToolArguments(jsonString: invocation.input).requiredString("action")
+            } catch {
+                return Self.subagentErrorResult(
+                    (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                )
+            }
+            let routedToolName: String
+            switch action {
+            case "spawn":
+                routedToolName = SubagentToolDefinitionFactory.spawnToolName
+            case "list":
+                routedToolName = SubagentToolDefinitionFactory.listToolName
+            case "message":
+                routedToolName = SubagentToolDefinitionFactory.sendToolName
+            case "wait":
+                routedToolName = SubagentToolDefinitionFactory.waitToolName
+            case "close":
+                routedToolName = SubagentToolDefinitionFactory.closeToolName
+            default:
+                return Self.subagentErrorResult("未知 use_agent action：\(action)")
+            }
+            routedInvocation = AgentSubagentToolInvocation(
+                toolUseID: invocation.toolUseID,
+                toolName: routedToolName,
+                input: invocation.input,
+                committedParentSession: invocation.committedParentSession
+            )
+        } else {
+            routedInvocation = invocation
+        }
+
+        switch routedInvocation.toolName {
         case SubagentToolDefinitionFactory.spawnToolName:
             return await spawnSubagents(
-                invocation,
+                routedInvocation,
                 parentRun: parentRun,
                 providerID: providerID,
                 actions: actions,
@@ -795,13 +826,13 @@ final class ChatStore {
                 records: recordsOwned(by: parentRun)
             )
         case SubagentToolDefinitionFactory.sendToolName:
-            return sendSubagentMessage(invocation.input, parentRun: parentRun)
+            return sendSubagentMessage(routedInvocation.input, parentRun: parentRun)
         case SubagentToolDefinitionFactory.waitToolName:
-            return await waitForSubagents(invocation.input, parentRun: parentRun)
+            return await waitForSubagents(routedInvocation.input, parentRun: parentRun)
         case SubagentToolDefinitionFactory.closeToolName:
-            return await closeSubagents(invocation.input, parentRun: parentRun)
+            return await closeSubagents(routedInvocation.input, parentRun: parentRun)
         default:
-            return Self.subagentErrorResult("未知 subagent 工具：\(invocation.toolName)")
+            return Self.subagentErrorResult("未知 subagent 工具：\(routedInvocation.toolName)")
         }
     }
 
@@ -1734,12 +1765,12 @@ final class ChatStore {
         selection: WorkspaceSelection,
         providerID: APIProviderID,
         modelOverrides: AgentModelRoleOverrides
-    ) async -> String {
+    ) -> String {
         if surface == .chat {
             return input
         }
 
-        let context = await agentRuntimeContext(
+        let context = agentRuntimeContext(
             surface: surface,
             selection: selection,
             providerID: providerID,
@@ -1753,15 +1784,12 @@ final class ChatStore {
         selection: WorkspaceSelection,
         providerID: APIProviderID,
         modelOverrides: AgentModelRoleOverrides
-    ) async -> AgentPromptRuntimeContext {
-        let dateTime = currentDateTimeService.snapshot()
+    ) -> AgentPromptRuntimeContext {
         let modelInfo = agentModelInfo(
             providerID: providerID,
             modelOverrides: modelOverrides
         )
         return AgentPromptRuntimeContext(
-            userAddress: await locationService.promptInjectionAddress(),
-            currentTime: compactDateTime(from: dateTime),
             modelPlanName: modelPlanName(for: selection),
             realModel: modelInfo.realModel,
             modelDisplayName: modelInfo.displayName,
@@ -1798,16 +1826,6 @@ final class ChatStore {
         let thread = workspaceStore.thread(for: selection)
         let plan = modelPlanStore.selectedPlan(for: thread?.modelPlanOverride)
         return normalizedModelValue(plan?.name ?? "", fallback: Self.defaultModelPlanFallback)
-    }
-
-    private func compactDateTime(from snapshot: CurrentDateTimeSnapshot) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = snapshot.locale
-        formatter.timeZone = snapshot.timeZone
-        formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        let compactOffset = snapshot.offsetDescription.replacingOccurrences(of: ":00", with: "")
-        return "\(formatter.string(from: snapshot.now)) \(compactOffset)"
     }
 
     private func normalizedModelValue(_ value: String, fallback: String) -> String {
@@ -2465,6 +2483,12 @@ final class ChatStore {
                 retainedMessageCount: retainedMessageCount
             )
             persistIfNeeded()
+        case let .toolReviewStarted(stepID, action, argumentsJSON):
+            beginToolReview(stepID: stepID, action: action, argumentsJSON: argumentsJSON)
+            persistIfNeeded()
+        case let .toolReviewResolved(stepID, state):
+            resolveToolReview(stepID: stepID, state: state)
+            persistIfNeeded()
         case let .toolStarted(stepID, action, argumentsJSON):
             appendRunningToolCard(stepID: stepID, action: action, argumentsJSON: argumentsJSON)
             persistIfNeeded()
@@ -2619,6 +2643,23 @@ final class ChatStore {
                 viewState: &viewState
             )
             markPersistent()
+        case let .toolReviewStarted(stepID, action, argumentsJSON):
+            beginToolReview(
+                stepID: stepID,
+                action: action,
+                argumentsJSON: argumentsJSON,
+                messages: &messages,
+                viewState: &viewState
+            )
+            markPersistent()
+        case let .toolReviewResolved(stepID, state):
+            resolveToolReview(
+                stepID: stepID,
+                state: state,
+                messages: &messages,
+                viewState: viewState
+            )
+            markPersistent()
         case let .toolStarted(stepID, action, argumentsJSON):
             appendRunningToolCard(
                 stepID: stepID,
@@ -2661,6 +2702,8 @@ final class ChatStore {
              .queuedUserGuidanceInjected,
              .contextCompactionStarted,
              .contextCompactionFinished,
+             .toolReviewStarted,
+             .toolReviewResolved,
              .toolStarted,
              .toolFinished,
              .internalToolStarted,
@@ -2686,6 +2729,8 @@ final class ChatStore {
              .streamingDelta,
              .contextCompactionStarted,
              .contextCompactionFinished,
+             .toolReviewStarted,
+             .toolReviewResolved,
              .toolStarted,
              .toolFinished,
              .internalToolStarted,
@@ -2937,22 +2982,24 @@ final class ChatStore {
         messages: inout [PalmiChatMessage],
         viewState: inout ActiveSessionViewState
     ) {
+        let existingMessage = viewState.activeToolMessageIDs[stepID]
+            .flatMap { messageID in messages.first(where: { $0.id == messageID }) }
+        let existingReviewState = existingMessage?.toolCall?.inlineMetadata?.reviewState
+        let card = makeRunningToolCard(
+            action: action,
+            argumentsJSON: argumentsJSON,
+            reviewState: existingReviewState
+        )
+        if let messageID = viewState.activeToolMessageIDs[stepID],
+           let index = messages.firstIndex(where: { $0.id == messageID }) {
+            messages[index] = rebuildMessage(from: messages[index], toolCall: card)
+            return
+        }
         let message = PalmiChatMessage(
             role: .agent,
             kind: .toolCall,
             content: "",
-            toolCall: PalmiToolCallCard(
-                cardKind: .tool,
-                toolTitle: action.localizedTitleForUI,
-                toolName: action.id.rawValue,
-                presentationKind: action.id.presentationKind,
-                status: .warning,
-                summary: PalmiL10n.tr("chat.tool.running", action.localizedTitleForUI),
-                details: PalmiL10n.tr("chat.tool.waitingResult"),
-                argumentsJSON: argumentsJSON,
-                requiresUserInteraction: false,
-                isRunning: true
-            )
+            toolCall: card
         )
         messages.append(message)
         viewState.activeToolMessageIDs[stepID] = message.id
@@ -2976,7 +3023,12 @@ final class ChatStore {
             return
         }
 
-        messages[index] = rebuildMessage(from: messages[index], toolCall: makeToolCard(from: step))
+        let reviewState = messages[index].toolCall?.inlineMetadata?.reviewState
+        let card = replacingInlineMetadata(
+            in: makeToolCard(from: step),
+            reviewState: reviewState
+        )
+        messages[index] = rebuildMessage(from: messages[index], toolCall: card)
     }
 
     private func appendInternalToolCard(
@@ -2992,6 +3044,43 @@ final class ChatStore {
         )
         messages.append(message)
         viewState.activeToolMessageIDs[step.id] = message.id
+    }
+
+    private func beginToolReview(
+        stepID: UUID,
+        action: ToolAction,
+        argumentsJSON: String,
+        messages: inout [PalmiChatMessage],
+        viewState: inout ActiveSessionViewState
+    ) {
+        appendRunningToolCard(
+            stepID: stepID,
+            action: action,
+            argumentsJSON: argumentsJSON,
+            messages: &messages,
+            viewState: &viewState
+        )
+        resolveToolReview(
+            stepID: stepID,
+            state: .reviewing,
+            messages: &messages,
+            viewState: viewState
+        )
+    }
+
+    private func resolveToolReview(
+        stepID: UUID,
+        state: ToolAuthorizationReviewState,
+        messages: inout [PalmiChatMessage],
+        viewState: ActiveSessionViewState
+    ) {
+        guard let messageID = viewState.activeToolMessageIDs[stepID],
+              let index = messages.firstIndex(where: { $0.id == messageID }),
+              let card = messages[index].toolCall else { return }
+        messages[index] = rebuildMessage(
+            from: messages[index],
+            toolCall: replacingInlineMetadata(in: card, reviewState: state)
+        )
     }
 
     private func finishInternalToolCard(
@@ -3044,22 +3133,25 @@ final class ChatStore {
     }
 
     private func appendRunningToolCard(stepID: UUID, action: ToolAction, argumentsJSON: String) {
+        let existingMessage = activeToolMessageIDs[stepID]
+            .flatMap { messageID in messages.first(where: { $0.id == messageID }) }
+        let existingReviewState = existingMessage?.toolCall?.inlineMetadata?.reviewState
+        let card = makeRunningToolCard(
+            action: action,
+            argumentsJSON: argumentsJSON,
+            reviewState: existingReviewState
+        )
+        if let messageID = activeToolMessageIDs[stepID] {
+            updateMessage(id: messageID) { message in
+                rebuildMessage(from: message, toolCall: card)
+            }
+            return
+        }
         let message = PalmiChatMessage(
             role: .agent,
             kind: .toolCall,
             content: "",
-            toolCall: PalmiToolCallCard(
-                cardKind: .tool,
-                toolTitle: action.localizedTitleForUI,
-                toolName: action.id.rawValue,
-                presentationKind: action.id.presentationKind,
-                status: .warning,
-                summary: PalmiL10n.tr("chat.tool.running", action.localizedTitleForUI),
-                details: PalmiL10n.tr("chat.tool.waitingResult"),
-                argumentsJSON: argumentsJSON,
-                requiresUserInteraction: false,
-                isRunning: true
-            )
+            toolCall: card
         )
         messages.append(message)
         activeToolMessageIDs[stepID] = message.id
@@ -3103,7 +3195,14 @@ final class ChatStore {
         }
 
         updateMessage(id: messageID) { message in
-            rebuildMessage(from: message, toolCall: makeToolCard(from: step))
+            let reviewState = message.toolCall?.inlineMetadata?.reviewState
+            return rebuildMessage(
+                from: message,
+                toolCall: replacingInlineMetadata(
+                    in: makeToolCard(from: step),
+                    reviewState: reviewState
+                )
+            )
         }
     }
 
@@ -3116,6 +3215,22 @@ final class ChatStore {
         )
         messages.append(message)
         activeToolMessageIDs[step.id] = message.id
+    }
+
+    private func beginToolReview(stepID: UUID, action: ToolAction, argumentsJSON: String) {
+        appendRunningToolCard(stepID: stepID, action: action, argumentsJSON: argumentsJSON)
+        resolveToolReview(stepID: stepID, state: .reviewing)
+    }
+
+    private func resolveToolReview(stepID: UUID, state: ToolAuthorizationReviewState) {
+        guard let messageID = activeToolMessageIDs[stepID] else { return }
+        updateMessage(id: messageID) { message in
+            guard let card = message.toolCall else { return message }
+            return rebuildMessage(
+                from: message,
+                toolCall: replacingInlineMetadata(in: card, reviewState: state)
+            )
+        }
     }
 
     private func finishInternalToolCard(_ step: AgentInternalToolStep) {
@@ -3149,14 +3264,63 @@ final class ChatStore {
         PalmiToolCallCard(
             cardKind: .tool,
             toolTitle: step.action.localizedTitleForUI,
-            toolName: step.action.id.rawValue,
+            toolName: step.action.id.modelToolName,
             presentationKind: step.action.id.presentationKind,
             status: step.result.status,
             summary: step.result.summary,
             details: step.result.details,
             argumentsJSON: step.argumentsJSON,
             requiresUserInteraction: step.requiresUserInteraction,
-            isRunning: false
+            isRunning: false,
+            inlineMetadata: step.inlineMetadata
+        )
+    }
+
+    private func makeRunningToolCard(
+        action: ToolAction,
+        argumentsJSON: String,
+        reviewState: ToolAuthorizationReviewState?
+    ) -> PalmiToolCallCard {
+        let metadata = ToolCallInlineMetadataBuilder.make(
+            toolName: action.id.modelToolName,
+            actionID: action.id,
+            argumentsJSON: argumentsJSON
+        )?.replacingReviewState(reviewState)
+            ?? (reviewState.map { ToolCallInlineMetadata(reviewState: $0) })
+        return PalmiToolCallCard(
+            cardKind: .tool,
+            toolTitle: action.localizedTitleForUI,
+            toolName: action.id.modelToolName,
+            presentationKind: action.id.presentationKind,
+            status: .warning,
+            summary: PalmiL10n.tr("chat.tool.running", action.localizedTitleForUI),
+            details: PalmiL10n.tr("chat.tool.waitingResult"),
+            argumentsJSON: argumentsJSON,
+            requiresUserInteraction: false,
+            isRunning: true,
+            inlineMetadata: metadata
+        )
+    }
+
+    private func replacingInlineMetadata(
+        in card: PalmiToolCallCard,
+        reviewState: ToolAuthorizationReviewState?
+    ) -> PalmiToolCallCard {
+        let metadata = card.inlineMetadata?.replacingReviewState(reviewState)
+            ?? reviewState.map { ToolCallInlineMetadata(reviewState: $0) }
+        return PalmiToolCallCard(
+            cardKind: card.cardKind,
+            toolTitle: card.toolTitle,
+            toolName: card.toolName,
+            presentationKind: card.presentationKind,
+            status: card.status,
+            summary: card.summary,
+            details: card.details,
+            argumentsJSON: card.argumentsJSON,
+            requiresUserInteraction: card.requiresUserInteraction,
+            isRunning: card.isRunning,
+            relatedThreadIDs: card.relatedThreadIDs,
+            inlineMetadata: metadata
         )
     }
 
@@ -3172,7 +3336,11 @@ final class ChatStore {
             argumentsJSON: step.argumentsJSON,
             requiresUserInteraction: false,
             isRunning: step.isRunning,
-            relatedThreadIDs: step.relatedThreadIDs
+            relatedThreadIDs: step.relatedThreadIDs,
+            inlineMetadata: step.inlineMetadata ?? ToolCallInlineMetadataBuilder.make(
+                toolName: step.toolName,
+                argumentsJSON: step.argumentsJSON
+            )
         )
     }
 
@@ -3754,7 +3922,7 @@ final class ChatStore {
             runID: run.runID,
             payload: .toolIntent(
                 toolCallID: toolCallID,
-                toolName: action.id.rawValue,
+                toolName: action.id.modelToolName,
                 argumentsJSON: argumentsJSON,
                 isIdempotent: action.id.policyMetadata.isIdempotent
             )

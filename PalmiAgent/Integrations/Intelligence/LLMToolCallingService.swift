@@ -8,6 +8,7 @@ struct LLMToolExecutionStep: Identifiable, Sendable {
     let requiresUserInteraction: Bool
     let presentation: MediaPresentation?
     let fileDeltas: [FileDelta]
+    let inlineMetadata: ToolCallInlineMetadata?
 
     init(
         id: UUID = UUID(),
@@ -16,7 +17,8 @@ struct LLMToolExecutionStep: Identifiable, Sendable {
         result: ToolResult,
         requiresUserInteraction: Bool,
         presentation: MediaPresentation? = nil,
-        fileDeltas: [FileDelta] = []
+        fileDeltas: [FileDelta] = [],
+        inlineMetadata: ToolCallInlineMetadata? = nil
     ) {
         self.id = id
         self.action = action
@@ -25,6 +27,7 @@ struct LLMToolExecutionStep: Identifiable, Sendable {
         self.requiresUserInteraction = requiresUserInteraction
         self.presentation = presentation
         self.fileDeltas = fileDeltas
+        self.inlineMetadata = inlineMetadata
     }
 }
 
@@ -125,9 +128,20 @@ final class LLMToolCallingService {
             for: configuration,
             role: .reasoningModel
         )
-        let toolDefinitions = actions.map(makeToolDefinition(for:))
+        let toolDefinitions = LLMToolDefinitionBuilder.makeToolDefinitions(for: actions).map { definition in
+            OpenAIChatToolDefinition(
+                function: OpenAIChatFunctionDefinition(
+                    name: definition.function.name,
+                    description: definition.function.description,
+                    parameters: definition.function.parameters
+                )
+            )
+        }
+        guard !toolDefinitions.isEmpty else {
+            throw AppError.invalidState("当前没有完整启用的模型工具门面。")
+        }
         var messages: [OpenAIChatMessage] = [
-            .system(systemPrompt(toolCount: actions.count, includesPythonSandbox: actions.contains(where: { $0.id == .runPython }))),
+            .system(systemPrompt(toolCount: toolDefinitions.count, includesPythonSandbox: actions.contains(where: { $0.id == .runPython }))),
             .user(trimmedPrompt)
         ]
         var steps: [LLMToolExecutionStep] = []
@@ -160,11 +174,13 @@ final class LLMToolCallingService {
 
         if let toolCall = assistantMessage.toolCalls?.first {
             completedRounds = 2
-            guard let action = actions.first(where: { $0.id.rawValue == toolCall.function.name }) else {
-                throw AppError.operationFailed("模型请求了未注册工具：\(toolCall.function.name)")
-            }
-
             let arguments = try ToolArguments(jsonString: toolCall.function.arguments)
+            let resolution = try AgentExternalToolFacadeCatalog.resolve(
+                toolName: toolCall.function.name,
+                arguments: arguments,
+                actions: actions
+            )
+            let action = resolution.action
             let stepID = UUID()
             let argumentsJSON = arguments.normalizedJSONString()
             onEvent?(.toolStarted(stepID: stepID, action: action, argumentsJSON: argumentsJSON))
@@ -176,7 +192,12 @@ final class LLMToolCallingService {
                 result: outcome.result,
                 requiresUserInteraction: outcome.presentation != nil,
                 presentation: outcome.presentation,
-                fileDeltas: outcome.fileDeltas
+                fileDeltas: outcome.fileDeltas,
+                inlineMetadata: outcome.inlineMetadata ?? ToolCallInlineMetadataBuilder.make(
+                    toolName: action.id.modelToolName,
+                    actionID: action.id,
+                    argumentsJSON: argumentsJSON
+                )
             )
             steps.append(step)
             onEvent?(.toolFinished(step: step))
@@ -678,7 +699,7 @@ final class LLMToolCallingService {
         argumentsJSON: String
     ) -> String {
         let payload = ToolPayload(
-            toolName: action.id.rawValue,
+            toolName: action.id.modelToolName,
             title: action.title,
             status: outcome.result.status.rawValue,
             summary: outcome.result.summary,

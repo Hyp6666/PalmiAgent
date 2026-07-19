@@ -1005,7 +1005,7 @@ struct ChatScreen: View {
     private static func exportableMarkdown(for toolCall: PalmiToolCallCard) -> String? {
         var parts: [String] = []
         let titleForExport = toolCall.cardKind == .tool
-            ? ToolActionID(rawValue: toolCall.toolName)?.localizedTitleForUI ?? toolCall.toolTitle
+            ? AgentExternalToolFacadeCatalog.localizedTitle(for: toolCall.toolName) ?? toolCall.toolTitle
             : toolCall.toolTitle
         if let title = nonEmptyTrimmed(titleForExport) {
             parts.append("### \(title)")
@@ -1796,7 +1796,7 @@ struct ChatScreen: View {
 
     @ViewBuilder
     private var toolAuthorizationMenuContent: some View {
-        ForEach(Array(ToolAuthorizationMode.allCases.reversed())) { mode in
+        ForEach(Array(ToolAuthorizationMode.userSelectableCases.reversed())) { mode in
             Button {
                 performQuickSettingsMutation {
                     store.toolAuthorizationStore.setMode(mode)
@@ -2768,6 +2768,16 @@ struct ChatScreen: View {
             return previewWorkspaceFile(at: relativePath)
         }
 
+        let scheme = url.scheme?.lowercased()
+        if scheme == "http" || scheme == "https" {
+            let request = LinkOpenRequest(url: url, title: nil, sourceRect: .zero)
+            store.browserPresentation = .safari(
+                .openInAppBrowser,
+                palmiBrowserOptions(for: request)
+            )
+            return .handled
+        }
+
         return .systemAction(url)
     }
 
@@ -3443,6 +3453,8 @@ private struct SessionHeaderStrip: View {
             return "circle.dotted"
         case .blocked:
             return "exclamationmark.circle.fill"
+        case .waitingForUser:
+            return "person.crop.circle.badge.clock"
         case .skipped, .canceled:
             return "minus.circle"
         case .pending:
@@ -3458,6 +3470,8 @@ private struct SessionHeaderStrip: View {
             return .blue
         case .blocked:
             return .orange
+        case .waitingForUser:
+            return .purple
         case .skipped, .canceled, .pending:
             return .secondary
         }
@@ -4133,6 +4147,7 @@ private struct ToolCallCard: View {
     let isExpanded: Bool
     let onToggle: () -> Void
     let onOpenRelatedThread: (UUID) -> Void
+    @State private var reviewPulse = false
 
     var body: some View {
         switch toolCall.cardKind {
@@ -4155,8 +4170,9 @@ private struct ToolCallCard: View {
             ) != nil)
 
         VStack(alignment: .leading, spacing: 6) {
-            Button(action: onToggle) {
-                HStack(spacing: 6) {
+            HStack(spacing: 6) {
+                Button(action: onToggle) {
+                    HStack(spacing: 6) {
                     Image(systemName: iconName)
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.secondary)
@@ -4182,6 +4198,7 @@ private struct ToolCallCard: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            }
 
             if isExpanded, hasVisibleDetails {
                 ReasoningTextBody(
@@ -4230,47 +4247,57 @@ private struct ToolCallCard: View {
 
     @ViewBuilder
     private var toolBody: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Button(action: onToggle) {
-                HStack(spacing: 10) {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(statusTint.opacity(0.18))
-                        .frame(width: 30, height: 30)
-                        .overlay {
-                            Image(systemName: iconName)
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(statusTint)
-                        }
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: iconName)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(statusTint)
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(displayToolTitle)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-
-                        Text(compactToolLine)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
-
-                    Spacer(minLength: 12)
+                    Text(displayToolTitle)
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
 
                     Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary.opacity(0.8))
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         .animation(.easeInOut(duration: 0.16), value: isExpanded)
                 }
-                .contentShape(Rectangle())
+
+                inlineMetadataContent
+
+                if let reviewState = toolCall.inlineMetadata?.reviewState {
+                    Image("AutoReviewBadge")
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 17, height: 17)
+                        .foregroundStyle(reviewTint(reviewState))
+                        .opacity(reviewState == .reviewing && reviewPulse ? 0.45 : 1)
+                        .accessibilityLabel(PalmiL10n.tr("tool.review.\(reviewState.rawValue)"))
+                }
+
+                Spacer(minLength: 8)
+
+                Text(inlineStatusTitle)
+                    .font(.body)
+                    .foregroundStyle(statusTint)
+                    .lineLimit(1)
             }
-            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onToggle)
+            .onAppear {
+                updateReviewPulse()
+            }
+            .onChange(of: toolCall.inlineMetadata?.reviewState?.rawValue) { _, _ in
+                updateReviewPulse()
+            }
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: 12) {
                     if toolCall.cardKind == .tool {
-                        ToolCallDetailSection(title: PalmiL10n.tr("tool.detail.type"), text: toolCall.toolName, renderMarkdown: false)
-
                         if !toolCall.argumentsJSON.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             ToolCallDetailSection(title: PalmiL10n.tr("tool.approval.arguments"), text: toolCall.argumentsJSON, renderMarkdown: false)
                         }
@@ -4281,19 +4308,6 @@ private struct ToolCallCard: View {
                                 text: toolCall.details,
                                 renderMarkdown: shouldRenderToolDetailsAsMarkdown(toolCall.details)
                             )
-                        }
-
-                        if toolCall.presentationKind == .action, toolCall.isRunning != true {
-                            Text(PalmiL10n.tr("tool.detail.actionStarted"))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        if toolCall.isRunning != true,
-                           toolCall.presentationKind == .interactive || toolCall.requiresUserInteraction {
-                            Text(PalmiL10n.tr("tool.detail.needsInteraction"))
-                                .font(.caption)
-                                .foregroundStyle(.orange)
                         }
 
                         if let threadIDs = toolCall.relatedThreadIDs, !threadIDs.isEmpty {
@@ -4327,16 +4341,20 @@ private struct ToolCallCard: View {
                     transaction.animation = nil
                     transaction.disablesAnimations = true
                 }
+                .padding(.leading, 16)
+                .padding(.top, 2)
             }
         }
-        .padding(14)
-        .chatGlassSurface(cornerRadius: 22)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 2)
     }
 
     private var statusTint: Color {
         if toolCall.cardKind != .tool {
             return .accentColor
+        }
+        if toolCall.inlineMetadata?.reviewState == .rejected {
+            return .red
         }
 
         switch toolCall.status {
@@ -4363,36 +4381,38 @@ private struct ToolCallCard: View {
             break
         }
 
-        let lowercasedName = toolCall.toolName.lowercased()
-        if lowercasedName.contains("searchweb") || lowercasedName.contains("fetchweb") {
-            return "globe"
+        if let facade = AgentExternalToolFacadeCatalog.facade(named: toolCall.toolName) {
+            switch facade.name {
+            case .read:
+                return "doc.text"
+            case .edit:
+                return "pencil"
+            case .workspace:
+                return "folder"
+            case .python:
+                return "chevron.left.forwardslash.chevron.right"
+            case .ocr:
+                return "text.viewfinder"
+            case .vision:
+                return "viewfinder"
+            case .webSearch, .fetch:
+                return "globe"
+            case .systemTime:
+                return "clock"
+            case .location:
+                return "location"
+            }
         }
-        if lowercasedName.contains("read") {
-            return "doc.text"
-        }
-        if lowercasedName.contains("writefile") || lowercasedName.contains("save") {
-            return "square.and.arrow.down"
-        }
-        if lowercasedName.contains("python") {
-            return "chevron.left.forwardslash.chevron.right"
-        }
-        if lowercasedName.contains("terminal") {
-            return "terminal"
-        }
-        if lowercasedName.contains("javascript") {
-            return "curlybraces"
-        }
-        if lowercasedName.contains("browser") {
-            return "safari"
-        }
-        if lowercasedName.contains("calendar") {
-            return "calendar"
-        }
-        if lowercasedName.contains("reminder") {
+
+        switch toolCall.toolName {
+        case TaskStateToolDefinitionFactory.toolName:
             return "checklist"
-        }
-        if lowercasedName.contains("subagent") {
+        case SubagentToolDefinitionFactory.useAgentToolName:
             return "person.2"
+        case AgentInfrastructureToolDefinitionFactory.compactToolName:
+            return "arrow.down.right.and.arrow.up.left"
+        default:
+            break
         }
 
         switch toolCall.presentationKind {
@@ -4405,16 +4425,18 @@ private struct ToolCallCard: View {
         }
     }
 
-    private var compactToolLine: String {
-        guard toolCall.cardKind == .tool else {
-            let summary = toolCall.summary.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !summary.isEmpty {
-                return summary
-            }
-            return toolCall.toolTitle
+    private var inlineStatusTitle: String {
+        if toolCall.inlineMetadata?.reviewState == .reviewing {
+            return PalmiL10n.tr("tool.review.reviewing")
+        }
+        if toolCall.inlineMetadata?.reviewState == .needsUser {
+            return PalmiL10n.tr("tool.review.needs_user")
+        }
+        if toolCall.inlineMetadata?.reviewState == .rejected {
+            return PalmiL10n.tr("tool.review.rejected")
         }
         if toolCall.isRunning == true {
-            return PalmiL10n.tr("chat.tool.running", displayToolTitle)
+            return PalmiL10n.tr("tool.status.running")
         }
         if toolCall.status == .failure {
             return PalmiL10n.tr("tool.status.failure")
@@ -4422,18 +4444,112 @@ private struct ToolCallCard: View {
         if toolCall.status == .warning {
             return PalmiL10n.tr("tool.status.warning")
         }
-        if let actionID = ToolActionID(rawValue: toolCall.toolName),
-           let action = ActionCatalog.all.first(where: { $0.id == actionID }) {
-            return action.localizedEffectForUI
-        }
         return PalmiL10n.tr("tool.status.success")
+    }
+
+    @ViewBuilder
+    private var inlineMetadataContent: some View {
+        if let metadata = toolCall.inlineMetadata {
+            if let operation = metadata.operation, !operation.isEmpty {
+                Text(PalmiL10n.tr("tool.inline.operation.\(operation)"))
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            ForEach(Array(metadata.targets.enumerated()), id: \.offset) { index, target in
+                if index > 0 {
+                    Text("→")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                }
+                inlineTarget(target)
+            }
+
+            if let count = metadata.trailingCount, count > 0 {
+                Text("+\(count)")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            if let detail = metadata.detail, !detail.isEmpty {
+                Text(PalmiL10n.tr("tool.inline.taskStatus.\(detail)"))
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func inlineTarget(_ target: ToolInlineTarget) -> some View {
+        switch target.kind {
+        case .workspacePath:
+            if let url = workspaceLinkURL(for: target.value) {
+                Link(target.displayText, destination: url)
+                    .font(.body)
+                    .underline()
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            } else {
+                Text(target.displayText)
+                    .font(.body)
+                    .underline()
+                    .lineLimit(1)
+            }
+        case .webURL:
+            if let url = URL(string: target.value) {
+                Link(target.displayText, destination: url)
+                    .font(.body)
+                    .underline()
+                    .foregroundStyle(Color.accentColor)
+                    .lineLimit(1)
+            } else {
+                Text(target.displayText)
+                    .font(.body)
+                    .lineLimit(1)
+            }
+        case .text:
+            Text(target.displayText)
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+    }
+
+    private func workspaceLinkURL(for path: String) -> URL? {
+        var components = URLComponents()
+        components.scheme = "palmi-workspace"
+        components.path = "/" + path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return components.url
+    }
+
+    private func reviewTint(_ state: ToolAuthorizationReviewState) -> Color {
+        switch state {
+        case .reviewing, .needsUser:
+            return .orange
+        case .approved:
+            return .green
+        case .rejected:
+            return .red
+        }
+    }
+
+    private func updateReviewPulse() {
+        reviewPulse = false
+        guard toolCall.inlineMetadata?.reviewState == .reviewing else { return }
+        withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+            reviewPulse = true
+        }
     }
 
     private var displayToolTitle: String {
         guard toolCall.cardKind == .tool else {
             return toolCall.toolTitle
         }
-        return ToolActionID(rawValue: toolCall.toolName)?.localizedTitleForUI ?? toolCall.toolTitle
+        return AgentExternalToolFacadeCatalog.localizedTitle(for: toolCall.toolName) ?? toolCall.toolTitle
     }
 
     private var detailTitle: String {

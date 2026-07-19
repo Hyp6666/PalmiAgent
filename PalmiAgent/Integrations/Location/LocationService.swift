@@ -30,8 +30,10 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
     private let locationBroker = LocationRequestBroker<CLLocation>()
     private let authorizationBroker = LocationRequestBroker<Void>()
+    private let reverseGeocodeMapItems: ((CLLocation) async throws -> [MKMapItem])?
 
-    override init() {
+    init(reverseGeocodeMapItems: ((CLLocation) async throws -> [MKMapItem])? = nil) {
+        self.reverseGeocodeMapItems = reverseGeocodeMapItems
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
@@ -229,15 +231,29 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     }
 
     private func reverseGeocodedAddress(for location: CLLocation) async throws -> String {
-        guard let request = MKReverseGeocodingRequest(location: location) else {
-            throw AppError.operationFailed("无法创建反向地理编码请求。")
-        }
+        do {
+            let mapItems: [MKMapItem]
+            if let reverseGeocodeMapItems {
+                mapItems = try await reverseGeocodeMapItems(location)
+            } else {
+                guard let request = MKReverseGeocodingRequest(location: location) else {
+                    throw AppError.operationFailed("无法创建反向地理编码请求。")
+                }
+                mapItems = try await request.mapItems
+            }
 
-        let mapItems = try await request.mapItems
-        guard let item = mapItems.first else {
-            return "未获取到地址信息。"
+            guard let item = mapItems.first else {
+                return "未获取到地址信息。"
+            }
+            return LocationService.addressText(for: item)
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain == MKErrorDomain,
+               nsError.code == Int(MKError.Code.placemarkNotFound.rawValue) {
+                return "未获取到地址信息。"
+            }
+            throw error
         }
-        return LocationService.addressText(for: item)
     }
 
     static func addressText(for item: MKMapItem) -> String {
@@ -265,6 +281,15 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
             return
         }
         parts.append(value)
+    }
+
+    static func mostRecentUsableLocation(from locations: [CLLocation]) -> CLLocation? {
+        locations.reversed().first { location in
+            let coordinate = location.coordinate
+            return CLLocationCoordinate2DIsValid(coordinate)
+                && location.horizontalAccuracy >= 0
+                && !(coordinate.latitude == 0 && coordinate.longitude == 0)
+        }
     }
 
     private func requestLocation() async throws -> CLLocation {
@@ -296,8 +321,12 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        if let location = locations.first {
+        if let location = Self.mostRecentUsableLocation(from: locations) {
             locationBroker.resolve(.success(location))
+        } else if !locations.isEmpty {
+            locationBroker.resolve(
+                .failure(AppError.operationFailed("定位服务返回了无效坐标，请稍后重试。"))
+            )
         }
     }
 

@@ -333,6 +333,8 @@ enum AgentEvent: Sendable {
     case taskStateChanged(AgentTaskStateSnapshot)
     case internalToolStarted(AgentInternalToolStep)
     case internalToolFinished(AgentInternalToolStep)
+    case toolReviewStarted(stepID: UUID, action: ToolAction, argumentsJSON: String)
+    case toolReviewResolved(stepID: UUID, state: ToolAuthorizationReviewState)
     case toolStarted(stepID: UUID, action: ToolAction, argumentsJSON: String)
     case toolFinished(step: LLMToolExecutionStep)
     case persistenceBarrier(UUID)

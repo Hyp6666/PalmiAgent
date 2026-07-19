@@ -1,153 +1,124 @@
 import Foundation
 
-/// Pure reducer for atomic whole-list task updates.
+/// Pure reducer for atomic single-task mutations.
 struct AgentTaskStateReducer {
     static let maximumTaskCount = 12
 
     func reduce(
-        args: UpdateTaskStateArgs,
+        args: UpdateTaskArgs,
         identity: AgentTaskStateIdentity,
         existingState: AgentTaskState?,
         now: Date = .now
     ) throws -> AgentTaskState {
-        guard !args.tasks.isEmpty else {
-            throw AppError.invalidState("任务列表不能为空。")
-        }
-        guard args.tasks.count <= Self.maximumTaskCount else {
-            throw AppError.invalidState("任务最多只能有 \(Self.maximumTaskCount) 项，请合并后重试。")
-        }
-        if existingState?.lifecycle.isActiveLike == true {
-            guard let expectedRevision = args.expectedRevision else {
-                throw AppError.invalidState("更新已有任务列表必须携带 expectedRevision。")
-            }
-            guard expectedRevision == existingState?.revision else {
-                throw AppError.invalidState(
-                    "任务版本已变化（当前 \(existingState?.revision ?? 0)，请求 \(expectedRevision)），请读取最新列表后重试。"
-                )
-            }
-        } else if let expectedRevision = args.expectedRevision,
-                  expectedRevision != (existingState?.revision ?? 0) {
-            throw AppError.invalidState(
-                "任务版本已变化（当前 \(existingState?.revision ?? 0)，请求 \(expectedRevision)），请读取最新列表后重试。"
-            )
-        }
+        let startsNewRun = existingState == nil || existingState?.lifecycle.isActiveLike == false
+        var items = startsNewRun ? [] : (existingState?.items ?? [])
 
-        let shouldCreateNewRun = existingState == nil || existingState?.lifecycle.isActiveLike == false
-        let oldItems = shouldCreateNewRun ? [] : (existingState?.items ?? [])
-        let oldItemsByID = Dictionary(uniqueKeysWithValues: oldItems.map { ($0.id, $0) })
-        var usedIDs: Set<String> = []
-        var nextIDIndex = nextGeneratedIDIndex(from: oldItems)
-        var items: [AgentTaskItem] = []
-
-        for (index, input) in args.tasks.enumerated() {
-            let candidateID = normalizedOptional(input.id)
-                ?? (index < oldItems.count ? oldItems[index].id : nil)
-                ?? nextID(usedIDs: usedIDs, nextIDIndex: &nextIDIndex)
-            let id = uniqueID(candidateID, usedIDs: &usedIDs, nextIDIndex: &nextIDIndex)
-            let previous = oldItemsByID[id]
-            let status = if previous?.status.isTerminal == true && !input.status.isTerminal {
-                previous!.status
-            } else {
-                input.status
+        let changedTaskID: String
+        switch args.operation {
+        case .create:
+            guard items.count < Self.maximumTaskCount else {
+                throw AppError.invalidState("任务最多只能有 \(Self.maximumTaskCount) 项。")
             }
+            let title = normalized(args.title ?? "", limit: 64)
+            guard !title.isEmpty else {
+                throw AppError.invalidState("update_task(operation=create) 必须提供 title。")
+            }
+            let requestedID = normalizedOptional(args.taskID)
+            let taskID = requestedID ?? nextID(from: items)
+            guard !items.contains(where: { $0.id == taskID }) else {
+                throw AppError.invalidState("task_id 已存在：\(taskID)")
+            }
+            let status = args.status ?? .pending
             items.append(
                 AgentTaskItem(
-                    id: id,
-                    title: normalized(input.title, limit: 64, fallback: previous?.title ?? "任务"),
+                    id: taskID,
+                    title: title,
                     status: status,
-                    displaySummary: normalized(
-                        input.displaySummary ?? previous?.displaySummary ?? input.title,
-                        limit: 200,
-                        fallback: previous?.displaySummary ?? input.title
-                    ),
-                    hiddenDetail: normalizedOptional(input.hiddenDetail) ?? previous?.hiddenDetail,
-                    detailPath: previous?.detailPath,
-                    acceptanceCriteria: normalizedList(
-                        input.acceptanceCriteria ?? previous?.acceptanceCriteria ?? [],
-                        limit: 6,
-                        itemLimit: 200
-                    ),
-                    evidenceReferences: evidenceReferences(
-                        toolUseIDs: input.evidenceToolUseIDs,
-                        previous: previous?.evidenceReferences ?? []
-                    ),
-                    createdAt: previous?.createdAt ?? now,
+                    displaySummary: normalized(args.displaySummary ?? title, limit: 200, fallback: title),
+                    hiddenDetail: normalizedOptional(args.hiddenDetail),
+                    detailPath: nil,
+                    acceptanceCriteria: normalizedList(args.acceptanceCriteria ?? [], limit: 6, itemLimit: 200),
+                    evidenceReferences: evidenceReferences(toolUseIDs: args.evidenceToolUseIDs, previous: []),
+                    createdAt: now,
                     updatedAt: now
                 )
             )
+            changedTaskID = taskID
+
+        case .update:
+            guard !startsNewRun, let existingState else {
+                throw AppError.invalidState("当前没有可更新的活动 task 列表；请先使用 operation=create。")
+            }
+            _ = existingState
+            guard let taskID = normalizedOptional(args.taskID) else {
+                throw AppError.invalidState("update_task(operation=update) 必须提供 task_id。")
+            }
+            guard let index = items.firstIndex(where: { $0.id == taskID }) else {
+                throw AppError.invalidState("没有找到 task_id：\(taskID)")
+            }
+            let previous = items[index]
+            if previous.status.isTerminal,
+               let requestedStatus = args.status,
+               !requestedStatus.isTerminal {
+                throw AppError.invalidState("已终态 task 不能回退到非终态：\(taskID)")
+            }
+            let title = args.title.map { normalized($0, limit: 64, fallback: previous.title) } ?? previous.title
+            items[index] = AgentTaskItem(
+                id: previous.id,
+                title: title,
+                status: args.status ?? previous.status,
+                displaySummary: args.displaySummary.map {
+                    normalized($0, limit: 200, fallback: previous.displaySummary)
+                } ?? previous.displaySummary,
+                hiddenDetail: args.hiddenDetail.map(normalizedOptional) ?? previous.hiddenDetail,
+                detailPath: previous.detailPath,
+                acceptanceCriteria: args.acceptanceCriteria.map {
+                    normalizedList($0, limit: 6, itemLimit: 200)
+                } ?? previous.acceptanceCriteria,
+                evidenceReferences: evidenceReferences(
+                    toolUseIDs: args.evidenceToolUseIDs,
+                    previous: previous.evidenceReferences
+                ),
+                createdAt: previous.createdAt,
+                updatedAt: now
+            )
+            changedTaskID = taskID
         }
 
-        for oldItem in oldItems where oldItem.status.isTerminal && !usedIDs.contains(oldItem.id) {
-            guard items.count < Self.maximumTaskCount else { break }
-            items.append(oldItem)
-            usedIDs.insert(oldItem.id)
-        }
-
-        let lifecycle = normalizeLifecycle(args.lifecycle, items: &items, existing: existingState?.lifecycle)
-        normalizeInProgress(&items, lifecycle: lifecycle)
-
-        let requestedFocus = normalizedOptional(args.focusItemID)
-        let focusItemID = requestedFocus.flatMap { focus in
-            items.first(where: { $0.id == focus && !$0.status.isTerminal })?.id
-        } ?? items.first(where: { $0.status == .inProgress })?.id
-            ?? items.first(where: { !$0.status.isTerminal })?.id
+        normalizeInProgress(&items, preferredTaskID: changedTaskID)
+        let lifecycle = derivedLifecycle(from: items)
+        let focusItemID = items.first(where: { $0.status == .inProgress })?.id
+            ?? items.first(where: { $0.status == .waitingForUser })?.id
+            ?? items.first(where: { $0.status == .blocked })?.id
+            ?? items.first(where: { $0.status == .pending })?.id
+        let changedItem = items.first(where: { $0.id == changedTaskID })!
 
         return AgentTaskState(
-            schemaVersion: 2,
-            id: shouldCreateNewRun ? UUID() : (existingState?.id ?? UUID()),
+            schemaVersion: 3,
+            id: startsNewRun ? UUID() : (existingState?.id ?? UUID()),
             projectID: identity.projectID,
             threadID: identity.threadID,
             sessionID: identity.sessionID,
-            taskRunID: shouldCreateNewRun ? UUID() : (existingState?.taskRunID ?? UUID()),
-            mode: shouldCreateNewRun ? .auto : (existingState?.mode ?? .auto),
+            taskRunID: startsNewRun ? UUID() : (existingState?.taskRunID ?? UUID()),
+            mode: startsNewRun ? .auto : (existingState?.mode ?? .auto),
             lifecycle: lifecycle,
             revision: (existingState?.revision ?? 0) + 1,
             title: normalized(items.first?.title ?? "任务", limit: 64, fallback: "任务"),
-            summary: normalized(args.reason, limit: 200, fallback: "更新任务状态"),
+            summary: "\(args.operation.rawValue)：\(changedItem.title)",
             focusItemID: focusItemID,
             items: items,
-            metadata: shouldCreateNewRun ? .empty : (existingState?.metadata ?? .empty),
-            createdAt: shouldCreateNewRun ? now : (existingState?.createdAt ?? now),
+            metadata: startsNewRun ? .empty : (existingState?.metadata ?? .empty),
+            createdAt: startsNewRun ? now : (existingState?.createdAt ?? now),
             updatedAt: now
         )
     }
 
-    private func normalizeLifecycle(
-        _ requested: AgentTaskLifecycle?,
-        items: inout [AgentTaskItem],
-        existing: AgentTaskLifecycle?
-    ) -> AgentTaskLifecycle {
-        if requested == .completed {
-            for index in items.indices where !items[index].status.isTerminal {
-                items[index].status = .completed
-            }
-            return .completed
-        }
-        if requested == .abandoned {
-            for index in items.indices where !items[index].status.isTerminal {
-                items[index].status = .canceled
-            }
-            return .abandoned
-        }
-        if items.allSatisfy({ $0.status.isTerminal }) {
-            return .completed
-        }
-        if let requested {
-            return requested
-        }
-        if items.contains(where: { $0.status == .blocked }) {
-            return .blocked
-        }
-        return existing == .waitingForUser ? .waitingForUser : .active
-    }
-
-    private func normalizeInProgress(
-        _ items: inout [AgentTaskItem],
-        lifecycle: AgentTaskLifecycle
-    ) {
-        guard lifecycle == .active else {
-            for index in items.indices where items[index].status == .inProgress {
-                items[index].status = lifecycle == .blocked ? .blocked : .pending
+    private func normalizeInProgress(_ items: inout [AgentTaskItem], preferredTaskID: String) {
+        if let preferredIndex = items.firstIndex(where: {
+            $0.id == preferredTaskID && $0.status == .inProgress
+        }) {
+            for index in items.indices where index != preferredIndex && items[index].status == .inProgress {
+                items[index].status = .pending
             }
             return
         }
@@ -156,9 +127,24 @@ struct AgentTaskStateReducer {
             for index in activeIndices where index != first {
                 items[index].status = .pending
             }
-        } else if let firstPending = items.firstIndex(where: { $0.status == .pending }) {
+            return
+        }
+        if let firstPending = items.firstIndex(where: { $0.status == .pending }) {
             items[firstPending].status = .inProgress
         }
+    }
+
+    private func derivedLifecycle(from items: [AgentTaskItem]) -> AgentTaskLifecycle {
+        if items.allSatisfy({ $0.status.isTerminal }) {
+            return .completed
+        }
+        if items.contains(where: { $0.status == .inProgress || $0.status == .pending }) {
+            return .active
+        }
+        if items.contains(where: { $0.status == .waitingForUser }) {
+            return .waitingForUser
+        }
+        return .blocked
     }
 
     private func evidenceReferences(
@@ -181,30 +167,12 @@ struct AgentTaskStateReducer {
             }
     }
 
-    private func nextGeneratedIDIndex(from items: [AgentTaskItem]) -> Int {
-        (items.compactMap { item -> Int? in
+    private func nextID(from items: [AgentTaskItem]) -> String {
+        let next = (items.compactMap { item -> Int? in
             guard item.id.first == "t" else { return nil }
             return Int(item.id.dropFirst())
         }.max() ?? 0) + 1
-    }
-
-    private func nextID(usedIDs: Set<String>, nextIDIndex: inout Int) -> String {
-        while usedIDs.contains("t\(nextIDIndex)") { nextIDIndex += 1 }
-        defer { nextIDIndex += 1 }
-        return "t\(nextIDIndex)"
-    }
-
-    private func uniqueID(
-        _ candidate: String,
-        usedIDs: inout Set<String>,
-        nextIDIndex: inout Int
-    ) -> String {
-        let trimmed = normalized(candidate, limit: 40)
-        let value = trimmed.isEmpty ? nextID(usedIDs: usedIDs, nextIDIndex: &nextIDIndex) : trimmed
-        if usedIDs.insert(value).inserted { return value }
-        let generated = nextID(usedIDs: usedIDs, nextIDIndex: &nextIDIndex)
-        usedIDs.insert(generated)
-        return generated
+        return "t\(next)"
     }
 
     private func normalizedList(_ values: [String], limit: Int, itemLimit: Int) -> [String] {

@@ -149,6 +149,7 @@ enum AgentTaskItemStatus: String, Codable, Sendable {
     case inProgress = "in_progress"
     case completed
     case blocked
+    case waitingForUser = "waiting_for_user"
     case skipped
     case canceled
 
@@ -156,7 +157,7 @@ enum AgentTaskItemStatus: String, Codable, Sendable {
         switch self {
         case .completed, .skipped, .canceled:
             return true
-        case .pending, .inProgress, .blocked:
+        case .pending, .inProgress, .blocked, .waitingForUser:
             return false
         }
     }
@@ -170,51 +171,31 @@ struct AgentTaskEvidenceRef: Codable, Sendable {
     var title: String
 }
 
-struct UpdateTaskStateArgs: Decodable, Sendable {
-    var reason: String
-    var lifecycle: AgentTaskLifecycle?
-    var focusItemID: String?
-    var expectedRevision: Int?
-    var tasks: [AgentTaskItemInput]
-
-    /// Source compatibility for callers still using the pre-task-list name.
-    var items: [AgentTaskItemInput] { tasks }
-
-    private enum CodingKeys: String, CodingKey {
-        case reason
-        case lifecycle
-        case focusItemID
-        case focusItemIDSnake = "focus_item_id"
-        case expectedRevision
-        case expectedRevisionSnake = "expected_revision"
-        case tasks
-        case items
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        reason = try container.decodeIfPresent(String.self, forKey: .reason) ?? "更新任务列表"
-        lifecycle = try container.decodeIfPresent(AgentTaskLifecycle.self, forKey: .lifecycle)
-        focusItemID = try container.decodeIfPresent(String.self, forKey: .focusItemID)
-            ?? container.decodeIfPresent(String.self, forKey: .focusItemIDSnake)
-        expectedRevision = try container.decodeIfPresent(Int.self, forKey: .expectedRevision)
-            ?? container.decodeIfPresent(Int.self, forKey: .expectedRevisionSnake)
-        if let modernTasks = try container.decodeIfPresent([AgentTaskItemInput].self, forKey: .tasks) {
-            tasks = modernTasks
-        } else {
-            tasks = try container.decodeIfPresent([AgentTaskItemInput].self, forKey: .items) ?? []
-        }
-    }
+enum UpdateTaskOperation: String, Decodable, Sendable {
+    case create
+    case update
 }
 
-struct AgentTaskItemInput: Decodable, Sendable {
-    var id: String?
-    var title: String
-    var status: AgentTaskItemStatus
+struct UpdateTaskArgs: Decodable, Sendable {
+    var operation: UpdateTaskOperation
+    var taskID: String?
+    var title: String?
+    var status: AgentTaskItemStatus?
     var displaySummary: String?
     var hiddenDetail: String?
     var acceptanceCriteria: [String]?
     var evidenceToolUseIDs: [String]?
+
+    private enum CodingKeys: String, CodingKey {
+        case operation
+        case taskID = "task_id"
+        case title
+        case status
+        case displaySummary = "display_summary"
+        case hiddenDetail = "hidden_detail"
+        case acceptanceCriteria = "acceptance_criteria"
+        case evidenceToolUseIDs = "evidence_tool_use_ids"
+    }
 }
 
 struct AgentTaskUpdateResult: Sendable {
@@ -263,6 +244,8 @@ extension AgentTaskItemStatus {
             self = .completed
         case "blocked":
             self = .blocked
+        case "waiting_for_user", "waitingforuser", "waiting":
+            self = .waitingForUser
         case "skipped", "skip":
             self = .skipped
         case "canceled", "cancelled", "cancel":

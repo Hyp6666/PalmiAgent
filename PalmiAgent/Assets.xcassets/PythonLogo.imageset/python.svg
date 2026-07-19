@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <mask id="eye-cutouts">
+      <rect width="64" height="64" fill="#fff"/>
+      <circle cx="24.7" cy="13.6" r="2.4" fill="#000"/>
+      <circle cx="39.3" cy="50.4" r="2.4" fill="#000"/>
+    </mask>
+  </defs>
+  <g fill="#000" mask="url(#eye-cutouts)">
+    <path d="M31.5 3.5c-13.7 0-16.2 6-16.2 11.4v8.4h16.5v3.2H9.1C3.6 26.5 1 31.8 1 38s3.2 11.5 8.7 11.5h7.1v-9.4c0-6.4 5.5-12.1 12-12.1h13.7V14.9c0-7.4-6.3-11.4-11-11.4Z"/>
+    <path d="M32.5 60.5c13.7 0 16.2-6 16.2-11.4v-8.4H32.2v-3.2h22.7c5.5 0 8.1-5.3 8.1-11.5s-3.2-11.5-8.7-11.5h-7.1v9.4c0 6.4-5.5 12.1-12 12.1H21.5v13.1c0 7.4 6.3 11.4 11 11.4Z"/>
+  </g>
+</svg>

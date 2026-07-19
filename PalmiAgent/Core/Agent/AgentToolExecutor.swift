@@ -34,12 +34,14 @@ final class AgentToolExecutor {
         _ toolUse: AgentToolUse,
         actions: [ToolAction]
     ) -> AgentPreparedToolResult {
-        guard let action = actions.first(where: { $0.id.rawValue == toolUse.name }) else {
-            return .failure("未知工具：\(toolUse.name)")
-        }
-
         do {
             let arguments = try ToolArguments(jsonString: toolUse.input)
+            let resolution = try AgentExternalToolFacadeCatalog.resolve(
+                toolName: toolUse.name,
+                arguments: arguments,
+                actions: actions
+            )
+            let action = resolution.action
             let argumentsJSON = actionExecutor.effectiveArgumentsJSON(for: action, arguments: arguments)
             return .ready(
                 AgentPreparedToolExecution(
@@ -97,7 +99,12 @@ final class AgentToolExecutor {
             result: outcome.result,
             requiresUserInteraction: outcome.presentation != nil,
             presentation: outcome.presentation,
-            fileDeltas: outcome.fileDeltas
+            fileDeltas: outcome.fileDeltas,
+            inlineMetadata: outcome.inlineMetadata ?? ToolCallInlineMetadataBuilder.make(
+                toolName: prepared.action.id.modelToolName,
+                actionID: prepared.action.id,
+                argumentsJSON: prepared.argumentsJSON
+            )
         )
         return AgentToolExecutionResult(
             step: step,
@@ -124,7 +131,12 @@ final class AgentToolExecutor {
             action: prepared.action,
             argumentsJSON: prepared.argumentsJSON,
             result: result,
-            requiresUserInteraction: false
+            requiresUserInteraction: false,
+            inlineMetadata: ToolCallInlineMetadataBuilder.make(
+                toolName: prepared.action.id.modelToolName,
+                actionID: prepared.action.id,
+                argumentsJSON: prepared.argumentsJSON
+            )
         )
         return AgentToolExecutionResult(
             step: step,
@@ -139,7 +151,8 @@ final class AgentToolExecutor {
         argumentsJSON: String
     ) -> String {
         let payload = AgentToolPayload(
-            toolName: action.id.rawValue,
+            toolName: action.id.modelToolName,
+            actionID: action.id,
             title: action.title,
             status: outcome.result.status.rawValue,
             summary: outcome.result.summary,
@@ -161,6 +174,7 @@ final class AgentToolExecutor {
 
 struct AgentToolPayload: Codable, Sendable {
     let toolName: String
+    let actionID: ToolActionID?
     let title: String
     let status: String
     let summary: String
@@ -172,6 +186,7 @@ struct AgentToolPayload: Codable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case toolName = "tool_name"
+        case actionID = "action_id"
         case title
         case status
         case summary

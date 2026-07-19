@@ -8,6 +8,12 @@ enum ToolAuthorizationMode: String, CaseIterable, Identifiable, Codable, Sendabl
 
     var id: String { rawValue }
 
+    static let userSelectableCases: [ToolAuthorizationMode] = [
+        .askEveryTime,
+        .autoReview,
+        .allowAll
+    ]
+
     var title: String {
         switch self {
         case .askEveryTime:
@@ -111,19 +117,47 @@ enum ToolSystemPermissionCatalog {
 final class ToolAuthorizationStore {
     private let userDefaults: UserDefaults
     private let modeKey = "palmi.tool-authorization.mode.v1"
+    private let customReviewPolicyKey = "palmi.tool-authorization.custom-review-policy.v1"
     private let sessionApprovalsKeyPrefix = "palmi.tool-authorization.session-approvals.v1"
 
     private var sessionApprovals: [UUID: Set<ToolActionID>] = [:]
     private(set) var mode: ToolAuthorizationMode = .askEveryTime
 
+    /// 用户在设置中填写的自定义自动审核策略提示词。空字符串表示使用内置默认策略。
+    private(set) var customAutoReviewPolicy: String = ""
+
     init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
         loadMode()
+        loadCustomAutoReviewPolicy()
     }
 
     func setMode(_ mode: ToolAuthorizationMode) {
         self.mode = mode
         userDefaults.set(mode.rawValue, forKey: modeKey)
+    }
+
+    func setCustomAutoReviewPolicy(_ policy: String) {
+        self.customAutoReviewPolicy = policy
+        if policy.isEmpty {
+            userDefaults.removeObject(forKey: customReviewPolicyKey)
+        } else {
+            userDefaults.set(policy, forKey: customReviewPolicyKey)
+        }
+    }
+
+    var effectiveAutoReviewPolicy: String {
+        let trimmed = customAutoReviewPolicy.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return ToolAuthorizationStore.defaultAutoReviewPolicy
+        }
+        return trimmed
+    }
+
+    static let defaultAutoReviewPolicy = "If the user tries to get its location, allow it."
+
+    private func loadCustomAutoReviewPolicy() {
+        customAutoReviewPolicy = userDefaults.string(forKey: customReviewPolicyKey) ?? ""
     }
 
     func isApproved(actionID: ToolActionID, in sessionID: UUID) -> Bool {
