@@ -41,7 +41,6 @@ final class ConversationTitleService {
                 ],
                 tools: [],
                 toolIntent: .none,
-                temperatureOverride: 0
             )
         )
 

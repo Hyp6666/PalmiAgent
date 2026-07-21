@@ -27,7 +27,7 @@ enum ActionCatalog {
         .init(id: .scanImageWithMultimodalModel, category: .multimodal, title: "多模态模型扫描", effect: "调用当前配置的多模态模型理解工作区图片并返回文本结果", details: "传入工作区图片相对路径和提示词后，Palmi 会把图片内联给当前会话配置的多模态模型。若当前会话没有可用多模态模型，工具调用会直接返回失败。", availability: .live),
         .init(id: .detectWebSearchProviders, category: .web, title: "网络环境检测", effect: "探测当前已开启搜索源的可访问性", details: "按设置中开启的搜索源发起轻量网络探测，返回每个搜索源是否可访问、响应耗时和 HTTP 状态。它只做环境检测，不读取搜索结果。", availability: .live),
         .init(id: .searchWeb, category: .web, title: "网页搜索", effect: "按关键词搜索网页并返回候选 URL", details: "使用当前启用的搜索源在本地 WebKit 中读取真实搜索结果 DOM，返回标题、规范化 URL 和摘要，不读取正文。需要证据时继续调用网页浏览。", availability: .live),
-        .init(id: .fetchStaticWebPage, category: .web, title: "网页浏览", effect: "按一个或多个 URL 提取网页或文档正文", details: "在 app 本地使用 URLSession、WebKit 和 PDFKit 自适应读取 HTML、JavaScript 页面、PDF、纯文本、JSON 与 XML，返回最终 URL、元数据、结构化正文和相关链接。单次最多 10 个 URL。", availability: .live),
+        .init(id: .fetchStaticWebPage, category: .web, title: "网页浏览", effect: "按一个或多个 URL 读取完整网页文字或保存网页快照", details: "page_text 返回整个页面的可见文字，不自行筛选正文，并支持 start/end 字符区间；full_snapshot 还会把完整文字、原始文件、渲染页面和页面截图保存到工作区，供 read/vision 后续读取。支持 HTML、JavaScript 页面、PDF、纯文本、JSON 与 XML，单次最多 10 个 URL。", availability: .live),
         .init(id: .openInAppBrowser, category: .web, title: "打开内置浏览器", effect: "在 app 内打开网页预览", details: "支持 http/https 网页，也支持工作区内 HTML 文件预览。生成交互式网页、小游戏或可视化作品时，除非用户或技能另有指定，推荐将入口放在 artifacts/<短名称>/index.html，资源放同目录子目录。", availability: .partial),
         .init(id: .createCalendarEvent, category: .personalData, title: "创建日历事件", effect: "写入一条日历事件", details: "支持标题、备注、开始时间和结束时间。", availability: .live),
         .init(id: .listTodayEvents, category: .personalData, title: "查看今日日历", effect: "读取今天的日历事件", details: "验证 EventKit 事件读取能力。", availability: .live),

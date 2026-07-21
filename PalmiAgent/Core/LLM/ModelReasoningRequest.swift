@@ -3,43 +3,54 @@ import Foundation
 enum ModelReasoningIntent: String, Codable, Sendable {
     case automatic
     case disabled
-    case minimal
-    case fast
-    case balanced
-    case deep
-    case maximum
+    case low
+    case medium
+    case high
+    case xhigh
+    case max
+
+    // Decode former stored values without preserving their former semantics.
+    init(from decoder: Decoder) throws {
+        let rawValue = try decoder.singleValueContainer().decode(String.self)
+        switch rawValue {
+        case "disabled": self = .disabled
+        case "low", "fast", "minimal": self = .low
+        case "medium", "balanced": self = .medium
+        case "xhigh": self = .xhigh
+        case "max", "maximum": self = .max
+        case "automatic": self = .automatic
+        default: self = .high
+        }
+    }
 }
 
 struct ModelReasoningRequest: Codable, Hashable, Sendable {
     let intent: ModelReasoningIntent
-    let qwenThinkingBudget: Int?
 
     nonisolated static let automatic = ModelReasoningRequest(intent: .automatic)
     nonisolated static let disabled = ModelReasoningRequest(intent: .disabled)
     nonisolated static let auto = ModelReasoningRequest(intent: .automatic)
     nonisolated static let off = ModelReasoningRequest(intent: .disabled)
-
-    init(intent: ModelReasoningIntent, qwenThinkingBudget: Int? = nil) {
-        self.intent = intent
-        self.qwenThinkingBudget = qwenThinkingBudget
-    }
+    nonisolated static let low = ModelReasoningRequest(intent: .low)
+    nonisolated static let medium = ModelReasoningRequest(intent: .medium)
+    nonisolated static let high = ModelReasoningRequest(intent: .high)
+    nonisolated static let xhigh = ModelReasoningRequest(intent: .xhigh)
+    nonisolated static let max = ModelReasoningRequest(intent: .max)
 
     var canonicalEffort: LLMReasoningEffort {
         switch intent {
-        case .automatic:
-            return .auto
+        case .automatic, .high:
+            return .high
         case .disabled:
             return .off
-        case .minimal:
-            return .minimal
-        case .fast:
+        case .low:
             return .low
-        case .balanced:
+        case .medium:
             return .medium
-        case .deep:
-            return .high
-        case .maximum:
+        case .xhigh:
             return .xhigh
+        case .max:
+            return .max
         }
     }
 }
@@ -57,11 +68,6 @@ struct ModelReasoningResolution: Sendable {
     let reasoningEffort: String?
     let thinking: OpenAIChatThinkingConfig?
     let enableThinking: Bool?
-    let thinkingBudget: Int?
-    let reasoningSplit: Bool?
-    let reasoningFormat: String?
-    let reasoning: OpenAIChatReasoningConfig?
-    let omitsSamplingParameters: Bool
     let replayPolicy: ReasoningReplayPolicy
 
     static func none(
@@ -75,11 +81,6 @@ struct ModelReasoningResolution: Sendable {
             reasoningEffort: nil,
             thinking: nil,
             enableThinking: nil,
-            thinkingBudget: nil,
-            reasoningSplit: nil,
-            reasoningFormat: nil,
-            reasoning: nil,
-            omitsSamplingParameters: false,
             replayPolicy: replayPolicy
         )
     }

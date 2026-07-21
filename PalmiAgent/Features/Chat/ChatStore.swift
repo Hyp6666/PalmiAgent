@@ -275,10 +275,6 @@ final class ChatStore {
         }
     }
 
-    private var activeProviderID: APIProviderID {
-        apiConfigurationStore.activeProviderID()
-    }
-
     private func modelRoleOverrides(for selection: WorkspaceSelection?) -> AgentModelRoleOverrides {
         guard let selection,
               let thread = workspaceStore.thread(for: selection) else {
@@ -421,7 +417,7 @@ final class ChatStore {
         let turnSurface = surface(for: turnSelection)
         let turnActions = composerActions(for: turnSelection)
         let modelOverrides = modelRoleOverrides(for: turnSelection)
-        let runProviderID = modelOverrides.primaryProviderID ?? activeProviderID
+        let runProviderID = modelOverrides.primaryProviderID ?? .customOpenAI
 
         if let running = activeRuns[turnSelection] {
             guard running.loop.acceptsQueuedUserGuidance else {
@@ -1493,7 +1489,7 @@ final class ChatStore {
             do {
                 let loop = displayedAgentLoop
                 let modelOverrides = modelRoleOverrides(for: displayedSelection)
-                let providerID = modelOverrides.primaryProviderID ?? activeProviderID
+                let providerID = modelOverrides.primaryProviderID ?? .customOpenAI
                 _ = try await loop.forceCompactContext(
                     providerID: providerID,
                     actions: composerActions,
@@ -1577,7 +1573,7 @@ final class ChatStore {
         let targetLoop = loop ?? displayedAgentLoop
         let targetSelection = selection ?? displayedSelection
         let modelOverrides = providedModelOverrides ?? modelRoleOverrides(for: targetSelection)
-        let providerID = modelOverrides.primaryProviderID ?? activeProviderID
+        let providerID = modelOverrides.primaryProviderID ?? .customOpenAI
         let targetActions = composerActions(for: targetSelection)
         let snapshot = targetLoop.currentContextCompositionSnapshot(actions: targetActions)
         guard snapshot.usedRatio >= ContextCompactionConfiguration.default().triggerRatio else {
@@ -2451,6 +2447,13 @@ final class ChatStore {
                 appendParsedAssistantContent(content, shouldPersist: false)
             }
             persistIfNeeded()
+        case .modelNotice(let notice):
+            appendAgentMessage(
+                kind: .summary,
+                content: localizedModelNotice(notice),
+                shouldPersist: false
+            )
+            persistIfNeeded()
         case .thoughtCard(let card):
             appendThoughtCard(card)
             persistIfNeeded()
@@ -2604,6 +2607,15 @@ final class ChatStore {
                 appendParsedAssistantContent(content, to: &messages, preferSummaryForTrailingText: false)
             }
             markPersistent()
+        case .modelNotice(let notice):
+            messages.append(
+                PalmiChatMessage(
+                    role: .agent,
+                    kind: .summary,
+                    content: localizedModelNotice(notice)
+                )
+            )
+            markPersistent()
         case .thoughtCard(let card):
             appendThoughtCard(card, to: &messages)
             markPersistent()
@@ -2698,6 +2710,7 @@ final class ChatStore {
     private func shouldApplyAgentMessageEventInBackground(_ event: AgentEvent) -> Bool {
         switch event {
         case .assistantText,
+             .modelNotice,
              .thoughtCard,
              .queuedUserGuidanceInjected,
              .contextCompactionStarted,
@@ -2724,6 +2737,7 @@ final class ChatStore {
     private func shouldFinalizeStreamingReasoning(for event: AgentEvent) -> Bool {
         switch event {
         case .assistantText,
+             .modelNotice,
              .thoughtCard,
              .queuedUserGuidanceInjected,
              .streamingDelta,
@@ -2744,6 +2758,21 @@ final class ChatStore {
              .approvalResolved,
              .persistenceBarrier:
             return false
+        }
+    }
+
+    private func localizedModelNotice(_ notice: AgentModelNotice) -> String {
+        switch notice {
+        case .reasoningDisableNotGuaranteed:
+            return PalmiL10n.tr("chat.reasoning.disableNotGuaranteed")
+        case .reasoningDisableViolated:
+            return PalmiL10n.tr("chat.reasoning.disableViolated")
+        case .reasoningEffortNotGuaranteed:
+            return PalmiL10n.tr("chat.reasoning.effortNotGuaranteed")
+        case .reasoningEffortNotRepresentable:
+            return PalmiL10n.tr("chat.reasoning.effortNotRepresentable")
+        case .reasoningEffortAdjusted(let requested, let applied):
+            return PalmiL10n.tr("chat.reasoning.effortAdjusted", applied, requested)
         }
     }
 

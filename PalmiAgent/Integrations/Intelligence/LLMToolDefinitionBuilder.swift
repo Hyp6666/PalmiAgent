@@ -79,7 +79,7 @@ enum LLMToolDefinitionBuilder {
             ]
         case .fetch:
             lines = [
-                "[网页] 读取一个或多个已知 URL 的实际内容，支持网页、PDF、文本、JSON 和 XML。用户已经给出 URL 时直接调用。"
+                "[网页] 读取一个或多个已知 URL 的完整可见文字，不自行筛选正文。支持用 start/end 读取指定字符区间；full_snapshot 会把完整文字、原始文件、渲染页面和页面截图保存到工作区，随后应继续用 read 或 vision 读取保存结果。用户已经给出 URL 时直接调用。"
             ]
         case .systemTime:
             lines = [
@@ -188,7 +188,7 @@ enum LLMToolDefinitionBuilder {
         case .searchWeb:
             return "用于发现候选来源，只返回标题、规范化 URL 和摘要，不读取正文。涉及当前事实或未知网址时先搜索；调用前把用户需求整理成尽可能简短、自然且语义完整的检索短语，不要照抄整段问题，也不要机械拆成零散关键词；得到候选后选择少量高价值来源调用网页浏览。不要把搜索摘要当作关键事实的最终证据。"
         case .fetchStaticWebPage:
-            return "用于读取已知 URL 的实际内容。内部会根据 Content-Type 处理 HTML、JavaScript 页面、PDF、纯文本、JSON 和 XML，并返回最终重定向 URL、元数据和结构化正文。用户已给出 URL 时直接调用，不要先重复搜索。"
+            return "用于读取已知 URL 的实际内容。page_text 返回整个页面的可见文字，不自行选择或过滤正文；start/end 使用半开区间 [start,end)，end=-1 表示末尾。full_snapshot 会把完整文字、原始文件、渲染页面和页面截图保存到工作区，完成后继续用 read 读取 content.txt，必要时用 vision 查看 page.png。用户已给出 URL 时直接调用，不要先重复搜索。"
         case .openInAppBrowser:
             return "用于把外部网页或刚生成的工作区 HTML 交给用户继续交互。生成小游戏、交互式海报、可视化网页等作品时，除非用户或技能指定路径，推荐把入口放在 artifacts/<短名称>/index.html，图片/CSS/JS 等资源放同目录子目录；调用时传工作区相对路径和可读 title，最终回复也给出入口文件的 Markdown 链接。"
         case .openMapsRoute:
@@ -313,11 +313,15 @@ enum LLMToolDefinitionBuilder {
                     "urls": ToolJSONSchema.stringArray(
                         description: "可选。要读取的多个 http/https URL。单次最多 10 个。"
                     ),
-                    "max_chars": ToolJSONSchema.integer(
-                        description: "可选。每个网页希望返回的正文字符上限。未传时使用当前档位建议值，绝对上限 100000。"
+                    "mode": ToolJSONSchema.string(
+                        description: "可选。page_text 直接返回整个网页的可见文字；full_snapshot 还会把完整文字、原始文件、渲染页面和截图保存到工作区，并返回供 read/vision 使用的路径。默认 page_text。",
+                        enumValues: WebFetchMode.allCases.map(\.rawValue)
                     ),
-                    "focus": ToolJSONSchema.string(
-                        description: "可选。需要重点查找的问题、关键词或主题。提供后会优先返回相关正文块及上下文。"
+                    "start": ToolJSONSchema.integer(
+                        description: "可选。返回文字的起始字符位置，包含该位置，默认 0。"
+                    ),
+                    "end": ToolJSONSchema.integer(
+                        description: "可选。返回文字的结束字符位置，不包含该位置；-1 表示一直到末尾，默认 -1。例如 start=0,end=20000 返回前 20000 个字符。"
                     ),
                     "include_links": ToolJSONSchema.bool(
                         description: "可选。是否返回正文中的相关链接，默认 true。"

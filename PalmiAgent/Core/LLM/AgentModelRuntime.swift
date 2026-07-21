@@ -18,9 +18,39 @@ struct AgentModelMessage: Sendable, Hashable {
     let toolCallID: String?
     let reasoningContent: String?
     let reasoningDetails: JSONRuntimeValue?
+    let reasoningSourceProfileID: UUID?
+    let reasoningSourceEndpointFingerprint: String?
+    let reasoningSourceModelID: String?
+    let reasoningSourceWireProtocol: LLMWireProtocol?
     // 内联图片（data:image/...;base64 形式）。仅当模型支持视觉、且 AgentLoop 给当轮用户消息贴上时才有值；
     // 不参与持久化、不跨轮——图片只活在它所属的那一轮。
     var imageDataURLs: [String] = []
+
+    init(
+        role: String,
+        content: String?,
+        toolCalls: [AgentModelToolCall]?,
+        toolCallID: String?,
+        reasoningContent: String?,
+        reasoningDetails: JSONRuntimeValue?,
+        reasoningSourceProfileID: UUID? = nil,
+        reasoningSourceEndpointFingerprint: String? = nil,
+        reasoningSourceModelID: String? = nil,
+        reasoningSourceWireProtocol: LLMWireProtocol? = nil,
+        imageDataURLs: [String] = []
+    ) {
+        self.role = role
+        self.content = content
+        self.toolCalls = toolCalls
+        self.toolCallID = toolCallID
+        self.reasoningContent = reasoningContent
+        self.reasoningDetails = reasoningDetails
+        self.reasoningSourceProfileID = reasoningSourceProfileID
+        self.reasoningSourceEndpointFingerprint = reasoningSourceEndpointFingerprint
+        self.reasoningSourceModelID = reasoningSourceModelID
+        self.reasoningSourceWireProtocol = reasoningSourceWireProtocol
+        self.imageDataURLs = imageDataURLs
+    }
 
     static func system(_ content: String) -> AgentModelMessage {
         AgentModelMessage(
@@ -48,15 +78,20 @@ struct AgentModelMessage: Sendable, Hashable {
         _ content: String?,
         toolCalls: [AgentModelToolCall]?,
         reasoningContent: String? = nil,
-        reasoningDetails: JSONRuntimeValue? = nil
+        reasoningDetails: JSONRuntimeValue? = nil,
+        nativeReasoning: AgentNativeReasoningPayload? = nil
     ) -> AgentModelMessage {
         AgentModelMessage(
             role: "assistant",
             content: content,
             toolCalls: toolCalls,
             toolCallID: nil,
-            reasoningContent: reasoningContent,
-            reasoningDetails: reasoningDetails
+            reasoningContent: nativeReasoning?.reasoningContent ?? reasoningContent,
+            reasoningDetails: nativeReasoning?.reasoningDetails ?? reasoningDetails,
+            reasoningSourceProfileID: nativeReasoning?.profileID,
+            reasoningSourceEndpointFingerprint: nativeReasoning?.endpointFingerprint,
+            reasoningSourceModelID: nativeReasoning?.modelID,
+            reasoningSourceWireProtocol: nativeReasoning?.wireProtocol
         )
     }
 
@@ -103,6 +138,7 @@ enum AgentModelToolIntent: Sendable, Hashable {
 struct AgentModelResolvedConfiguration: Sendable {
     let configuration: APIResolvedConfiguration
     let model: APIModelDefinition
+    let integrationSpec: LLMModelIntegrationSpec?
     let capabilities: LLMModelCapabilities
 }
 
@@ -182,7 +218,6 @@ struct AgentModelRequest: Sendable {
     let apiMessages: [AgentModelMessage]
     let tools: [AgentModelToolDefinition]
     let toolIntent: AgentModelToolIntent
-    let temperatureOverride: Double?
     let promptCacheKey: String?
 
     init(
@@ -190,14 +225,12 @@ struct AgentModelRequest: Sendable {
         apiMessages: [AgentModelMessage],
         tools: [AgentModelToolDefinition] = [],
         toolIntent: AgentModelToolIntent = .auto,
-        temperatureOverride: Double? = nil,
         promptCacheKey: String? = nil
     ) {
         self.selection = selection
         self.apiMessages = apiMessages
         self.tools = tools
         self.toolIntent = toolIntent
-        self.temperatureOverride = temperatureOverride
         self.promptCacheKey = promptCacheKey
     }
 }
@@ -210,7 +243,6 @@ struct AgentModelStreamingRequest {
     let onDelta: @MainActor (String) -> Void
     let onReasoningDelta: @MainActor (String) -> Void
     let onTokenEstimate: (@MainActor (Int) -> Void)?
-    let temperatureOverride: Double?
     let promptCacheKey: String?
 
     init(
@@ -221,7 +253,6 @@ struct AgentModelStreamingRequest {
         onDelta: @escaping @MainActor (String) -> Void,
         onReasoningDelta: @escaping @MainActor (String) -> Void = { _ in },
         onTokenEstimate: (@MainActor (Int) -> Void)? = nil,
-        temperatureOverride: Double? = nil,
         promptCacheKey: String? = nil
     ) {
         self.selection = selection
@@ -231,7 +262,6 @@ struct AgentModelStreamingRequest {
         self.onDelta = onDelta
         self.onReasoningDelta = onReasoningDelta
         self.onTokenEstimate = onTokenEstimate
-        self.temperatureOverride = temperatureOverride
         self.promptCacheKey = promptCacheKey
     }
 }
@@ -280,19 +310,98 @@ struct AgentModelTokenUsage: Codable, Sendable, Hashable {
     }
 }
 
+enum LLMOptionalControlIntent: Sendable, Equatable {
+    case enabled
+    case disabled
+}
+
+enum AgentModelNotice: Sendable, Hashable {
+    case reasoningDisableNotGuaranteed
+    case reasoningDisableViolated
+    case reasoningEffortNotGuaranteed
+    case reasoningEffortNotRepresentable
+    case reasoningEffortAdjusted(requested: String, applied: String)
+
+    static func compatibilityNotices(
+        for fallbackIntent: LLMOptionalControlIntent?
+    ) -> [AgentModelNotice] {
+        switch fallbackIntent {
+        case .disabled:
+            return [.reasoningDisableNotGuaranteed]
+        case .enabled:
+            return [.reasoningEffortNotGuaranteed]
+        case nil:
+            return []
+        }
+    }
+}
+
+enum ReasoningControlEvidenceEvaluator {
+    static func containsInlineReasoning(in text: String?) -> Bool {
+        guard let text,
+              let openingTag = text.range(of: "<think>", options: .caseInsensitive) else {
+            return false
+        }
+        return text.range(
+            of: "</think>",
+            options: .caseInsensitive,
+            range: openingTag.upperBound..<text.endIndex
+        ) != nil
+    }
+
+    static func notices(
+        requested: ModelReasoningRequest,
+        optionalControlFallbackIntent: LLMOptionalControlIntent?,
+        observedReasoning: Bool,
+        appliedEffort: String?,
+        effortIsRepresentable: Bool = true
+    ) -> [AgentModelNotice] {
+        var result = AgentModelNotice.compatibilityNotices(for: optionalControlFallbackIntent)
+        let normalizedAppliedEffort = appliedEffort?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        if requested.intent == .disabled {
+            let appliedReasoning = normalizedAppliedEffort.map {
+                !["none", "off", "disabled"].contains($0)
+            } ?? false
+            if observedReasoning || appliedReasoning {
+                result.append(.reasoningDisableViolated)
+            }
+        } else if !effortIsRepresentable {
+            result.append(.reasoningEffortNotRepresentable)
+        } else if let normalizedAppliedEffort,
+                  !normalizedAppliedEffort.isEmpty,
+                  normalizedAppliedEffort != requested.canonicalEffort.rawValue {
+            result.append(
+                .reasoningEffortAdjusted(
+                    requested: requested.canonicalEffort.rawValue,
+                    applied: normalizedAppliedEffort
+                )
+            )
+        }
+
+        var seen = Set<AgentModelNotice>()
+        return result.filter { seen.insert($0).inserted }
+    }
+}
+
 struct AgentModelResponse: Sendable {
     let message: AgentMessage
     let totalTokens: Int
     let tokenUsage: AgentModelTokenUsage
+    let notices: [AgentModelNotice]
 
     init(
         message: AgentMessage,
         totalTokens: Int,
-        tokenUsage: AgentModelTokenUsage = .empty
+        tokenUsage: AgentModelTokenUsage = .empty,
+        notices: [AgentModelNotice] = []
     ) {
         self.message = message
         self.totalTokens = totalTokens
         self.tokenUsage = tokenUsage
+        self.notices = notices
     }
 }
 

@@ -18,10 +18,46 @@ struct AgentToolResultRecord: Sendable {
     let isError: Bool
 }
 
+struct AgentNativeReasoningReplayScope: Sendable, Hashable {
+    let profileID: UUID
+    let endpointFingerprint: String
+    let modelID: String
+    let wireProtocol: LLMWireProtocol
+}
+
 struct AgentNativeReasoningPayload: Codable, Sendable, Hashable {
     let reasoningContent: String?
     let reasoningDetails: JSONRuntimeValue?
     let providerID: String
+    let profileID: UUID?
+    let endpointFingerprint: String?
+    let modelID: String?
+    let wireProtocol: LLMWireProtocol?
+
+    init(
+        reasoningContent: String?,
+        reasoningDetails: JSONRuntimeValue?,
+        providerID: String,
+        profileID: UUID? = nil,
+        endpointFingerprint: String? = nil,
+        modelID: String? = nil,
+        wireProtocol: LLMWireProtocol? = nil
+    ) {
+        self.reasoningContent = reasoningContent
+        self.reasoningDetails = reasoningDetails
+        self.providerID = providerID
+        self.profileID = profileID
+        self.endpointFingerprint = endpointFingerprint
+        self.modelID = modelID
+        self.wireProtocol = wireProtocol
+    }
+
+    func isReplayable(in scope: AgentNativeReasoningReplayScope) -> Bool {
+        profileID == scope.profileID
+            && endpointFingerprint == scope.endpointFingerprint
+            && modelID == scope.modelID
+            && wireProtocol == scope.wireProtocol
+    }
 }
 
 struct AgentTokenUsage: Codable, Sendable {
@@ -315,6 +351,7 @@ struct AgentApprovalRequest: Identifiable, Equatable, Sendable {
 
 enum AgentEvent: Sendable {
     case assistantText(String)
+    case modelNotice(AgentModelNotice)
     case thoughtCard(AgentThoughtCard)
     case queuedUserGuidanceInjected(messages: [String])
     case streamingDelta(text: String)

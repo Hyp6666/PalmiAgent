@@ -1452,6 +1452,15 @@ private enum PalmiPolicyDocumentResource {
         "\(resourceName(for: languageID)).pdf"
     }
 
+    static func providerLinksPageIndex(for languageID: String) -> Int {
+        switch languageID {
+        case "zh-Hans", "zh-Hant":
+            return 2
+        default:
+            return 3
+        }
+    }
+
     static func url(for languageID: String) -> URL? {
         let name = resourceName(for: languageID)
         if let url = Bundle.main.url(
@@ -1467,6 +1476,7 @@ private enum PalmiPolicyDocumentResource {
 
 private struct PalmiPolicyPDFView: UIViewRepresentable {
     let url: URL
+    let initialPageIndex: Int?
 
     func makeUIView(context: Context) -> PDFView {
         let view = PDFView()
@@ -1475,14 +1485,22 @@ private struct PalmiPolicyPDFView: UIViewRepresentable {
         view.autoScales = true
         view.backgroundColor = .clear
         view.document = PDFDocument(url: url)
+        goToInitialPage(in: view)
         return view
     }
 
     func updateUIView(_ uiView: PDFView, context: Context) {
         if uiView.document?.documentURL != url {
             uiView.document = PDFDocument(url: url)
+            goToInitialPage(in: uiView)
         }
         uiView.autoScales = true
+    }
+
+    private func goToInitialPage(in view: PDFView) {
+        guard let initialPageIndex,
+              let page = view.document?.page(at: initialPageIndex) else { return }
+        view.go(to: page)
     }
 }
 
@@ -2065,6 +2083,12 @@ private struct PrivacyAndPolicySettingsScreen: View {
 
 private struct PalmiPolicyDocumentScreen: View {
     let languageID: String
+    let initialPageIndex: Int?
+
+    init(languageID: String, initialPageIndex: Int? = nil) {
+        self.languageID = languageID
+        self.initialPageIndex = initialPageIndex
+    }
 
     private var title: String {
         switch languageID {
@@ -2078,7 +2102,7 @@ private struct PalmiPolicyDocumentScreen: View {
     var body: some View {
         Group {
             if let url = PalmiPolicyDocumentResource.url(for: languageID) {
-                PalmiPolicyPDFView(url: url)
+                PalmiPolicyPDFView(url: url, initialPageIndex: initialPageIndex)
                     .background(Color(uiColor: .systemGroupedBackground))
             } else {
                 ContentUnavailableView(
@@ -2095,7 +2119,7 @@ private struct PalmiPolicyDocumentScreen: View {
 
 private struct PersonalizationSettingsScreen: View {
     @AppStorage(AgentPersonalityPreset.storageKey)
-    private var selectedPresetRaw = AgentPersonalityPreset.default.rawValue
+    private var selectedPresetRaw = AgentPersonalityPreset.friendly.rawValue
     @AppStorage(AgentCustomPersonalityConfiguration.titleStorageKey)
     private var customTitle = ""
     @AppStorage(AgentCustomPersonalityConfiguration.descriptionStorageKey)
@@ -2109,7 +2133,7 @@ private struct PersonalizationSettingsScreen: View {
     }
 
     private var selectedPreset: AgentPersonalityPreset {
-        AgentPersonalityPreset(rawValue: selectedPresetRaw) ?? .default
+        AgentPersonalityPreset.current()
     }
 
     private var customConfiguration: AgentCustomPersonalityConfiguration {
@@ -2261,20 +2285,25 @@ private struct ModelConfigurationManagerScreen: View {
     @State private var renameDraft = ""
     @State private var errorMessage: String?
 
-    private var planStore: ModelPlanStore {
-        store.modelPlanStore
-    }
+    private var planStore: ModelPlanStore { store.modelPlanStore }
 
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 12) {
-                if planStore.plans.isEmpty {
-                    emptyState
-                } else {
-                    ForEach(planStore.plans) { plan in
-                        planRow(plan)
-                    }
+                ForEach(planStore.plans) { plan in
+                    planRow(plan)
                 }
+
+                NavigationLink {
+                    ModelLibraryScreen(
+                        planStore: planStore,
+                        validationService: store.modelCandidateValidationService,
+                        planID: nil
+                    )
+                } label: {
+                    globalLibraryCard
+                }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -2282,19 +2311,25 @@ private struct ModelConfigurationManagerScreen: View {
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle(PalmiL10n.tr("settings.row.modelManagement"))
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            if let feedback = planStore.feedbackMessage {
+                errorMessage = feedback
+            }
+        }
+        .onChange(of: planStore.feedbackMessage) { _, feedback in
+            if let feedback {
+                errorMessage = feedback
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    let planID = planStore.createPlan()
-                    presentedPlan = ModelPlanPresentation(planID: planID)
+                    presentedPlan = ModelPlanPresentation(planID: planStore.createPlan())
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(.primary)
                         .frame(width: 48, height: 48)
-                        .contentShape(Circle())
                 }
-                .buttonStyle(.plain)
                 .accessibilityLabel(PalmiL10n.tr("model.plan.add"))
             }
         }
@@ -2307,97 +2342,86 @@ private struct ModelConfigurationManagerScreen: View {
                 )
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button(PalmiL10n.tr("common.close")) {
-                            presentedPlan = nil
-                        }
+                        Button(PalmiL10n.tr("common.close")) { presentedPlan = nil }
                     }
                 }
             }
         }
-        .alert(PalmiL10n.tr("model.plan.rename"), isPresented: renamingPlanBinding) {
+        .alert(PalmiL10n.tr("model.plan.rename"), isPresented: renamingBinding) {
             TextField(PalmiL10n.tr("model.plan.name"), text: $renameDraft)
-
             Button(PalmiL10n.tr("common.save")) {
-                saveRenamedPlan()
+                if let renamingPlanID {
+                    planStore.setPlanName(renameDraft, planID: renamingPlanID)
+                }
+                self.renamingPlanID = nil
             }
-
             Button(PalmiL10n.tr("common.cancel"), role: .cancel) {
                 renamingPlanID = nil
-                renameDraft = ""
             }
         }
-        .alert(PalmiL10n.tr("model.plan.activateFailed"), isPresented: errorBinding) {
+        .alert(PalmiL10n.tr("common.operationFailed"), isPresented: errorBinding) {
             Button(PalmiL10n.tr("common.ok"), role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
         }
     }
 
-    private var emptyState: some View {
-        Button {
-            let planID = planStore.createPlan()
-            presentedPlan = ModelPlanPresentation(planID: planID)
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "plus.circle.fill")
-                    .font(.title3)
-                    .foregroundStyle(.blue)
+    private var globalLibraryCard: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "books.vertical.fill")
+                .font(.title2)
+                .foregroundStyle(.cyan)
+                .frame(width: 44, height: 44)
+                .background(.cyan.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
 
-                Text(PalmiL10n.tr("model.plan.add"))
-                    .font(.body.weight(.semibold))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(PalmiL10n.tr("model.library.globalTitle"))
+                    .font(.headline)
                     .foregroundStyle(.primary)
-
-                Spacer()
+                Text(PalmiL10n.tr("model.library.globalSubtitle", planStore.libraryModels.count))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
             }
-            .padding(18)
-            .glassEffect(.regular.tint(.white.opacity(0.08)), in: .rect(cornerRadius: 24))
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Image(systemName: "chevron.right")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
         }
-        .buttonStyle(.plain)
+        .padding(18)
+        .glassEffect(.regular.tint(.white.opacity(0.08)), in: .rect(cornerRadius: 24))
     }
 
     private func planRow(_ plan: ModelPlanSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 12) {
+            HStack(spacing: 12) {
                 Text(plan.name)
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(.primary)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                Button {
-                    activate(plan)
-                } label: {
-                    Text(plan.isActive ? PalmiL10n.tr("model.plan.active") : PalmiL10n.tr("model.plan.activate"))
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(plan.isActive ? Color.blue : Color.primary)
-                        .padding(.horizontal, 12)
-                        .frame(height: 34)
-                        .background(
-                            Capsule()
-                                .fill(plan.isActive ? Color.blue.opacity(0.12) : Color.secondary.opacity(0.12))
-                        )
-                        .overlay(
-                            Capsule()
-                                .stroke(plan.isActive ? Color.blue.opacity(0.35) : Color.secondary.opacity(0.22), lineWidth: 1)
-                        )
+                Button(plan.isActive ? PalmiL10n.tr("model.plan.active") : PalmiL10n.tr("model.plan.activate")) {
+                    do { try planStore.activatePlan(plan.id) }
+                    catch { errorMessage = modelConfigurationErrorMessage(error) }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(plan.isActive ? PalmiL10n.tr("model.plan.current") : PalmiL10n.tr("model.plan.activate"))
+                .font(.subheadline.weight(.semibold))
+                .buttonStyle(.bordered)
+                .tint(plan.isActive ? .green : .blue)
                 .disabled(plan.isActive)
 
                 Menu {
                     Button {
-                        beginRenaming(plan)
+                        renamingPlanID = plan.id
+                        renameDraft = plan.name
                     } label: {
                         Label(PalmiL10n.tr("model.plan.rename"), systemImage: "pencil")
                     }
-
                     Button {
                         presentedPlan = ModelPlanPresentation(planID: plan.id)
                     } label: {
                         Label(PalmiL10n.tr("model.plan.configure"), systemImage: "slider.horizontal.3")
                     }
-
                     Button(role: .destructive) {
                         pendingDeletion = plan
                     } label: {
@@ -2405,158 +2429,59 @@ private struct ModelConfigurationManagerScreen: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
-                        .font(.title2.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .font(.title2)
                         .frame(width: 44, height: 44)
-                }
-                .buttonStyle(.plain)
-                .confirmationDialog(
-                    PalmiL10n.tr("model.plan.delete"),
-                    isPresented: planDeletionBinding(for: plan)
-                ) {
-                    Button(PalmiL10n.tr("model.plan.delete"), role: .destructive) {
-                        let planID = plan.id
-                        planStore.deletePlan(planID)
-                        if presentedPlan?.planID == planID {
-                            presentedPlan = nil
-                        }
-                        pendingDeletion = nil
-                    }
-                    Button(PalmiL10n.tr("common.cancel"), role: .cancel) {}
-                } message: {
-                    Text(plan.name)
                 }
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                planSlotMenu(.primary, plan: plan, emptyValue: PalmiL10n.tr("common.notSelected"))
-                planSlotMenu(.multimodal, plan: plan, emptyValue: PalmiL10n.tr("common.none"))
-                planSlotMenu(.lightweight, plan: plan, emptyValue: PalmiL10n.tr("common.none"))
+            ForEach(ModelPlanSlot.allCases) { slot in
+                let selected = plan.selectedCandidate(for: slot)
+                HStack {
+                    Text(slot.localizedTitle)
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Text(selected?.title ?? (slot.isRequired ? PalmiL10n.tr("common.notSelected") : PalmiL10n.tr("common.none")))
+                        .font(.subheadline)
+                        .foregroundStyle(selected == nil ? .secondary : .primary)
+                        .lineLimit(1)
+                }
             }
         }
         .padding(18)
-        .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .onTapGesture {
-            presentedPlan = ModelPlanPresentation(planID: plan.id)
-        }
+        .contentShape(RoundedRectangle(cornerRadius: 24))
+        .onTapGesture { presentedPlan = ModelPlanPresentation(planID: plan.id) }
         .glassEffect(.regular.tint(.white.opacity(0.08)), in: .rect(cornerRadius: 24))
-    }
-
-    private func planSlotMenu(
-        _ slot: ModelPlanSlot,
-        plan: ModelPlanSnapshot,
-        emptyValue: String
-    ) -> some View {
-        let candidates = plan.candidates(for: slot)
-        let selected = plan.selectedCandidate(for: slot)
-
-        return HStack(spacing: 8) {
-            Text(slot.localizedTitle)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(.primary)
-                .frame(width: 64, alignment: .leading)
-
-            Spacer(minLength: 8)
-
-            Menu {
-                if candidates.isEmpty {
-                    if slot.isRequired {
-                        Text(PalmiL10n.tr("model.candidate.none"))
-                            .disabled(true)
-                    } else {
-                        Label(PalmiL10n.tr("common.none"), systemImage: "checkmark")
-                            .disabled(true)
-                    }
-                } else {
-                    ForEach(candidates) { candidate in
-                        Button {
-                            select(candidate, planID: plan.id, slot: slot)
-                        } label: {
-                            if selected?.id == candidate.id {
-                                Label(candidate.title, systemImage: "checkmark")
-                            } else {
-                                Text(candidate.title)
-                            }
-                        }
-                    }
-                }
-            } label: {
-                HStack(spacing: 7) {
-                    Text(selected?.title ?? emptyValue)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(selected == nil ? .secondary : .primary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.82)
-
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(candidates.isEmpty && slot.isRequired ? Color.secondary : Color.blue)
-                }
-                .frame(minHeight: 32)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+        .confirmationDialog(
+            PalmiL10n.tr("model.plan.delete"),
+            isPresented: Binding(
+                get: { pendingDeletion?.id == plan.id },
+                set: { if !$0 { pendingDeletion = nil } }
+            )
+        ) {
+            Button(PalmiL10n.tr("model.plan.delete"), role: .destructive) {
+                planStore.deletePlan(plan.id)
+                pendingDeletion = nil
             }
-            .buttonStyle(.plain)
+            Button(PalmiL10n.tr("common.cancel"), role: .cancel) {}
+        } message: {
+            Text(PalmiL10n.tr("model.plan.deleteKeepsModels"))
         }
     }
 
-    private func activate(_ plan: ModelPlanSnapshot) {
-        guard !plan.isActive else { return }
-        do {
-            try planStore.activatePlan(plan.id)
-        } catch {
-            errorMessage = modelConfigurationErrorMessage(error)
-        }
-    }
-
-    private func select(_ candidate: ModelCandidateSnapshot, planID: UUID, slot: ModelPlanSlot) {
-        do {
-            try planStore.selectCandidate(candidate.id, planID: planID, slot: slot)
-        } catch {
-            errorMessage = modelConfigurationErrorMessage(error)
-        }
-    }
-
-    private func beginRenaming(_ plan: ModelPlanSnapshot) {
-        renamingPlanID = plan.id
-        renameDraft = plan.name
-    }
-
-    private func saveRenamedPlan() {
-        guard let renamingPlanID else { return }
-        planStore.setPlanName(renameDraft, planID: renamingPlanID)
-        self.renamingPlanID = nil
-        renameDraft = ""
-    }
-
-    private func planDeletionBinding(for plan: ModelPlanSnapshot) -> Binding<Bool> {
-        Binding(
-            get: { pendingDeletion?.id == plan.id },
-            set: { isPresented in
-                if !isPresented && pendingDeletion?.id == plan.id {
-                    pendingDeletion = nil
-                }
-            }
-        )
-    }
-
-    private var renamingPlanBinding: Binding<Bool> {
+    private var renamingBinding: Binding<Bool> {
         Binding(
             get: { renamingPlanID != nil },
-            set: { isPresented in
-                if !isPresented {
-                    renamingPlanID = nil
-                    renameDraft = ""
-                }
-            }
+            set: { if !$0 { renamingPlanID = nil } }
         )
     }
 
     private var errorBinding: Binding<Bool> {
         Binding(
             get: { errorMessage != nil },
-            set: { isPresented in
-                if !isPresented {
+            set: {
+                if !$0 {
                     errorMessage = nil
+                    planStore.clearFeedback()
                 }
             }
         )
@@ -2780,368 +2705,155 @@ private struct ModelSlotCandidateListScreen: View {
     let validationService: ModelCandidateValidationService
     let planID: UUID
     let slot: ModelPlanSlot
-    @State private var pendingDeletion: ModelCandidateSnapshot?
     @State private var editingCandidate: ModelCandidateSnapshot?
-    @State private var validatingCandidateIDs: Set<UUID> = []
+    @State private var validatingID: UUID?
     @State private var errorMessage: String?
 
-    private var plan: ModelPlanSnapshot? {
-        planStore.plan(id: planID)
-    }
-
-    private var candidates: [ModelCandidateSnapshot] {
-        plan?.candidates(for: slot) ?? []
-    }
-
-    private var libraryCandidates: [ModelCandidateSnapshot] {
-        plan?.libraryCandidates(excluding: slot) ?? []
-    }
-
-    private var candidateRowItems: [ScopedCandidateRowItem] {
-        candidates.map { ScopedCandidateRowItem(scope: .candidate, slot: slot, candidate: $0) }
-    }
-
-    private var libraryRowItems: [ScopedCandidateRowItem] {
-        libraryCandidates.map { ScopedCandidateRowItem(scope: .library, slot: slot, candidate: $0) }
-    }
-
-    private struct ScopedCandidateRowItem: Identifiable {
-        enum Scope: String {
-            case candidate
-            case library
-        }
-
-        let scope: Scope
-        let slot: ModelPlanSlot
-        let candidate: ModelCandidateSnapshot
-
-        var id: String {
-            "\(slot.rawValue)-\(scope.rawValue)-\(candidate.id.uuidString)"
-        }
-    }
+    private var plan: ModelPlanSnapshot? { planStore.plan(id: planID) }
+    private var candidates: [ModelCandidateSnapshot] { plan?.candidates(for: slot) ?? [] }
+    private var available: [ModelCandidateSnapshot] { plan?.libraryCandidates(excluding: slot) ?? [] }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 12) {
+        List {
+            Section {
+                if candidates.isEmpty {
+                    Text(PalmiL10n.tr("model.slot.emptyCandidates", slot.localizedTitle))
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(candidates) { candidate in
+                    candidateRow(candidate)
+                }
+            } header: {
+                Text(slot.listTitle)
+            }
+
+            if !available.isEmpty {
+                Section(PalmiL10n.tr("model.library.title")) {
+                    ForEach(available) { candidate in
+                        Button {
+                            do {
+                                try planStore.addCandidateToSlot(
+                                    candidate.id,
+                                    planID: planID,
+                                    slot: slot,
+                                    selectAfterAdd: candidates.isEmpty
+                                )
+                            } catch {
+                                errorMessage = modelConfigurationErrorMessage(error)
+                            }
+                        } label: {
+                            Label(candidate.title, systemImage: "plus.circle")
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle(slot.localizedTitle)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
                     ModelCandidateAddScreen(
                         planStore: planStore,
-                        validationService: validationService,
                         planID: planID,
-                        slot: slot
+                        slot: slot,
+                        attachToSlot: true
                     )
                 } label: {
-                    addModelRow
-                }
-                .buttonStyle(.plain)
-
-                if candidates.isEmpty {
-                    emptyCandidateRow
-                } else {
-                    ForEach(candidateRowItems) { item in
-                        candidateRow(item.candidate)
-                    }
-                }
-
-                libraryDivider
-
-                if libraryCandidates.isEmpty {
-                    emptyLibraryRow
-                } else {
-                    ForEach(libraryRowItems) { item in
-                        libraryCandidateRow(item.candidate)
-                    }
+                    Image(systemName: "plus")
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
         }
-        .background(Color(uiColor: .systemGroupedBackground))
-        .navigationTitle(slot.localizedListTitle)
-        .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $editingCandidate) { candidate in
-            ModelCandidateEditorSheet(
-                planStore: planStore,
-                planID: planID,
-                candidate: candidate
-            )
-        }
-        .confirmationDialog(
-            PalmiL10n.tr("model.delete.title"),
-            isPresented: pendingDeletionBinding,
-            presenting: pendingDeletion
-        ) { candidate in
-            Button(PalmiL10n.tr("model.delete.title"), role: .destructive) {
-                planStore.deleteCandidate(candidate.id, planID: planID)
+            NavigationStack {
+                ModelCandidateEditorSheet(
+                    planStore: planStore,
+                    validationService: validationService,
+                    candidate: candidate
+                )
             }
-            Button(PalmiL10n.tr("common.cancel"), role: .cancel) {}
-        } message: { candidate in
-            Text(candidate.title)
         }
-        .alert(PalmiL10n.tr("model.configuration.failed"), isPresented: errorBinding) {
+        .alert(PalmiL10n.tr("common.operationFailed"), isPresented: errorBinding) {
             Button(PalmiL10n.tr("common.ok"), role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
         }
     }
 
-    private var addModelRow: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "plus.circle.fill")
-                .font(.title3)
-                .foregroundStyle(.blue)
-
-            Text(PalmiL10n.tr("model.add.title"))
-                .font(.body.weight(.semibold))
-                .foregroundStyle(.primary)
-
-            Spacer()
-        }
-        .padding(18)
-        .glassEffect(.regular.tint(.white.opacity(0.08)), in: .rect(cornerRadius: 24))
-    }
-
-    private var emptyCandidateRow: some View {
-        Text(PalmiL10n.tr("model.slot.emptyCandidates", slot.localizedTitle))
-            .font(.subheadline.weight(.medium))
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 16)
-            .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-
-    private var libraryDivider: some View {
-        HStack(spacing: 12) {
-            Rectangle()
-                .fill(Color.secondary.opacity(0.25))
-                .frame(height: 1)
-
-            Text(PalmiL10n.tr("model.library.title"))
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            Rectangle()
-                .fill(Color.secondary.opacity(0.25))
-                .frame(height: 1)
-        }
-        .padding(.vertical, 4)
-    }
-
-    private var emptyLibraryRow: some View {
-        Text(PalmiL10n.tr("model.library.noAddableModels"))
-            .font(.subheadline.weight(.medium))
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 16)
-            .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-
     private func candidateRow(_ candidate: ModelCandidateSnapshot) -> some View {
-        let isSelected = plan?.selectedCandidate(for: slot)?.id == candidate.id
-        let isSelectable = candidate.isConfigured(for: slot)
-
-        return HStack(alignment: .center, spacing: 12) {
+        HStack(spacing: 12) {
             Button {
-                select(candidate)
+                do { try planStore.selectCandidate(candidate.id, planID: planID, slot: slot) }
+                catch { errorMessage = modelConfigurationErrorMessage(error) }
             } label: {
-                HStack(alignment: .center, spacing: 12) {
-                    candidateText(candidate)
+                Image(systemName: plan?.selectedCandidate(for: slot)?.id == candidate.id ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(.blue)
+            }
+            .buttonStyle(.plain)
 
-                    Image(systemName: candidateSelectionIcon(isSelected: isSelected, isSelectable: isSelectable))
-                        .font(.title3)
-                        .foregroundStyle(isSelected ? .blue : .secondary.opacity(0.45))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(candidate.title)
+                Text(candidate.modelName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if candidate.validationStatus == .valid {
+                    Label(PalmiL10n.tr("model.status.validated"), systemImage: "checkmark.shield")
+                        .font(.caption2)
+                        .foregroundStyle(.green)
                 }
             }
-            .buttonStyle(.plain)
-            .disabled(!isSelectable)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            candidateMenu(candidate, inSlot: true)
-        }
-        .padding(18)
-        .glassEffect(.regular.tint(.white.opacity(0.08)), in: .rect(cornerRadius: 24))
-    }
-
-    private func libraryCandidateRow(_ candidate: ModelCandidateSnapshot) -> some View {
-        let canAdd = candidate.isConfigured(for: slot)
-
-        return HStack(alignment: .center, spacing: 12) {
-            candidateText(candidate)
-
-            Button {
-                addToSlot(candidate)
-            } label: {
-                Image(systemName: canAdd ? "plus.circle.fill" : "minus.circle")
-                    .font(.title3)
-                    .foregroundStyle(canAdd ? .blue : .secondary.opacity(0.45))
-                    .frame(width: 34, height: 34)
-            }
-            .buttonStyle(.plain)
-            .disabled(!canAdd)
-            .accessibilityLabel(PalmiL10n.tr("model.slot.addCandidate.accessibility", slot.localizedTitle))
-
-            candidateMenu(candidate, inSlot: false)
-        }
-        .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(uiColor: .secondarySystemGroupedBackground).opacity(0.82))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.secondary.opacity(0.14), lineWidth: 1)
-        )
-    }
-
-    private func candidateText(_ candidate: ModelCandidateSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(candidate.title)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-
-            Text(candidate.subtitle)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func candidateMenu(_ candidate: ModelCandidateSnapshot, inSlot: Bool) -> some View {
-        Menu {
-            Button {
-                editingCandidate = candidate
-            } label: {
-                Label(PalmiL10n.tr("model.edit.title"), systemImage: "pencil")
+            if validatingID == candidate.id {
+                ProgressView()
             }
 
-            if inSlot {
+            Menu {
                 Button {
-                    removeFromSlot(candidate)
+                    validate(candidate)
+                } label: {
+                    Label(PalmiL10n.tr("model.action.test"), systemImage: "checkmark.shield")
+                }
+                Button {
+                    editingCandidate = candidate
+                } label: {
+                    Label(PalmiL10n.tr("common.edit"), systemImage: "pencil")
+                }
+                Button(role: .destructive) {
+                    do { try planStore.removeCandidateFromSlot(candidate.id, planID: planID, slot: slot) }
+                    catch { errorMessage = modelConfigurationErrorMessage(error) }
                 } label: {
                     Label(PalmiL10n.tr("model.slot.removeCandidate", slot.localizedTitle), systemImage: "minus.circle")
                 }
-            } else {
-                Button {
-                    addToSlot(candidate)
-                } label: {
-                    Label(PalmiL10n.tr("model.slot.addCandidate", slot.localizedTitle), systemImage: "plus.circle")
-                }
-                .disabled(!candidate.isConfigured(for: slot))
-            }
-
-            Divider()
-
-            Button(role: .destructive) {
-                pendingDeletion = candidate
             } label: {
-                Label(PalmiL10n.tr("model.delete.title"), systemImage: "trash")
+                Image(systemName: "ellipsis.circle")
             }
-        } label: {
-            Image(systemName: "ellipsis.circle")
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 34, height: 34)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func candidateSelectionIcon(isSelected: Bool, isSelectable: Bool) -> String {
-        if isSelected {
-            return "checkmark.circle.fill"
-        }
-        return isSelectable ? "circle" : "minus.circle"
-    }
-
-    private func select(_ candidate: ModelCandidateSnapshot) {
-        do {
-            try planStore.selectCandidate(candidate.id, planID: planID, slot: slot)
-        } catch {
-            errorMessage = modelConfigurationErrorMessage(error)
         }
     }
 
-    private func addToSlot(_ candidate: ModelCandidateSnapshot) {
-        do {
-            try planStore.addCandidateToSlot(candidate.id, planID: planID, slot: slot)
-        } catch {
-            errorMessage = modelConfigurationErrorMessage(error)
-        }
-    }
-
-    private func addOrValidateAndAddToSlot(_ candidate: ModelCandidateSnapshot) {
-        addToSlot(candidate)
-    }
-
-    private func validateAndAddToSlot(_ candidate: ModelCandidateSnapshot) {
-        guard canValidateForSlot(candidate) else {
-            addToSlot(candidate)
-            return
-        }
-        validatingCandidateIDs.insert(candidate.id)
-        let draft = validationDraft(for: candidate, slot: slot)
-
+    private func validate(_ candidate: ModelCandidateSnapshot) {
+        validatingID = candidate.id
+        let draft = ModelCandidateDraft(
+            slot: slot,
+            displayName: candidate.record.displayName,
+            baseURLString: candidate.connection.inputAddress,
+            apiKey: planStore.apiKey(for: candidate.id),
+            modelName: candidate.modelName
+        )
         Task {
-            defer {
-                validatingCandidateIDs.remove(candidate.id)
-            }
+            defer { validatingID = nil }
             do {
                 let result = try await validationService.validate(draft)
                 try planStore.updateCandidateValidation(candidate.id, planID: planID, validation: result)
-                try planStore.addCandidateToSlot(candidate.id, planID: planID, slot: slot)
             } catch {
                 errorMessage = modelConfigurationErrorMessage(error)
             }
         }
     }
 
-    private func canValidateForSlot(_ candidate: ModelCandidateSnapshot) -> Bool {
-        slot.requiresVisionValidation &&
-        candidate.validationStatus == .valid &&
-        candidate.capabilities.supportsText &&
-        !candidate.capabilities.supportsVision
-    }
-
-    private func validationDraft(for candidate: ModelCandidateSnapshot, slot: ModelPlanSlot) -> ModelCandidateDraft {
-        ModelCandidateDraft(
-            slot: slot,
-            displayName: candidate.record.displayName,
-            preset: candidate.preset,
-            baseURLString: candidate.baseURLString,
-            apiKey: planStore.apiKey(for: planID, candidateID: candidate.id),
-            modelName: candidate.modelName
-        )
-    }
-
-    private func removeFromSlot(_ candidate: ModelCandidateSnapshot) {
-        do {
-            try planStore.removeCandidateFromSlot(candidate.id, planID: planID, slot: slot)
-        } catch {
-            errorMessage = modelConfigurationErrorMessage(error)
-        }
-    }
-
-    private var pendingDeletionBinding: Binding<Bool> {
-        Binding(
-            get: { pendingDeletion != nil },
-            set: { isPresented in
-                if !isPresented {
-                    pendingDeletion = nil
-                }
-            }
-        )
-    }
-
     private var errorBinding: Binding<Bool> {
         Binding(
             get: { errorMessage != nil },
-            set: { isPresented in
-                if !isPresented {
-                    errorMessage = nil
-                }
-            }
+            set: { if !$0 { errorMessage = nil } }
         )
     }
 }
@@ -3149,71 +2861,67 @@ private struct ModelSlotCandidateListScreen: View {
 private struct ModelLibraryScreen: View {
     @Bindable var planStore: ModelPlanStore
     let validationService: ModelCandidateValidationService
-    let planID: UUID
-    @State private var pendingDeletion: ModelCandidateSnapshot?
+    let planID: UUID?
     @State private var editingCandidate: ModelCandidateSnapshot?
-    @State private var validatingCandidateIDs: Set<UUID> = []
+    @State private var pendingDeletion: ModelCandidateSnapshot?
     @State private var errorMessage: String?
 
-    private var plan: ModelPlanSnapshot? {
-        planStore.plan(id: planID)
-    }
-
-    private var candidates: [ModelCandidateSnapshot] {
-        plan?.libraryCandidates() ?? []
-    }
-
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 12) {
-                ForEach(candidates) { candidate in
+        List {
+            if planStore.libraryModels.isEmpty {
+                ContentUnavailableView(
+                    PalmiL10n.tr("model.library.empty"),
+                    systemImage: "books.vertical",
+                    description: Text(PalmiL10n.tr("model.library.emptyDescription"))
+                )
+            } else {
+                ForEach(planStore.libraryModels) { candidate in
                     libraryRow(candidate)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
         }
-        .background(Color(uiColor: .systemGroupedBackground))
-        .navigationTitle(PalmiL10n.tr("model.library.title"))
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(PalmiL10n.tr("model.library.globalTitle"))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
                     ModelCandidateAddScreen(
                         planStore: planStore,
-                        validationService: validationService,
                         planID: planID,
-                        slot: .primary,
-                        selectAfterSingleAdd: false,
-                        addToSlot: false,
-                        titleOverride: PalmiL10n.tr("model.add.title")
+                        slot: nil,
+                        attachToSlot: false
                     )
                 } label: {
                     Image(systemName: "plus")
                 }
-                .accessibilityLabel(PalmiL10n.tr("model.add.title"))
             }
         }
         .sheet(item: $editingCandidate) { candidate in
-            ModelCandidateEditorSheet(
-                planStore: planStore,
-                planID: planID,
-                candidate: candidate
-            )
+            NavigationStack {
+                ModelCandidateEditorSheet(
+                    planStore: planStore,
+                    validationService: validationService,
+                    candidate: candidate
+                )
+            }
         }
         .confirmationDialog(
-            PalmiL10n.tr("model.delete.title"),
-            isPresented: pendingDeletionBinding,
-            presenting: pendingDeletion
-        ) { candidate in
-            Button(PalmiL10n.tr("model.delete.title"), role: .destructive) {
-                planStore.deleteCandidate(candidate.id, planID: planID)
+            PalmiL10n.tr("model.library.deleteGlobalTitle"),
+            isPresented: Binding(
+                get: { pendingDeletion != nil },
+                set: { if !$0 { pendingDeletion = nil } }
+            )
+        ) {
+            Button(PalmiL10n.tr("common.delete"), role: .destructive) {
+                guard let candidate = pendingDeletion else { return }
+                do { try planStore.deleteGlobalModel(candidate.id) }
+                catch { errorMessage = modelConfigurationErrorMessage(error) }
+                pendingDeletion = nil
             }
             Button(PalmiL10n.tr("common.cancel"), role: .cancel) {}
-        } message: { candidate in
-            Text(candidate.title)
+        } message: {
+            Text(PalmiL10n.tr("model.library.deleteGlobalMessage"))
         }
-        .alert(PalmiL10n.tr("model.configuration.failed"), isPresented: errorBinding) {
+        .alert(PalmiL10n.tr("common.operationFailed"), isPresented: errorBinding) {
             Button(PalmiL10n.tr("common.ok"), role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
@@ -3221,131 +2929,61 @@ private struct ModelLibraryScreen: View {
     }
 
     private func libraryRow(_ candidate: ModelCandidateSnapshot) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(candidate.title)
                     .font(.body.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-
-                Text(candidate.subtitle)
-                    .font(.caption.weight(.medium))
+                Text(candidate.modelName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(candidate.connection.inputAddress)
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Menu {
+                if let planID {
+                    ForEach(ModelPlanSlot.allCases) { slot in
+                        Button {
+                            do {
+                                try planStore.addCandidateToSlot(
+                                    candidate.id,
+                                    planID: planID,
+                                    slot: slot,
+                                    selectAfterAdd: false
+                                )
+                            } catch {
+                                errorMessage = modelConfigurationErrorMessage(error)
+                            }
+                        } label: {
+                            Label(PalmiL10n.tr("model.slot.addCandidate", slot.localizedTitle), systemImage: "plus.circle")
+                        }
+                    }
+                    Divider()
+                }
                 Button {
                     editingCandidate = candidate
                 } label: {
-                    Label(PalmiL10n.tr("model.edit.title"), systemImage: "pencil")
+                    Label(PalmiL10n.tr("common.edit"), systemImage: "pencil")
                 }
-
-                Divider()
-
-                ForEach(ModelPlanSlot.allCases) { slot in
-                    Button {
-                        addToSlot(candidate, slot: slot)
-                    } label: {
-                        Label(PalmiL10n.tr("model.slot.addCandidate", slot.localizedTitle), systemImage: "plus.circle")
-                    }
-                    .disabled(!candidate.isConfigured(for: slot))
-                }
-
-                Divider()
-
                 Button(role: .destructive) {
                     pendingDeletion = candidate
                 } label: {
-                    Label(PalmiL10n.tr("model.delete.title"), systemImage: "trash")
+                    Label(PalmiL10n.tr("common.delete"), systemImage: "trash")
                 }
             } label: {
                 Image(systemName: "ellipsis.circle")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 34, height: 34)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(uiColor: .secondarySystemGroupedBackground).opacity(0.82))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.secondary.opacity(0.14), lineWidth: 1)
-        )
-    }
-
-    private func addToSlot(_ candidate: ModelCandidateSnapshot, slot: ModelPlanSlot) {
-        do {
-            try planStore.addCandidateToSlot(candidate.id, planID: planID, slot: slot)
-        } catch {
-            errorMessage = modelConfigurationErrorMessage(error)
-        }
-    }
-
-    private func addOrValidateAndAddToSlot(_ candidate: ModelCandidateSnapshot, slot: ModelPlanSlot) {
-        addToSlot(candidate, slot: slot)
-    }
-
-    private func validateAndAddToSlot(_ candidate: ModelCandidateSnapshot, slot: ModelPlanSlot) {
-        guard canValidate(candidate, for: slot) else {
-            addToSlot(candidate, slot: slot)
-            return
-        }
-        validatingCandidateIDs.insert(candidate.id)
-        let draft = ModelCandidateDraft(
-            slot: slot,
-            displayName: candidate.record.displayName,
-            preset: candidate.preset,
-            baseURLString: candidate.baseURLString,
-            apiKey: planStore.apiKey(for: planID, candidateID: candidate.id),
-            modelName: candidate.modelName
-        )
-
-        Task {
-            defer {
-                validatingCandidateIDs.remove(candidate.id)
-            }
-            do {
-                let result = try await validationService.validate(draft)
-                try planStore.updateCandidateValidation(candidate.id, planID: planID, validation: result)
-                try planStore.addCandidateToSlot(candidate.id, planID: planID, slot: slot)
-            } catch {
-                errorMessage = modelConfigurationErrorMessage(error)
+                    .font(.title3)
             }
         }
-    }
-
-    private func canValidate(_ candidate: ModelCandidateSnapshot, for slot: ModelPlanSlot) -> Bool {
-        slot.requiresVisionValidation &&
-        candidate.validationStatus == .valid &&
-        candidate.capabilities.supportsText &&
-        !candidate.capabilities.supportsVision
-    }
-
-    private var pendingDeletionBinding: Binding<Bool> {
-        Binding(
-            get: { pendingDeletion != nil },
-            set: { isPresented in
-                if !isPresented {
-                    pendingDeletion = nil
-                }
-            }
-        )
     }
 
     private var errorBinding: Binding<Bool> {
         Binding(
             get: { errorMessage != nil },
-            set: { isPresented in
-                if !isPresented {
-                    errorMessage = nil
-                }
-            }
+            set: { if !$0 { errorMessage = nil } }
         )
     }
 }
@@ -3353,158 +2991,595 @@ private struct ModelLibraryScreen: View {
 private struct ModelCandidateEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var planStore: ModelPlanStore
-    let planID: UUID
-    let candidateID: UUID
+    let validationService: ModelCandidateValidationService
+    let candidate: ModelCandidateSnapshot
+
     @State private var displayName: String
     @State private var modelName: String
-    @State private var baseURLString: String
+    @State private var inputAddress: String
     @State private var apiKey: String
+    @State private var isValidating = false
+    @State private var validation: ModelCandidateValidationResult?
     @State private var errorMessage: String?
-    @FocusState private var focusedField: Field?
 
     init(
         planStore: ModelPlanStore,
-        planID: UUID,
+        validationService: ModelCandidateValidationService,
         candidate: ModelCandidateSnapshot
     ) {
         self.planStore = planStore
-        self.planID = planID
-        self.candidateID = candidate.id
+        self.validationService = validationService
+        self.candidate = candidate
         _displayName = State(initialValue: candidate.record.displayName)
         _modelName = State(initialValue: candidate.modelName)
-        _baseURLString = State(initialValue: candidate.baseURLString)
-        _apiKey = State(initialValue: planStore.apiKey(for: planID, candidateID: candidate.id))
-    }
-
-    private enum Field {
-        case displayName
-        case modelName
-        case baseURL
-        case apiKey
+        _inputAddress = State(initialValue: candidate.connection.inputAddress)
+        _apiKey = State(initialValue: planStore.apiKey(for: candidate.id))
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    editorField(
-                        title: PalmiL10n.tr("model.field.displayName"),
-                        text: $displayName,
-                        field: .displayName,
-                        submit: .next
-                    ) {
-                        focusedField = .modelName
-                    }
+        Form {
+            Section(PalmiL10n.tr("model.connection.title")) {
+                TextField(PalmiL10n.tr("model.connection.address"), text: $inputAddress)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                SecureField(PalmiL10n.tr("model.field.apiKey"), text: $apiKey)
+            }
 
-                    editorField(
-                        title: PalmiL10n.tr("model.field.requestModelName"),
-                        text: $modelName,
-                        field: .modelName,
-                        submit: .next
-                    ) {
-                        focusedField = .baseURL
-                    }
+            Section(PalmiL10n.tr("model.model.title")) {
+                TextField(PalmiL10n.tr("model.field.requestModelName"), text: $modelName)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                TextField(PalmiL10n.tr("model.field.displayName"), text: $displayName)
+            }
 
-                    editorField(
-                        title: "Base URL",
-                        text: $baseURLString,
-                        field: .baseURL,
-                        keyboardType: .URL,
-                        submit: .next
-                    ) {
-                        focusedField = .apiKey
-                    }
-
-                    editorField(
-                        title: "API Key",
-                        text: $apiKey,
-                        field: .apiKey,
-                        isSecure: true,
-                        submit: .done
-                    ) {
-                        focusedField = nil
-                        save()
+            Section {
+                Button {
+                    validate()
+                } label: {
+                    HStack {
+                        if isValidating { ProgressView() }
+                        Text(PalmiL10n.tr("model.action.test"))
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 16)
-            }
-            .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle(PalmiL10n.tr("model.edit.title"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(PalmiL10n.tr("common.cancel")) {
-                        dismiss()
-                    }
-                }
+                .disabled(isValidating)
 
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(PalmiL10n.tr("common.save")) {
-                        save()
-                    }
-                    .disabled(!canSave)
+                if let validation {
+                    Text(validation.message)
+                        .foregroundStyle(.green)
                 }
             }
-            .alert(PalmiL10n.tr("common.saveFailed"), isPresented: errorBinding) {
-                Button(PalmiL10n.tr("common.ok"), role: .cancel) {}
-            } message: {
-                Text(errorMessage ?? "")
+        }
+        .navigationTitle(PalmiL10n.tr("common.edit"))
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(PalmiL10n.tr("common.cancel")) { dismiss() }
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(PalmiL10n.tr("common.save")) { save() }
+            }
+        }
+        .alert(PalmiL10n.tr("common.operationFailed"), isPresented: errorBinding) {
+            Button(PalmiL10n.tr("common.ok"), role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
         }
     }
 
-    private func editorField(
-        title: String,
-        text: Binding<String>,
-        field: Field,
-        keyboardType: UIKeyboardType = .default,
-        isSecure: Bool = false,
-        submit: SubmitLabel,
-        onSubmit: @escaping () -> Void
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.headline)
-
-            Group {
-                if isSecure {
-                    SecureField(title, text: text)
-                } else {
-                    TextField(title, text: text)
-                        .keyboardType(keyboardType)
-                }
-            }
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .submitLabel(submit)
-            .focused($focusedField, equals: field)
-            .onSubmit(onSubmit)
-            .textFieldStyle(.plain)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    private func validate() {
+        isValidating = true
+        let draft = ModelCandidateDraft(
+            slot: candidate.capabilities.supportsVision ? .multimodal : .primary,
+            displayName: displayName,
+            baseURLString: inputAddress,
+            apiKey: apiKey,
+            modelName: modelName
+        )
+        Task {
+            defer { isValidating = false }
+            do { validation = try await validationService.validate(draft) }
+            catch { errorMessage = modelConfigurationErrorMessage(error) }
         }
-        .padding(18)
-        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 24))
-    }
-
-    private var canSave: Bool {
-        !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !modelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !baseURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func save() {
-        guard canSave else { return }
         do {
             try planStore.updateCandidateConfiguration(
-                candidateID,
-                planID: planID,
+                candidate.id,
+                planID: candidate.id,
                 displayName: displayName,
                 modelName: modelName,
-                baseURLString: baseURLString,
+                baseURLString: inputAddress,
                 apiKey: apiKey
+            )
+            if let validation {
+                try planStore.updateCandidateValidation(
+                    candidate.id,
+                    planID: candidate.id,
+                    validation: validation
+                )
+            }
+            dismiss()
+        } catch {
+            errorMessage = modelConfigurationErrorMessage(error)
+        }
+    }
+
+    private var errorBinding: Binding<Bool> {
+        Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )
+    }
+}
+
+private enum ModelDiscoveryViewState {
+    case idle
+    case loading
+    case loaded(result: LLMModelDiscoveryResult, selected: Set<String>)
+    case failed(String)
+}
+
+private struct ModelAddressHelpScreen: View {
+    @Environment(\.dismiss) private var dismiss
+    let languageID: String
+
+    private let examples = [
+        "https://api.openai.com",
+        "https://api.openai.com/v1",
+        "https://api.openai.com/v1/chat/completions"
+    ]
+
+    var body: some View {
+        Form {
+            Section {
+                Text(PalmiL10n.tr("model.connection.help.description"))
+            }
+
+            Section(PalmiL10n.tr("model.connection.help.examples")) {
+                ForEach(examples, id: \.self) { example in
+                    Text(example)
+                        .font(.system(.body, design: .monospaced))
+                        .textSelection(.enabled)
+                }
+            }
+
+            Section {
+                NavigationLink {
+                    PalmiPolicyDocumentScreen(
+                        languageID: languageID,
+                        initialPageIndex: PalmiPolicyDocumentResource.providerLinksPageIndex(
+                            for: languageID
+                        )
+                    )
+                } label: {
+                    Label(
+                        PalmiL10n.tr("model.connection.help.policyLink"),
+                        systemImage: "doc.text"
+                    )
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle(PalmiL10n.tr("model.connection.help.title"))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(PalmiL10n.tr("common.done")) {
+                    dismiss()
+                }
+            }
+        }
+    }
+}
+
+private struct ModelCandidateAddScreen: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var planStore: ModelPlanStore
+    let planID: UUID?
+    let slot: ModelPlanSlot?
+    let attachToSlot: Bool
+
+    @State private var inputAddress = ""
+    @State private var apiKey = ""
+    @State private var isShowingAPIKey = false
+    @State private var isShowingAddressHelp = false
+    @State private var discoveryState: ModelDiscoveryViewState = .idle
+    @State private var aliases: [String: String] = [:]
+    @State private var expandedAliasIDs: Set<String> = []
+    @State private var manualModelID = ""
+    @State private var manualAlias = ""
+    @State private var errorMessage: String?
+    @State private var discoveryTask: Task<Void, Never>?
+
+    private let discoveryService = LLMModelDiscoveryService()
+
+    var body: some View {
+        Form {
+            addressSection
+            apiKeySection
+            discoverySection
+            manualModelIDSection
+            manualAliasSection
+            manualAddSection
+        }
+        .formStyle(.grouped)
+        .scrollDismissesKeyboard(.interactively)
+        .navigationTitle(PalmiL10n.tr("model.add.title"))
+        .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: inputAddress) { _, _ in
+            invalidateDiscovery()
+        }
+        .onChange(of: apiKey) { _, _ in
+            invalidateDiscovery()
+        }
+        .onDisappear {
+            discoveryTask?.cancel()
+        }
+        .alert(PalmiL10n.tr("common.operationFailed"), isPresented: errorBinding) {
+            Button(PalmiL10n.tr("common.ok"), role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
+        .sheet(isPresented: $isShowingAddressHelp) {
+            NavigationStack {
+                ModelAddressHelpScreen(languageID: PalmiLanguage.current.rawValue)
+            }
+        }
+    }
+
+    private var addressSection: some View {
+        Section {
+            TextField(
+                "",
+                text: $inputAddress,
+                prompt: Text(PalmiL10n.tr("model.connection.placeholder"))
+            )
+            .keyboardType(.URL)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .accessibilityLabel(PalmiL10n.tr("model.connection.compatibleAddress"))
+        } header: {
+            HStack {
+                Text(PalmiL10n.tr("model.connection.compatibleAddress"))
+                Spacer()
+                Button {
+                    isShowingAddressHelp = true
+                } label: {
+                    Image(systemName: "questionmark.circle")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel(PalmiL10n.tr("model.connection.help.accessibility"))
+            }
+        }
+    }
+
+    private var apiKeySection: some View {
+        Section {
+            HStack(spacing: 8) {
+                Group {
+                    if isShowingAPIKey {
+                        TextField(
+                            "",
+                            text: $apiKey,
+                            prompt: Text(PalmiL10n.tr("model.apiKey.placeholder"))
+                        )
+                    } else {
+                        SecureField(
+                            "",
+                            text: $apiKey,
+                            prompt: Text(PalmiL10n.tr("model.apiKey.placeholder"))
+                        )
+                    }
+                }
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .privacySensitive()
+                .accessibilityLabel(PalmiL10n.tr("model.field.apiKey"))
+
+                Button {
+                    isShowingAPIKey.toggle()
+                } label: {
+                    Image(systemName: isShowingAPIKey ? "eye.slash" : "eye")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel(
+                    PalmiL10n.tr(isShowingAPIKey ? "model.apiKey.hide" : "model.apiKey.show")
+                )
+            }
+        } header: {
+            Text(PalmiL10n.tr("model.field.apiKey"))
+        }
+    }
+
+    @ViewBuilder
+    private var discoverySection: some View {
+        Section {
+            HStack {
+                Button {
+                    fetchModels()
+                } label: {
+                    Label(PalmiL10n.tr("model.discovery.fetch"), systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .disabled(
+                    inputAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                    isDiscovering
+                )
+                .accessibilityLabel(
+                    PalmiL10n.tr(isDiscovering ? "model.discovery.loading" : "model.discovery.fetch")
+                )
+
+                Spacer()
+
+                if isDiscovering {
+                    ProgressView()
+                        .accessibilityHidden(true)
+                } else if case .loaded(let result, let selected) = discoveryState {
+                    Button(PalmiL10n.tr("model.discovery.importCount", selected.count)) {
+                        importSelected(result: result, selected: selected)
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(selected.isEmpty)
+                }
+            }
+
+            switch discoveryState {
+            case .idle, .loading:
+                EmptyView()
+            case .failed(let message):
+                Label(message, systemImage: "exclamationmark.circle")
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            case .loaded(let result, let selected):
+                let allModelIDs = Set(result.models.map(\.id))
+                let areAllSelected = !allModelIDs.isEmpty && selected == allModelIDs
+
+                Button {
+                    discoveryState = .loaded(
+                        result: result,
+                        selected: areAllSelected ? [] : allModelIDs
+                    )
+                    if areAllSelected {
+                        expandedAliasIDs.removeAll()
+                    }
+                } label: {
+                    HStack {
+                        Text(
+                            PalmiL10n.tr(
+                                areAllSelected
+                                    ? "model.discovery.deselectAll"
+                                    : "model.discovery.selectAll"
+                            )
+                        )
+                        Spacer()
+                        if areAllSelected {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(Color.accentColor)
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .foregroundStyle(Color.accentColor)
+                }
+                .buttonStyle(.plain)
+
+                ForEach(result.models, id: \.id) { model in
+                    discoveredModelSelectionRow(model, result: result, selected: selected)
+
+                    if expandedAliasIDs.contains(model.id) {
+                        discoveredModelAliasRow(model)
+                    }
+                }
+            }
+        } header: {
+            Text(PalmiL10n.tr("model.discovery.title"))
+        }
+    }
+
+    private func discoveredModelSelectionRow(
+        _ model: LLMDiscoveredModel,
+        result: LLMModelDiscoveryResult,
+        selected: Set<String>
+    ) -> some View {
+        HStack(spacing: 4) {
+            Button {
+                var next = selected
+                if next.contains(model.id) {
+                    next.remove(model.id)
+                    expandedAliasIDs.remove(model.id)
+                } else {
+                    next.insert(model.id)
+                }
+                discoveryState = .loaded(result: result, selected: next)
+            } label: {
+                HStack(alignment: .top, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(model.id)
+                            .font(.body.weight(.medium))
+                            .foregroundStyle(.primary)
+
+                        if let remoteName = model.remoteDisplayName, remoteName != model.id {
+                            Text(remoteName)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Spacer()
+
+                    if selected.contains(model.id) {
+                        Image(systemName: "checkmark")
+                            .foregroundStyle(Color.accentColor)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(model.id)
+            .accessibilityValue(
+                PalmiL10n.tr(
+                    selected.contains(model.id)
+                        ? "model.discovery.selected"
+                        : "model.discovery.notSelected"
+                )
+            )
+
+            Button {
+                if expandedAliasIDs.contains(model.id) {
+                    expandedAliasIDs.remove(model.id)
+                } else {
+                    expandedAliasIDs.insert(model.id)
+                    if !selected.contains(model.id) {
+                        var next = selected
+                        next.insert(model.id)
+                        discoveryState = .loaded(result: result, selected: next)
+                    }
+                }
+            } label: {
+                Image(systemName: expandedAliasIDs.contains(model.id) ? "chevron.up" : "pencil")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel(
+                PalmiL10n.tr(
+                    expandedAliasIDs.contains(model.id)
+                        ? "model.alias.collapse"
+                        : "model.alias.edit"
+                )
+            )
+        }
+    }
+
+    private func discoveredModelAliasRow(_ model: LLMDiscoveredModel) -> some View {
+        TextField(
+            "",
+            text: Binding(
+                get: { aliases[model.id] ?? "" },
+                set: { aliases[model.id] = $0 }
+            ),
+            prompt: Text(PalmiL10n.tr("model.alias.placeholder"))
+        )
+        .accessibilityLabel(
+            PalmiL10n.tr("model.field.aliasOptional")
+        )
+    }
+
+    private var manualModelIDSection: some View {
+        Section {
+            TextField("", text: $manualModelID)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .accessibilityLabel(PalmiL10n.tr("model.field.modelID"))
+        } header: {
+            VStack(alignment: .leading, spacing: 12) {
+                Divider()
+                Text(PalmiL10n.tr("model.manual.title"))
+                Text(PalmiL10n.tr("model.field.modelID"))
+            }
+        }
+    }
+
+    private var manualAliasSection: some View {
+        Section {
+            TextField("", text: $manualAlias)
+                .accessibilityLabel(PalmiL10n.tr("model.field.aliasOptional"))
+        } header: {
+            Text(PalmiL10n.tr("model.field.aliasOptional"))
+        }
+    }
+
+    private var manualAddSection: some View {
+        Section {
+            Button(PalmiL10n.tr("model.manual.add")) {
+                addManualModel()
+            }
+            .disabled(
+                inputAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                manualModelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            )
+        }
+    }
+
+    private var isDiscovering: Bool {
+        if case .loading = discoveryState { return true }
+        return false
+    }
+
+    private func invalidateDiscovery() {
+        discoveryTask?.cancel()
+        discoveryTask = nil
+        discoveryState = .idle
+        aliases.removeAll()
+        expandedAliasIDs.removeAll()
+    }
+
+    private func fetchModels() {
+        discoveryTask?.cancel()
+        discoveryState = .loading
+        let address = inputAddress
+        let key = apiKey
+        discoveryTask = Task {
+            do {
+                let result = try await discoveryService.fetchModels(
+                    inputAddress: address,
+                    apiKey: key
+                )
+                guard !Task.isCancelled else { return }
+                discoveryState = .loaded(
+                    result: result,
+                    selected: Set(result.models.map(\.id))
+                )
+            } catch {
+                guard !Task.isCancelled else { return }
+                discoveryState = .failed(modelConfigurationErrorMessage(error))
+            }
+        }
+    }
+
+    private func importSelected(
+        result: LLMModelDiscoveryResult,
+        selected: Set<String>
+    ) {
+        let filtered = LLMModelDiscoveryResult(
+            endpoint: result.endpoint,
+            models: result.models.filter { selected.contains($0.id) }
+        )
+        do {
+            _ = try planStore.importDiscoveredModels(
+                inputAddress: inputAddress,
+                apiKey: apiKey,
+                discovery: filtered,
+                aliases: aliases,
+                planID: attachToSlot ? planID : nil,
+                slot: attachToSlot ? slot : nil
+            )
+            dismiss()
+        } catch {
+            errorMessage = modelConfigurationErrorMessage(error)
+        }
+    }
+
+    private func addManualModel() {
+        guard let targetPlanID = planID ?? planStore.plans.first?.id else { return }
+        let targetSlot = slot ?? .primary
+        let draft = ModelCandidateDraft(
+            slot: targetSlot,
+            displayName: manualAlias,
+            baseURLString: inputAddress,
+            apiKey: apiKey,
+            modelName: manualModelID
+        )
+        do {
+            _ = try planStore.addCandidate(
+                planID: targetPlanID,
+                draft: draft,
+                selectAfterAdd: attachToSlot,
+                addToSlot: attachToSlot
             )
             dismiss()
         } catch {
@@ -3515,624 +3590,10 @@ private struct ModelCandidateEditorSheet: View {
     private var errorBinding: Binding<Bool> {
         Binding(
             get: { errorMessage != nil },
-            set: { isPresented in
-                if !isPresented {
-                    errorMessage = nil
-                }
-            }
+            set: { if !$0 { errorMessage = nil } }
         )
     }
 }
-
-private struct ModelCandidateAddScreen: View {
-    @Environment(\.dismiss) private var dismiss
-    @Bindable var planStore: ModelPlanStore
-    let validationService: ModelCandidateValidationService
-    let planID: UUID
-    let slot: ModelPlanSlot
-    let selectAfterSingleAdd: Bool
-    let addToSlot: Bool
-    let titleOverride: String?
-    @State private var selectedPreset: ModelCandidateProviderPreset = .openAICompatible
-    @State private var baseURLString = ""
-    @State private var apiKey = ""
-    @State private var officialDisplayNames: [String: String] = [:]
-    @State private var customDisplayName = ""
-    @State private var customModelName = ""
-    @State private var rowStates: [CandidateValidationKey: CandidateValidationRowState] = [:]
-    @State private var isBulkTesting = false
-    @State private var isBulkAdding = false
-    @State private var errorMessage: String?
-    @FocusState private var focusedField: Field?
-    private let baseURLPlaceholder = "https://api.example.com/v1"
-
-    init(
-        planStore: ModelPlanStore,
-        validationService: ModelCandidateValidationService,
-        planID: UUID,
-        slot: ModelPlanSlot,
-        selectAfterSingleAdd: Bool = true,
-        addToSlot: Bool = true,
-        titleOverride: String? = nil
-    ) {
-        self.planStore = planStore
-        self.validationService = validationService
-        self.planID = planID
-        self.slot = slot
-        self.selectAfterSingleAdd = selectAfterSingleAdd
-        self.addToSlot = addToSlot
-        self.titleOverride = titleOverride
-    }
-
-    private enum Field {
-        case baseURL
-        case apiKey
-        case customDisplayName
-        case customModelName
-    }
-
-    private struct CandidateValidationKey: Hashable {
-        let slot: ModelPlanSlot
-        let preset: ModelCandidateProviderPreset
-        let baseURLString: String
-        let modelName: String
-    }
-
-    private enum CandidateValidationRowState {
-        case idle
-        case validating
-        case valid(ModelCandidateValidationResult)
-        case failed(String)
-        case added
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 14) {
-                presetCard
-                baseURLCard
-                apiKeyCard
-                if !officialModelsForSlot.isEmpty {
-                    officialModelsCard
-                }
-                customModelCard
-                bulkActionBar
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 16)
-        }
-        .scrollDismissesKeyboard(.interactively)
-        .background(Color(uiColor: .systemGroupedBackground))
-        .navigationTitle(titleOverride ?? PalmiL10n.tr("model.add.slotTitle", slot.localizedTitle))
-        .navigationBarTitleDisplayMode(.inline)
-        .onChange(of: baseURLString) { _, _ in
-            rowStates.removeAll()
-        }
-        .onChange(of: apiKey) { _, _ in
-            rowStates.removeAll()
-        }
-        .alert(PalmiL10n.tr("common.operationFailed"), isPresented: errorBinding) {
-            Button(PalmiL10n.tr("common.ok"), role: .cancel) {}
-        } message: {
-            Text(errorMessage ?? "")
-        }
-    }
-
-    private var officialModelsForSlot: [ModelCandidatePresetModel] {
-        let models = selectedPreset.officialModels
-        guard slot.requiresVisionValidation else {
-            return models
-        }
-        return models.filter(\.supportsMultimodal)
-    }
-
-    private var presetCard: some View {
-        HStack(spacing: 12) {
-            Text(PalmiL10n.tr("model.preset.title"))
-                .font(.headline)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Menu {
-                presetMenuButton(.openAICompatible)
-
-                Divider()
-
-                presetMenuButton(.glm)
-                presetMenuButton(.glmCodingPlan)
-
-                Divider()
-
-                presetMenuButton(.deepseek)
-            } label: {
-                HStack(spacing: 7) {
-                    Text(selectedPreset.title)
-                        .font(.subheadline.weight(.semibold))
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption2.weight(.bold))
-                }
-                .foregroundStyle(.blue)
-            }
-        }
-        .padding(18)
-        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 24))
-    }
-
-    private func presetMenuButton(_ preset: ModelCandidateProviderPreset) -> some View {
-        Button {
-            applyPreset(preset)
-        } label: {
-            if preset == selectedPreset {
-                Label(preset.title, systemImage: "checkmark")
-            } else {
-                Text(preset.title)
-            }
-        }
-    }
-
-    private var officialModelsCard: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(officialModelsForSlot.enumerated()), id: \.element.id) { index, option in
-                officialModelRow(option)
-
-                if index < officialModelsForSlot.count - 1 {
-                    Divider()
-                        .padding(.leading, 18)
-                }
-            }
-        }
-        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 24))
-    }
-
-    private func officialModelRow(_ option: ModelCandidatePresetModel) -> some View {
-        let draft = draft(for: option)
-        let key = key(for: draft)
-
-        return HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 8) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(PalmiL10n.tr("model.field.requestModelName"))
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-
-                    Text(option.id)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                }
-
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(PalmiL10n.tr("model.field.displayName"))
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-
-                    TextField(PalmiL10n.tr("model.field.displayName.placeholder"), text: officialDisplayNameBinding(for: option))
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .textFieldStyle(.plain)
-                        .font(.subheadline.weight(.medium))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 9)
-                        .background(.white.opacity(0.16), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-
-                if let status = statusText(for: key) {
-                    Text(status.text)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(status.color)
-                        .lineLimit(2)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            candidateActionButton(draft: draft, key: key)
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-    }
-
-    private var baseURLCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(PalmiL10n.tr("model.field.baseURL"))
-                .font(.headline)
-
-            TextField(baseURLPlaceholder, text: $baseURLString)
-                .keyboardType(.URL)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .submitLabel(.next)
-                .focused($focusedField, equals: .baseURL)
-                .onSubmit {
-                    focusedField = .apiKey
-                }
-                .textFieldStyle(.plain)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-                .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        }
-        .padding(18)
-        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 24))
-    }
-
-    private var apiKeyCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(PalmiL10n.tr("model.field.apiKey"))
-                .font(.headline)
-
-            SecureField(PalmiL10n.tr("model.field.apiKey"), text: $apiKey)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .submitLabel(.next)
-                .focused($focusedField, equals: .apiKey)
-                .onSubmit {
-                    focusedField = .customModelName
-                }
-                .textFieldStyle(.plain)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-                .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        }
-        .padding(18)
-        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 24))
-    }
-
-    private var customModelCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(PalmiL10n.tr("model.custom.title"))
-                .font(.headline)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text(PalmiL10n.tr("model.field.requestModelName"))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-
-                TextField(PalmiL10n.tr("model.field.modelName.placeholder"), text: $customModelName)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .submitLabel(.next)
-                    .focused($focusedField, equals: .customModelName)
-                    .onSubmit {
-                        focusedField = .customDisplayName
-                    }
-                    .textFieldStyle(.plain)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text(PalmiL10n.tr("model.field.displayName"))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-
-                TextField(PalmiL10n.tr("model.field.displayName.placeholder"), text: $customDisplayName)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .submitLabel(.done)
-                    .focused($focusedField, equals: .customDisplayName)
-                    .onSubmit {
-                        focusedField = nil
-                    }
-                    .textFieldStyle(.plain)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            }
-
-            if let draft = customDraft {
-                HStack(spacing: 12) {
-                    candidateActionButton(draft: draft, key: key(for: draft))
-
-                    if let status = statusText(for: key(for: draft)) {
-                        Text(status.text)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(status.color)
-                            .lineLimit(2)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            }
-        }
-        .padding(18)
-        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 24))
-    }
-
-    private var bulkActionBar: some View {
-        HStack(spacing: 10) {
-            Button {
-                testAll()
-            } label: {
-                HStack(spacing: 8) {
-                    if isBulkTesting {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "bolt.horizontal.circle")
-                    }
-
-                    Text(PalmiL10n.tr("model.action.testAll"))
-                        .font(.body.weight(.semibold))
-                }
-                .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 15)
-                .background(.blue.opacity(0.14), in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(currentDrafts.isEmpty || isBulkTesting || isBulkAdding)
-
-            Button {
-                addAll()
-            } label: {
-                HStack(spacing: 8) {
-                    if isBulkAdding {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "plus.circle")
-                    }
-
-                    Text(PalmiL10n.tr("model.action.addAll"))
-                        .font(.body.weight(.semibold))
-                }
-                .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 15)
-                .background(.cyan.opacity(0.16), in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(addableDrafts.isEmpty || isBulkAdding)
-        }
-        .padding(6)
-        .glassEffect(.regular.tint(.white.opacity(0.06)), in: .rect(cornerRadius: 28))
-    }
-
-    private func applyPreset(_ preset: ModelCandidateProviderPreset) {
-        selectedPreset = preset
-        rowStates.removeAll()
-        if !preset.baseURLString.isEmpty {
-            baseURLString = preset.baseURLString
-        }
-    }
-
-    private func draft(for option: ModelCandidatePresetModel) -> ModelCandidateDraft {
-        ModelCandidateDraft(
-            slot: slot,
-            displayName: officialDisplayNames[option.id] ?? "",
-            preset: selectedPreset,
-            baseURLString: baseURLString,
-            apiKey: apiKey,
-            modelName: option.id
-        )
-    }
-
-    private var customDraft: ModelCandidateDraft? {
-        let trimmedModelName = customModelName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedModelName.isEmpty else {
-            return nil
-        }
-        return ModelCandidateDraft(
-            slot: slot,
-            displayName: customDisplayName,
-            preset: selectedPreset,
-            baseURLString: baseURLString,
-            apiKey: apiKey,
-            modelName: trimmedModelName
-        )
-    }
-
-    private func key(for draft: ModelCandidateDraft) -> CandidateValidationKey {
-        CandidateValidationKey(
-            slot: draft.slot,
-            preset: draft.preset,
-            baseURLString: draft.baseURLString.trimmingCharacters(in: .whitespacesAndNewlines),
-            modelName: draft.modelName.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
-    }
-
-    @ViewBuilder
-    private func candidateActionButton(
-        draft: ModelCandidateDraft,
-        key: CandidateValidationKey
-    ) -> some View {
-        if isAdded(key) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.title3)
-                .foregroundStyle(.green)
-                .frame(width: 58, height: 34)
-                .accessibilityLabel(PalmiL10n.tr("model.status.added"))
-        } else {
-            VStack(spacing: 8) {
-                Button {
-                    validate(draft, key: key)
-                } label: {
-                    if isValidating(key) {
-                        ProgressView()
-                            .controlSize(.small)
-                            .frame(width: 58, height: 30)
-                    } else {
-                            Text(isFailed(key) ? PalmiL10n.tr("common.retry") : PalmiL10n.tr("model.action.test"))
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(isFailed(key) ? .red : .blue)
-                            .frame(width: 58, height: 30)
-                            .background((isFailed(key) ? Color.red : Color.blue).opacity(0.10), in: Capsule())
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(isValidating(key) || isBulkTesting)
-
-                Button {
-                    add(
-                        draft,
-                        validation: validationResult(for: key),
-                        key: key,
-                        selectAfterAdd: selectAfterSingleAdd
-                    )
-                } label: {
-                    Label(PalmiL10n.tr("common.add"), systemImage: "plus.circle")
-                        .font(.caption.weight(.semibold))
-                        .labelStyle(.titleAndIcon)
-                        .foregroundStyle(.cyan)
-                        .frame(width: 58, height: 30)
-                        .background(.cyan.opacity(0.12), in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .disabled(!canAdd(draft) || isBulkAdding)
-            }
-        }
-    }
-
-    private func statusText(for key: CandidateValidationKey) -> (text: String, color: Color)? {
-        switch rowStates[key] {
-        case .valid:
-            return (PalmiL10n.tr("model.status.validated"), .green)
-        case .failed(let message):
-            return (message, .red)
-        case .added:
-            return (PalmiL10n.tr("model.status.added"), .green)
-        case .idle, .validating, .none:
-            return nil
-        }
-    }
-
-    private func validationResult(for key: CandidateValidationKey) -> ModelCandidateValidationResult? {
-        if case .valid(let result) = rowStates[key] {
-            return result
-        }
-        return nil
-    }
-
-    private func isValidating(_ key: CandidateValidationKey) -> Bool {
-        if case .validating = rowStates[key] {
-            return true
-        }
-        return false
-    }
-
-    private func isFailed(_ key: CandidateValidationKey) -> Bool {
-        if case .failed = rowStates[key] {
-            return true
-        }
-        return false
-    }
-
-    private func isAdded(_ key: CandidateValidationKey) -> Bool {
-        if case .added = rowStates[key] {
-            return true
-        }
-        return false
-    }
-
-    private var currentDrafts: [(draft: ModelCandidateDraft, key: CandidateValidationKey)] {
-        var drafts: [(draft: ModelCandidateDraft, key: CandidateValidationKey)] = []
-        for option in officialModelsForSlot {
-            let draft = draft(for: option)
-            drafts.append((draft: draft, key: key(for: draft)))
-        }
-        if let customDraft {
-            drafts.append((draft: customDraft, key: key(for: customDraft)))
-        }
-        return drafts
-    }
-
-    private var addableDrafts: [(draft: ModelCandidateDraft, key: CandidateValidationKey)] {
-        currentDrafts.filter { canAdd($0.draft) }
-    }
-
-    private func validate(_ draft: ModelCandidateDraft, key: CandidateValidationKey) {
-        focusedField = nil
-        rowStates[key] = .validating
-
-        Task {
-            do {
-                let result = try await validationService.validate(draft)
-                rowStates[key] = .valid(result)
-            } catch {
-                rowStates[key] = .failed(modelConfigurationErrorMessage(error))
-            }
-        }
-    }
-
-    private func add(
-        _ draft: ModelCandidateDraft,
-        validation: ModelCandidateValidationResult?,
-        key: CandidateValidationKey,
-        selectAfterAdd: Bool
-    ) {
-        do {
-            try planStore.addCandidate(
-                planID: planID,
-                draft: draft,
-                validation: validation,
-                selectAfterAdd: selectAfterAdd,
-                addToSlot: addToSlot
-            )
-            rowStates[key] = .added
-        } catch {
-            errorMessage = modelConfigurationErrorMessage(error)
-        }
-    }
-
-    private func officialDisplayNameBinding(for option: ModelCandidatePresetModel) -> Binding<String> {
-        Binding(
-            get: { officialDisplayNames[option.id] ?? "" },
-            set: { value in officialDisplayNames[option.id] = value }
-        )
-    }
-
-    private func canAdd(_ draft: ModelCandidateDraft) -> Bool {
-        !draft.modelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !draft.baseURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private func testAll() {
-        let items = currentDrafts
-        guard !items.isEmpty else { return }
-        focusedField = nil
-        isBulkTesting = true
-
-        Task {
-            defer {
-                isBulkTesting = false
-            }
-            for item in items {
-                rowStates[item.key] = .validating
-                do {
-                    let result = try await validationService.validate(item.draft)
-                    rowStates[item.key] = .valid(result)
-                } catch {
-                    rowStates[item.key] = .failed(modelConfigurationErrorMessage(error))
-                }
-            }
-        }
-    }
-
-    private func addAll() {
-        let items = addableDrafts
-        guard !items.isEmpty else { return }
-        isBulkAdding = true
-        for item in items {
-            add(
-                item.draft,
-                validation: validationResult(for: item.key),
-                key: item.key,
-                selectAfterAdd: false
-            )
-        }
-        isBulkAdding = false
-    }
-
-    private var errorBinding: Binding<Bool> {
-        Binding(
-            get: { errorMessage != nil },
-            set: { isPresented in
-                if !isPresented {
-                    errorMessage = nil
-                }
-            }
-        )
-    }
-}
-
 private struct ModelPlanPresentation: Identifiable {
     let planID: UUID
     var id: UUID { planID }

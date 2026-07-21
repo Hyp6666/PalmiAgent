@@ -304,7 +304,6 @@ final class ContextCompactor {
                 apiMessages: compactionMessages,
                 tools: [],
                 toolIntent: .none,
-                temperatureOverride: 0
             )
         )
         let compactedSummary = summaryResponse.message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)

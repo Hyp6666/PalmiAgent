@@ -5,50 +5,32 @@ struct OpenAIChatCompletionRequest: Encodable {
     let messages: [OpenAIChatMessage]
     let tools: [OpenAIChatToolDefinition]?
     let toolChoice: String?
-    let temperature: Double?
     let stream: Bool?
     let streamOptions: OpenAIChatStreamOptions?
     let reasoningEffort: String?
     let thinking: OpenAIChatThinkingConfig?
     let enableThinking: Bool?
-    let thinkingBudget: Int?
-    let reasoningSplit: Bool?
-    let reasoningFormat: String?
-    let reasoning: OpenAIChatReasoningConfig?
-    let promptCacheKey: String?
 
     init(
         model: String,
         messages: [OpenAIChatMessage],
         tools: [OpenAIChatToolDefinition]?,
         toolChoice: String?,
-        temperature: Double?,
         stream: Bool?,
         streamOptions: OpenAIChatStreamOptions? = nil,
         reasoningEffort: String? = nil,
         thinking: OpenAIChatThinkingConfig? = nil,
-        enableThinking: Bool? = nil,
-        thinkingBudget: Int? = nil,
-        reasoningSplit: Bool? = nil,
-        reasoningFormat: String? = nil,
-        reasoning: OpenAIChatReasoningConfig? = nil,
-        promptCacheKey: String? = nil
+        enableThinking: Bool? = nil
     ) {
         self.model = model
         self.messages = messages
         self.tools = tools
         self.toolChoice = toolChoice
-        self.temperature = temperature
         self.stream = stream
         self.streamOptions = stream == true ? (streamOptions ?? OpenAIChatStreamOptions(includeUsage: true)) : nil
         self.reasoningEffort = reasoningEffort
         self.thinking = thinking
         self.enableThinking = enableThinking
-        self.thinkingBudget = thinkingBudget
-        self.reasoningSplit = reasoningSplit
-        self.reasoningFormat = reasoningFormat
-        self.reasoning = reasoning
-        self.promptCacheKey = promptCacheKey
     }
 
     enum CodingKeys: String, CodingKey {
@@ -56,17 +38,11 @@ struct OpenAIChatCompletionRequest: Encodable {
         case messages
         case tools
         case toolChoice = "tool_choice"
-        case temperature
         case stream
         case streamOptions = "stream_options"
         case reasoningEffort = "reasoning_effort"
         case thinking
         case enableThinking = "enable_thinking"
-        case thinkingBudget = "thinking_budget"
-        case reasoningSplit = "reasoning_split"
-        case reasoningFormat = "reasoning_format"
-        case reasoning
-        case promptCacheKey = "prompt_cache_key"
     }
 }
 
@@ -80,31 +56,9 @@ struct OpenAIChatStreamOptions: Encodable {
 
 struct OpenAIChatThinkingConfig: Codable, Sendable {
     let type: String
-    let clearThinking: Bool?
-    let budgetTokens: Int?
 
-    init(type: String, clearThinking: Bool? = nil, budgetTokens: Int? = nil) {
+    init(type: String) {
         self.type = type
-        self.clearThinking = clearThinking
-        self.budgetTokens = budgetTokens
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case type
-        case clearThinking = "clear_thinking"
-        case budgetTokens
-    }
-}
-
-struct OpenAIChatReasoningConfig: Codable, Sendable {
-    let effort: String?
-    let maxTokens: Int?
-    let exclude: Bool?
-
-    enum CodingKeys: String, CodingKey {
-        case effort
-        case maxTokens = "max_tokens"
-        case exclude
     }
 }
 
@@ -180,8 +134,38 @@ struct OpenAIChatMessage: Encodable {
     let toolCallID: String?
     let reasoningContent: String?
     let reasoningDetails: JSONRuntimeValue?
+    let reasoningSourceProfileID: UUID?
+    let reasoningSourceEndpointFingerprint: String?
+    let reasoningSourceModelID: String?
+    let reasoningSourceWireProtocol: LLMWireProtocol?
     // 内联图片（data URL）。非空时 content 以 OpenAI 多模态「内容数组」编码：[{text}, {image_url}…]。
     var imageDataURLs: [String] = []
+
+    init(
+        role: String,
+        content: String?,
+        toolCalls: [OpenAIChatToolCall]?,
+        toolCallID: String?,
+        reasoningContent: String?,
+        reasoningDetails: JSONRuntimeValue?,
+        reasoningSourceProfileID: UUID? = nil,
+        reasoningSourceEndpointFingerprint: String? = nil,
+        reasoningSourceModelID: String? = nil,
+        reasoningSourceWireProtocol: LLMWireProtocol? = nil,
+        imageDataURLs: [String] = []
+    ) {
+        self.role = role
+        self.content = content
+        self.toolCalls = toolCalls
+        self.toolCallID = toolCallID
+        self.reasoningContent = reasoningContent
+        self.reasoningDetails = reasoningDetails
+        self.reasoningSourceProfileID = reasoningSourceProfileID
+        self.reasoningSourceEndpointFingerprint = reasoningSourceEndpointFingerprint
+        self.reasoningSourceModelID = reasoningSourceModelID
+        self.reasoningSourceWireProtocol = reasoningSourceWireProtocol
+        self.imageDataURLs = imageDataURLs
+    }
 
     static func system(_ content: String) -> OpenAIChatMessage {
         OpenAIChatMessage(role: "system", content: content, toolCalls: nil, toolCallID: nil, reasoningContent: nil, reasoningDetails: nil)
@@ -195,15 +179,20 @@ struct OpenAIChatMessage: Encodable {
         _ content: String?,
         toolCalls: [OpenAIChatToolCall]?,
         reasoningContent: String? = nil,
-        reasoningDetails: JSONRuntimeValue? = nil
+        reasoningDetails: JSONRuntimeValue? = nil,
+        reasoningSource: AgentNativeReasoningPayload? = nil
     ) -> OpenAIChatMessage {
         OpenAIChatMessage(
             role: "assistant",
             content: content,
             toolCalls: toolCalls,
             toolCallID: nil,
-            reasoningContent: reasoningContent,
-            reasoningDetails: reasoningDetails
+            reasoningContent: reasoningSource?.reasoningContent ?? reasoningContent,
+            reasoningDetails: reasoningSource?.reasoningDetails ?? reasoningDetails,
+            reasoningSourceProfileID: reasoningSource?.profileID,
+            reasoningSourceEndpointFingerprint: reasoningSource?.endpointFingerprint,
+            reasoningSourceModelID: reasoningSource?.modelID,
+            reasoningSourceWireProtocol: reasoningSource?.wireProtocol
         )
     }
 
@@ -221,6 +210,20 @@ struct OpenAIChatMessage: Encodable {
             reasoningDetails: nil,
             imageDataURLs: imageDataURLs
         )
+    }
+
+    func scopedForNativeReasoningReplay(
+        in scope: AgentNativeReasoningReplayScope?
+    ) -> OpenAIChatMessage {
+        guard reasoningContent != nil || reasoningDetails != nil else { return self }
+        guard let scope,
+              reasoningSourceProfileID == scope.profileID,
+              reasoningSourceEndpointFingerprint == scope.endpointFingerprint,
+              reasoningSourceModelID == scope.modelID,
+              reasoningSourceWireProtocol == scope.wireProtocol else {
+            return removingNativeReasoning()
+        }
+        return self
     }
 
     enum CodingKeys: String, CodingKey {

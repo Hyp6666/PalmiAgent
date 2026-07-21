@@ -21,6 +21,11 @@ enum WebExtractionMode: String, Sendable {
     case xml = "xml"
 }
 
+enum WebFetchMode: String, CaseIterable, Sendable {
+    case pageText = "page_text"
+    case fullSnapshot = "full_snapshot"
+}
+
 struct WebDocumentLink: Sendable {
     let title: String
     let url: URL
@@ -37,9 +42,21 @@ struct WebFetchSummary: Sendable {
     let contentType: String
     let extractionMode: WebExtractionMode
     let bodyText: String
+    let totalBodyCharacterCount: Int
+    let returnedStart: Int
+    let returnedEnd: Int
     let links: [WebDocumentLink]
     let byteCount: Int
     let isTruncated: Bool
+    let snapshot: WebFetchSnapshot?
+}
+
+struct WebFetchSnapshot: Sendable {
+    let sourceData: Data
+    let sourceFileExtension: String
+    let fullBodyText: String
+    let renderedHTML: String?
+    let screenshotPNGData: Data?
 }
 
 struct WebFetchAttempt: Sendable {
@@ -302,21 +319,28 @@ final class WebResearchService {
     @MainActor
     func fetchSummary(
         from url: URL,
-        maxBodyCharacters: Int = ReasoningStrengthProfile.fetchStaticWebPageAbsoluteMaxCharacters,
-        focus: String? = nil,
+        startCharacter: Int = 0,
+        endCharacter: Int = -1,
+        mode: WebFetchMode = .pageText,
         includeLinks: Bool = true,
         timeoutSeconds: TimeInterval = 15
     ) async throws -> WebFetchSummary {
         let resource = try await downloadResource(from: url, timeoutSeconds: timeoutSeconds)
         if resource.contentType == "application/pdf" || resource.finalURL.pathExtension.lowercased() == "pdf" {
-            return try extractPDF(resource, maxBodyCharacters: maxBodyCharacters, focus: focus)
+            return try extractPDF(
+                resource,
+                startCharacter: startCharacter,
+                endCharacter: endCharacter,
+                mode: mode
+            )
         }
 
         if Self.isHTMLContentType(resource.contentType) {
             return try await extractHTML(
                 resource,
-                maxBodyCharacters: maxBodyCharacters,
-                focus: focus,
+                startCharacter: startCharacter,
+                endCharacter: endCharacter,
+                mode: mode,
                 includeLinks: includeLinks,
                 timeoutSeconds: timeoutSeconds
             )
@@ -328,19 +352,40 @@ final class WebResearchService {
             contentType: resource.contentType
         )
         if Self.isJSONContentType(resource.contentType) {
-            return try extractJSON(resource, decodedText: decoded, maxBodyCharacters: maxBodyCharacters, focus: focus)
+            return try extractJSON(
+                resource,
+                decodedText: decoded,
+                startCharacter: startCharacter,
+                endCharacter: endCharacter,
+                mode: mode
+            )
         }
         if Self.isXMLContentType(resource.contentType) {
-            return extractTextLike(resource, decodedText: decoded, mode: .xml, maxBodyCharacters: maxBodyCharacters, focus: focus)
+            return extractTextLike(
+                resource,
+                decodedText: decoded,
+                extractionMode: .xml,
+                startCharacter: startCharacter,
+                endCharacter: endCharacter,
+                mode: mode
+            )
         }
-        return extractTextLike(resource, decodedText: decoded, mode: .plainText, maxBodyCharacters: maxBodyCharacters, focus: focus)
+        return extractTextLike(
+            resource,
+            decodedText: decoded,
+            extractionMode: .plainText,
+            startCharacter: startCharacter,
+            endCharacter: endCharacter,
+            mode: mode
+        )
     }
 
     @MainActor
     func fetchSummaries(
         urls: [URL],
-        maxBodyCharacters: Int = ReasoningStrengthProfile.fetchStaticWebPageAbsoluteMaxCharacters,
-        focus: String? = nil,
+        startCharacter: Int = 0,
+        endCharacter: Int = -1,
+        mode: WebFetchMode = .pageText,
         includeLinks: Bool = true,
         maxConcurrentRequests: Int = 4,
         requestTimeoutSeconds: TimeInterval = 12,
@@ -350,8 +395,9 @@ final class WebResearchService {
         let cappedMaxConcurrentRequests = min(maxConcurrentRequests, Self.maximumConcurrentBatchFetches)
         return await fetchAttempts(
             urls: cappedURLs,
-            maxBodyCharacters: maxBodyCharacters,
-            focus: focus,
+            startCharacter: startCharacter,
+            endCharacter: endCharacter,
+            mode: mode,
             includeLinks: includeLinks,
             maxConcurrentRequests: cappedMaxConcurrentRequests,
             requestTimeoutSeconds: requestTimeoutSeconds,
@@ -420,8 +466,9 @@ final class WebResearchService {
     @MainActor
     private func extractHTML(
         _ resource: DownloadedWebResource,
-        maxBodyCharacters: Int,
-        focus: String?,
+        startCharacter: Int,
+        endCharacter: Int,
+        mode: WebFetchMode,
         includeLinks: Bool,
         timeoutSeconds: TimeInterval
     ) async throws -> WebFetchSummary {
@@ -430,37 +477,49 @@ final class WebResearchService {
             response: resource.response,
             contentType: resource.contentType
         )
-        let staticPayload = try await WebContentWebViewDriver().extractStaticHTML(
-            html,
-            baseURL: resource.finalURL,
-            focus: focus,
-            includeLinks: includeLinks,
-            timeoutSeconds: min(timeoutSeconds, 8)
-        )
-        let needsRendered = Self.shouldRenderHTML(html: html, staticPayload: staticPayload)
+        let staticPayload: WebDOMExtractionPayload
+        do {
+            staticPayload = try await WebContentWebViewDriver().extractStaticHTML(
+                html,
+                baseURL: resource.finalURL,
+                includeLinks: includeLinks,
+                timeoutSeconds: min(timeoutSeconds, 8)
+            )
+        } catch {
+            throw AppError.operationFailed("静态网页文字提取失败：\(error.localizedDescription)")
+        }
+        let needsRendered = mode == .fullSnapshot || Self.shouldRenderHTML(html: html, staticPayload: staticPayload)
         let payload: WebDOMExtractionPayload
         let finalURL: URL
-        let mode: WebExtractionMode
-        if needsRendered {
-            let rendered = try await WebContentWebViewDriver().extractRenderedURL(
-                resource.finalURL,
-                focus: focus,
-                includeLinks: includeLinks,
-                timeoutSeconds: min(timeoutSeconds, 12)
-            )
-            guard rendered.payload.bodyText.count >= 200 else {
-                throw AppError.operationFailed("渲染后正文仍不足 200 字符，网页正文提取失败。")
-            }
+        let extractionMode: WebExtractionMode
+        let renderedHTML: String?
+        let screenshotPNGData: Data?
+        if needsRendered,
+           let rendered = try? await WebContentWebViewDriver().extractRenderedURL(
+               resource.finalURL,
+               includeLinks: includeLinks,
+               captureSnapshot: mode == .fullSnapshot,
+               timeoutSeconds: min(timeoutSeconds, 12)
+           ),
+           !rendered.payload.bodyText.isEmpty {
             payload = rendered.payload
             finalURL = try WebURLPolicy.normalized(rendered.finalURL)
-            mode = .renderedHTML
+            extractionMode = .renderedHTML
+            renderedHTML = rendered.renderedHTML
+            screenshotPNGData = rendered.screenshotPNGData
         } else {
             payload = staticPayload
             finalURL = resource.finalURL
-            mode = .staticHTML
+            extractionMode = .staticHTML
+            renderedHTML = nil
+            screenshotPNGData = nil
         }
 
-        let projection = Self.projectedBody(payload.bodyText, focus: focus, maxCharacters: maxBodyCharacters)
+        let projection = Self.selectedRange(
+            of: payload.bodyText,
+            startCharacter: startCharacter,
+            endCharacter: endCharacter
+        )
         return WebFetchSummary(
             requestedURL: resource.requestedURL,
             finalURL: finalURL,
@@ -470,18 +529,31 @@ final class WebResearchService {
             author: Self.nilIfEmpty(payload.author),
             publishedAt: Self.nilIfEmpty(payload.publishedAt),
             contentType: resource.contentType,
-            extractionMode: mode,
+            extractionMode: extractionMode,
             bodyText: projection.text,
+            totalBodyCharacterCount: projection.totalCharacters,
+            returnedStart: projection.start,
+            returnedEnd: projection.end,
             links: Self.normalizedLinks(payload.links),
             byteCount: resource.data.count,
-            isTruncated: projection.isTruncated
+            isTruncated: projection.isTruncated,
+            snapshot: mode == .fullSnapshot
+                ? WebFetchSnapshot(
+                    sourceData: resource.data,
+                    sourceFileExtension: "html",
+                    fullBodyText: payload.bodyText,
+                    renderedHTML: renderedHTML,
+                    screenshotPNGData: screenshotPNGData
+                )
+                : nil
         )
     }
 
     private func extractPDF(
         _ resource: DownloadedWebResource,
-        maxBodyCharacters: Int,
-        focus: String?
+        startCharacter: Int,
+        endCharacter: Int,
+        mode: WebFetchMode
     ) throws -> WebFetchSummary {
         guard let document = PDFDocument(data: resource.data) else {
             throw AppError.operationFailed("PDF 无法解析。")
@@ -499,7 +571,12 @@ final class WebResearchService {
         }
         let title = (document.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let projection = Self.projectedBody(blocks.joined(separator: "\n\n"), focus: focus, maxCharacters: maxBodyCharacters)
+        let fullBodyText = blocks.joined(separator: "\n\n")
+        let projection = Self.selectedRange(
+            of: fullBodyText,
+            startCharacter: startCharacter,
+            endCharacter: endCharacter
+        )
         return WebFetchSummary(
             requestedURL: resource.requestedURL,
             finalURL: resource.finalURL,
@@ -511,17 +588,30 @@ final class WebResearchService {
             contentType: resource.contentType,
             extractionMode: .pdf,
             bodyText: projection.text,
+            totalBodyCharacterCount: projection.totalCharacters,
+            returnedStart: projection.start,
+            returnedEnd: projection.end,
             links: [],
             byteCount: resource.data.count,
-            isTruncated: projection.isTruncated
+            isTruncated: projection.isTruncated,
+            snapshot: mode == .fullSnapshot
+                ? WebFetchSnapshot(
+                    sourceData: resource.data,
+                    sourceFileExtension: "pdf",
+                    fullBodyText: fullBodyText,
+                    renderedHTML: nil,
+                    screenshotPNGData: nil
+                )
+                : nil
         )
     }
 
     private func extractJSON(
         _ resource: DownloadedWebResource,
         decodedText: String,
-        maxBodyCharacters: Int,
-        focus: String?
+        startCharacter: Int,
+        endCharacter: Int,
+        mode: WebFetchMode
     ) throws -> WebFetchSummary {
         let readableText: String
         if let data = decodedText.data(using: .utf8),
@@ -536,21 +626,27 @@ final class WebResearchService {
         return extractTextLike(
             resource,
             decodedText: readableText,
-            mode: .json,
-            maxBodyCharacters: maxBodyCharacters,
-            focus: focus
+            extractionMode: .json,
+            startCharacter: startCharacter,
+            endCharacter: endCharacter,
+            mode: mode
         )
     }
 
     private func extractTextLike(
         _ resource: DownloadedWebResource,
         decodedText: String,
-        mode: WebExtractionMode,
-        maxBodyCharacters: Int,
-        focus: String?
+        extractionMode: WebExtractionMode,
+        startCharacter: Int,
+        endCharacter: Int,
+        mode: WebFetchMode
     ) -> WebFetchSummary {
         let normalized = Self.normalizedTextBlocks(decodedText)
-        let projection = Self.projectedBody(normalized, focus: focus, maxCharacters: maxBodyCharacters)
+        let projection = Self.selectedRange(
+            of: normalized,
+            startCharacter: startCharacter,
+            endCharacter: endCharacter
+        )
         return WebFetchSummary(
             requestedURL: resource.requestedURL,
             finalURL: resource.finalURL,
@@ -560,18 +656,34 @@ final class WebResearchService {
             author: nil,
             publishedAt: nil,
             contentType: resource.contentType,
-            extractionMode: mode,
+            extractionMode: extractionMode,
             bodyText: projection.text,
+            totalBodyCharacterCount: projection.totalCharacters,
+            returnedStart: projection.start,
+            returnedEnd: projection.end,
             links: [],
             byteCount: resource.data.count,
-            isTruncated: projection.isTruncated
+            isTruncated: projection.isTruncated,
+            snapshot: mode == .fullSnapshot
+                ? WebFetchSnapshot(
+                    sourceData: resource.data,
+                    sourceFileExtension: Self.sourceFileExtension(
+                        contentType: resource.contentType,
+                        url: resource.finalURL
+                    ),
+                    fullBodyText: normalized,
+                    renderedHTML: nil,
+                    screenshotPNGData: nil
+                )
+                : nil
         )
     }
 
     private func fetchAttempts(
         urls: [URL],
-        maxBodyCharacters: Int,
-        focus: String?,
+        startCharacter: Int,
+        endCharacter: Int,
+        mode: WebFetchMode,
         includeLinks: Bool,
         maxConcurrentRequests: Int,
         requestTimeoutSeconds: TimeInterval,
@@ -601,8 +713,9 @@ final class WebResearchService {
                     do {
                         let summary = try await self.fetchSummary(
                             from: url,
-                            maxBodyCharacters: maxBodyCharacters,
-                            focus: focus,
+                            startCharacter: startCharacter,
+                            endCharacter: endCharacter,
+                            mode: mode,
                             includeLinks: includeLinks,
                             timeoutSeconds: requestTimeoutSeconds
                         )
@@ -779,8 +892,7 @@ final class WebResearchService {
     }
 
     private static func shouldRenderHTML(html: String, staticPayload: WebDOMExtractionPayload) -> Bool {
-        if staticPayload.bodyText.count < 600 { return true }
-        if staticPayload.paragraphCount < 2 && html.count > 50_000 { return true }
+        if staticPayload.bodyText.isEmpty { return true }
         if staticPayload.bodyText.count < 2_000 {
             let markers = [
                 #"id="__next""#, #"id="root""#, #"id="app""#, "__NEXT_DATA__",
@@ -791,45 +903,37 @@ final class WebResearchService {
         return false
     }
 
-    private static func projectedBody(
-        _ body: String,
-        focus: String?,
-        maxCharacters: Int
-    ) -> (text: String, isTruncated: Bool) {
-        let cappedMax = min(max(1, maxCharacters), ReasoningStrengthProfile.fetchStaticWebPageAbsoluteMaxCharacters)
-        let normalizedFocus = focus?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let candidate: String
-        if normalizedFocus.isEmpty {
-            candidate = body
-        } else {
-            let blocks = body.components(separatedBy: "\n\n")
-            let words = normalizedFocus
-                .components(separatedBy: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters))
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { $0.count >= 2 }
-            var selected: Set<Int> = []
-            for (index, block) in blocks.enumerated() {
-                let lower = block.lowercased()
-                var score = 0
-                if lower.contains(normalizedFocus.lowercased()) { score += 20 }
-                for word in words where lower.contains(word.lowercased()) {
-                    score += 3
-                }
-                if block.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("#") {
-                    score += 2
-                }
-                if score > 0 {
-                    selected.insert(max(0, index - 1))
-                    selected.insert(index)
-                    selected.insert(min(blocks.count - 1, index + 1))
-                }
-            }
-            candidate = selected.isEmpty
-                ? body
-                : selected.sorted().map { blocks[$0] }.joined(separator: "\n\n")
+    private static func selectedRange(
+        of body: String,
+        startCharacter: Int,
+        endCharacter: Int
+    ) -> (text: String, totalCharacters: Int, start: Int, end: Int, isTruncated: Bool) {
+        let totalCharacters = body.count
+        let start = min(max(0, startCharacter), totalCharacters)
+        let end = endCharacter < 0
+            ? totalCharacters
+            : min(max(start, endCharacter), totalCharacters)
+        let startIndex = body.index(body.startIndex, offsetBy: start)
+        let endIndex = body.index(body.startIndex, offsetBy: end)
+        return (
+            String(body[startIndex..<endIndex]),
+            totalCharacters,
+            start,
+            end,
+            start > 0 || end < totalCharacters
+        )
+    }
+
+    private static func sourceFileExtension(contentType: String, url: URL) -> String {
+        switch contentType {
+        case "application/json", "application/ld+json": return "json"
+        case "application/xml", "text/xml", "application/rss+xml", "application/atom+xml": return "xml"
+        case "text/markdown": return "md"
+        case "text/plain": return "txt"
+        default:
+            let pathExtension = url.pathExtension.lowercased()
+            return pathExtension.isEmpty ? "bin" : pathExtension
         }
-        let truncated = candidate.count > cappedMax
-        return (String(candidate.prefix(cappedMax)), truncated)
     }
 
     private static func normalizedTextBlocks(_ text: String) -> String {
@@ -1237,28 +1341,32 @@ private final class WebContentWebViewDriver: NSObject, WKNavigationDelegate, WKU
     func extractStaticHTML(
         _ html: String,
         baseURL: URL,
-        focus: String?,
         includeLinks: Bool,
         timeoutSeconds: TimeInterval
     ) async throws -> WebDOMExtractionPayload {
-        let webView = makeWebView(allowsJavaScript: false)
+        let webView = makeWebView(allowsJavaScript: false, captureSnapshot: false)
         self.webView = webView
         defer { cleanup() }
         try await load(timeoutSeconds: timeoutSeconds) {
             webView.loadHTMLString(html, baseURL: baseURL)
         }
         try await waitForStableBodyText(maxWaitSeconds: 0.75)
-        return try await extractPayload(focus: focus, includeLinks: includeLinks)
+        return try await extractPayload(includeLinks: includeLinks)
     }
 
     func extractRenderedURL(
         _ url: URL,
-        focus: String?,
         includeLinks: Bool,
+        captureSnapshot: Bool,
         timeoutSeconds: TimeInterval
-    ) async throws -> (payload: WebDOMExtractionPayload, finalURL: URL) {
+    ) async throws -> (
+        payload: WebDOMExtractionPayload,
+        finalURL: URL,
+        renderedHTML: String?,
+        screenshotPNGData: Data?
+    ) {
         let normalizedURL = try WebURLPolicy.normalized(url)
-        let webView = makeWebView(allowsJavaScript: true)
+        let webView = makeWebView(allowsJavaScript: true, captureSnapshot: captureSnapshot)
         self.webView = webView
         defer { cleanup() }
         try await load(timeoutSeconds: timeoutSeconds) {
@@ -1266,14 +1374,24 @@ private final class WebContentWebViewDriver: NSObject, WKNavigationDelegate, WKU
         }
         try await waitForStableBodyText(maxWaitSeconds: 2)
         let finalURL = try WebURLPolicy.normalized(webView.url ?? normalizedURL)
-        return (try await extractPayload(focus: focus, includeLinks: includeLinks), finalURL)
+        let payload = try await extractPayload(includeLinks: includeLinks)
+        let renderedHTML = captureSnapshot
+            ? try? await webView.evaluateJavaScriptString("document.documentElement.outerHTML")
+            : nil
+        let screenshotPNGData = captureSnapshot ? try? await captureScreenshotPNG() : nil
+        return (payload, finalURL, renderedHTML, screenshotPNGData)
     }
 
-    private func makeWebView(allowsJavaScript: Bool) -> WKWebView {
+    private func makeWebView(allowsJavaScript: Bool, captureSnapshot: Bool) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = allowsJavaScript
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let webView = WKWebView(
+            frame: captureSnapshot
+                ? CGRect(x: 0, y: 0, width: 1024, height: 768)
+                : .zero,
+            configuration: configuration
+        )
         webView.isHidden = true
         webView.customUserAgent = WebResearchService.userAgent
         webView.navigationDelegate = self
@@ -1363,14 +1481,11 @@ private final class WebContentWebViewDriver: NSObject, WKNavigationDelegate, WKU
         }
     }
 
-    private func extractPayload(focus: String?, includeLinks: Bool) async throws -> WebDOMExtractionPayload {
+    private func extractPayload(includeLinks: Bool) async throws -> WebDOMExtractionPayload {
         guard let webView else {
             throw AppError.invalidState("网页视图未初始化。")
         }
-        let script = Self.extractionScript(
-            focus: focus ?? "",
-            includeLinks: includeLinks
-        )
+        let script = Self.extractionScript(includeLinks: includeLinks)
         let raw = try await webView.evaluateJavaScriptString(script)
         let data = Data(raw.utf8)
         return try JSONDecoder().decode(WebDOMExtractionPayload.self, from: data)
@@ -1387,13 +1502,37 @@ private final class WebContentWebViewDriver: NSObject, WKNavigationDelegate, WKU
         webView = nil
     }
 
-    private static func extractionScript(focus: String, includeLinks: Bool) -> String {
-        let focusLiteral = String(reflecting: focus)
+    private func captureScreenshotPNG() async throws -> Data? {
+        guard let webView else {
+            return nil
+        }
+        let contentSize = webView.scrollView.contentSize
+        let captureHeight = min(max(contentSize.height, webView.bounds.height), 16_384)
+        let configuration = WKSnapshotConfiguration()
+        configuration.rect = CGRect(
+            x: 0,
+            y: 0,
+            width: webView.bounds.width,
+            height: captureHeight
+        )
+        configuration.snapshotWidth = NSNumber(value: Double(webView.bounds.width))
+        let image: UIImage? = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<UIImage?, Error>) in
+            webView.takeSnapshot(with: configuration) { image, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: image)
+                }
+            }
+        }
+        return image?.pngData()
+    }
+
+    private static func extractionScript(includeLinks: Bool) -> String {
         return """
         (() => {
-          const focus = \(focusLiteral);
           const includeLinks = \(includeLinks ? "true" : "false");
-          const normalize = (text) => (text || '').replace(/\\s+/g, ' ').trim();
+          const normalize = (text) => (text || '').replace(/\\u00a0/g, ' ').replace(/[ \\t]+/g, ' ').replace(/\\n[ \\t]+/g, '\\n').replace(/[ \\t]+\\n/g, '\\n').replace(/\\n{3,}/g, '\\n\\n').trim();
           const attrText = (el) => el ? ((el.getAttribute('content') || el.getAttribute('datetime') || el.textContent || '').trim()) : '';
           const pick = (selectors) => {
             for (const selector of selectors) {
@@ -1402,75 +1541,14 @@ private final class WebContentWebViewDriver: NSObject, WKNavigationDelegate, WKU
             }
             return '';
           };
-          const noisy = ['cookie','consent','advert','advertisement','share','social','sidebar','recommend','related','newsletter','popup','modal','toolbar','breadcrumb','pagination'];
-          document.querySelectorAll('script,style,noscript,template,svg,canvas,iframe,object,embed,form,nav,header,footer,aside,dialog,[hidden],[aria-hidden="true"],[role="navigation"],[role="banner"],[role="complementary"]').forEach((el) => el.remove());
-          Array.from(document.querySelectorAll('body *')).forEach((el) => {
-            const marker = ((el.id || '') + ' ' + (el.className || '')).toLowerCase();
-            if (noisy.some((word) => marker.includes(word))) el.remove();
-          });
-          const title = pick(['meta[property="og:title"]','meta[name="twitter:title"]','h1']) || document.title || '';
+          const title = document.title || pick(['meta[property="og:title"]','meta[name="twitter:title"]','h1']) || '';
           const canonicalURL = document.querySelector('link[rel="canonical"]')?.href || '';
           const siteName = pick(['meta[property="og:site_name"]']);
           const author = pick(['meta[name="author"]','meta[property="article:author"]','meta[name="byl"]']);
           const publishedAt = pick(['meta[property="article:published_time"]','meta[name="date"]','meta[name="publishdate"]','meta[itemprop="datePublished"]','time[datetime]']);
-          const selectors = ['article','main','[role="main"]','.article','.article-content','.post','.post-content','.entry-content','#content','.content','section','div'];
-          const positive = ['article','content','entry','main','post','story','body'];
-          const negative = ['comment','footer','header','nav','sidebar','related','recommend','share','social','promo','advert'];
-          const focusWords = focus.toLowerCase().split(/[\\s,，。.!?！？;；:：、]+/).filter((word) => word.length >= 2);
-          let best = null;
-          for (const el of Array.from(document.querySelectorAll(selectors.join(',')))) {
-            const text = normalize(el.innerText);
-            const textLength = text.length;
-            if (textLength < 200) continue;
-            const linkTextLength = Array.from(el.querySelectorAll('a')).reduce((sum, a) => sum + normalize(a.innerText).length, 0);
-            const linkDensity = linkTextLength / Math.max(textLength, 1);
-            if (linkDensity > 0.65) continue;
-            const paragraphCount = Array.from(el.querySelectorAll('p')).filter((p) => normalize(p.innerText).length > 0).length;
-            const headingCount = el.querySelectorAll('h1,h2,h3,h4,h5,h6').length;
-            const listItemCount = el.querySelectorAll('li').length;
-            const preCount = el.querySelectorAll('pre').length;
-            const punctuationCount = (text.match(/[。！？；：，、.!?;:,]/g) || []).length;
-            const marker = ((el.id || '') + ' ' + (el.className || '')).toLowerCase();
-            const semanticBonus = (el.matches('article,main,[role="main"]') ? 800 : 0);
-            const positiveClassBonus = positive.some((word) => marker.includes(word)) ? 500 : 0;
-            const negativeClassPenalty = negative.some((word) => marker.includes(word)) ? 1200 : 0;
-            const lower = text.toLowerCase();
-            let focusBonus = 0;
-            if (focus && lower.includes(focus.toLowerCase())) focusBonus += 500;
-            for (const word of focusWords) if (lower.includes(word)) focusBonus += 100;
-            const score = textLength + paragraphCount * 120 + headingCount * 80 + listItemCount * 40 + preCount * 120 + punctuationCount * 8 + semanticBonus + positiveClassBonus + focusBonus - linkDensity * textLength * 1.5 - negativeClassPenalty;
-            if (!best || score > best.score) best = { el, score };
-          }
-          const root = best ? best.el : document.body;
-          const blocks = [];
-          const push = (text) => { const value = normalize(text); if (value) blocks.push(value); };
-          const walk = (node) => {
-            if (!node) return;
-            if (node.nodeType === Node.TEXT_NODE) return;
-            if (node.nodeType !== Node.ELEMENT_NODE) return;
-            const tag = node.tagName.toLowerCase();
-            if (/^h[1-6]$/.test(tag)) { blocks.push(`${'#'.repeat(Number(tag[1]))} ${normalize(node.innerText)}`); return; }
-            if (tag === 'li') { push(`- ${node.innerText}`); return; }
-            if (tag === 'blockquote') { blocks.push(normalize(node.innerText).split('\\n').map((line) => `> ${line}`).join('\\n')); return; }
-            if (tag === 'pre') { blocks.push('```\\n' + (node.innerText || '').trim() + '\\n```'); return; }
-            if (tag === 'table') {
-              Array.from(node.querySelectorAll('tr')).forEach((tr) => blocks.push(Array.from(tr.children).map((cell) => normalize(cell.innerText)).join(' | ')));
-              return;
-            }
-            if (['p','div','section','article'].includes(tag)) {
-              const childBlocksBefore = blocks.length;
-              Array.from(node.children).forEach(walk);
-              if (blocks.length === childBlocksBefore) push(node.innerText);
-              return;
-            }
-            if (tag === 'br') { blocks.push('\\n'); return; }
-            Array.from(node.children).forEach(walk);
-          };
-          Array.from(root.children).forEach(walk);
-          let bodyText = blocks.join('\\n\\n').replace(/\\n{3,}/g, '\\n\\n').trim();
-          if (!bodyText) bodyText = normalize(root.innerText);
-          const paragraphCount = Array.from(root.querySelectorAll('p')).filter((p) => normalize(p.innerText).length > 0).length;
-          const links = includeLinks ? Array.from(root.querySelectorAll('a[href]')).slice(0, 60).map((a) => ({ title: normalize(a.innerText) || (new URL(a.href, document.baseURI)).host, url: (new URL(a.href, document.baseURI)).href })).filter((link) => /^https?:/i.test(link.url)) : [];
+          const bodyText = normalize(document.body?.innerText || '');
+          const paragraphCount = Array.from(document.body?.querySelectorAll('p') || []).filter((p) => normalize(p.innerText).length > 0).length;
+          const links = includeLinks ? Array.from(document.body?.querySelectorAll('a[href]') || []).slice(0, 60).map((a) => ({ title: normalize(a.innerText) || (new URL(a.href, document.baseURI)).host, url: (new URL(a.href, document.baseURI)).href })).filter((link) => /^https?:/i.test(link.url)) : [];
           return JSON.stringify({ title, canonicalURL, siteName, author, publishedAt, bodyText, paragraphCount, visibleTextLength: document.body?.innerText?.length || 0, links });
         })()
         """

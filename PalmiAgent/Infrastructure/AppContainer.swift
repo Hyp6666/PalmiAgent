@@ -13,8 +13,7 @@ final class AppContainer {
     lazy var lmStudioDiscoveryService = LMStudioDiscoveryService(session: llmSession)
     lazy var llmToolCallingService = LLMToolCallingService(
         apiConfigurationStore: apiConfigurationStore,
-        session: llmSession,
-        lmStudioDiscoveryService: lmStudioDiscoveryService
+        modelRuntime: llmAPIClient
     )
     lazy var llmAPIClient = LLMAPIClient(
         apiConfigurationStore: apiConfigurationStore,

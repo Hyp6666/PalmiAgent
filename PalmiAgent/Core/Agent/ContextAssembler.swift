@@ -154,8 +154,7 @@ struct ContextAssembler {
                     .assistant(
                         content.isEmpty ? nil : content,
                         toolCalls: toolCalls.isEmpty ? nil : toolCalls,
-                        reasoningContent: message.nativeReasoning?.reasoningContent,
-                        reasoningDetails: message.nativeReasoning?.reasoningDetails
+                        nativeReasoning: message.nativeReasoning
                     )
                 )
 
@@ -208,8 +207,7 @@ struct ContextAssembler {
                 .assistant(
                     content.isEmpty ? nil : content,
                     toolCalls: toolCalls.isEmpty ? nil : toolCalls,
-                    reasoningContent: agentMessage.nativeReasoning?.reasoningContent,
-                    reasoningDetails: agentMessage.nativeReasoning?.reasoningDetails
+                    nativeReasoning: agentMessage.nativeReasoning
                 )
             ]
         case .tool:

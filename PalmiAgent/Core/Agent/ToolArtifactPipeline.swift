@@ -360,9 +360,7 @@ final class ToolArtifactPipeline {
         modelOverrides: AgentModelRoleOverrides,
         responseType: Response.Type
     ) async throws -> Response {
-        let modelRole: APIModelRole = providerID == .lmstudio && modelOverrides.override(for: .lightweightModel) == nil
-            ? .reasoningModel
-            : .lightweightModel
+        let modelRole: APIModelRole = .lightweightModel
         let response = try await modelRuntime.complete(
             AgentModelRequest(
                 selection: AgentModelSelection(
@@ -377,7 +375,6 @@ final class ToolArtifactPipeline {
                 ],
                 tools: [],
                 toolIntent: .none,
-                temperatureOverride: 0
             )
         )
 

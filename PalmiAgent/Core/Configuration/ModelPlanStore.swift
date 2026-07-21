@@ -10,26 +10,15 @@ enum ModelPlanSlot: String, CaseIterable, Codable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .primary:
-            return PalmiL10n.tr("model.slot.primary")
-        case .multimodal:
-            return PalmiL10n.tr("model.slot.multimodal")
-        case .lightweight:
-            return PalmiL10n.tr("model.slot.lightweight")
+        case .primary: PalmiL10n.tr("model.slot.primary")
+        case .multimodal: PalmiL10n.tr("model.slot.multimodal")
+        case .lightweight: PalmiL10n.tr("model.slot.lightweight")
         }
     }
 
-    var listTitle: String {
-        PalmiL10n.tr("model.slot.candidates", title)
-    }
-
-    var isRequired: Bool {
-        self == .primary
-    }
-
-    var requiresVisionValidation: Bool {
-        self == .multimodal
-    }
+    var listTitle: String { PalmiL10n.tr("model.slot.candidates", title) }
+    var isRequired: Bool { self == .primary }
+    var requiresVisionValidation: Bool { self == .multimodal }
 }
 
 struct ModelPlanSessionOverride: Codable, Hashable, Sendable {
@@ -61,28 +50,20 @@ struct ModelPlanSessionOverride: Codable, Hashable, Sendable {
     }
 
     func candidateID(for slot: ModelPlanSlot) -> UUID? {
-        guard !clearedSlots.contains(slot) else {
-            return nil
-        }
+        guard !clearedSlots.contains(slot) else { return nil }
         switch slot {
-        case .primary:
-            return primaryCandidateID
-        case .multimodal:
-            return multimodalCandidateID
-        case .lightweight:
-            return lightweightCandidateID
+        case .primary: return primaryCandidateID
+        case .multimodal: return multimodalCandidateID
+        case .lightweight: return lightweightCandidateID
         }
     }
 
     mutating func setCandidateID(_ candidateID: UUID?, for slot: ModelPlanSlot) {
         clearedSlots.remove(slot)
         switch slot {
-        case .primary:
-            primaryCandidateID = candidateID
-        case .multimodal:
-            multimodalCandidateID = candidateID
-        case .lightweight:
-            lightweightCandidateID = candidateID
+        case .primary: primaryCandidateID = candidateID
+        case .multimodal: multimodalCandidateID = candidateID
+        case .lightweight: lightweightCandidateID = candidateID
         }
     }
 
@@ -96,108 +77,11 @@ struct ModelPlanSessionOverride: Codable, Hashable, Sendable {
         clearedSlots.remove(slot)
     }
 
-    func isCandidateCleared(for slot: ModelPlanSlot) -> Bool {
-        clearedSlots.contains(slot)
-    }
+    func isCandidateCleared(for slot: ModelPlanSlot) -> Bool { clearedSlots.contains(slot) }
 
     func isEquivalentToSettings(activePlanID: UUID?) -> Bool {
         !hasCandidateOverrides && (planID == nil || planID == activePlanID)
     }
-}
-
-enum ModelCandidateProviderPreset: String, CaseIterable, Codable, Identifiable, Sendable {
-    case openAICompatible
-    case glm
-    case glmCodingPlan
-    case deepseek
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .openAICompatible:
-            return PalmiL10n.tr("model.preset.openAICompatible")
-        case .glm:
-            return PalmiL10n.tr("model.preset.glm")
-        case .glmCodingPlan:
-            return PalmiL10n.tr("model.preset.glmCodingPlan")
-        case .deepseek:
-            return "DeepSeek"
-        }
-    }
-
-    var baseURLString: String {
-        switch self {
-        case .openAICompatible:
-            return ""
-        case .glm:
-            return "https://open.bigmodel.cn/api/paas/v4/"
-        case .glmCodingPlan:
-            return "https://open.bigmodel.cn/api/coding/paas/v4"
-        case .deepseek:
-            return "https://api.deepseek.com"
-        }
-    }
-
-    var providerIDHint: APIProviderID? {
-        switch self {
-        case .openAICompatible:
-            return nil
-        case .glm, .glmCodingPlan:
-            return .glm
-        case .deepseek:
-            return .deepseek
-        }
-    }
-
-    var officialModels: [ModelCandidatePresetModel] {
-        switch self {
-        case .openAICompatible:
-            return []
-        case .glm:
-            return Self.officialModels(for: .glm, accessModeID: .standardAPI)
-        case .glmCodingPlan:
-            return Self.officialModels(for: .glm, accessModeID: .codingPlan)
-        case .deepseek:
-            return Self.officialModels(for: .deepseek, accessModeID: .standardAPI)
-        }
-    }
-
-    var disablesThinkingDuringValidation: Bool {
-        self == .deepseek
-    }
-
-    var validationMaxTokens: Int {
-        disablesThinkingDuringValidation ? 32 : 64
-    }
-
-    private static func officialModels(
-        for providerID: APIProviderID,
-        accessModeID: APIAccessModeID
-    ) -> [ModelCandidatePresetModel] {
-        guard let accessMode = APIProviderCatalog.definition(for: providerID).accessMode(withID: accessModeID) else {
-            return []
-        }
-        return accessMode.models.map { model in
-            ModelCandidatePresetModel(
-                id: model.id,
-                title: model.title,
-                summary: model.summary,
-                supportsMultimodal: model.supportsMultimodal,
-                isLightweight: model.traits.contains(.lightweight),
-                isReasoningPreferred: model.traits.contains(.reasoningPreferred)
-            )
-        }
-    }
-}
-
-struct ModelCandidatePresetModel: Identifiable, Hashable, Sendable {
-    let id: String
-    let title: String
-    let summary: String
-    let supportsMultimodal: Bool
-    let isLightweight: Bool
-    let isReasoningPreferred: Bool
 }
 
 enum ModelCandidateValidationStatus: String, Codable, Sendable {
@@ -220,12 +104,25 @@ struct ModelCandidateCapabilities: Codable, Equatable, Sendable {
     }
 }
 
-struct ModelPlanCandidateRecord: Identifiable, Codable, Equatable, Sendable {
+struct ModelAPIConnectionRecord: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     var displayName: String
-    var preset: ModelCandidateProviderPreset
-    var baseURLString: String
+    var inputAddress: String
+    var chatCompletionsURLString: String
+    var responsesURLString: String?
+    var modelsURLString: String?
+    var createdAt: Date
+    var updatedAt: Date
+}
+
+struct GlobalModelRecord: Identifiable, Codable, Equatable, Sendable {
+    let id: UUID
+    var connectionID: UUID
+    var displayName: String
+    var remoteDisplayName: String?
     var modelName: String
+    var canonicalID: String?
+    var ownedBy: String?
     var capabilities: ModelCandidateCapabilities
     var validationStatus: ModelCandidateValidationStatus
     var validationMessage: String
@@ -239,11 +136,7 @@ struct ModelPlanSlotCandidateIDs: Codable, Equatable, Sendable {
     var multimodal: [UUID]
     var lightweight: [UUID]
 
-    init(
-        primary: [UUID] = [],
-        multimodal: [UUID] = [],
-        lightweight: [UUID] = []
-    ) {
+    init(primary: [UUID] = [], multimodal: [UUID] = [], lightweight: [UUID] = []) {
         self.primary = Self.unique(primary)
         self.multimodal = Self.unique(multimodal)
         self.lightweight = Self.unique(lightweight)
@@ -251,45 +144,43 @@ struct ModelPlanSlotCandidateIDs: Codable, Equatable, Sendable {
 
     func ids(for slot: ModelPlanSlot) -> [UUID] {
         switch slot {
-        case .primary:
-            return primary
-        case .multimodal:
-            return multimodal
-        case .lightweight:
-            return lightweight
+        case .primary: primary
+        case .multimodal: multimodal
+        case .lightweight: lightweight
         }
     }
 
-    mutating func add(_ candidateID: UUID, to slot: ModelPlanSlot) {
+    mutating func add(_ modelID: UUID, to slot: ModelPlanSlot) {
         switch slot {
-        case .primary:
-            if !primary.contains(candidateID) { primary.append(candidateID) }
-        case .multimodal:
-            if !multimodal.contains(candidateID) { multimodal.append(candidateID) }
-        case .lightweight:
-            if !lightweight.contains(candidateID) { lightweight.append(candidateID) }
+        case .primary where !primary.contains(modelID): primary.append(modelID)
+        case .multimodal where !multimodal.contains(modelID): multimodal.append(modelID)
+        case .lightweight where !lightweight.contains(modelID): lightweight.append(modelID)
+        default: break
         }
     }
 
-    mutating func remove(_ candidateID: UUID, from slot: ModelPlanSlot) {
+    mutating func remove(_ modelID: UUID, from slot: ModelPlanSlot) {
         switch slot {
-        case .primary:
-            primary.removeAll { $0 == candidateID }
-        case .multimodal:
-            multimodal.removeAll { $0 == candidateID }
-        case .lightweight:
-            lightweight.removeAll { $0 == candidateID }
+        case .primary: primary.removeAll { $0 == modelID }
+        case .multimodal: multimodal.removeAll { $0 == modelID }
+        case .lightweight: lightweight.removeAll { $0 == modelID }
         }
     }
 
-    mutating func removeFromAllSlots(_ candidateID: UUID) {
-        primary.removeAll { $0 == candidateID }
-        multimodal.removeAll { $0 == candidateID }
-        lightweight.removeAll { $0 == candidateID }
+    mutating func removeFromAllSlots(_ modelID: UUID) {
+        primary.removeAll { $0 == modelID }
+        multimodal.removeAll { $0 == modelID }
+        lightweight.removeAll { $0 == modelID }
     }
 
-    func contains(_ candidateID: UUID, in slot: ModelPlanSlot) -> Bool {
-        ids(for: slot).contains(candidateID)
+    func contains(_ modelID: UUID, in slot: ModelPlanSlot) -> Bool {
+        ids(for: slot).contains(modelID)
+    }
+
+    mutating func remap(_ mapping: [UUID: UUID]) {
+        primary = Self.unique(primary.compactMap { mapping[$0] })
+        multimodal = Self.unique(multimodal.compactMap { mapping[$0] })
+        lightweight = Self.unique(lightweight.compactMap { mapping[$0] })
     }
 
     private static func unique(_ ids: [UUID]) -> [UUID] {
@@ -305,120 +196,67 @@ struct ModelPlanRecord: Identifiable, Codable, Equatable, Sendable {
     var multimodalCandidateID: UUID?
     var lightweightCandidateID: UUID?
     var slotCandidateIDs: ModelPlanSlotCandidateIDs
-    var candidates: [ModelPlanCandidateRecord]
     var createdAt: Date
     var updatedAt: Date
 
-    init(
-        id: UUID,
-        name: String,
-        primaryCandidateID: UUID?,
-        multimodalCandidateID: UUID?,
-        lightweightCandidateID: UUID?,
-        slotCandidateIDs: ModelPlanSlotCandidateIDs = ModelPlanSlotCandidateIDs(),
-        candidates: [ModelPlanCandidateRecord],
-        createdAt: Date,
-        updatedAt: Date
-    ) {
-        self.id = id
-        self.name = name
-        self.primaryCandidateID = primaryCandidateID
-        self.multimodalCandidateID = multimodalCandidateID
-        self.lightweightCandidateID = lightweightCandidateID
-        var slotCandidateIDs = slotCandidateIDs
-        if let primaryCandidateID {
-            slotCandidateIDs.add(primaryCandidateID, to: .primary)
-        }
-        if let multimodalCandidateID {
-            slotCandidateIDs.add(multimodalCandidateID, to: .multimodal)
-        }
-        if let lightweightCandidateID {
-            slotCandidateIDs.add(lightweightCandidateID, to: .lightweight)
-        }
-        self.slotCandidateIDs = slotCandidateIDs
-        self.candidates = candidates
-        self.createdAt = createdAt
-        self.updatedAt = updatedAt
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case id
-        case name
-        case primaryCandidateID
-        case multimodalCandidateID
-        case lightweightCandidateID
-        case slotCandidateIDs
-        case candidates
-        case createdAt
-        case updatedAt
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let primaryCandidateID = try container.decodeIfPresent(UUID.self, forKey: .primaryCandidateID)
-        let multimodalCandidateID = try container.decodeIfPresent(UUID.self, forKey: .multimodalCandidateID)
-        let lightweightCandidateID = try container.decodeIfPresent(UUID.self, forKey: .lightweightCandidateID)
-        self.init(
-            id: try container.decode(UUID.self, forKey: .id),
-            name: try container.decode(String.self, forKey: .name),
-            primaryCandidateID: primaryCandidateID,
-            multimodalCandidateID: multimodalCandidateID,
-            lightweightCandidateID: lightweightCandidateID,
-            slotCandidateIDs: try container.decodeIfPresent(ModelPlanSlotCandidateIDs.self, forKey: .slotCandidateIDs) ?? ModelPlanSlotCandidateIDs(),
-            candidates: try container.decode([ModelPlanCandidateRecord].self, forKey: .candidates),
-            createdAt: try container.decode(Date.self, forKey: .createdAt),
-            updatedAt: try container.decode(Date.self, forKey: .updatedAt)
-        )
-    }
-
     func selectedCandidateID(for slot: ModelPlanSlot) -> UUID? {
         switch slot {
-        case .primary:
-            return primaryCandidateID
-        case .multimodal:
-            return multimodalCandidateID
-        case .lightweight:
-            return lightweightCandidateID
+        case .primary: return primaryCandidateID
+        case .multimodal: return multimodalCandidateID
+        case .lightweight: return lightweightCandidateID
         }
     }
 
-    func candidateIDs(for slot: ModelPlanSlot) -> [UUID] {
-        slotCandidateIDs.ids(for: slot)
+    func candidateIDs(for slot: ModelPlanSlot) -> [UUID] { slotCandidateIDs.ids(for: slot) }
+
+    mutating func setSelectedCandidateID(_ candidateID: UUID?, for slot: ModelPlanSlot) {
+        switch slot {
+        case .primary: primaryCandidateID = candidateID
+        case .multimodal: multimodalCandidateID = candidateID
+        case .lightweight: lightweightCandidateID = candidateID
+        }
+        if let candidateID { slotCandidateIDs.add(candidateID, to: slot) }
     }
 }
 
+struct ModelConfigurationArchive: Codable, Equatable, Sendable {
+    static let currentVersion = 2
+
+    var version: Int
+    var connections: [ModelAPIConnectionRecord]
+    var models: [GlobalModelRecord]
+    var plans: [ModelPlanRecord]
+}
+
 struct ModelCandidateSnapshot: Identifiable, Equatable, Sendable {
-    let record: ModelPlanCandidateRecord
+    let record: GlobalModelRecord
+    let connection: ModelAPIConnectionRecord
     let hasAPIKey: Bool
     let maskedAPIKey: String?
 
     var id: UUID { record.id }
     var title: String {
-        let trimmed = record.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? record.modelName : trimmed
+        let alias = record.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return alias.isEmpty ? (record.remoteDisplayName ?? record.modelName) : alias
     }
     var displayName: String { title }
+    var remoteDisplayName: String? { record.remoteDisplayName }
     var modelName: String { record.modelName }
-    var baseURLString: String { record.baseURLString }
-    var preset: ModelCandidateProviderPreset { record.preset }
+    var baseURLString: String { connection.inputAddress }
     var capabilities: ModelCandidateCapabilities { record.capabilities }
     var validationStatus: ModelCandidateValidationStatus { record.validationStatus }
     var validationMessage: String { record.validationMessage }
     var validatedAt: Date? { record.validatedAt }
-    var subtitle: String {
-        baseURLString.isEmpty ? preset.title : baseURLString
-    }
+    var subtitle: String { connection.inputAddress }
 
     func isValid(for slot: ModelPlanSlot) -> Bool {
-        guard validationStatus == .valid, capabilities.supportsText else {
-            return false
-        }
+        guard validationStatus == .valid, capabilities.supportsText else { return false }
         return slot.requiresVisionValidation ? capabilities.supportsVision : true
     }
 
     func isConfigured(for _: ModelPlanSlot) -> Bool {
         !modelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !baseURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !connection.chatCompletionsURLString.isEmpty
     }
 }
 
@@ -432,34 +270,24 @@ struct ModelPlanSnapshot: Identifiable, Equatable, Sendable {
     var updatedAt: Date { record.updatedAt }
 
     func candidates(for slot: ModelPlanSlot) -> [ModelCandidateSnapshot] {
-        let order = Dictionary(uniqueKeysWithValues: record.candidateIDs(for: slot).enumerated().map { ($0.element, $0.offset) })
+        var order: [UUID: Int] = [:]
+        for (index, id) in record.candidateIDs(for: slot).enumerated() where order[id] == nil {
+            order[id] = index
+        }
         return candidates
             .filter { order[$0.id] != nil }
-            .sorted { lhs, rhs in
-                (order[lhs.id] ?? 0) < (order[rhs.id] ?? 0)
-            }
+            .sorted { (order[$0.id] ?? 0) < (order[$1.id] ?? 0) }
     }
 
     func selectedCandidate(for slot: ModelPlanSlot) -> ModelCandidateSnapshot? {
-        guard let selectedID = record.selectedCandidateID(for: slot) else {
-            return nil
-        }
-        guard record.slotCandidateIDs.contains(selectedID, in: slot) else {
-            return nil
-        }
-        return candidates.first(where: { $0.id == selectedID })
+        guard let selectedID = record.selectedCandidateID(for: slot),
+              record.slotCandidateIDs.contains(selectedID, in: slot) else { return nil }
+        return candidates.first { $0.id == selectedID }
     }
 
     func libraryCandidates(excluding slot: ModelPlanSlot? = nil) -> [ModelCandidateSnapshot] {
         let excluded = slot.map { Set(record.candidateIDs(for: $0)) } ?? []
-        return candidates
-            .filter { !excluded.contains($0.id) }
-            .sorted { lhs, rhs in
-                if lhs.record.updatedAt == rhs.record.updatedAt {
-                    return lhs.title.localizedCompare(rhs.title) == .orderedAscending
-                }
-                return lhs.record.updatedAt > rhs.record.updatedAt
-            }
+        return candidates.filter { !excluded.contains($0.id) }
     }
 
     var isUsable: Bool {
@@ -475,63 +303,69 @@ struct ModelCandidateValidationResult: Sendable {
 struct ModelCandidateDraft: Sendable {
     var slot: ModelPlanSlot
     var displayName: String
-    var preset: ModelCandidateProviderPreset
     var baseURLString: String
     var apiKey: String
     var modelName: String
+    var remoteDisplayName: String? = nil
+    var canonicalID: String? = nil
+    var ownedBy: String? = nil
+    var modelsURLString: String? = nil
 }
+
+@MainActor
+protocol ModelSecretStoring {
+    func saveSecret(_ secret: String, account: String) throws
+    func readSecret(account: String) throws -> String?
+    func deleteSecret(account: String) throws
+}
+
+extension KeychainSecretStore: ModelSecretStoring {}
 
 @MainActor
 @Observable
 final class ModelPlanStore {
-    private static let recordsKey = "palmi.model-plans.records"
+    private static let archiveKey = "palmi.model-config.archive.v2"
+    private static let legacyRecordsKey = "palmi.model-plans.records"
     private static let activePlanIDKey = "palmi.model-plans.active-id"
 
     private let metadataDefaults: UserDefaults
-    private let secretStore: KeychainSecretStore
+    private let secretStore: any ModelSecretStoring
+    private var archive: ModelConfigurationArchive
 
     private(set) var plans: [ModelPlanSnapshot] = []
+    private(set) var libraryModels: [ModelCandidateSnapshot] = []
+    private(set) var connections: [ModelAPIConnectionRecord] = []
     private(set) var feedbackMessage: String?
 
     init(
         metadataDefaults: UserDefaults = .standard,
-        secretStore: KeychainSecretStore = .init(service: "com.hongyupeng.PalmiAgent.model-plans")
+        secretStore: any ModelSecretStoring = KeychainSecretStore(
+            service: "com.hongyupeng.PalmiAgent.model-plans"
+        )
     ) {
         self.metadataDefaults = metadataDefaults
         self.secretStore = secretStore
-        refresh()
+        archive = Self.emptyArchive()
+        reloadArchive()
+        refreshSnapshots()
     }
 
     func refresh() {
-        let records = persistedRecords()
-        let activeID = activePlanID(in: records)
-        plans = records
-            .map { snapshot(from: $0, activeID: activeID) }
-            .sorted { lhs, rhs in
-                if lhs.updatedAt == rhs.updatedAt {
-                    return lhs.name.localizedCompare(rhs.name) == .orderedAscending
-                }
-                return lhs.updatedAt > rhs.updatedAt
-            }
+        reloadArchive()
+        refreshSnapshots()
     }
 
-    func plan(id: UUID) -> ModelPlanSnapshot? {
-        plans.first(where: { $0.id == id })
-    }
+    func plan(id: UUID) -> ModelPlanSnapshot? { plans.first { $0.id == id } }
 
     func activePlanSnapshot() -> ModelPlanSnapshot? {
-        if let activeID = readActivePlanID(),
-           let activePlan = plans.first(where: { $0.id == activeID }) {
-            return activePlan
+        if let activeID = readActivePlanID(), let match = plans.first(where: { $0.id == activeID }) {
+            return match
         }
         return plans.first
     }
 
     func selectedPlan(for sessionOverride: ModelPlanSessionOverride?) -> ModelPlanSnapshot? {
-        if let planID = sessionOverride?.planID,
-           let plan = plan(id: planID) {
-            return plan
-        }
+        if let planID = sessionOverride?.planID, let match = plan(id: planID) { return match }
         return activePlanSnapshot()
     }
 
@@ -540,95 +374,68 @@ final class ModelPlanStore {
         in plan: ModelPlanSnapshot,
         sessionOverride: ModelPlanSessionOverride?
     ) -> ModelCandidateSnapshot? {
-        if sessionOverride?.isCandidateCleared(for: slot) == true {
-            return nil
-        }
-        if let candidateID = sessionOverride?.candidateID(for: slot),
-           let candidate = plan.candidates.first(where: { $0.id == candidateID }) {
-            return candidate
+        if sessionOverride?.isCandidateCleared(for: slot) == true { return nil }
+        if let modelID = sessionOverride?.candidateID(for: slot) {
+            return plan.candidates.first { $0.id == modelID }
         }
         return plan.selectedCandidate(for: slot)
     }
 
     func roleOverrides(for sessionOverride: ModelPlanSessionOverride?) -> AgentModelRoleOverrides {
         guard let plan = selectedPlan(for: sessionOverride),
-              let primaryCandidate = selectedCandidate(
-                for: .primary,
-                in: plan,
-                sessionOverride: sessionOverride
-              ),
-              let primaryOverride = requestOverride(
-                for: primaryCandidate,
-                planID: plan.id,
-                slot: .primary
-              ) else {
-            return .empty
+              let primary = selectedCandidate(for: .primary, in: plan, sessionOverride: sessionOverride),
+              let primaryOverride = requestOverride(for: primary, slot: .primary) else {
+            let message = PalmiL10n.tr("model.error.noUsablePlan")
+            return AgentModelRoleOverrides(
+                reasoningModel: .unavailable(message),
+                multimodalModel: .unavailable(message),
+                lightweightModel: .unavailable(message)
+            )
         }
-
-        let multimodalCandidate = selectedCandidate(
-            for: .multimodal,
-            in: plan,
-            sessionOverride: sessionOverride
-        )
-        let multimodalOverride: AgentModelConfigurationOverride?
-        if let multimodalCandidate,
-           let resolved = requestOverride(
-                for: multimodalCandidate,
-                planID: plan.id,
-                slot: .multimodal
-           ) {
-            multimodalOverride = resolved
-        } else {
-            multimodalOverride = .unavailable(PalmiL10n.tr("model.error.noMultimodalSelected"))
-        }
-
-        let lightweightCandidate = selectedCandidate(
-            for: .lightweight,
-            in: plan,
-            sessionOverride: sessionOverride
-        )
-        let lightweightOverride = lightweightCandidate
-            .flatMap { candidate in
-                requestOverride(for: candidate, planID: plan.id, slot: .lightweight)
-            } ?? primaryOverride
-
+        let multimodal = selectedCandidate(for: .multimodal, in: plan, sessionOverride: sessionOverride)
+            .flatMap { requestOverride(for: $0, slot: .multimodal) }
+            ?? .unavailable(PalmiL10n.tr("model.error.noMultimodalSelected"))
+        let lightweight = selectedCandidate(for: .lightweight, in: plan, sessionOverride: sessionOverride)
+            .flatMap { requestOverride(for: $0, slot: .lightweight) }
+            ?? primaryOverride
         return AgentModelRoleOverrides(
             reasoningModel: primaryOverride,
-            multimodalModel: multimodalOverride,
-            lightweightModel: lightweightOverride
+            multimodalModel: multimodal,
+            lightweightModel: lightweight
         )
     }
 
     @discardableResult
     func createPlan(name: String? = nil) -> UUID {
-        var records = persistedRecords()
         let now = Date()
-        let planID = UUID()
-        let plan = ModelPlanRecord(
-            id: planID,
-            name: normalizedPlanName(
-                name,
-                defaultName: records.isEmpty ? PalmiL10n.tr("model.plan.defaultName") : PalmiL10n.tr("model.plan.newName", records.count + 1)
+        let id = UUID()
+        archive.plans.insert(
+            ModelPlanRecord(
+                id: id,
+                name: normalizedPlanName(
+                    name,
+                    defaultName: archive.plans.isEmpty
+                        ? PalmiL10n.tr("model.plan.defaultName")
+                        : PalmiL10n.tr("model.plan.newName", archive.plans.count + 1)
+                ),
+                primaryCandidateID: nil,
+                multimodalCandidateID: nil,
+                lightweightCandidateID: nil,
+                slotCandidateIDs: .init(),
+                createdAt: now,
+                updatedAt: now
             ),
-            primaryCandidateID: nil,
-            multimodalCandidateID: nil,
-            lightweightCandidateID: nil,
-            candidates: [],
-            createdAt: now,
-            updatedAt: now
+            at: 0
         )
-        records.insert(plan, at: 0)
-        writeRecords(records)
-        if readActivePlanID() == nil {
-            writeActivePlanID(planID)
-        }
-        refresh()
-        return planID
+        persistOrReport()
+        if readActivePlanID() == nil { writeActivePlanID(id) }
+        refreshSnapshots()
+        return id
     }
 
     func setPlanName(_ name: String, planID: UUID) {
-        updatePlan(planID) { plan in
-            plan.name = normalizedPlanName(name, defaultName: PalmiL10n.tr("model.plan.unnamed"))
+        mutatePlan(planID) {
+            $0.name = normalizedPlanName(name, defaultName: PalmiL10n.tr("model.plan.unnamed"))
         }
     }
 
@@ -640,22 +447,16 @@ final class ModelPlanStore {
             throw AppError.invalidState(PalmiL10n.tr("model.error.primaryRequired"))
         }
         writeActivePlanID(planID)
-        refresh()
+        refreshSnapshots()
     }
 
     func deletePlan(_ planID: UUID) {
-        var records = persistedRecords()
-        guard let index = records.firstIndex(where: { $0.id == planID }) else { return }
-        let deleting = records.remove(at: index)
-        for candidate in deleting.candidates {
-            try? secretStore.deleteSecret(account: apiKeyAccount(planID: planID, candidateID: candidate.id))
-        }
-        writeRecords(records.isEmpty ? [Self.emptySystemPlan()] : records)
-        if readActivePlanID() == planID {
-            let remaining = persistedRecords()
-            writeActivePlanID(remaining[0].id)
-        }
-        refresh()
+        guard archive.plans.contains(where: { $0.id == planID }) else { return }
+        archive.plans.removeAll { $0.id == planID }
+        if archive.plans.isEmpty { archive.plans = [Self.emptyPlan()] }
+        if readActivePlanID() == planID { writeActivePlanID(archive.plans[0].id) }
+        persistOrReport()
+        refreshSnapshots()
     }
 
     @discardableResult
@@ -683,77 +484,69 @@ final class ModelPlanStore {
         selectAfterAdd: Bool = true,
         addToSlot: Bool = true
     ) throws -> UUID {
-        let trimmedModelName = draft.modelName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedModelName.isEmpty else {
-            throw AppError.invalidState(PalmiL10n.tr("model.error.requestModelRequired"))
-        }
-        let trimmedDisplayName = draft.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedBaseURL = try Self.normalizedBaseURLString(draft.baseURLString)
-        let capabilities = Self.inferredCapabilities(for: draft)
-            .merging(validation?.capabilities ?? .none)
-        if let existingCandidateID = existingCandidateID(
-            planID: planID,
-            baseURLString: normalizedBaseURL,
-            modelName: trimmedModelName
-        ) {
-            try updateExistingCandidate(
-                existingCandidateID,
-                planID: planID,
-                draft: draft,
-                validation: validation,
-                normalizedBaseURL: normalizedBaseURL,
-                capabilities: capabilities
-            )
-            if addToSlot {
-                updatePlan(planID) { plan in
-                    if let index = plan.candidates.firstIndex(where: { $0.id == existingCandidateID }) {
-                        plan.candidates[index].capabilities = plan.candidates[index].capabilities
-                            .merging(Self.inferredCapabilities(for: draft.slot))
-                    }
-                    plan.slotCandidateIDs.add(existingCandidateID, to: draft.slot)
-                    if selectAfterAdd {
-                        plan.setSelectedCandidateID(existingCandidateID, for: draft.slot)
-                    }
-                }
-            }
-            return existingCandidateID
-        }
-
-        let now = Date()
-        let candidateID = UUID()
-        let record = ModelPlanCandidateRecord(
-            id: candidateID,
-            displayName: trimmedDisplayName,
-            preset: draft.preset,
-            baseURLString: normalizedBaseURL,
-            modelName: trimmedModelName,
-            capabilities: capabilities,
-            validationStatus: validation == nil ? .unvalidated : .valid,
-            validationMessage: validation?.message ?? PalmiL10n.tr("model.status.untested"),
-            validatedAt: validation == nil ? nil : now,
-            createdAt: now,
-            updatedAt: now
+        let connectionID = try upsertConnection(
+            inputAddress: draft.baseURLString,
+            apiKey: draft.apiKey,
+            modelsURLString: draft.modelsURLString
         )
-        let trimmedAPIKey = draft.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedAPIKey.isEmpty {
-            try secretStore.saveSecret(
-                trimmedAPIKey,
-                account: apiKeyAccount(planID: planID, candidateID: candidateID)
+        let modelID = try upsertModel(connectionID: connectionID, draft: draft, validation: validation)
+        if addToSlot {
+            try addCandidateToSlot(
+                modelID,
+                planID: planID,
+                slot: draft.slot,
+                selectAfterAdd: selectAfterAdd
             )
+        } else {
+            try persistArchive()
+            refreshSnapshots()
         }
+        return modelID
+    }
 
-        updatePlan(planID) { plan in
-            plan.candidates.append(record)
-            if addToSlot {
-                plan.slotCandidateIDs.add(candidateID, to: draft.slot)
-                if selectAfterAdd {
-                    plan.setSelectedCandidateID(candidateID, for: draft.slot)
-                } else if plan.selectedCandidateID(for: draft.slot) == nil {
-                    plan.setSelectedCandidateID(candidateID, for: draft.slot)
+    @discardableResult
+    func importDiscoveredModels(
+        inputAddress: String,
+        apiKey: String,
+        discovery: LLMModelDiscoveryResult,
+        aliases: [String: String],
+        planID: UUID? = nil,
+        slot: ModelPlanSlot? = nil
+    ) throws -> [UUID] {
+        let connectionID = try upsertConnection(
+            inputAddress: inputAddress,
+            apiKey: apiKey,
+            modelsURLString: discovery.endpoint.absoluteString
+        )
+        var imported: [UUID] = []
+        for discovered in discovery.models {
+            let draft = ModelCandidateDraft(
+                slot: slot ?? .primary,
+                displayName: aliases[discovered.id] ?? "",
+                baseURLString: inputAddress,
+                apiKey: apiKey,
+                modelName: discovered.id,
+                remoteDisplayName: discovered.remoteDisplayName,
+                canonicalID: discovered.canonicalID,
+                ownedBy: discovered.ownedBy,
+                modelsURLString: discovery.endpoint.absoluteString
+            )
+            let modelID = try upsertModel(connectionID: connectionID, draft: draft, validation: nil)
+            imported.append(modelID)
+            if let planID, let slot {
+                guard let index = archive.plans.firstIndex(where: { $0.id == planID }) else {
+                    throw AppError.invalidState(PalmiL10n.tr("model.error.planMissing"))
                 }
+                archive.plans[index].slotCandidateIDs.add(modelID, to: slot)
+                if archive.plans[index].selectedCandidateID(for: slot) == nil {
+                    archive.plans[index].setSelectedCandidateID(modelID, for: slot)
+                }
+                archive.plans[index].updatedAt = .now
             }
         }
-        return candidateID
+        try persistArchive()
+        refreshSnapshots()
+        return imported
     }
 
     func addCandidateToSlot(
@@ -762,41 +555,36 @@ final class ModelPlanStore {
         slot: ModelPlanSlot,
         selectAfterAdd: Bool = false
     ) throws {
-        guard let plan = plan(id: planID),
-              plan.candidates.contains(where: { $0.id == candidateID }) else {
+        guard archive.models.contains(where: { $0.id == candidateID }) else {
             throw AppError.invalidState(PalmiL10n.tr("model.error.libraryModelMissing"))
         }
-        updatePlan(planID) { plan in
-            if let index = plan.candidates.firstIndex(where: { $0.id == candidateID }) {
-                plan.candidates[index].capabilities = plan.candidates[index].capabilities
-                    .merging(Self.inferredCapabilities(for: slot))
-            }
-            plan.slotCandidateIDs.add(candidateID, to: slot)
-            if selectAfterAdd || plan.selectedCandidateID(for: slot) == nil {
-                plan.setSelectedCandidateID(candidateID, for: slot)
-            }
+        guard let index = archive.plans.firstIndex(where: { $0.id == planID }) else {
+            throw AppError.invalidState(PalmiL10n.tr("model.error.planMissing"))
         }
+        archive.plans[index].slotCandidateIDs.add(candidateID, to: slot)
+        if selectAfterAdd || archive.plans[index].selectedCandidateID(for: slot) == nil {
+            archive.plans[index].setSelectedCandidateID(candidateID, for: slot)
+        }
+        archive.plans[index].updatedAt = .now
+        try persistArchive()
+        refreshSnapshots()
     }
 
     func updateCandidateValidation(
         _ candidateID: UUID,
-        planID: UUID,
+        planID _: UUID,
         validation: ModelCandidateValidationResult
     ) throws {
-        guard plan(id: planID)?.candidates.contains(where: { $0.id == candidateID }) == true else {
+        guard let index = archive.models.firstIndex(where: { $0.id == candidateID }) else {
             throw AppError.invalidState(PalmiL10n.tr("model.error.candidateMissing"))
         }
-        let now = Date()
-        updatePlan(planID) { plan in
-            guard let index = plan.candidates.firstIndex(where: { $0.id == candidateID }) else {
-                return
-            }
-            plan.candidates[index].capabilities = plan.candidates[index].capabilities.merging(validation.capabilities)
-            plan.candidates[index].validationStatus = .valid
-            plan.candidates[index].validationMessage = validation.message
-            plan.candidates[index].validatedAt = now
-            plan.candidates[index].updatedAt = now
-        }
+        archive.models[index].capabilities = archive.models[index].capabilities.merging(validation.capabilities)
+        archive.models[index].validationStatus = .valid
+        archive.models[index].validationMessage = validation.message
+        archive.models[index].validatedAt = .now
+        archive.models[index].updatedAt = .now
+        try persistArchive()
+        refreshSnapshots()
     }
 
     func removeCandidateFromSlot(
@@ -807,298 +595,283 @@ final class ModelPlanStore {
         guard !slot.isRequired || plan(id: planID)?.selectedCandidate(for: slot)?.id != candidateID else {
             throw AppError.invalidState(PalmiL10n.tr("model.error.primaryInUse"))
         }
-        updatePlan(planID) { plan in
-            plan.slotCandidateIDs.remove(candidateID, from: slot)
-            if plan.selectedCandidateID(for: slot) == candidateID {
-                plan.setSelectedCandidateID(nil, for: slot)
-            }
+        guard let index = archive.plans.firstIndex(where: { $0.id == planID }) else {
+            throw AppError.invalidState(PalmiL10n.tr("model.error.planMissing"))
         }
+        archive.plans[index].slotCandidateIDs.remove(candidateID, from: slot)
+        if archive.plans[index].selectedCandidateID(for: slot) == candidateID {
+            archive.plans[index].setSelectedCandidateID(nil, for: slot)
+        }
+        archive.plans[index].updatedAt = .now
+        try persistArchive()
+        refreshSnapshots()
     }
 
     func updateCandidateNames(
         _ candidateID: UUID,
-        planID: UUID,
+        planID _: UUID,
         displayName: String,
         modelName: String
     ) throws {
-        guard let candidate = plan(id: planID)?.candidates.first(where: { $0.id == candidateID }) else {
+        guard let snapshot = libraryModels.first(where: { $0.id == candidateID }) else {
             throw AppError.invalidState(PalmiL10n.tr("model.error.modelMissing"))
         }
         try updateCandidateConfiguration(
             candidateID,
-            planID: planID,
+            planID: UUID(),
             displayName: displayName,
             modelName: modelName,
-            baseURLString: candidate.baseURLString,
-            apiKey: apiKey(for: planID, candidateID: candidateID)
+            baseURLString: snapshot.connection.inputAddress,
+            apiKey: apiKey(for: candidateID)
         )
     }
 
     func updateCandidateConfiguration(
         _ candidateID: UUID,
-        planID: UUID,
+        planID _: UUID,
         displayName: String,
         modelName: String,
         baseURLString: String,
         apiKey: String
     ) throws {
-        let trimmedDisplayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedModelName = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedModelName.isEmpty else {
             throw AppError.invalidState(PalmiL10n.tr("model.error.requestModelRequired"))
         }
-        let normalizedBaseURL = try Self.normalizedBaseURLString(baseURLString)
-        let trimmedAPIKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmedAPIKey.isEmpty {
-            try secretStore.deleteSecret(account: apiKeyAccount(planID: planID, candidateID: candidateID))
-        } else {
-            try secretStore.saveSecret(
-                trimmedAPIKey,
-                account: apiKeyAccount(planID: planID, candidateID: candidateID)
-            )
+        guard let modelIndex = archive.models.firstIndex(where: { $0.id == candidateID }) else {
+            throw AppError.invalidState(PalmiL10n.tr("model.error.modelMissing"))
         }
-        updatePlan(planID) { plan in
-            guard let index = plan.candidates.firstIndex(where: { $0.id == candidateID }) else {
-                return
-            }
-            plan.candidates[index].displayName = trimmedDisplayName
-            plan.candidates[index].modelName = trimmedModelName
-            plan.candidates[index].baseURLString = normalizedBaseURL
-            plan.candidates[index].updatedAt = Date()
-        }
+        let connectionID = try upsertConnection(
+            inputAddress: baseURLString,
+            apiKey: apiKey,
+            modelsURLString: archive.connections
+                .first(where: { $0.id == archive.models[modelIndex].connectionID })?
+                .modelsURLString
+        )
+        archive.models[modelIndex].connectionID = connectionID
+        archive.models[modelIndex].displayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        archive.models[modelIndex].modelName = trimmedModelName
+        archive.models[modelIndex].updatedAt = .now
+        try persistArchive()
+        refreshSnapshots()
     }
 
     func selectCandidate(_ candidateID: UUID, planID: UUID, slot: ModelPlanSlot) throws {
-        guard let plan = plan(id: planID),
-              plan.candidates.contains(where: { $0.id == candidateID }) else {
+        guard let index = archive.plans.firstIndex(where: { $0.id == planID }),
+              archive.models.contains(where: { $0.id == candidateID }) else {
             throw AppError.invalidState(PalmiL10n.tr("model.error.candidateMissing"))
         }
-        guard plan.record.slotCandidateIDs.contains(candidateID, in: slot) else {
+        guard archive.plans[index].slotCandidateIDs.contains(candidateID, in: slot) else {
             throw AppError.invalidState(PalmiL10n.tr("model.error.addToSlotFirst", slot.title))
         }
-        updatePlan(planID) { plan in
-            plan.setSelectedCandidateID(candidateID, for: slot)
-        }
+        archive.plans[index].setSelectedCandidateID(candidateID, for: slot)
+        archive.plans[index].updatedAt = .now
+        try persistArchive()
+        refreshSnapshots()
     }
 
     func clearSelection(planID: UUID, slot: ModelPlanSlot) throws {
         guard !slot.isRequired else {
             throw AppError.invalidState(PalmiL10n.tr("model.error.primaryCannotBeEmpty"))
         }
-        updatePlan(planID) { plan in
-            plan.setSelectedCandidateID(nil, for: slot)
+        guard let index = archive.plans.firstIndex(where: { $0.id == planID }) else {
+            throw AppError.invalidState(PalmiL10n.tr("model.error.planMissing"))
+        }
+        archive.plans[index].setSelectedCandidateID(nil, for: slot)
+        archive.plans[index].updatedAt = .now
+        try persistArchive()
+        refreshSnapshots()
+    }
+
+    func deleteGlobalModel(_ candidateID: UUID) throws {
+        guard let model = archive.models.first(where: { $0.id == candidateID }) else { return }
+        archive.models.removeAll { $0.id == candidateID }
+        for index in archive.plans.indices {
+            for slot in ModelPlanSlot.allCases where archive.plans[index].selectedCandidateID(for: slot) == candidateID {
+                archive.plans[index].setSelectedCandidateID(nil, for: slot)
+            }
+            archive.plans[index].slotCandidateIDs.removeFromAllSlots(candidateID)
+        }
+        if !archive.models.contains(where: { $0.connectionID == model.connectionID }) {
+            archive.connections.removeAll { $0.id == model.connectionID }
+            try secretStore.deleteSecret(account: apiKeyAccount(connectionID: model.connectionID))
+        }
+        try persistArchive()
+        refreshSnapshots()
+    }
+
+    func deleteCandidate(_ candidateID: UUID, planID _: UUID) {
+        do { try deleteGlobalModel(candidateID) } catch { feedbackMessage = error.localizedDescription }
+    }
+
+    func apiKey(for candidateID: UUID) -> String {
+        guard let connectionID = archive.models.first(where: { $0.id == candidateID })?.connectionID else {
+            return ""
+        }
+        do {
+            return try secretStore.readSecret(account: apiKeyAccount(connectionID: connectionID)) ?? ""
+        } catch {
+            feedbackMessage = Self.errorMessage(for: error)
+            return ""
         }
     }
 
-    func deleteCandidate(_ candidateID: UUID, planID: UUID) {
-        updatePlan(planID) { plan in
-            guard plan.candidates.contains(where: { $0.id == candidateID }) else {
-                return
-            }
-            plan.candidates.removeAll { $0.id == candidateID }
-            for slot in ModelPlanSlot.allCases where plan.selectedCandidateID(for: slot) == candidateID {
-                plan.setSelectedCandidateID(nil, for: slot)
-            }
-            plan.slotCandidateIDs.removeFromAllSlots(candidateID)
-            try? secretStore.deleteSecret(account: apiKeyAccount(planID: planID, candidateID: candidateID))
-        }
-    }
+    func apiKey(for _: UUID, candidateID: UUID) -> String { apiKey(for: candidateID) }
 
-    func apiKey(for planID: UUID, candidateID: UUID) -> String {
-        (try? secretStore.readSecret(account: apiKeyAccount(planID: planID, candidateID: candidateID))) ?? ""
-    }
-
-    func clearFeedback() {
-        feedbackMessage = nil
-    }
+    func clearFeedback() { feedbackMessage = nil }
 
     static func normalizedBaseURLString(_ rawValue: String) throws -> String {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            throw AppError.invalidState(PalmiL10n.tr("model.error.baseURLRequired"))
+        try OpenAICompatibleEndpointResolver.resolve(rawValue).inputURL.absoluteString
+    }
+
+    private func upsertConnection(
+        inputAddress: String,
+        apiKey: String,
+        modelsURLString: String?
+    ) throws -> UUID {
+        let resolution = try OpenAICompatibleEndpointResolver.resolve(inputAddress)
+        let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let existing = try archive.connections.first(where: { connection in
+            guard connection.inputAddress == resolution.inputURL.absoluteString else {
+                return false
+            }
+            let stored = try secretStore.readSecret(account: apiKeyAccount(connectionID: connection.id)) ?? ""
+            return stored == trimmedKey
+        }) {
+            if let index = archive.connections.firstIndex(where: { $0.id == existing.id }) {
+                archive.connections[index].inputAddress = resolution.inputURL.absoluteString
+                archive.connections[index].chatCompletionsURLString = resolution.chatCompletionsURL.absoluteString
+                archive.connections[index].responsesURLString = resolution.responsesURL.absoluteString
+                archive.connections[index].modelsURLString = modelsURLString ?? existing.modelsURLString
+                archive.connections[index].updatedAt = .now
+            }
+            return existing.id
         }
-        let candidate = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
-        guard let url = URL(string: candidate),
-              let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https" else {
-            throw AppError.invalidState(PalmiL10n.tr("model.error.baseURLScheme"))
+
+        let now = Date()
+        let id = UUID()
+        archive.connections.append(
+            ModelAPIConnectionRecord(
+                id: id,
+                displayName: resolution.inputURL.host ?? resolution.inputURL.absoluteString,
+                inputAddress: resolution.inputURL.absoluteString,
+                chatCompletionsURLString: resolution.chatCompletionsURL.absoluteString,
+                responsesURLString: resolution.responsesURL.absoluteString,
+                modelsURLString: modelsURLString,
+                createdAt: now,
+                updatedAt: now
+            )
+        )
+        if !trimmedKey.isEmpty {
+            try secretStore.saveSecret(trimmedKey, account: apiKeyAccount(connectionID: id))
         }
-        return url.absoluteString
+        return id
     }
 
-    private func updatePlan(_ planID: UUID, mutate: (inout ModelPlanRecord) -> Void) {
-        var records = persistedRecords()
-        guard let index = records.firstIndex(where: { $0.id == planID }) else { return }
-        mutate(&records[index])
-        records[index].updatedAt = Date()
-        writeRecords(records)
-        refresh()
-    }
-
-    private func existingCandidateID(
-        planID: UUID,
-        baseURLString: String,
-        modelName: String
-    ) -> UUID? {
-        persistedRecords()
-            .first(where: { $0.id == planID })?
-            .candidates
-            .first { candidate in
-                candidate.baseURLString == baseURLString &&
-                candidate.modelName == modelName
-            }?
-            .id
-    }
-
-    private func updateExistingCandidate(
-        _ candidateID: UUID,
-        planID: UUID,
+    private func upsertModel(
+        connectionID: UUID,
         draft: ModelCandidateDraft,
-        validation: ModelCandidateValidationResult?,
-        normalizedBaseURL: String,
-        capabilities: ModelCandidateCapabilities
-    ) throws {
-        let trimmedAPIKey = draft.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedAPIKey.isEmpty {
-            try secretStore.saveSecret(
-                trimmedAPIKey,
-                account: apiKeyAccount(planID: planID, candidateID: candidateID)
-            )
+        validation: ModelCandidateValidationResult?
+    ) throws -> UUID {
+        let modelName = draft.modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !modelName.isEmpty else {
+            throw AppError.invalidState(PalmiL10n.tr("model.error.requestModelRequired"))
         }
-        let trimmedDisplayName = draft.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let now = Date()
-        updatePlan(planID) { plan in
-            guard let index = plan.candidates.firstIndex(where: { $0.id == candidateID }) else {
-                return
-            }
-            plan.candidates[index].displayName = trimmedDisplayName
-            plan.candidates[index].preset = draft.preset
-            plan.candidates[index].baseURLString = normalizedBaseURL
-            plan.candidates[index].modelName = draft.modelName.trimmingCharacters(in: .whitespacesAndNewlines)
-            plan.candidates[index].capabilities = plan.candidates[index].capabilities.merging(capabilities)
+        let alias = draft.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let index = archive.models.firstIndex(where: {
+            $0.connectionID == connectionID && $0.modelName == modelName
+        }) {
+            if !alias.isEmpty { archive.models[index].displayName = alias }
+            archive.models[index].remoteDisplayName = draft.remoteDisplayName ?? archive.models[index].remoteDisplayName
+            archive.models[index].canonicalID = draft.canonicalID ?? archive.models[index].canonicalID
+            archive.models[index].ownedBy = draft.ownedBy ?? archive.models[index].ownedBy
             if let validation {
-                plan.candidates[index].validationStatus = .valid
-                plan.candidates[index].validationMessage = validation.message
-                plan.candidates[index].validatedAt = now
+                archive.models[index].capabilities = archive.models[index].capabilities.merging(validation.capabilities)
+                archive.models[index].validationStatus = .valid
+                archive.models[index].validationMessage = validation.message
+                archive.models[index].validatedAt = .now
             }
-            plan.candidates[index].updatedAt = now
+            archive.models[index].updatedAt = .now
+            return archive.models[index].id
         }
-    }
 
-    private func persistedRecords() -> [ModelPlanRecord] {
-        guard let data = metadataDefaults.data(forKey: Self.recordsKey),
-              let decoded = try? JSONDecoder().decode([ModelPlanRecord].self, from: data),
-              !decoded.isEmpty else {
-            let initial = [Self.emptySystemPlan()]
-            writeRecords(initial)
-            writeActivePlanID(initial[0].id)
-            return initial
-        }
-        return decoded
-    }
-
-    private func writeRecords(_ records: [ModelPlanRecord]) {
-        guard let data = try? JSONEncoder().encode(records) else { return }
-        metadataDefaults.set(data, forKey: Self.recordsKey)
-    }
-
-    private static func emptySystemPlan() -> ModelPlanRecord {
         let now = Date()
-        return ModelPlanRecord(
-            id: UUID(),
-            name: PalmiL10n.tr("model.plan.defaultName"),
-            primaryCandidateID: nil,
-            multimodalCandidateID: nil,
-            lightweightCandidateID: nil,
-            candidates: [],
-            createdAt: now,
-            updatedAt: now
-        )
-    }
-
-    private func activePlanID(in records: [ModelPlanRecord]) -> UUID {
-        if let activeID = readActivePlanID(),
-           records.contains(where: { $0.id == activeID }) {
-            return activeID
-        }
-        let planID = records[0].id
-        writeActivePlanID(planID)
-        return planID
-    }
-
-    private func readActivePlanID() -> UUID? {
-        guard let rawValue = metadataDefaults.string(forKey: Self.activePlanIDKey) else {
-            return nil
-        }
-        return UUID(uuidString: rawValue)
-    }
-
-    private func writeActivePlanID(_ planID: UUID) {
-        metadataDefaults.set(planID.uuidString, forKey: Self.activePlanIDKey)
-    }
-
-    private func snapshot(from record: ModelPlanRecord, activeID: UUID) -> ModelPlanSnapshot {
-        let candidates = record.candidates.map { candidate in
-            let apiKey = try? secretStore.readSecret(
-                account: apiKeyAccount(planID: record.id, candidateID: candidate.id)
+        let id = UUID()
+        archive.models.append(
+            GlobalModelRecord(
+                id: id,
+                connectionID: connectionID,
+                displayName: alias,
+                remoteDisplayName: draft.remoteDisplayName,
+                modelName: modelName,
+                canonicalID: draft.canonicalID,
+                ownedBy: draft.ownedBy,
+                capabilities: validation?.capabilities ?? ModelCandidateCapabilities(
+                    supportsText: true,
+                    supportsVision: false
+                ),
+                validationStatus: validation == nil ? .unvalidated : .valid,
+                validationMessage: validation?.message ?? PalmiL10n.tr("model.status.untested"),
+                validatedAt: validation == nil ? nil : now,
+                createdAt: now,
+                updatedAt: now
             )
-            return ModelCandidateSnapshot(
-                record: candidate,
-                hasAPIKey: !(apiKey?.isEmpty ?? true),
-                maskedAPIKey: apiKey.flatMap(maskedSecret)
-            )
-        }
-        let selectedPrimaryIsConfigured = record.primaryCandidateID.flatMap { primaryID in
-            candidates.first(where: { $0.id == primaryID })
-        }?.isConfigured(for: .primary) == true
-
-        return ModelPlanSnapshot(
-            record: record,
-            isActive: record.id == activeID && selectedPrimaryIsConfigured,
-            candidates: candidates
         )
+        return id
     }
 
-    private func apiKeyAccount(planID: UUID, candidateID: UUID) -> String {
-        "model-plan.\(planID.uuidString).candidate.\(candidateID.uuidString).api-key"
+    private func mutatePlan(_ planID: UUID, _ mutation: (inout ModelPlanRecord) -> Void) {
+        guard let index = archive.plans.firstIndex(where: { $0.id == planID }) else { return }
+        mutation(&archive.plans[index])
+        archive.plans[index].updatedAt = .now
+        persistOrReport()
+        refreshSnapshots()
     }
 
     private func requestOverride(
         for candidate: ModelCandidateSnapshot,
-        planID: UUID,
         slot: ModelPlanSlot
     ) -> AgentModelConfigurationOverride? {
-        guard let baseURL = URL(string: candidate.baseURLString) else {
+        guard let endpoints = try? OpenAICompatibleEndpointResolver.resolve(candidate.connection.inputAddress) else {
             return nil
         }
-        let providerID = candidate.preset.providerIDHint ?? .customOpenAI
-        let provider = APIProviderCatalog.definition(for: providerID)
-        let accessModeID: APIAccessModeID = candidate.preset == .glmCodingPlan ? .codingPlan : .standardAPI
-        let accessMode = provider.accessMode(withID: accessModeID) ?? provider.preferredAccessMode
+        let provider = APIProviderCatalog.definition(for: .customOpenAI)
+        let accessMode = provider.accessMode(withID: .standardAPI) ?? provider.preferredAccessMode
         let model = apiModelDefinition(for: candidate, slot: slot)
-        let apiKey = apiKey(for: planID, candidateID: candidate.id)
+        let key = apiKey(for: candidate.id)
         let configuration = APIResolvedConfiguration(
             provider: provider,
-            profileID: candidate.id,
-            profileName: candidate.record.displayName.isEmpty ? candidate.modelName : candidate.record.displayName,
+            profileID: candidate.connection.id,
+            profileName: candidate.connection.displayName,
             accessMode: accessMode,
             defaultModel: model,
             reasoningModel: model,
             multimodalModel: model,
             lightweightModel: model,
-            baseURL: baseURL,
-            apiKey: apiKey.isEmpty ? nil : apiKey,
+            baseURL: endpoints.inputURL,
+            inputURL: endpoints.inputURL,
+            chatCompletionsURL: endpoints.chatCompletionsURL,
+            responsesURL: endpoints.responsesURL,
+            explicitWireProtocol: endpoints.explicitWireProtocol,
+            apiKey: key.isEmpty ? nil : key,
             selectedServer: nil
         )
-        var capabilities = LLMProviderRuntimeResolver
-            .runtimeProfile(for: configuration, model: model)
-            .capabilities
-        capabilities.supportsVision = candidate.capabilities.supportsVision || slot.requiresVisionValidation
+        let integrationSpec = LLMModelIntegrationCatalog.conservativeOpenAICompatibleSpec(
+            modelID: candidate.modelName,
+            capabilities: candidate.capabilities
+        )
+        var capabilities = LLMProviderRuntimeResolver.runtimeProfile(
+            for: configuration,
+            model: model,
+            integrationSpec: integrationSpec
+        ).capabilities
+        capabilities.supportsVision = candidate.capabilities.supportsVision
         capabilities.supportsStreaming = true
         return .resolved(
             AgentModelResolvedConfiguration(
                 configuration: configuration,
                 model: model,
+                integrationSpec: integrationSpec,
                 capabilities: capabilities
             )
         )
@@ -1109,15 +882,8 @@ final class ModelPlanStore {
         slot: ModelPlanSlot
     ) -> APIModelDefinition {
         var traits = Set<APIModelTrait>()
-        if candidate.capabilities.supportsVision || slot.requiresVisionValidation {
-            traits.insert(.multimodal)
-        }
-        if slot == .lightweight {
-            traits.insert(.lightweight)
-        }
-        if slot == .primary {
-            traits.insert(.reasoningPreferred)
-        }
+        if candidate.capabilities.supportsVision { traits.insert(.multimodal) }
+        if slot == .lightweight { traits.insert(.lightweight) }
         return APIModelDefinition(
             id: candidate.modelName,
             title: candidate.title,
@@ -1126,49 +892,336 @@ final class ModelPlanStore {
         )
     }
 
-    private static func inferredCapabilities(for draft: ModelCandidateDraft) -> ModelCandidateCapabilities {
-        let trimmedModelName = draft.modelName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let presetVisionSupport = draft.preset.officialModels
-            .first(where: { $0.id == trimmedModelName })?
-            .supportsMultimodal == true
-        return ModelCandidateCapabilities(
-            supportsText: true,
-            supportsVision: draft.slot.requiresVisionValidation || presetVisionSupport
-        )
+    private func reloadArchive() {
+        if let data = metadataDefaults.data(forKey: Self.archiveKey) {
+            do {
+                let decoded = try JSONDecoder().decode(ModelConfigurationArchive.self, from: data)
+                guard decoded.version == ModelConfigurationArchive.currentVersion else {
+                    throw AppError.invalidState("Unsupported model configuration archive version: \(decoded.version)")
+                }
+                try validateArchive(decoded)
+                archive = decoded
+                reportUnresolvedReferences()
+            } catch {
+                feedbackMessage = PalmiL10n.tr("model.error.loadFailed", error.localizedDescription)
+            }
+            return
+        }
+
+        guard let legacyData = metadataDefaults.data(forKey: Self.legacyRecordsKey) else {
+            archive = Self.emptyArchive()
+            persistOrReport()
+            writeActivePlanID(archive.plans[0].id)
+            return
+        }
+
+        do {
+            archive = try migrateLegacyArchive(from: legacyData)
+            try persistArchive()
+        } catch {
+            archive = Self.emptyArchive()
+            feedbackMessage = PalmiL10n.tr("model.error.loadFailed", error.localizedDescription)
+        }
     }
 
-    private static func inferredCapabilities(for slot: ModelPlanSlot) -> ModelCandidateCapabilities {
-        ModelCandidateCapabilities(
-            supportsText: true,
-            supportsVision: slot.requiresVisionValidation
+    private func migrateLegacyArchive(from data: Data) throws -> ModelConfigurationArchive {
+        let legacyPlans = try JSONDecoder().decode([LegacyModelPlanRecord].self, from: data)
+        var migrated = ModelConfigurationArchive(
+            version: ModelConfigurationArchive.currentVersion,
+            connections: [],
+            models: [],
+            plans: []
         )
+        var connectionKeys: [UUID: String] = [:]
+        var globalModelsByIdentity: [String: UUID] = [:]
+
+        for legacyPlan in legacyPlans {
+            var idMapping: [UUID: UUID] = [:]
+            for legacyModel in legacyPlan.candidates {
+                let endpoint = try legacyEndpointResolution(for: legacyModel)
+                let oldAccount = legacyAPIKeyAccount(planID: legacyPlan.id, candidateID: legacyModel.id)
+                let key = try secretStore.readSecret(account: oldAccount) ?? ""
+                let connectionIdentity = endpoint.inputURL.absoluteString + "\u{0}" + key
+                let connectionID: UUID
+                if let existing = migrated.connections.first(where: {
+                    $0.inputAddress + "\u{0}" + (connectionKeys[$0.id] ?? "") == connectionIdentity
+                }) {
+                    connectionID = existing.id
+                } else {
+                    connectionID = UUID()
+                    let now = legacyModel.updatedAt
+                    migrated.connections.append(
+                        ModelAPIConnectionRecord(
+                            id: connectionID,
+                            displayName: endpoint.inputURL.host ?? endpoint.inputURL.absoluteString,
+                            inputAddress: endpoint.inputURL.absoluteString,
+                            chatCompletionsURLString: endpoint.chatCompletionsURL.absoluteString,
+                            responsesURLString: endpoint.responsesURL.absoluteString,
+                            modelsURLString: nil,
+                            createdAt: legacyModel.createdAt,
+                            updatedAt: now
+                        )
+                    )
+                    connectionKeys[connectionID] = key
+                    if !key.isEmpty {
+                        try secretStore.saveSecret(key, account: apiKeyAccount(connectionID: connectionID))
+                    }
+                }
+
+                let modelIdentity = connectionID.uuidString + "\u{0}" + legacyModel.modelName
+                let globalID: UUID
+                if let existing = globalModelsByIdentity[modelIdentity] {
+                    globalID = existing
+                } else {
+                    globalID = legacyModel.id
+                    globalModelsByIdentity[modelIdentity] = globalID
+                    migrated.models.append(
+                        GlobalModelRecord(
+                            id: globalID,
+                            connectionID: connectionID,
+                            displayName: legacyModel.displayName,
+                            remoteDisplayName: nil,
+                            modelName: legacyModel.modelName,
+                            canonicalID: nil,
+                            ownedBy: nil,
+                            capabilities: legacyModel.capabilities,
+                            validationStatus: legacyModel.validationStatus,
+                            validationMessage: legacyModel.validationMessage,
+                            validatedAt: legacyModel.validatedAt,
+                            createdAt: legacyModel.createdAt,
+                            updatedAt: legacyModel.updatedAt
+                        )
+                    )
+                }
+                idMapping[legacyModel.id] = globalID
+            }
+
+            var slots = legacyPlan.slotCandidateIDs
+            slots.remap(idMapping)
+            migrated.plans.append(
+                ModelPlanRecord(
+                    id: legacyPlan.id,
+                    name: legacyPlan.name,
+                    primaryCandidateID: legacyPlan.primaryCandidateID.flatMap { idMapping[$0] },
+                    multimodalCandidateID: legacyPlan.multimodalCandidateID.flatMap { idMapping[$0] },
+                    lightweightCandidateID: legacyPlan.lightweightCandidateID.flatMap { idMapping[$0] },
+                    slotCandidateIDs: slots,
+                    createdAt: legacyPlan.createdAt,
+                    updatedAt: legacyPlan.updatedAt
+                )
+            )
+        }
+        if migrated.plans.isEmpty { migrated.plans = [Self.emptyPlan()] }
+        return migrated
+    }
+
+    private func legacyEndpointResolution(
+        for model: LegacyModelCandidateRecord
+    ) throws -> OpenAICompatibleEndpointResolution {
+        try OpenAICompatibleEndpointResolver.resolve(model.baseURLString)
+    }
+
+    private func persistArchive() throws {
+        let data = try JSONEncoder().encode(archive)
+        metadataDefaults.set(data, forKey: Self.archiveKey)
+    }
+
+    private func persistOrReport() {
+        do { try persistArchive() } catch { feedbackMessage = error.localizedDescription }
+    }
+
+    private func refreshSnapshots() {
+        connections = archive.connections.sorted {
+            $0.displayName.localizedCompare($1.displayName) == .orderedAscending
+        }
+        var connectionByID: [UUID: ModelAPIConnectionRecord] = [:]
+        for connection in archive.connections where connectionByID[connection.id] == nil {
+            connectionByID[connection.id] = connection
+        }
+        libraryModels = archive.models.compactMap { model in
+            guard let connection = connectionByID[model.connectionID] else { return nil }
+            let key: String?
+            do {
+                key = try secretStore.readSecret(account: apiKeyAccount(connectionID: connection.id))
+            } catch {
+                feedbackMessage = Self.errorMessage(for: error)
+                key = nil
+            }
+            return ModelCandidateSnapshot(
+                record: model,
+                connection: connection,
+                hasAPIKey: !(key?.isEmpty ?? true),
+                maskedAPIKey: key.flatMap(maskedSecret)
+            )
+        }.sorted {
+            if $0.record.updatedAt == $1.record.updatedAt {
+                return $0.title.localizedCompare($1.title) == .orderedAscending
+            }
+            return $0.record.updatedAt > $1.record.updatedAt
+        }
+        let activeID = activePlanID(in: archive.plans)
+        plans = archive.plans.map { plan in
+            let primaryConfigured = plan.primaryCandidateID.flatMap { id in
+                libraryModels.first(where: { $0.id == id })
+            }?.isConfigured(for: .primary) == true
+            return ModelPlanSnapshot(
+                record: plan,
+                isActive: plan.id == activeID && primaryConfigured,
+                candidates: libraryModels
+            )
+        }.sorted {
+            if $0.updatedAt == $1.updatedAt {
+                return $0.name.localizedCompare($1.name) == .orderedAscending
+            }
+            return $0.updatedAt > $1.updatedAt
+        }
+    }
+
+    private func reportUnresolvedReferences() {
+        let modelIDs = Set(archive.models.map(\.id))
+        let unresolved = archive.plans.flatMap { plan in
+            ModelPlanSlot.allCases.flatMap { plan.candidateIDs(for: $0) }.filter { !modelIDs.contains($0) }
+        }
+        if !unresolved.isEmpty {
+            feedbackMessage = PalmiL10n.tr("model.error.unresolvedReferences", unresolved.count)
+        }
+    }
+
+    private func validateArchive(_ archive: ModelConfigurationArchive) throws {
+        guard !archive.plans.isEmpty else {
+            throw AppError.invalidState("Model configuration archive contains no plans.")
+        }
+        guard Set(archive.connections.map(\.id)).count == archive.connections.count,
+              Set(archive.models.map(\.id)).count == archive.models.count,
+              Set(archive.plans.map(\.id)).count == archive.plans.count else {
+            throw AppError.invalidState("Model configuration archive contains duplicate identifiers.")
+        }
+        let connectionIDs = Set(archive.connections.map(\.id))
+        guard archive.models.allSatisfy({ connectionIDs.contains($0.connectionID) }) else {
+            throw AppError.invalidState("A global model references a missing API connection.")
+        }
+    }
+
+    private func activePlanID(in records: [ModelPlanRecord]) -> UUID {
+        if let activeID = readActivePlanID(), records.contains(where: { $0.id == activeID }) {
+            return activeID
+        }
+        let id = records[0].id
+        writeActivePlanID(id)
+        return id
+    }
+
+    private func readActivePlanID() -> UUID? {
+        metadataDefaults.string(forKey: Self.activePlanIDKey).flatMap(UUID.init(uuidString:))
+    }
+
+    private func writeActivePlanID(_ planID: UUID) {
+        metadataDefaults.set(planID.uuidString, forKey: Self.activePlanIDKey)
+    }
+
+    private func apiKeyAccount(connectionID: UUID) -> String {
+        "model-connection.\(connectionID.uuidString).api-key"
+    }
+
+    private func legacyAPIKeyAccount(planID: UUID, candidateID: UUID) -> String {
+        "model-plan.\(planID.uuidString).candidate.\(candidateID.uuidString).api-key"
     }
 
     private func normalizedPlanName(_ name: String?, defaultName: String) -> String {
-        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? defaultName : trimmed
+        let value = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? defaultName : value
     }
 
     private func maskedSecret(_ secret: String) -> String {
-        guard !secret.isEmpty else { return "" }
-        if secret.count <= 8 {
-            return String(repeating: "•", count: secret.count)
-        }
-        let prefix = secret.prefix(4)
-        let suffix = secret.suffix(4)
-        return "\(prefix)••••\(suffix)"
+        guard secret.count > 8 else { return String(repeating: "•", count: secret.count) }
+        return "\(secret.prefix(4))••••\(secret.suffix(4))"
+    }
+
+    private static func errorMessage(for error: Error) -> String {
+        (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    }
+
+    private static func emptyArchive() -> ModelConfigurationArchive {
+        ModelConfigurationArchive(
+            version: ModelConfigurationArchive.currentVersion,
+            connections: [],
+            models: [],
+            plans: [emptyPlan()]
+        )
+    }
+
+    private static func emptyPlan() -> ModelPlanRecord {
+        let now = Date()
+        return ModelPlanRecord(
+            id: UUID(),
+            name: PalmiL10n.tr("model.plan.defaultName"),
+            primaryCandidateID: nil,
+            multimodalCandidateID: nil,
+            lightweightCandidateID: nil,
+            slotCandidateIDs: .init(),
+            createdAt: now,
+            updatedAt: now
+        )
     }
 }
 
-private extension ModelPlanRecord {
-    mutating func setSelectedCandidateID(_ candidateID: UUID?, for slot: ModelPlanSlot) {
-        switch slot {
-        case .primary:
-            primaryCandidateID = candidateID
-        case .multimodal:
-            multimodalCandidateID = candidateID
-        case .lightweight:
-            lightweightCandidateID = candidateID
-        }
+private enum LegacyModelCandidateProviderPreset: String, Codable {
+    case openAICompatible
+    case glm
+    case glmCodingPlan
+    case deepseek
+}
+
+private struct LegacyModelCandidateRecord: Codable {
+    let id: UUID
+    var displayName: String
+    var preset: LegacyModelCandidateProviderPreset
+    var baseURLString: String
+    var modelName: String
+    var capabilities: ModelCandidateCapabilities
+    var validationStatus: ModelCandidateValidationStatus
+    var validationMessage: String
+    var validatedAt: Date?
+    var createdAt: Date
+    var updatedAt: Date
+}
+
+private struct LegacyModelPlanRecord: Codable {
+    let id: UUID
+    var name: String
+    var primaryCandidateID: UUID?
+    var multimodalCandidateID: UUID?
+    var lightweightCandidateID: UUID?
+    var slotCandidateIDs: ModelPlanSlotCandidateIDs
+    var candidates: [LegacyModelCandidateRecord]
+    var createdAt: Date
+    var updatedAt: Date
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, primaryCandidateID, multimodalCandidateID, lightweightCandidateID
+        case slotCandidateIDs, candidates, createdAt, updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let primary = try container.decodeIfPresent(UUID.self, forKey: .primaryCandidateID)
+        let multimodal = try container.decodeIfPresent(UUID.self, forKey: .multimodalCandidateID)
+        let lightweight = try container.decodeIfPresent(UUID.self, forKey: .lightweightCandidateID)
+        var slots = try container.decodeIfPresent(
+            ModelPlanSlotCandidateIDs.self,
+            forKey: .slotCandidateIDs
+        ) ?? .init()
+        if let primary { slots.add(primary, to: .primary) }
+        if let multimodal { slots.add(multimodal, to: .multimodal) }
+        if let lightweight { slots.add(lightweight, to: .lightweight) }
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        primaryCandidateID = primary
+        multimodalCandidateID = multimodal
+        lightweightCandidateID = lightweight
+        slotCandidateIDs = slots
+        candidates = try container.decode([LegacyModelCandidateRecord].self, forKey: .candidates)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
     }
 }

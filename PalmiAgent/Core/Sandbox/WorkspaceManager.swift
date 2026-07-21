@@ -247,6 +247,15 @@ final class WorkspaceManager {
         return url
     }
 
+    func writeData(_ data: Data, to relativePath: String) throws -> URL {
+        let url = try resolvePath(relativePath)
+        let parent = url.deletingLastPathComponent()
+        try fileManager.createDirectory(at: parent, withIntermediateDirectories: true, attributes: nil)
+        try data.write(to: url, options: .atomic)
+        try touchActiveThread()
+        return url
+    }
+
     func appendText(_ text: String, to relativePath: String) throws -> URL {
         let url = try resolvePath(relativePath)
         if !fileManager.fileExists(atPath: url.path) {

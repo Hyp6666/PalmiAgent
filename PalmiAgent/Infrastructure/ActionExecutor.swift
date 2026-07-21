@@ -492,10 +492,20 @@ final class ActionExecutor {
 
             case .fetchStaticWebPage:
                 let retrievalProfile = currentRetrievalQualityProfile()
-                let maxChars = effectiveFetchStaticWebPageMaxCharacters(from: arguments, profile: retrievalProfile.webContent)
-                let focus = arguments.string("focus")?
+                let modeRawValue = arguments.string("mode")?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                let normalizedFocus = focus?.isEmpty == false ? focus : nil
+                    .lowercased() ?? WebFetchMode.pageText.rawValue
+                guard let fetchMode = WebFetchMode(rawValue: modeRawValue) else {
+                    throw AppError.invalidState("fetch.mode 只支持 page_text 或 full_snapshot。")
+                }
+                let startCharacter = arguments.int("start") ?? 0
+                let endCharacter = arguments.int("end") ?? -1
+                guard startCharacter >= 0 else {
+                    throw AppError.invalidState("fetch.start 不能小于 0。")
+                }
+                guard endCharacter == -1 || endCharacter >= startCharacter else {
+                    throw AppError.invalidState("fetch.end 必须为 -1，或大于等于 start。")
+                }
                 let includeLinks = arguments.bool("include_links") ?? true
                 let requestedURLs = try webPageURLs(from: arguments)
                 let uniqueURLs = uniqueURLs(requestedURLs)
@@ -504,13 +514,30 @@ final class ActionExecutor {
                 let skippedCount = max(0, uniqueURLs.count - urls.count)
                 let attempts = await webResearchService.fetchSummaries(
                     urls: urls,
-                    maxBodyCharacters: maxChars,
-                    focus: normalizedFocus,
+                    startCharacter: startCharacter,
+                    endCharacter: endCharacter,
+                    mode: fetchMode,
                     includeLinks: includeLinks,
                     maxConcurrentRequests: retrievalProfile.webContent.fetchStaticWebPageMaxConcurrentRequests,
                     requestTimeoutSeconds: retrievalProfile.webContent.fetchStaticWebPageRequestTimeoutSeconds,
                     totalTimeoutSeconds: retrievalProfile.webContent.fetchStaticWebPageTotalTimeoutSeconds
                 )
+                var savedSnapshots: [Int: WebFetchSavedSnapshot] = [:]
+                var snapshotFileDeltas: [FileDelta] = []
+                if fetchMode == .fullSnapshot {
+                    let snapshotRoot = "artifacts/fetch/\(UUID().uuidString.lowercased())"
+                    for (index, attempt) in attempts.enumerated() {
+                        guard let summary = attempt.summary, summary.snapshot != nil else {
+                            continue
+                        }
+                        let saved = try saveWebFetchSnapshot(
+                            summary,
+                            at: "\(snapshotRoot)/\(index + 1)"
+                        )
+                        savedSnapshots[index] = saved
+                        snapshotFileDeltas.append(contentsOf: saved.fileDeltas)
+                    }
+                }
                 let successCount = attempts.filter { $0.summary != nil }.count
                 let inlineMetadata = attempts.compactMap(\.summary).first.map { summary in
                     ToolCallInlineMetadataBuilder.webMetadata(
@@ -530,6 +557,27 @@ final class ActionExecutor {
                         } else {
                             relatedLinks = "未请求"
                         }
+                        let savedSnapshot = savedSnapshots[index]
+                        let snapshotDetails: String
+                        if let savedSnapshot {
+                            let visualFollowUp = savedSnapshot.screenshotPath.map {
+                                "需要查看页面图像时调用 vision(path=\"\($0)\", prompt=\"读取网页中的视觉信息\")。"
+                            } ?? "本次未生成页面截图，可读取完整文字、原始文件或渲染页面。"
+                            snapshotDetails = """
+                            完整网页快照：已保存
+                            快照目录：\(savedSnapshot.directoryPath)
+                            完整文字：\(savedSnapshot.contentPath)
+                            原始文件：\(savedSnapshot.sourcePath)
+                            渲染页面：\(savedSnapshot.renderedHTMLPath ?? "无")
+                            页面截图：\(savedSnapshot.screenshotPath ?? "无")
+                            后续读取：调用 read(path="\(savedSnapshot.contentPath)")；\(visualFollowUp)
+                            """
+                        } else {
+                            snapshotDetails = "完整网页快照：未请求"
+                        }
+                        let continuationHint = summary.returnedEnd < summary.totalBodyCharacterCount
+                            ? "建议继续：start=\(summary.returnedEnd), end=-1"
+                            : "已到达网页文字末尾"
                         return """
                         \(index + 1). \(summary.title)
                         请求 URL：\(summary.requestedURL.absoluteString)
@@ -541,8 +589,12 @@ final class ActionExecutor {
                         Content-Type：\(summary.contentType)
                         提取模式：\(summary.extractionMode.rawValue)
                         下载字节：\(summary.byteCount)
-                        正文字符：\(summary.bodyText.count)
-                        已截断：\(summary.isTruncated ? "是" : "否")
+                        网页文字总字符：\(summary.totalBodyCharacterCount)
+                        返回范围：[\(summary.returnedStart), \(summary.returnedEnd))
+                        本次返回字符：\(summary.bodyText.count)
+                        范围是否省略其他内容：\(summary.isTruncated ? "是" : "否")
+                        \(continuationHint)
+                        \(snapshotDetails)
                         相关链接：
                         \(relatedLinks)
                         正文：
@@ -564,9 +616,8 @@ final class ActionExecutor {
                     去重后 URL：\(uniqueURLs.count)
                     本次执行 URL：\(urls.count)
                     当前档位建议：\(retrievalProfile.webContent.fetchStaticWebPageRecommendedURLCount) 个 URL
-                    正文字符数：\(maxChars)
-                    当前档位建议正文字符数：\(retrievalProfile.webContent.fetchStaticWebPageRecommendedMaxCharacters)
-                    正文字符绝对上限：\(retrievalProfile.webContent.fetchStaticWebPageAbsoluteMaxCharacters)
+                    抓取模式：\(fetchMode.rawValue)
+                    请求范围：[\(startCharacter), \(endCharacter == -1 ? "末尾" : String(endCharacter)))
                     工具技术上限：\(maxURLs) 个 URL
                     并行上限：\(retrievalProfile.webContent.fetchStaticWebPageMaxConcurrentRequests)
                     单 URL 超时：\(Int(retrievalProfile.webContent.fetchStaticWebPageRequestTimeoutSeconds)) 秒
@@ -578,6 +629,7 @@ final class ActionExecutor {
                     \(details.isEmpty ? "没有取得可用网页正文。" : details)
                     """,
                     status: successCount == 0 || skippedCount > 0 || unfinishedCount > 0 ? .warning : .success,
+                    fileDeltas: snapshotFileDeltas,
                     inlineMetadata: inlineMetadata
                 )
 
@@ -1276,7 +1328,6 @@ final class ActionExecutor {
                 ],
                 tools: [],
                 toolIntent: .none,
-                temperatureOverride: 0
             )
         )
         return MultimodalModelScanResponse(
@@ -1518,14 +1569,85 @@ final class ActionExecutor {
         let modelTitle: String
     }
 
-    private func effectiveFetchStaticWebPageMaxCharacters(
-        from arguments: ToolArguments,
-        profile: WebContentStrengthConfiguration
-    ) -> Int {
-        guard let requestedMaxCharacters = arguments.int("max_chars") else {
-            return profile.fetchStaticWebPageRecommendedMaxCharacters
+    private struct WebFetchSavedSnapshot {
+        let directoryPath: String
+        let contentPath: String
+        let sourcePath: String
+        let renderedHTMLPath: String?
+        let screenshotPath: String?
+        let fileDeltas: [FileDelta]
+    }
+
+    private func saveWebFetchSnapshot(
+        _ summary: WebFetchSummary,
+        at directoryPath: String
+    ) throws -> WebFetchSavedSnapshot {
+        guard let snapshot = summary.snapshot else {
+            throw AppError.invalidState("网页抓取结果没有可保存的完整快照。")
         }
-        return min(max(1, requestedMaxCharacters), profile.fetchStaticWebPageAbsoluteMaxCharacters)
+
+        let contentPath = "\(directoryPath)/content.txt"
+        let sourcePath = "\(directoryPath)/source.\(snapshot.sourceFileExtension)"
+        let renderedHTMLPath = snapshot.renderedHTML.map { _ in "\(directoryPath)/rendered.html" }
+        let screenshotPath = snapshot.screenshotPNGData.map { _ in "\(directoryPath)/page.png" }
+        let manifestPath = "\(directoryPath)/manifest.json"
+
+        _ = try workspaceManager.writeText(snapshot.fullBodyText, to: contentPath)
+        _ = try workspaceManager.writeData(snapshot.sourceData, to: sourcePath)
+        if let renderedHTML = snapshot.renderedHTML, let renderedHTMLPath {
+            _ = try workspaceManager.writeText(renderedHTML, to: renderedHTMLPath)
+        }
+        if let screenshotPNGData = snapshot.screenshotPNGData, let screenshotPath {
+            _ = try workspaceManager.writeData(screenshotPNGData, to: screenshotPath)
+        }
+
+        var manifest: [String: Any] = [
+            "requested_url": summary.requestedURL.absoluteString,
+            "final_url": summary.finalURL.absoluteString,
+            "title": summary.title,
+            "content_type": summary.contentType,
+            "extraction_mode": summary.extractionMode.rawValue,
+            "total_characters": summary.totalBodyCharacterCount,
+            "content_path": contentPath,
+            "source_path": sourcePath,
+            "captured_at": ISO8601DateFormatter().string(from: .now)
+        ]
+        if let canonicalURL = summary.canonicalURL {
+            manifest["canonical_url"] = canonicalURL.absoluteString
+        }
+        if let renderedHTMLPath {
+            manifest["rendered_html_path"] = renderedHTMLPath
+        }
+        if let screenshotPath {
+            manifest["screenshot_path"] = screenshotPath
+        }
+        let manifestData = try JSONSerialization.data(
+            withJSONObject: manifest,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        guard let manifestText = String(data: manifestData, encoding: .utf8) else {
+            throw AppError.operationFailed("网页快照清单编码失败。")
+        }
+        _ = try workspaceManager.writeText(manifestText, to: manifestPath)
+
+        let paths = [contentPath, sourcePath, renderedHTMLPath, screenshotPath, manifestPath].compactMap { $0 }
+        let fileDeltas = paths.map { path in
+            FileDelta(
+                toolName: ToolActionID.fetchStaticWebPage.rawValue,
+                path: path,
+                kind: .created,
+                afterByteCount: (try? workspaceManager.url(for: path)).flatMap(fileByteCount),
+                summary: "网页完整快照文件已创建"
+            )
+        }
+        return WebFetchSavedSnapshot(
+            directoryPath: directoryPath,
+            contentPath: contentPath,
+            sourcePath: sourcePath,
+            renderedHTMLPath: renderedHTMLPath,
+            screenshotPath: screenshotPath,
+            fileDeltas: fileDeltas
+        )
     }
 
     private func effectiveSearchWebMaxResults(
@@ -1608,12 +1730,12 @@ final class ActionExecutor {
             return normalizedArgumentsJSONString(payload, fallback: arguments.normalizedJSONString())
 
         case .fetchStaticWebPage:
-            let maxChars = effectiveFetchStaticWebPageMaxCharacters(from: arguments, profile: retrievalProfile.webContent)
             var payload: [String: Any] = [
-                "max_chars": maxChars,
+                "mode": arguments.string("mode")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    ?? WebFetchMode.pageText.rawValue,
+                "start": arguments.int("start") ?? 0,
+                "end": arguments.int("end") ?? -1,
                 "include_links": arguments.bool("include_links") ?? true,
-                "recommended_max_chars": retrievalProfile.webContent.fetchStaticWebPageRecommendedMaxCharacters,
-                "absolute_max_chars": retrievalProfile.webContent.fetchStaticWebPageAbsoluteMaxCharacters,
                 "recommended_urls": retrievalProfile.webContent.fetchStaticWebPageRecommendedURLCount,
                 "max_urls": retrievalProfile.webContent.fetchStaticWebPageMaxURLs,
                 "max_concurrent_requests": retrievalProfile.webContent.fetchStaticWebPageMaxConcurrentRequests,
@@ -1626,10 +1748,6 @@ final class ActionExecutor {
             }
             if let urls = arguments.stringArray("urls"), !urls.isEmpty {
                 payload["urls"] = urls
-            }
-            if let focus = arguments.string("focus")?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !focus.isEmpty {
-                payload["focus"] = focus
             }
             return normalizedArgumentsJSONString(payload, fallback: arguments.normalizedJSONString())
 

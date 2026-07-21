@@ -103,7 +103,6 @@ struct ChatScreen: View {
     @State private var cachedModelSelectionState: ModelSelectionState?
     @State private var modelReasoningRevision = 0
 
-    @AppStorage(APIConfigurationStore.activeProviderStorageKey) private var activeProviderRaw = APIProviderID.glm.rawValue
     @AppStorage(ProfessionalReasoningTier.storageKey) private var professionalReasoningTierRaw = ProfessionalReasoningTier.balanced.rawValue
     @AppStorage(ChatModeToolFilter.chatWebToolsEnabledStorageKey) private var areChatWebToolsEnabled = false
     @AppStorage("palmi.chat.tools-enabled") private var areToolsEnabled = true
@@ -186,10 +185,6 @@ struct ChatScreen: View {
         return true
     }
 
-    private var activeProviderID: APIProviderID {
-        APIProviderID(rawValue: activeProviderRaw) ?? store.apiConfigurationStore.activeProviderID()
-    }
-
     private var modelSelectionState: ModelSelectionState {
         cachedModelSelectionState ?? computedModelSelectionState
     }
@@ -208,11 +203,15 @@ struct ChatScreen: View {
         let lightweightCandidate = selectedPlan.map {
             store.modelPlanStore.selectedCandidate(for: .lightweight, in: $0, sessionOverride: sessionOverride)
         } ?? nil
-        let snapshot = store.apiConfigurationStore.chatModelSelectionSnapshot(for: activeProviderID)
-        let selectedProviderID = primaryCandidate.map { $0.preset.providerIDHint ?? .customOpenAI } ?? snapshot.provider.id
+        let selectedProviderID: APIProviderID = .customOpenAI
         let selectedModel = primaryCandidate.map {
             apiModelDefinition(for: $0, slot: .primary)
-        } ?? snapshot.configuredReasoningModel
+        } ?? APIModelDefinition(
+            id: "",
+            title: PalmiL10n.tr("common.notSelected"),
+            summary: PalmiL10n.tr("model.error.noUsablePlan"),
+            traits: []
+        )
 
         return ModelSelectionState(
             plans: plans,
@@ -314,15 +313,21 @@ struct ChatScreen: View {
     }
 
     private var modelThinkingModeTitle: String {
+        isSelectedModelThinkingEnabled ? PalmiL10n.tr("common.on") : PalmiL10n.tr("common.off")
+    }
+
+    private var isSelectedModelThinkingEnabled: Bool {
         guard let option = modelThinkingToggleOption,
               case .thinkingToggle(let defaultEnabled) = option.action else {
-            return PalmiL10n.tr("common.off")
+            return false
         }
-
-        return isModelThinkingEnabled(defaultEnabled: defaultEnabled) ? PalmiL10n.tr("common.on") : PalmiL10n.tr("common.off")
+        return isModelThinkingEnabled(defaultEnabled: defaultEnabled)
     }
 
     private var modelEffortTitle: String {
+        guard isSelectedModelThinkingEnabled else {
+            return PalmiL10n.tr("common.notApplicable")
+        }
         return modelEffortMenuOptions
             .first(where: { isSelectedModelReasoningOption($0) })?
             .title ?? PalmiL10n.tr("common.default")
@@ -331,14 +336,7 @@ struct ChatScreen: View {
     private func makeSelectedModelReasoningOptions(
         isThinkingEnabled: (Bool) -> Bool
     ) -> [ModelReasoningControlOption] {
-        let state = modelSelectionState
-        let nativeReasoning = LLMModelIntegrationCatalog
-            .spec(for: state.selectedProviderID, model: state.selectedModel)
-            .capabilities
-            .nativeReasoning
-
         return ModelReasoningControlCatalog.options(
-            for: nativeReasoning,
             isThinkingEnabled: isThinkingEnabled
         )
     }
@@ -374,7 +372,7 @@ struct ChatScreen: View {
         guard store.isLoading,
               let activeTurn = turns.last,
               activeTurn.headerMessage?.id == store.activeTurnHeaderID else {
-            return .reasoning
+            return .waiting
         }
 
         let phaseMessages = activeTurn.messagesBeforeFinal + activeTurn.messagesAfterFinal
@@ -384,7 +382,7 @@ struct ChatScreen: View {
             return .tool
         }
 
-        return .reasoning
+        return .waiting
     }
 
     private var messageBottomClearance: CGFloat {
@@ -422,9 +420,6 @@ struct ChatScreen: View {
         }
         .task(id: workspaceStore.selectedSelection) {
             store.loadMessagesForActiveThread()
-        }
-        .onChange(of: activeProviderRaw) { _, _ in
-            cachedModelSelectionState = computedModelSelectionState
         }
         .onPreferenceChange(ChatComposerSectionHeightPreferenceKey.self) { height in
             guard height > 0, abs(composerSectionHeight - height) > 0.5 else { return }
@@ -1933,7 +1928,12 @@ struct ChatScreen: View {
 
                                     configurationDivider(isExtreme: isExtreme)
 
-                                    configurationMenuRow(title: PalmiL10n.tr("chat.quickConfig.thinkingStrength"), value: modelEffortTitle, isExtreme: isExtreme) {
+                                    configurationMenuRow(
+                                        title: PalmiL10n.tr("chat.quickConfig.thinkingStrength"),
+                                        value: modelEffortTitle,
+                                        isEnabled: isSelectedModelThinkingEnabled,
+                                        isExtreme: isExtreme
+                                    ) {
                                         modelEffortMenuContent
                                     }
                                 }
@@ -1998,7 +1998,11 @@ struct ChatScreen: View {
         HStack(spacing: 14) {
             Text(title)
                 .font(.system(size: 19, weight: .semibold, design: .rounded))
-                .foregroundStyle(isExtreme ? Color.white.opacity(0.94) : Color.primary)
+                .foregroundStyle(
+                    isExtreme
+                        ? Color.white.opacity(isEnabled ? 0.94 : 0.34)
+                        : (isEnabled ? Color.primary : Color.secondary.opacity(0.42))
+                )
 
             Spacer(minLength: 12)
 
@@ -2387,12 +2391,7 @@ struct ChatScreen: View {
     }
 
     private func compactTopModelMenuTitle(_ title: String) -> String {
-        let compacted = title
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "DeepSeek ", with: "DS ")
-            .replacingOccurrences(of: "OpenAI ", with: "")
-            .replacingOccurrences(of: "Anthropic ", with: "")
-            .replacingOccurrences(of: "Google ", with: "")
+        let compacted = title.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let maxLength = 18
         guard compacted.count > maxLength else { return compacted }
@@ -2556,8 +2555,12 @@ struct ChatScreen: View {
 
     private func isModelThinkingEnabled(defaultEnabled: Bool) -> Bool {
         let state = modelSelectionState
+        guard let profileID = state.primaryCandidate?.connection.id else {
+            return defaultEnabled
+        }
         return ModelNativeReasoningPreferenceStore.isThinkingEnabled(
             providerID: state.selectedProviderID,
+            profileID: profileID,
             modelID: state.selectedModel.id,
             defaultEnabled: defaultEnabled
         )
@@ -2565,9 +2568,11 @@ struct ChatScreen: View {
 
     private func setModelThinkingEnabled(_ isEnabled: Bool) {
         let state = modelSelectionState
+        guard let profileID = state.primaryCandidate?.connection.id else { return }
         ModelNativeReasoningPreferenceStore.setThinkingEnabled(
             isEnabled,
             providerID: state.selectedProviderID,
+            profileID: profileID,
             modelID: state.selectedModel.id
         )
         modelReasoningRevision &+= 1
@@ -2575,8 +2580,12 @@ struct ChatScreen: View {
 
     private func selectedModelEffort(defaultEffort: String) -> String {
         let state = modelSelectionState
+        guard let profileID = state.primaryCandidate?.connection.id else {
+            return defaultEffort
+        }
         return ModelNativeReasoningPreferenceStore.effort(
             providerID: state.selectedProviderID,
+            profileID: profileID,
             modelID: state.selectedModel.id,
             defaultEffort: defaultEffort
         )
@@ -2584,27 +2593,11 @@ struct ChatScreen: View {
 
     private func setSelectedModelEffort(_ effort: String) {
         let state = modelSelectionState
+        guard let profileID = state.primaryCandidate?.connection.id else { return }
         ModelNativeReasoningPreferenceStore.setEffort(
             effort,
             providerID: state.selectedProviderID,
-            modelID: state.selectedModel.id
-        )
-        modelReasoningRevision &+= 1
-    }
-
-    private func selectedQwenThinkingBudget(defaultBudget: Int?) -> Int {
-        let state = modelSelectionState
-        return ModelNativeReasoningPreferenceStore.qwenThinkingBudget(
-            providerID: state.selectedProviderID,
-            modelID: state.selectedModel.id
-        ) ?? ModelReasoningControlCatalog.defaultQwenBudget(defaultBudget)
-    }
-
-    private func setSelectedQwenThinkingBudget(_ budget: Int) {
-        let state = modelSelectionState
-        ModelNativeReasoningPreferenceStore.setQwenThinkingBudget(
-            budget,
-            providerID: state.selectedProviderID,
+            profileID: profileID,
             modelID: state.selectedModel.id
         )
         modelReasoningRevision &+= 1
@@ -2616,10 +2609,6 @@ struct ChatScreen: View {
             return isModelThinkingEnabled(defaultEnabled: defaultEnabled)
         case .effort(let effort, let defaultEffort):
             return selectedModelEffort(defaultEffort: defaultEffort.rawValue) == effort.rawValue
-        case .rawEffort(let rawValue, let defaultRawValue):
-            return selectedModelEffort(defaultEffort: defaultRawValue) == rawValue
-        case .qwenBudget(let budget, let defaultBudget):
-            return selectedQwenThinkingBudget(defaultBudget: defaultBudget) == budget
         }
     }
 
@@ -2628,11 +2617,8 @@ struct ChatScreen: View {
         case .thinkingToggle(let defaultEnabled):
             setModelThinkingEnabled(!isModelThinkingEnabled(defaultEnabled: defaultEnabled))
         case .effort(let effort, _):
+            guard isSelectedModelThinkingEnabled else { return }
             setSelectedModelEffort(effort.rawValue)
-        case .rawEffort(let rawValue, _):
-            setSelectedModelEffort(rawValue)
-        case .qwenBudget(let budget, _):
-            setSelectedQwenThinkingBudget(budget)
         }
     }
 
@@ -3536,7 +3522,7 @@ private struct SessionHeaderStrip: View {
 
 private enum ProcessingPhraseKind: Hashable {
     case tool
-    case reasoning
+    case waiting
 }
 
 private struct ProcessingPhraseTaskKey: Hashable {
@@ -3556,17 +3542,15 @@ private enum ProcessingPhraseDeck {
         ]
     }
 
-    static var reasoningPhrases: [String] {
+    static var waitingPhrases: [String] {
         [
-        PalmiL10n.tr("chat.processing.reasoning.1"),
-        PalmiL10n.tr("chat.processing.reasoning.2"),
-        PalmiL10n.tr("chat.processing.reasoning.3"),
-        PalmiL10n.tr("chat.processing.reasoning.4"),
-        "🤔🤔🤔",
-        "🔥🧠",
-        PalmiL10n.tr("chat.processing.reasoning.5"),
-        PalmiL10n.tr("chat.processing.reasoning.6"),
-        PalmiL10n.tr("chat.processing.reasoning.7")
+        PalmiL10n.tr("chat.processing.waiting.1"),
+        PalmiL10n.tr("chat.processing.waiting.2"),
+        PalmiL10n.tr("chat.processing.waiting.3"),
+        PalmiL10n.tr("chat.processing.waiting.4"),
+        PalmiL10n.tr("chat.processing.waiting.5"),
+        PalmiL10n.tr("chat.processing.waiting.6"),
+        PalmiL10n.tr("chat.processing.waiting.7")
         ]
     }
 
@@ -3574,8 +3558,8 @@ private enum ProcessingPhraseDeck {
         switch kind {
         case .tool:
             return toolPhrases.first ?? ""
-        case .reasoning:
-            return reasoningPhrases.first ?? ""
+        case .waiting:
+            return waitingPhrases.first ?? ""
         }
     }
 
@@ -3584,8 +3568,8 @@ private enum ProcessingPhraseDeck {
         switch kind {
         case .tool:
             deck = toolPhrases
-        case .reasoning:
-            deck = reasoningPhrases
+        case .waiting:
+            deck = waitingPhrases
         }
 
         guard deck.count > 1 else {

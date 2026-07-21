@@ -12,22 +12,22 @@ enum MultimodalRoutingSelfTest {
 
         let rows = [
             row(
-                name: "deepseek-primary-qwen-scanner",
-                primaryModel: "DeepSeek V4 Pro",
-                multimodalModel: "qwen3.5-9b",
+                name: "text-primary-multimodal-scanner",
+                primaryModel: "opaque-text-model",
+                multimodalModel: "opaque-multimodal-model",
                 primaryHasInlineImage: false,
                 multimodalScannerAvailable: true
             ),
             row(
-                name: "qwen-primary-qwen-scanner",
-                primaryModel: "qwen3.5-9b",
-                multimodalModel: "qwen3.5-9b",
+                name: "multimodal-primary-multimodal-scanner",
+                primaryModel: "opaque-multimodal-model",
+                multimodalModel: "opaque-multimodal-model",
                 primaryHasInlineImage: true,
                 multimodalScannerAvailable: true
             ),
             row(
-                name: "deepseek-primary-no-scanner",
-                primaryModel: "DeepSeek V4 Pro",
+                name: "text-primary-no-scanner",
+                primaryModel: "opaque-text-model",
                 multimodalModel: "none",
                 primaryHasInlineImage: false,
                 multimodalScannerAvailable: false

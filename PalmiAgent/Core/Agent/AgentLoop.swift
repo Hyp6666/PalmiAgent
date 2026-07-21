@@ -69,6 +69,7 @@ final class AgentLoop {
     private var subagentRuntimeBridge: AgentSubagentRuntimeBridge?
     private var ownedSubagentThreadIDs: Set<UUID> = []
     private var joinedSubagentThreadIDs: Set<UUID> = []
+    private var emittedModelNotices: Set<AgentModelNotice> = []
 
     // 目标 / 深度研究模式：当前一轮的注入态。runTurn 进入时置位、退出时（defer）清回。
     // 这些动态内容只追加到本轮隐藏 user 文本，不改变稳定 system prompt，也不重复保存完整用户输入。
@@ -458,6 +459,7 @@ final class AgentLoop {
         guard !trimmedInput.isEmpty else {
             throw AppError.invalidState("请输入要让模型执行的自然语言指令。")
         }
+        emittedModelNotices = []
         // 置位本轮模式注入态；无论正常返回还是抛错，结束时（defer）都清回标准态。
         activeTurnMode = mode
         activeTurnDeepResearchFolder = (mode == .deepResearch) ? Self.makeDeepResearchFolderPath() : ""
@@ -678,6 +680,7 @@ final class AgentLoop {
                     )
                 }
 
+                emitModelNotices(response.notices)
                 let baseOutputTokens = outputTokens
                 outputTokens += response.totalTokens
                 session.cumulativeUsage.add(totalTokens: response.totalTokens)
@@ -1496,6 +1499,7 @@ final class AgentLoop {
                         )
                     }
 
+                    emitModelNotices(summaryResponse.notices)
                     outputTokens += summaryResponse.totalTokens
                     session.cumulativeUsage.add(totalTokens: summaryResponse.totalTokens)
                     session.append(summaryResponse.message)
@@ -1575,7 +1579,7 @@ final class AgentLoop {
                     selection: AgentModelSelection(
                         providerID: providerID,
                         modelRole: .reasoningModel,
-                        reasoning: .disabled,
+                        reasoning: .automatic,
                         configurationOverride: modelOverrides.override(for: .reasoningModel)
                     ),
                     apiMessages: assembledContext.apiMessages,
@@ -1584,11 +1588,14 @@ final class AgentLoop {
                     onDelta: { text in
                         self.emit(.streamingDelta(text: text))
                     },
-                    onReasoningDelta: { _ in },
+                    onReasoningDelta: { [weak self] text in
+                        self?.emit(.reasoningDelta(text: text))
+                    },
                     promptCacheKey: promptCacheKey
                 )
             )
 
+            emitModelNotices(response.notices)
             session.cumulativeUsage.add(totalTokens: response.totalTokens)
             session.append(response.message)
             emit(.tokenUpdate(totalTokens: response.totalTokens))
@@ -1665,6 +1672,12 @@ final class AgentLoop {
 
     private func emit(_ event: AgentEvent) {
         eventContinuation.yield(event)
+    }
+
+    private func emitModelNotices(_ notices: [AgentModelNotice]) {
+        for notice in notices where emittedModelNotices.insert(notice).inserted {
+            emit(.modelNotice(notice))
+        }
     }
 
     private func appendEventLog(
@@ -2043,7 +2056,6 @@ final class AgentLoop {
                     ],
                     tools: [autoReviewDecisionToolDefinition()],
                     toolIntent: .required,
-                    temperatureOverride: 0
                 )
             )
 
@@ -2504,7 +2516,6 @@ final class AgentLoop {
 
         let searchLimit = runProfile.retrieval.webSearch.maxResults
         let recommendedURLs = runProfile.retrieval.webContent.fetchStaticWebPageRecommendedURLCount
-        let recommendedCharacters = runProfile.retrieval.webContent.fetchStaticWebPageRecommendedMaxCharacters
 
         switch runProfile.professionalTier {
         case .speed:
@@ -2518,7 +2529,7 @@ final class AgentLoop {
             - 有工具时优先使用最直接的专用工具，不为展示过程增加工具调用。
             - phase_thought 默认调用 0 次；只有任务至少包含两个相互依赖阶段、且当前确实需要提交阶段判断时才调用 1 次。
             - 网页研究优先一次高质量查询；单次搜索候选上限为 \(searchLimit)，通常只浏览 1 到 \(recommendedURLs) 个最相关来源。
-            - 单页正文建议上限为 \(recommendedCharacters) 字符。
+            - fetch 默认读取完整页面文字；只有需要分段阅读时才使用 start/end 指定字符区间。
             - 得到足够可靠的答案后立即收口，不做与结论无关的交叉验证。
             - 最终回复结论优先、简洁、可执行。
             """
@@ -2533,7 +2544,7 @@ final class AgentLoop {
             - 关键结论必须有直接证据；时效性、争议性或高影响事实至少进行一次独立核验。
             - 复杂任务通常使用 1 到 3 次 phase_thought，但只能发生在真实阶段切换、收到新证据或作出关键取舍之后；不是固定配额。
             - 搜索时允许改写查询覆盖不同角度；单次搜索候选上限为 \(searchLimit)，通常浏览 3 到 \(recommendedURLs) 个高价值来源。
-            - 单页正文建议上限为 \(recommendedCharacters) 字符。
+            - fetch 默认读取完整页面文字；只有需要分段阅读时才使用 start/end 指定字符区间。
             - 代码和文件任务在修改后执行直接相关的构建、测试或重新读取。
             - 重要冲突未解决时继续核验；新增信息不再改变结论时停止。
             - 最终回复给出结果、关键依据和验证状态。
@@ -2549,7 +2560,7 @@ final class AgentLoop {
             - 主动寻找原始来源、反例、边界条件和来源间冲突；区分事实、推断与证据缺口。
             - 对真正复杂的任务通常使用 2 到 6 次 phase_thought；每次都必须建立在新证据、新完成项或新决策上。简单任务仍可为 0 次。
             - 可以使用多组互补查询；单次搜索候选上限为 \(searchLimit)，单批最多浏览 \(recommendedURLs) 个来源。
-            - 单页正文建议上限为 \(recommendedCharacters) 字符。
+            - fetch 默认读取完整页面文字；只有需要分段阅读时才使用 start/end 指定字符区间。
             - 代码任务追踪根因、调用链、状态边界和回归风险，完成后执行可用的完整验证。
             - 当关键主张已有充分直接证据、主要冲突已处理、继续检索只会重复现有结论时，判定达到证据饱和并停止。
             - 最终回复完整但不堆砌，明确结论、依据、验证、限制和真实未决项。

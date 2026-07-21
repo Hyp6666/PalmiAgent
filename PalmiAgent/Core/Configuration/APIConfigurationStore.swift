@@ -696,10 +696,23 @@ struct APIResolvedConfiguration: Sendable {
     let multimodalModel: APIModelDefinition
     let lightweightModel: APIModelDefinition
     let baseURL: URL
+    let inputURL: URL
+    let chatCompletionsURL: URL
+    let responsesURL: URL
+    let explicitWireProtocol: LLMWireProtocol?
     let apiKey: String?
     let selectedServer: LMStudioDiscoveredServer?
 
     var selectedModel: APIModelDefinition { reasoningModel }
+    var endpointResolution: OpenAICompatibleEndpointResolution {
+        OpenAICompatibleEndpointResolution(
+            inputURL: inputURL,
+            chatCompletionsURL: chatCompletionsURL,
+            responsesURL: responsesURL,
+            modelURLCandidates: [],
+            explicitWireProtocol: explicitWireProtocol
+        )
+    }
 
     func model(for role: APIModelRole) -> APIModelDefinition {
         switch role {
@@ -855,15 +868,11 @@ final class APIConfigurationStore {
         profileID: UUID
     ) async throws -> [APIModelDefinition] {
         let configuration = try resolvedConfiguration(for: providerID, profileID: profileID)
-        let discoveredModels = try await modelDiscoveryService.fetchModels(
-            baseURL: configuration.baseURL,
-            apiKey: configuration.apiKey,
-            modelsURL: nil,
-            isFullURL: configuration.baseURL.absoluteString.hasSuffix("/chat/completions"),
-            providerID: providerID,
-            probeMultimodalSupport: providerID == .customOpenAI
+        let discoveryResult = try await modelDiscoveryService.fetchModels(
+            inputAddress: configuration.baseURL.absoluteString,
+            apiKey: configuration.apiKey
         )
-        let modelDefinitions = discoveredModels.map(\.apiModelDefinition)
+        let modelDefinitions = discoveryResult.models.map(\.apiModelDefinition)
 
         var profiles = profileRecords(for: providerID)
         guard let index = profiles.firstIndex(where: { $0.id == profileID }) else {
@@ -1007,37 +1016,10 @@ final class APIConfigurationStore {
 
     func liveChatReasoningModelSupportsMultimodal(for providerID: APIProviderID) async -> Bool {
         let staticSnapshot = chatModelSelectionSnapshot(for: providerID)
-        let staticSupport = LLMModelIntegrationCatalog
+        return LLMModelIntegrationCatalog
             .spec(for: providerID, model: staticSnapshot.configuredReasoningModel)
             .capabilities
             .supportsVision
-        guard providerID == .customOpenAI else {
-            return staticSupport
-        }
-
-        guard let configuration = try? resolvedConfiguration(for: providerID) else {
-            return false
-        }
-        let modelID = configuration.reasoningModel.id.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !modelID.isEmpty,
-              modelID != APIModelSelection.automaticID,
-              modelID != APIModelSelection.noneMultimodalID else {
-            return false
-        }
-
-        let supportsMultimodal = await modelDiscoveryService.probeMultimodalSupport(
-            modelID: modelID,
-            baseURL: configuration.baseURL,
-            apiKey: configuration.apiKey,
-            providerID: providerID
-        )
-        recordMultimodalProbeResult(
-            providerID: providerID,
-            profileID: configuration.profileID,
-            modelID: modelID,
-            supportsMultimodal: supportsMultimodal
-        )
-        return supportsMultimodal
     }
 
     func clearAPIKey(for providerID: APIProviderID, profileID: UUID) throws {
@@ -1101,6 +1083,7 @@ final class APIConfigurationStore {
         guard let baseURL = snapshot.endpointURL else {
             throw AppError.invalidState(PalmiL10n.tr("model.error.providerEndpointRequired", snapshot.provider.title))
         }
+        let endpoints = try OpenAICompatibleEndpointResolver.resolve(baseURL.absoluteString)
 
         let overrideReasoningModel: APIModelDefinition = {
             guard snapshot.provider.supportsManualModelSelection else {
@@ -1125,7 +1108,11 @@ final class APIConfigurationStore {
             reasoningModel: overrideReasoningModel,
             multimodalModel: snapshot.multimodalModel,
             lightweightModel: snapshot.lightweightModel,
-            baseURL: baseURL,
+            baseURL: endpoints.inputURL,
+            inputURL: endpoints.inputURL,
+            chatCompletionsURL: endpoints.chatCompletionsURL,
+            responsesURL: endpoints.responsesURL,
+            explicitWireProtocol: endpoints.explicitWireProtocol,
             apiKey: trimmedSecret?.isEmpty == false ? trimmedSecret : nil,
             selectedServer: snapshot.selectedServer
         )
@@ -1587,48 +1574,6 @@ final class APIConfigurationStore {
         }
 
         return normalizedModels.isEmpty ? nil : normalizedModels
-    }
-
-    private func recordMultimodalProbeResult(
-        providerID: APIProviderID,
-        profileID: UUID,
-        modelID: String,
-        supportsMultimodal: Bool
-    ) {
-        var profiles = profileRecords(for: providerID)
-        guard let index = profiles.firstIndex(where: { $0.id == profileID }) else {
-            return
-        }
-        let definition = APIProviderCatalog.definition(for: providerID)
-        let baseAccessMode = definition.accessMode(withID: profiles[index].selectedAccessModeID) ?? definition.preferredAccessMode
-        let canonicalID = LLMModelIntegrationCatalog.canonicalModelID(for: providerID, modelID: modelID)
-        let existingRemoteModels = profiles[index].remoteModelDefinitions ?? []
-        let existingModel = existingRemoteModels.first(where: { $0.id == canonicalID })
-            ?? baseAccessMode.models.first(where: { $0.id == canonicalID })
-
-        var traits = existingModel?.traits ?? LLMDiscoveredModel.textTraits(for: canonicalID)
-        if supportsMultimodal {
-            traits.insert(.multimodal)
-        } else {
-            traits.remove(.multimodal)
-        }
-
-        var remoteModels = existingRemoteModels.filter { $0.id != canonicalID }
-        remoteModels.append(
-            APIModelDefinition(
-                id: canonicalID,
-                title: existingModel?.title ?? canonicalID,
-                summary: existingModel?.summary ?? "",
-                traits: traits
-            )
-        )
-        profiles[index].remoteModelDefinitions = normalizedRemoteModelDefinitions(
-            remoteModels,
-            providerID: providerID,
-            baseAccessMode: baseAccessMode
-        )
-        profiles[index].updatedAt = .now
-        writeProfiles(profiles, for: providerID)
     }
 
     private func normalizedModelSelectionID(
