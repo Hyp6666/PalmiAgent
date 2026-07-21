@@ -28,6 +28,22 @@ grep -q 'enum WebFetchMode' PalmiAgent/Integrations/Web/WebResearchService.swift
 grep -q 'case fullSnapshot = "full_snapshot"' PalmiAgent/Integrations/Web/WebResearchService.swift \
   || fail "fetch must support full_snapshot mode"
 
+grep -q 'performance.getEntriesByType' PalmiAgent/Integrations/Web/WebResearchService.swift \
+  || fail "full_snapshot must collect resources actually loaded by the page"
+
+grep -q 'let assets: \[WebFetchAsset\]' PalmiAgent/Integrations/Web/WebResearchService.swift \
+  || fail "full_snapshot must carry archived assets and failures"
+
+grep -Fq 'assets/\(localFileName)' PalmiAgent/Infrastructure/ActionExecutor.swift \
+  || fail "full_snapshot must save assets into the page archive folder"
+
+if grep -q 'screenshotPNGData' PalmiAgent/Integrations/Web/WebResearchService.swift; then
+  fail "a screenshot must not be used as a substitute for page assets"
+fi
+
+grep -q '换过更合适来源' PalmiAgent/Integrations/Intelligence/LLMToolDefinitionBuilder.swift \
+  || fail "tool guidance must discourage premature full_snapshot use"
+
 if grep -q '每个网页希望返回的正文字符上限' PalmiAgent/Integrations/Intelligence/LLMToolDefinitionBuilder.swift; then
   fail "fetch schema must not retain the obsolete max_chars control"
 fi

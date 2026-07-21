@@ -512,15 +512,24 @@ final class ActionExecutor {
                 let maxURLs = retrievalProfile.webContent.fetchStaticWebPageMaxURLs
                 let urls = Array(uniqueURLs.prefix(maxURLs))
                 let skippedCount = max(0, uniqueURLs.count - urls.count)
+                let maxConcurrentRequests = fetchMode == .fullSnapshot
+                    ? 1
+                    : retrievalProfile.webContent.fetchStaticWebPageMaxConcurrentRequests
+                let requestTimeoutSeconds = fetchMode == .fullSnapshot
+                    ? max(60, retrievalProfile.webContent.fetchStaticWebPageRequestTimeoutSeconds)
+                    : retrievalProfile.webContent.fetchStaticWebPageRequestTimeoutSeconds
+                let totalTimeoutSeconds = fetchMode == .fullSnapshot
+                    ? max(120, retrievalProfile.webContent.fetchStaticWebPageTotalTimeoutSeconds)
+                    : retrievalProfile.webContent.fetchStaticWebPageTotalTimeoutSeconds
                 let attempts = await webResearchService.fetchSummaries(
                     urls: urls,
                     startCharacter: startCharacter,
                     endCharacter: endCharacter,
                     mode: fetchMode,
                     includeLinks: includeLinks,
-                    maxConcurrentRequests: retrievalProfile.webContent.fetchStaticWebPageMaxConcurrentRequests,
-                    requestTimeoutSeconds: retrievalProfile.webContent.fetchStaticWebPageRequestTimeoutSeconds,
-                    totalTimeoutSeconds: retrievalProfile.webContent.fetchStaticWebPageTotalTimeoutSeconds
+                    maxConcurrentRequests: maxConcurrentRequests,
+                    requestTimeoutSeconds: requestTimeoutSeconds,
+                    totalTimeoutSeconds: totalTimeoutSeconds
                 )
                 var savedSnapshots: [Int: WebFetchSavedSnapshot] = [:]
                 var snapshotFileDeltas: [FileDelta] = []
@@ -560,20 +569,19 @@ final class ActionExecutor {
                         let savedSnapshot = savedSnapshots[index]
                         let snapshotDetails: String
                         if let savedSnapshot {
-                            let visualFollowUp = savedSnapshot.screenshotPath.map {
-                                "需要查看页面图像时调用 vision(path=\"\($0)\", prompt=\"读取网页中的视觉信息\")。"
-                            } ?? "本次未生成页面截图，可读取完整文字、原始文件或渲染页面。"
                             snapshotDetails = """
-                            完整网页快照：已保存
-                            快照目录：\(savedSnapshot.directoryPath)
+                            完整网页归档：已保存
+                            归档目录：\(savedSnapshot.directoryPath)
                             完整文字：\(savedSnapshot.contentPath)
                             原始文件：\(savedSnapshot.sourcePath)
                             渲染页面：\(savedSnapshot.renderedHTMLPath ?? "无")
-                            页面截图：\(savedSnapshot.screenshotPath ?? "无")
-                            后续读取：调用 read(path="\(savedSnapshot.contentPath)")；\(visualFollowUp)
+                            本地页面：\(savedSnapshot.pageHTMLPath ?? "无")
+                            素材清单：\(savedSnapshot.manifestPath)
+                            素材：成功 \(savedSnapshot.savedAssetCount)，失败 \(savedSnapshot.failedAssetCount)
+                            后续读取：Agent 可自行读取 content.txt、page.html、manifest.json 或 assets/ 中的具体素材。
                             """
                         } else {
-                            snapshotDetails = "完整网页快照：未请求"
+                            snapshotDetails = "完整网页归档：未请求"
                         }
                         let continuationHint = summary.returnedEnd < summary.totalBodyCharacterCount
                             ? "建议继续：start=\(summary.returnedEnd), end=-1"
@@ -619,9 +627,9 @@ final class ActionExecutor {
                     抓取模式：\(fetchMode.rawValue)
                     请求范围：[\(startCharacter), \(endCharacter == -1 ? "末尾" : String(endCharacter)))
                     工具技术上限：\(maxURLs) 个 URL
-                    并行上限：\(retrievalProfile.webContent.fetchStaticWebPageMaxConcurrentRequests)
-                    单 URL 超时：\(Int(retrievalProfile.webContent.fetchStaticWebPageRequestTimeoutSeconds)) 秒
-                    总时间上限：\(Int(retrievalProfile.webContent.fetchStaticWebPageTotalTimeoutSeconds)) 秒
+                    并行上限：\(maxConcurrentRequests)
+                    单 URL 超时：\(Int(requestTimeoutSeconds)) 秒
+                    总时间上限：\(Int(totalTimeoutSeconds)) 秒
                     \(skippedLine)
                     \(unfinishedLine)
 
@@ -1574,7 +1582,10 @@ final class ActionExecutor {
         let contentPath: String
         let sourcePath: String
         let renderedHTMLPath: String?
-        let screenshotPath: String?
+        let pageHTMLPath: String?
+        let manifestPath: String
+        let savedAssetCount: Int
+        let failedAssetCount: Int
         let fileDeltas: [FileDelta]
     }
 
@@ -1583,22 +1594,33 @@ final class ActionExecutor {
         at directoryPath: String
     ) throws -> WebFetchSavedSnapshot {
         guard let snapshot = summary.snapshot else {
-            throw AppError.invalidState("网页抓取结果没有可保存的完整快照。")
+            throw AppError.invalidState("网页抓取结果没有可保存的完整归档。")
         }
 
         let contentPath = "\(directoryPath)/content.txt"
         let sourcePath = "\(directoryPath)/source.\(snapshot.sourceFileExtension)"
         let renderedHTMLPath = snapshot.renderedHTML.map { _ in "\(directoryPath)/rendered.html" }
-        let screenshotPath = snapshot.screenshotPNGData.map { _ in "\(directoryPath)/page.png" }
+        let pageHTMLPath = snapshot.pageHTML.map { _ in "\(directoryPath)/page.html" }
         let manifestPath = "\(directoryPath)/manifest.json"
+        var savedAssetPaths: Set<String> = []
 
         _ = try workspaceManager.writeText(snapshot.fullBodyText, to: contentPath)
         _ = try workspaceManager.writeData(snapshot.sourceData, to: sourcePath)
         if let renderedHTML = snapshot.renderedHTML, let renderedHTMLPath {
             _ = try workspaceManager.writeText(renderedHTML, to: renderedHTMLPath)
         }
-        if let screenshotPNGData = snapshot.screenshotPNGData, let screenshotPath {
-            _ = try workspaceManager.writeData(screenshotPNGData, to: screenshotPath)
+        if let pageHTML = snapshot.pageHTML, let pageHTMLPath {
+            _ = try workspaceManager.writeText(pageHTML, to: pageHTMLPath)
+        }
+        for asset in snapshot.assets {
+            guard let localFileName = asset.localFileName,
+                  let data = asset.data else {
+                continue
+            }
+            let assetPath = "\(directoryPath)/assets/\(localFileName)"
+            if savedAssetPaths.insert(assetPath).inserted {
+                _ = try workspaceManager.writeData(data, to: assetPath, touchThread: false)
+            }
         }
 
         var manifest: [String: Any] = [
@@ -1610,7 +1632,32 @@ final class ActionExecutor {
             "total_characters": summary.totalBodyCharacterCount,
             "content_path": contentPath,
             "source_path": sourcePath,
-            "captured_at": ISO8601DateFormatter().string(from: .now)
+            "captured_at": ISO8601DateFormatter().string(from: .now),
+            "asset_reference_count": snapshot.assets.count,
+            "saved_asset_file_count": savedAssetPaths.count,
+            "failed_asset_count": snapshot.assets.filter { $0.data == nil }.count,
+            "assets": snapshot.assets.map { asset -> [String: Any] in
+                var item: [String: Any] = [
+                    "requested_url": asset.requestedURL.absoluteString,
+                    "status": asset.data == nil ? "failed" : "saved"
+                ]
+                if let finalURL = asset.finalURL {
+                    item["final_url"] = finalURL.absoluteString
+                }
+                if let contentType = asset.contentType {
+                    item["content_type"] = contentType
+                }
+                if let localFileName = asset.localFileName {
+                    item["local_path"] = "assets/\(localFileName)"
+                }
+                if let data = asset.data {
+                    item["byte_count"] = data.count
+                }
+                if let errorDescription = asset.errorDescription {
+                    item["error"] = errorDescription
+                }
+                return item
+            }
         ]
         if let canonicalURL = summary.canonicalURL {
             manifest["canonical_url"] = canonicalURL.absoluteString
@@ -1618,26 +1665,27 @@ final class ActionExecutor {
         if let renderedHTMLPath {
             manifest["rendered_html_path"] = renderedHTMLPath
         }
-        if let screenshotPath {
-            manifest["screenshot_path"] = screenshotPath
+        if let pageHTMLPath {
+            manifest["page_html_path"] = pageHTMLPath
         }
         let manifestData = try JSONSerialization.data(
             withJSONObject: manifest,
             options: [.prettyPrinted, .sortedKeys]
         )
         guard let manifestText = String(data: manifestData, encoding: .utf8) else {
-            throw AppError.operationFailed("网页快照清单编码失败。")
+            throw AppError.operationFailed("网页归档清单编码失败。")
         }
         _ = try workspaceManager.writeText(manifestText, to: manifestPath)
 
-        let paths = [contentPath, sourcePath, renderedHTMLPath, screenshotPath, manifestPath].compactMap { $0 }
+        let paths = [contentPath, sourcePath, renderedHTMLPath, pageHTMLPath, manifestPath].compactMap { $0 }
+            + Array(savedAssetPaths).sorted()
         let fileDeltas = paths.map { path in
             FileDelta(
                 toolName: ToolActionID.fetchStaticWebPage.rawValue,
                 path: path,
                 kind: .created,
                 afterByteCount: (try? workspaceManager.url(for: path)).flatMap(fileByteCount),
-                summary: "网页完整快照文件已创建"
+                summary: "网页归档文件已创建"
             )
         }
         return WebFetchSavedSnapshot(
@@ -1645,7 +1693,10 @@ final class ActionExecutor {
             contentPath: contentPath,
             sourcePath: sourcePath,
             renderedHTMLPath: renderedHTMLPath,
-            screenshotPath: screenshotPath,
+            pageHTMLPath: pageHTMLPath,
+            manifestPath: manifestPath,
+            savedAssetCount: savedAssetPaths.count,
+            failedAssetCount: snapshot.assets.filter { $0.data == nil }.count,
             fileDeltas: fileDeltas
         )
     }
@@ -1730,17 +1781,19 @@ final class ActionExecutor {
             return normalizedArgumentsJSONString(payload, fallback: arguments.normalizedJSONString())
 
         case .fetchStaticWebPage:
+            let normalizedMode = arguments.string("mode")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                ?? WebFetchMode.pageText.rawValue
+            let isFullSnapshot = normalizedMode == WebFetchMode.fullSnapshot.rawValue
             var payload: [String: Any] = [
-                "mode": arguments.string("mode")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                    ?? WebFetchMode.pageText.rawValue,
+                "mode": normalizedMode,
                 "start": arguments.int("start") ?? 0,
                 "end": arguments.int("end") ?? -1,
                 "include_links": arguments.bool("include_links") ?? true,
                 "recommended_urls": retrievalProfile.webContent.fetchStaticWebPageRecommendedURLCount,
                 "max_urls": retrievalProfile.webContent.fetchStaticWebPageMaxURLs,
-                "max_concurrent_requests": retrievalProfile.webContent.fetchStaticWebPageMaxConcurrentRequests,
-                "request_timeout_seconds": Int(retrievalProfile.webContent.fetchStaticWebPageRequestTimeoutSeconds),
-                "total_timeout_seconds": Int(retrievalProfile.webContent.fetchStaticWebPageTotalTimeoutSeconds)
+                "max_concurrent_requests": isFullSnapshot ? 1 : retrievalProfile.webContent.fetchStaticWebPageMaxConcurrentRequests,
+                "request_timeout_seconds": Int(isFullSnapshot ? max(60, retrievalProfile.webContent.fetchStaticWebPageRequestTimeoutSeconds) : retrievalProfile.webContent.fetchStaticWebPageRequestTimeoutSeconds),
+                "total_timeout_seconds": Int(isFullSnapshot ? max(120, retrievalProfile.webContent.fetchStaticWebPageTotalTimeoutSeconds) : retrievalProfile.webContent.fetchStaticWebPageTotalTimeoutSeconds)
             ]
             if let url = arguments.string("url")?.trimmingCharacters(in: .whitespacesAndNewlines),
                !url.isEmpty {

@@ -3,54 +3,13 @@ import XCTest
 
 @MainActor
 final class WebFetchToolContractTests: XCTestCase {
-    func testFetchKeepsAllVisiblePageTextInsteadOfSelectingOneContainer() async throws {
-        let html = """
-        <!doctype html>
-        <html lang="zh-CN">
-        <head><title>合肥天气预报</title></head>
-        <body>
-          <div id="forecast">
-            <ul>
-              <li><h1>21日（今天）</h1><span>阴转小雨</span><span>30/24℃</span><span>&lt;3级转3-4级</span></li>
-              <li><h2>22日（明天）</h2><span>中雨转阴</span><span>30/25℃</span><span>&lt;3级</span></li>
-            </ul>
-          </div>
-          <div id="life-index">
-            <p>较易发 感冒指数 天凉，湿度大，较易感冒。</p>
-            <p>较不宜 运动指数 有降水，推荐您在室内进行休闲运动。</p>
-            <p>不易发 过敏指数 除特殊体质，无需担心过敏问题。</p>
-            <p>舒适 穿衣指数 建议穿长袖衬衫单裤等服装。</p>
-            <p>不宜 洗车指数 有雨，雨水和泥水会弄脏爱车。</p>
-            <p>最弱 紫外线指数 辐射弱，涂擦防晒护肤品。</p>
-            <p>较易发 感冒指数 天凉，湿度大，较易感冒。</p>
-            <p>较不宜 运动指数 有降水，推荐您在室内进行休闲运动。</p>
-            <p>不易发 过敏指数 除特殊体质，无需担心过敏问题。</p>
-            <p>舒适 穿衣指数 建议穿长袖衬衫单裤等服装。</p>
-            <p>不宜 洗车指数 有雨，雨水和泥水会弄脏爱车。</p>
-            <p>最弱 紫外线指数 辐射弱，涂擦防晒护肤品。</p>
-            <p>较易发 感冒指数 天凉，湿度大，较易感冒。</p>
-            <p>较不宜 运动指数 有降水，推荐您在室内进行休闲运动。</p>
-            <p>不易发 过敏指数 除特殊体质，无需担心过敏问题。</p>
-            <p>舒适 穿衣指数 建议穿长袖衬衫单裤等服装。</p>
-            <p>不宜 洗车指数 有雨，雨水和泥水会弄脏爱车。</p>
-            <p>最弱 紫外线指数 辐射弱，涂擦防晒护肤品。</p>
-          </div>
-        </body>
-        </html>
-        """
-        let session = makeSession(html: html)
-        let service = WebResearchService(session: session)
+    func testFetchReadsTheWholeVisibleBodyInsteadOfSelectingOneContainer() {
+        let script = WebResearchService.visiblePageExtractionJavaScript(includeLinks: true)
 
-        let result = try await service.fetchSummary(
-            from: try XCTUnwrap(URL(string: "https://example.com/weather")),
-            timeoutSeconds: 3
-        )
-
-        XCTAssertEqual(result.title, "合肥天气预报")
-        XCTAssertTrue(result.bodyText.contains("21日（今天）"))
-        XCTAssertTrue(result.bodyText.contains("阴转小雨"))
-        XCTAssertTrue(result.bodyText.contains("30/24℃"))
-        XCTAssertTrue(result.bodyText.contains("较易发 感冒指数"))
+        XCTAssertTrue(script.contains("document.body?.innerText || ''"))
+        XCTAssertTrue(script.contains("document.body?.querySelectorAll('a[href]')"))
+        XCTAssertFalse(script.contains("const root = best"))
+        XCTAssertFalse(script.contains("el.remove()"))
     }
 
     func testFetchSchemaUsesExplicitRangeAndSnapshotMode() throws {
@@ -107,13 +66,133 @@ final class WebFetchToolContractTests: XCTestCase {
         XCTAssertEqual(result.snapshot?.sourceFileExtension, "txt")
     }
 
+    func testFullSnapshotContractRepresentsAResourceArchiveInsteadOfAScreenshot() async throws {
+        let session = makeSession(text: "archive", contentType: "text/plain; charset=utf-8")
+        let service = WebResearchService(session: session)
+
+        let result = try await service.fetchSummary(
+            from: try XCTUnwrap(URL(string: "https://example.com/archive.txt")),
+            mode: .fullSnapshot,
+            timeoutSeconds: 3
+        )
+
+        let snapshot = try XCTUnwrap(result.snapshot)
+        let labels = Set(Mirror(reflecting: snapshot).children.compactMap(\.label))
+        XCTAssertTrue(labels.contains("pageHTML"), "复杂模式应保存改写为本地素材路径的页面")
+        XCTAssertTrue(labels.contains("assets"), "复杂模式应保存页面素材及下载失败清单")
+        XCTAssertFalse(labels.contains("screenshotPNGData"), "页面截图不能代替网页素材归档")
+    }
+
+    func testFullSnapshotPromptWarnsAgentToTryPageTextAndABetterSourceFirst() throws {
+        let action = try XCTUnwrap(ActionCatalog.all.first { $0.id == .fetchStaticWebPage })
+        let definition = LLMToolDefinitionBuilder.makeToolDefinition(for: action)
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(definition)) as? [String: Any]
+        )
+        let function = try XCTUnwrap(object["function"] as? [String: Any])
+        let description = try XCTUnwrap(function["description"] as? String)
+
+        XCTAssertTrue(description.contains("只有"))
+        XCTAssertTrue(description.contains("更合适"))
+        XCTAssertTrue(description.contains("资源"))
+        XCTAssertTrue(description.contains("page_text"))
+    }
+
+    func testFullSnapshotDownloadsPageAssetsRewritesLocalPageAndKeepsFailures() async throws {
+        let html = """
+        <!doctype html>
+        <html>
+        <head><title>素材归档</title></head>
+        <body>
+          <p>归档页面正文</p>
+          <img data-src="/media/weather.png" alt="天气图">
+          <img data-src="/media/missing.webp" alt="缺失图">
+        </body>
+        </html>
+        """
+        let pngData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        let session = makeSession(routes: [
+            "/media/weather.png": .init(statusCode: 200, contentType: "image/png", data: pngData),
+            "/media/missing.webp": .init(statusCode: 404, contentType: "text/plain", data: Data("missing".utf8))
+        ])
+        let service = WebResearchService(session: session)
+        let weatherURL = try XCTUnwrap(URL(string: "https://archive.test/media/weather.png"))
+        let missingURL = try XCTUnwrap(URL(string: "https://archive.test/media/missing.webp"))
+
+        let archive = await service.buildResourceArchive(
+            pageHTML: html,
+            references: [
+                WebFetchResourceReference(rawURL: "/media/weather.png", resolvedURL: weatherURL),
+                WebFetchResourceReference(rawURL: "/media/missing.webp", resolvedURL: missingURL)
+            ],
+            timeoutSeconds: 1
+        )
+
+        XCTAssertEqual(archive.assets.count, 2)
+        let downloaded = try XCTUnwrap(archive.assets.first { $0.requestedURL.path == "/media/weather.png" })
+        XCTAssertEqual(downloaded.data, pngData)
+        XCTAssertEqual(downloaded.contentType, "image/png")
+        let localFileName = try XCTUnwrap(downloaded.localFileName)
+        XCTAssertTrue(localFileName.hasSuffix(".png"))
+        XCTAssertTrue(archive.pageHTML.contains("assets/\(localFileName)"))
+
+        let failed = try XCTUnwrap(archive.assets.first { $0.requestedURL.path == "/media/missing.webp" })
+        XCTAssertNil(failed.data)
+        XCTAssertNotNil(failed.errorDescription)
+    }
+
+    func testResourceArchiveFollowsCSSDependenciesAndDeduplicatesIdenticalBytes() async throws {
+        let css = """
+        @font-face { font-family: Weather; src: url('../fonts/weather.woff2'); }
+        .hero { background-image: url('../media/background.png'); }
+        """
+        let imageData = Data([1, 2, 3, 4, 5])
+        let fontData = Data([6, 7, 8, 9])
+        let session = makeSession(routes: [
+            "/css/site.css": .init(statusCode: 200, contentType: "text/css", data: Data(css.utf8)),
+            "/fonts/weather.woff2": .init(statusCode: 200, contentType: "font/woff2", data: fontData),
+            "/media/background.png": .init(statusCode: 200, contentType: "image/png", data: imageData),
+            "/media/background-copy.png": .init(statusCode: 200, contentType: "image/png", data: imageData)
+        ])
+        let service = WebResearchService(session: session)
+        let cssURL = try XCTUnwrap(URL(string: "https://archive.test/css/site.css"))
+        let copyURL = try XCTUnwrap(URL(string: "https://archive.test/media/background-copy.png"))
+
+        let archive = await service.buildResourceArchive(
+            pageHTML: #"<link rel="stylesheet" href="/css/site.css"><img src="/media/background-copy.png">"#,
+            references: [
+                WebFetchResourceReference(rawURL: "/css/site.css", resolvedURL: cssURL),
+                WebFetchResourceReference(rawURL: "/media/background-copy.png", resolvedURL: copyURL)
+            ],
+            timeoutSeconds: 1
+        )
+
+        XCTAssertEqual(archive.assets.count, 4)
+        let stylesheet = try XCTUnwrap(archive.assets.first { $0.requestedURL.path == "/css/site.css" })
+        let stylesheetText = try XCTUnwrap(stylesheet.data.flatMap { String(data: $0, encoding: .utf8) })
+        let background = try XCTUnwrap(archive.assets.first { $0.requestedURL.path == "/media/background.png" })
+        let copy = try XCTUnwrap(archive.assets.first { $0.requestedURL.path == "/media/background-copy.png" })
+        let font = try XCTUnwrap(archive.assets.first { $0.requestedURL.path == "/fonts/weather.woff2" })
+
+        XCTAssertEqual(background.localFileName, copy.localFileName)
+        XCTAssertTrue(stylesheetText.contains(try XCTUnwrap(background.localFileName)))
+        XCTAssertTrue(stylesheetText.contains(try XCTUnwrap(font.localFileName)))
+        XCTAssertFalse(stylesheetText.contains("../media/background.png"))
+        XCTAssertFalse(stylesheetText.contains("../fonts/weather.woff2"))
+    }
+
     private func makeSession(html: String) -> URLSession {
         makeSession(text: html, contentType: "text/html; charset=utf-8")
     }
 
     private func makeSession(text: String, contentType: String) -> URLSession {
-        WebFetchFixtureURLProtocol.responseData = Data(text.utf8)
-        WebFetchFixtureURLProtocol.contentType = contentType
+        makeSession(routes: [
+            "*": .init(statusCode: 200, contentType: contentType, data: Data(text.utf8))
+        ])
+    }
+
+    private func makeSession(routes: [String: WebFetchFixtureURLProtocol.Response]) -> URLSession {
+        WebFetchFixtureURLProtocol.responses = routes
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [WebFetchFixtureURLProtocol.self]
         return URLSession(configuration: configuration)
@@ -121,11 +200,16 @@ final class WebFetchToolContractTests: XCTestCase {
 }
 
 private final class WebFetchFixtureURLProtocol: URLProtocol, @unchecked Sendable {
-    static var responseData = Data()
-    static var contentType = "text/html; charset=utf-8"
+    struct Response {
+        let statusCode: Int
+        let contentType: String
+        let data: Data
+    }
+
+    static var responses: [String: Response] = [:]
 
     override class func canInit(with request: URLRequest) -> Bool {
-        request.url?.host == "example.com"
+        ["example.com", "archive.test"].contains(request.url?.host)
     }
 
     override class func canonicalRequest(for request: URLRequest) -> URLRequest {
@@ -134,17 +218,18 @@ private final class WebFetchFixtureURLProtocol: URLProtocol, @unchecked Sendable
 
     override func startLoading() {
         guard let url = request.url,
+              let fixture = Self.responses[url.path] ?? Self.responses["*"],
               let response = HTTPURLResponse(
                 url: url,
-                statusCode: 200,
+                statusCode: fixture.statusCode,
                 httpVersion: "HTTP/1.1",
-                headerFields: ["Content-Type": Self.contentType]
+                headerFields: ["Content-Type": fixture.contentType]
               ) else {
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
             return
         }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Self.responseData)
+        client?.urlProtocol(self, didLoad: fixture.data)
         client?.urlProtocolDidFinishLoading(self)
     }
 

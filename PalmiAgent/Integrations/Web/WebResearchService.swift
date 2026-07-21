@@ -1,4 +1,5 @@
 import CoreFoundation
+import CryptoKit
 import Foundation
 import PDFKit
 import SafariServices
@@ -56,7 +57,17 @@ struct WebFetchSnapshot: Sendable {
     let sourceFileExtension: String
     let fullBodyText: String
     let renderedHTML: String?
-    let screenshotPNGData: Data?
+    let pageHTML: String?
+    let assets: [WebFetchAsset]
+}
+
+struct WebFetchAsset: Sendable {
+    let requestedURL: URL
+    let finalURL: URL?
+    let contentType: String?
+    let localFileName: String?
+    let data: Data?
+    let errorDescription: String?
 }
 
 struct WebFetchAttempt: Sendable {
@@ -79,6 +90,11 @@ private struct WebDOMExtractionPayload: Decodable {
         let url: String
     }
 
+    struct Resource: Decodable {
+        let rawURL: String
+        let url: String
+    }
+
     let title: String
     let canonicalURL: String
     let siteName: String
@@ -88,6 +104,17 @@ private struct WebDOMExtractionPayload: Decodable {
     let paragraphCount: Int
     let visibleTextLength: Int
     let links: [Link]
+    let resources: [Resource]
+}
+
+struct WebFetchResourceReference: Sendable {
+    let rawURL: String
+    let resolvedURL: URL
+}
+
+struct WebArchiveBuildResult: Sendable {
+    let pageHTML: String
+    let assets: [WebFetchAsset]
 }
 
 enum WebURLPolicy {
@@ -325,7 +352,12 @@ final class WebResearchService {
         includeLinks: Bool = true,
         timeoutSeconds: TimeInterval = 15
     ) async throws -> WebFetchSummary {
-        let resource = try await downloadResource(from: url, timeoutSeconds: timeoutSeconds)
+        let resource: DownloadedWebResource
+        do {
+            resource = try await downloadResource(from: url, timeoutSeconds: timeoutSeconds)
+        } catch {
+            throw AppError.operationFailed("网页下载失败：\(error.localizedDescription)")
+        }
         if resource.contentType == "application/pdf" || resource.finalURL.pathExtension.lowercased() == "pdf" {
             return try extractPDF(
                 resource,
@@ -410,6 +442,11 @@ final class WebResearchService {
         "AppleWebKit/605.1.15 (KHTML, like Gecko) " +
         "Version/18.0 Safari/605.1.15"
 
+    @MainActor
+    static func visiblePageExtractionJavaScript(includeLinks: Bool) -> String {
+        WebContentWebViewDriver.extractionScript(includeLinks: includeLinks)
+    }
+
     private static func isTimeout(_ error: Error) -> Bool {
         if let urlError = error as? URLError {
             return urlError.code == .timedOut
@@ -433,7 +470,7 @@ final class WebResearchService {
             forHTTPHeaderField: "Accept"
         )
 
-        let (temporaryURL, response) = try await session.download(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw AppError.operationFailed("网页服务没有返回有效 HTTP 响应。")
         }
@@ -446,14 +483,12 @@ final class WebResearchService {
             throw AppError.operationFailed("不支持的网页内容类型：\(contentType)。")
         }
 
-        let fileSize = try FileManager.default.attributesOfItem(atPath: temporaryURL.path)[.size] as? NSNumber
-        let byteCount = fileSize?.intValue ?? 0
+        let byteCount = data.count
         let maxBytes = contentType == "application/pdf" ? 24 * 1_024 * 1_024 : 8 * 1_024 * 1_024
         guard byteCount <= maxBytes else {
             throw AppError.operationFailed("下载内容过大：\(byteCount) 字节。")
         }
 
-        let data = try Data(contentsOf: temporaryURL, options: .mappedIfSafe)
         return DownloadedWebResource(
             requestedURL: normalizedURL,
             finalURL: finalURL,
@@ -479,7 +514,8 @@ final class WebResearchService {
         )
         let staticPayload: WebDOMExtractionPayload
         do {
-            staticPayload = try await WebContentWebViewDriver().extractStaticHTML(
+            let driver = WebContentWebViewDriver()
+            staticPayload = try await driver.extractStaticHTML(
                 html,
                 baseURL: resource.finalURL,
                 includeLinks: includeLinks,
@@ -493,12 +529,11 @@ final class WebResearchService {
         let finalURL: URL
         let extractionMode: WebExtractionMode
         let renderedHTML: String?
-        let screenshotPNGData: Data?
         if needsRendered,
-           let rendered = try? await WebContentWebViewDriver().extractRenderedURL(
+           let rendered = try? await renderHTML(
                resource.finalURL,
                includeLinks: includeLinks,
-               captureSnapshot: mode == .fullSnapshot,
+               captureHTML: mode == .fullSnapshot,
                timeoutSeconds: min(timeoutSeconds, 12)
            ),
            !rendered.payload.bodyText.isEmpty {
@@ -506,13 +541,11 @@ final class WebResearchService {
             finalURL = try WebURLPolicy.normalized(rendered.finalURL)
             extractionMode = .renderedHTML
             renderedHTML = rendered.renderedHTML
-            screenshotPNGData = rendered.screenshotPNGData
         } else {
             payload = staticPayload
             finalURL = resource.finalURL
             extractionMode = .staticHTML
             renderedHTML = nil
-            screenshotPNGData = nil
         }
 
         let projection = Self.selectedRange(
@@ -520,6 +553,16 @@ final class WebResearchService {
             startCharacter: startCharacter,
             endCharacter: endCharacter
         )
+        let archive: WebArchiveBuildResult?
+        if mode == .fullSnapshot {
+            archive = await buildResourceArchive(
+                pageHTML: renderedHTML ?? html,
+                references: Self.normalizedArchiveReferences(staticPayload.resources + payload.resources),
+                timeoutSeconds: min(timeoutSeconds, 12)
+            )
+        } else {
+            archive = nil
+        }
         return WebFetchSummary(
             requestedURL: resource.requestedURL,
             finalURL: finalURL,
@@ -543,9 +586,30 @@ final class WebResearchService {
                     sourceFileExtension: "html",
                     fullBodyText: payload.bodyText,
                     renderedHTML: renderedHTML,
-                    screenshotPNGData: screenshotPNGData
+                    pageHTML: archive?.pageHTML ?? renderedHTML ?? html,
+                    assets: archive?.assets ?? []
                 )
                 : nil
+        )
+    }
+
+    @MainActor
+    private func renderHTML(
+        _ url: URL,
+        includeLinks: Bool,
+        captureHTML: Bool,
+        timeoutSeconds: TimeInterval
+    ) async throws -> (
+        payload: WebDOMExtractionPayload,
+        finalURL: URL,
+        renderedHTML: String?
+    ) {
+        let driver = WebContentWebViewDriver()
+        return try await driver.extractRenderedURL(
+            url,
+            includeLinks: includeLinks,
+            captureHTML: captureHTML,
+            timeoutSeconds: timeoutSeconds
         )
     }
 
@@ -600,7 +664,8 @@ final class WebResearchService {
                     sourceFileExtension: "pdf",
                     fullBodyText: fullBodyText,
                     renderedHTML: nil,
-                    screenshotPNGData: nil
+                    pageHTML: nil,
+                    assets: []
                 )
                 : nil
         )
@@ -673,10 +738,319 @@ final class WebResearchService {
                     ),
                     fullBodyText: normalized,
                     renderedHTML: nil,
-                    screenshotPNGData: nil
+                    pageHTML: nil,
+                    assets: []
                 )
                 : nil
         )
+    }
+
+    func buildResourceArchive(
+        pageHTML: String,
+        references: [WebFetchResourceReference],
+        timeoutSeconds: TimeInterval
+    ) async -> WebArchiveBuildResult {
+        let initialReferences = references
+        var pendingReferences = initialReferences
+        var seenURLs: Set<String> = []
+        var assets: [WebFetchAsset] = []
+        var dependenciesByAssetURL: [String: [WebFetchResourceReference]] = [:]
+
+        while !pendingReferences.isEmpty {
+            var roundURLs: [URL] = []
+            for reference in pendingReferences {
+                let key = reference.resolvedURL.absoluteString
+                if seenURLs.insert(key).inserted {
+                    roundURLs.append(reference.resolvedURL)
+                }
+            }
+            pendingReferences.removeAll(keepingCapacity: true)
+            guard !roundURLs.isEmpty else { break }
+
+            let downloaded = await downloadArchiveAssets(
+                roundURLs,
+                timeoutSeconds: timeoutSeconds
+            )
+            assets.append(contentsOf: downloaded)
+
+            for asset in downloaded {
+                guard let data = asset.data,
+                      let contentType = asset.contentType,
+                      Self.isTextualArchiveAsset(contentType: contentType, url: asset.finalURL ?? asset.requestedURL) else {
+                    continue
+                }
+                let baseURL = asset.finalURL ?? asset.requestedURL
+                let dependencies = Self.embeddedArchiveReferences(
+                    in: data,
+                    contentType: contentType,
+                    baseURL: baseURL
+                )
+                dependenciesByAssetURL[asset.requestedURL.absoluteString] = dependencies
+                pendingReferences.append(contentsOf: dependencies)
+            }
+        }
+
+        var localNameByURL: [String: String] = [:]
+        for asset in assets {
+            guard let localFileName = asset.localFileName else { continue }
+            localNameByURL[asset.requestedURL.absoluteString] = localFileName
+            if let finalURL = asset.finalURL {
+                localNameByURL[finalURL.absoluteString] = localFileName
+            }
+        }
+
+        var rewrittenDataByLocalName: [String: Data] = [:]
+        let rewrittenAssets = assets.map { asset in
+            guard let data = asset.data,
+                  let localFileName = asset.localFileName else {
+                return asset
+            }
+            if let existing = rewrittenDataByLocalName[localFileName] {
+                return WebFetchAsset(
+                    requestedURL: asset.requestedURL,
+                    finalURL: asset.finalURL,
+                    contentType: asset.contentType,
+                    localFileName: localFileName,
+                    data: existing,
+                    errorDescription: nil
+                )
+            }
+            guard let contentType = asset.contentType,
+                  Self.isTextualArchiveAsset(contentType: contentType, url: asset.finalURL ?? asset.requestedURL),
+                  let text = String(data: data, encoding: .utf8) else {
+                rewrittenDataByLocalName[localFileName] = data
+                return asset
+            }
+            let dependencies = dependenciesByAssetURL[asset.requestedURL.absoluteString] ?? []
+            let rewrittenText = Self.rewriteArchiveReferences(
+                in: text,
+                references: dependencies,
+                localNameByURL: localNameByURL,
+                pathPrefix: ""
+            )
+            let rewrittenData = Data(rewrittenText.utf8)
+            rewrittenDataByLocalName[localFileName] = rewrittenData
+            return WebFetchAsset(
+                requestedURL: asset.requestedURL,
+                finalURL: asset.finalURL,
+                contentType: asset.contentType,
+                localFileName: localFileName,
+                data: rewrittenData,
+                errorDescription: nil
+            )
+        }
+
+        return WebArchiveBuildResult(
+            pageHTML: Self.rewriteArchiveReferences(
+                in: pageHTML,
+                references: initialReferences,
+                localNameByURL: localNameByURL,
+                pathPrefix: "assets/"
+            ),
+            assets: rewrittenAssets
+        )
+    }
+
+    private func downloadArchiveAssets(
+        _ urls: [URL],
+        timeoutSeconds: TimeInterval
+    ) async -> [WebFetchAsset] {
+        guard !urls.isEmpty else { return [] }
+        let maximumConcurrentDownloads = min(8, urls.count)
+        var iterator = Array(urls.enumerated()).makeIterator()
+
+        return await withTaskGroup(of: (Int, WebFetchAsset).self) { group in
+            func addNext() {
+                guard let (index, url) = iterator.next() else { return }
+                group.addTask {
+                    let asset = await self.downloadArchiveAsset(
+                        url,
+                        timeoutSeconds: timeoutSeconds
+                    )
+                    return (index, asset)
+                }
+            }
+
+            for _ in 0..<maximumConcurrentDownloads {
+                addNext()
+            }
+            var results: [(Int, WebFetchAsset)] = []
+            while let result = await group.next() {
+                results.append(result)
+                addNext()
+            }
+            return results.sorted { $0.0 < $1.0 }.map(\.1)
+        }
+    }
+
+    private func downloadArchiveAsset(
+        _ requestedURL: URL,
+        timeoutSeconds: TimeInterval
+    ) async -> WebFetchAsset {
+        do {
+            let normalizedURL = try WebURLPolicy.normalized(requestedURL)
+            var request = URLRequest(url: normalizedURL)
+            request.httpMethod = "GET"
+            request.timeoutInterval = timeoutSeconds
+            request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+            request.setValue("zh-CN,zh-Hans;q=0.9,en;q=0.7", forHTTPHeaderField: "Accept-Language")
+            request.setValue("*/*", forHTTPHeaderField: "Accept")
+
+            let (data, response) = try await session.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw AppError.operationFailed("素材服务没有返回有效 HTTP 响应。")
+            }
+            guard (200...399).contains(httpResponse.statusCode) else {
+                throw AppError.operationFailed("素材返回 HTTP \(httpResponse.statusCode)。")
+            }
+            let finalURL = try WebURLPolicy.normalized(httpResponse.url ?? normalizedURL)
+            let maximumAssetBytes = 64 * 1_024 * 1_024
+            guard data.count <= maximumAssetBytes else {
+                throw AppError.operationFailed("单个素材超过 64 MiB 技术上限。")
+            }
+            let contentType = httpResponse.mimeType?.lowercased() ?? "application/octet-stream"
+            let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            let fileExtension = Self.archiveFileExtension(
+                contentType: contentType,
+                url: finalURL
+            )
+            return WebFetchAsset(
+                requestedURL: normalizedURL,
+                finalURL: finalURL,
+                contentType: contentType,
+                localFileName: "\(digest).\(fileExtension)",
+                data: data,
+                errorDescription: nil
+            )
+        } catch {
+            return WebFetchAsset(
+                requestedURL: requestedURL,
+                finalURL: nil,
+                contentType: nil,
+                localFileName: nil,
+                data: nil,
+                errorDescription: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            )
+        }
+    }
+
+    private static func normalizedArchiveReferences(
+        _ resources: [WebDOMExtractionPayload.Resource]
+    ) -> [WebFetchResourceReference] {
+        var seen: Set<String> = []
+        return resources.compactMap { resource in
+            let rawURL = resource.rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !rawURL.isEmpty,
+                  let url = URL(string: resource.url),
+                  let scheme = url.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https",
+                  seen.insert("\(rawURL)\u{0}\(url.absoluteString)").inserted else {
+                return nil
+            }
+            return WebFetchResourceReference(rawURL: rawURL, resolvedURL: url)
+        }
+    }
+
+    private static func embeddedArchiveReferences(
+        in data: Data,
+        contentType: String,
+        baseURL: URL
+    ) -> [WebFetchResourceReference] {
+        guard let text = String(data: data, encoding: .utf8) else { return [] }
+        var rawValues: [String] = []
+        if contentType.contains("css") || baseURL.pathExtension.lowercased() == "css" {
+            rawValues.append(contentsOf: capturedValues(
+                pattern: #"url\(\s*['\"]?([^'\")]+)['\"]?\s*\)"#,
+                in: text
+            ))
+            rawValues.append(contentsOf: capturedValues(
+                pattern: #"@import\s+(?:url\()?\s*['\"]([^'\"]+)['\"]"#,
+                in: text
+            ))
+        }
+        if contentType.contains("javascript") || ["js", "mjs"].contains(baseURL.pathExtension.lowercased()) {
+            rawValues.append(contentsOf: capturedValues(
+                pattern: #"(?:import\s*(?:\(|[^'\"]*from\s*)|new\s+URL\s*\()\s*['\"]([^'\"]+)['\"]"#,
+                in: text
+            ))
+        }
+
+        var seen: Set<String> = []
+        return rawValues.compactMap { rawValue in
+            let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  !trimmed.hasPrefix("data:"),
+                  !trimmed.hasPrefix("blob:"),
+                  !trimmed.hasPrefix("#"),
+                  let resolvedURL = URL(string: trimmed, relativeTo: baseURL)?.absoluteURL,
+                  let scheme = resolvedURL.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https",
+                  seen.insert("\(trimmed)\u{0}\(resolvedURL.absoluteString)").inserted else {
+                return nil
+            }
+            return WebFetchResourceReference(rawURL: trimmed, resolvedURL: resolvedURL)
+        }
+    }
+
+    private static func capturedValues(pattern: String, in text: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return []
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.matches(in: text, range: range).compactMap { match in
+            guard match.numberOfRanges > 1,
+                  let valueRange = Range(match.range(at: 1), in: text) else {
+                return nil
+            }
+            return String(text[valueRange])
+        }
+    }
+
+    private static func rewriteArchiveReferences(
+        in text: String,
+        references: [WebFetchResourceReference],
+        localNameByURL: [String: String],
+        pathPrefix: String
+    ) -> String {
+        var replacements: [String: String] = [:]
+        for reference in references {
+            guard let localFileName = localNameByURL[reference.resolvedURL.absoluteString] else {
+                continue
+            }
+            let localPath = pathPrefix + localFileName
+            replacements[reference.rawURL] = localPath
+            replacements[reference.resolvedURL.absoluteString] = localPath
+            replacements[reference.resolvedURL.absoluteString.replacingOccurrences(of: "&", with: "&amp;")] = localPath
+        }
+        var result = text
+        for source in replacements.keys.sorted(by: { $0.count > $1.count }) {
+            guard let destination = replacements[source], !source.isEmpty else { continue }
+            result = result.replacingOccurrences(of: source, with: destination)
+        }
+        return result
+    }
+
+    private static func isTextualArchiveAsset(contentType: String, url: URL) -> Bool {
+        if contentType.hasPrefix("text/") ||
+            contentType.contains("javascript") ||
+            contentType.contains("json") ||
+            contentType.contains("xml") ||
+            contentType.contains("svg") {
+            return true
+        }
+        return ["css", "js", "mjs", "json", "xml", "svg", "html", "htm"].contains(url.pathExtension.lowercased())
+    }
+
+    private static func archiveFileExtension(contentType: String, url: URL) -> String {
+        if let preferred = UTType(mimeType: contentType)?.preferredFilenameExtension,
+           !preferred.isEmpty {
+            return preferred
+        }
+        let candidate = url.pathExtension.lowercased()
+        let allowed = candidate.unicodeScalars.allSatisfy {
+            CharacterSet.alphanumerics.contains($0)
+        }
+        return allowed && !candidate.isEmpty && candidate.count <= 12 ? candidate : "bin"
     }
 
     private func fetchAttempts(
@@ -1344,7 +1718,7 @@ private final class WebContentWebViewDriver: NSObject, WKNavigationDelegate, WKU
         includeLinks: Bool,
         timeoutSeconds: TimeInterval
     ) async throws -> WebDOMExtractionPayload {
-        let webView = makeWebView(allowsJavaScript: false, captureSnapshot: false)
+        let webView = makeWebView(allowsJavaScript: false)
         self.webView = webView
         defer { cleanup() }
         try await load(timeoutSeconds: timeoutSeconds) {
@@ -1357,16 +1731,15 @@ private final class WebContentWebViewDriver: NSObject, WKNavigationDelegate, WKU
     func extractRenderedURL(
         _ url: URL,
         includeLinks: Bool,
-        captureSnapshot: Bool,
+        captureHTML: Bool,
         timeoutSeconds: TimeInterval
     ) async throws -> (
         payload: WebDOMExtractionPayload,
         finalURL: URL,
-        renderedHTML: String?,
-        screenshotPNGData: Data?
+        renderedHTML: String?
     ) {
         let normalizedURL = try WebURLPolicy.normalized(url)
-        let webView = makeWebView(allowsJavaScript: true, captureSnapshot: captureSnapshot)
+        let webView = makeWebView(allowsJavaScript: true)
         self.webView = webView
         defer { cleanup() }
         try await load(timeoutSeconds: timeoutSeconds) {
@@ -1375,23 +1748,17 @@ private final class WebContentWebViewDriver: NSObject, WKNavigationDelegate, WKU
         try await waitForStableBodyText(maxWaitSeconds: 2)
         let finalURL = try WebURLPolicy.normalized(webView.url ?? normalizedURL)
         let payload = try await extractPayload(includeLinks: includeLinks)
-        let renderedHTML = captureSnapshot
+        let renderedHTML = captureHTML
             ? try? await webView.evaluateJavaScriptString("document.documentElement.outerHTML")
             : nil
-        let screenshotPNGData = captureSnapshot ? try? await captureScreenshotPNG() : nil
-        return (payload, finalURL, renderedHTML, screenshotPNGData)
+        return (payload, finalURL, renderedHTML)
     }
 
-    private func makeWebView(allowsJavaScript: Bool, captureSnapshot: Bool) -> WKWebView {
+    private func makeWebView(allowsJavaScript: Bool) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = allowsJavaScript
-        let webView = WKWebView(
-            frame: captureSnapshot
-                ? CGRect(x: 0, y: 0, width: 1024, height: 768)
-                : .zero,
-            configuration: configuration
-        )
+        let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.isHidden = true
         webView.customUserAgent = WebResearchService.userAgent
         webView.navigationDelegate = self
@@ -1502,33 +1869,7 @@ private final class WebContentWebViewDriver: NSObject, WKNavigationDelegate, WKU
         webView = nil
     }
 
-    private func captureScreenshotPNG() async throws -> Data? {
-        guard let webView else {
-            return nil
-        }
-        let contentSize = webView.scrollView.contentSize
-        let captureHeight = min(max(contentSize.height, webView.bounds.height), 16_384)
-        let configuration = WKSnapshotConfiguration()
-        configuration.rect = CGRect(
-            x: 0,
-            y: 0,
-            width: webView.bounds.width,
-            height: captureHeight
-        )
-        configuration.snapshotWidth = NSNumber(value: Double(webView.bounds.width))
-        let image: UIImage? = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<UIImage?, Error>) in
-            webView.takeSnapshot(with: configuration) { image, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: image)
-                }
-            }
-        }
-        return image?.pngData()
-    }
-
-    private static func extractionScript(includeLinks: Bool) -> String {
+    fileprivate static func extractionScript(includeLinks: Bool) -> String {
         return """
         (() => {
           const includeLinks = \(includeLinks ? "true" : "false");
@@ -1549,10 +1890,42 @@ private final class WebContentWebViewDriver: NSObject, WKNavigationDelegate, WKU
           const bodyText = normalize(document.body?.innerText || '');
           const paragraphCount = Array.from(document.body?.querySelectorAll('p') || []).filter((p) => normalize(p.innerText).length > 0).length;
           const links = includeLinks ? Array.from(document.body?.querySelectorAll('a[href]') || []).slice(0, 60).map((a) => ({ title: normalize(a.innerText) || (new URL(a.href, document.baseURI)).host, url: (new URL(a.href, document.baseURI)).href })).filter((link) => /^https?:/i.test(link.url)) : [];
-          return JSON.stringify({ title, canonicalURL, siteName, author, publishedAt, bodyText, paragraphCount, visibleTextLength: document.body?.innerText?.length || 0, links });
+          const resources = [];
+          const seenResources = new Set();
+          const addResource = (rawValue) => {
+            const rawURL = (rawValue || '').trim();
+            if (!rawURL || rawURL.startsWith('data:') || rawURL.startsWith('blob:') || rawURL.startsWith('#')) return;
+            try {
+              const url = new URL(rawURL, document.baseURI).href;
+              const key = `${rawURL}::${url}`;
+              if (!/^https?:/i.test(url) || seenResources.has(key)) return;
+              seenResources.add(key);
+              resources.push({ rawURL, url });
+            } catch (_) {}
+          };
+          const addSrcset = (value) => (value || '').split(',').forEach((candidate) => addResource(candidate.trim().split(/\\s+/)[0]));
+          document.querySelectorAll('img,source,video,audio,script,input[type="image"],iframe,embed,object').forEach((el) => {
+            ['src','poster','data','data-src','data-original','data-lazy-src'].forEach((name) => addResource(el.getAttribute(name)));
+            addSrcset(el.getAttribute('srcset'));
+            addSrcset(el.getAttribute('data-srcset'));
+          });
+          document.querySelectorAll('link[href]').forEach((el) => {
+            const rel = (el.getAttribute('rel') || '').toLowerCase();
+            if (/(stylesheet|icon|preload|prefetch|modulepreload|manifest)/.test(rel)) addResource(el.getAttribute('href'));
+          });
+          document.querySelectorAll('svg image').forEach((el) => addResource(el.getAttribute('href') || el.getAttribute('xlink:href')));
+          document.querySelectorAll('[style]').forEach((el) => {
+            const style = el.getAttribute('style') || '';
+            for (const match of style.matchAll(/url\\(\\s*['"]?([^'")]+)['"]?\\s*\\)/gi)) addResource(match[1]);
+          });
+          try {
+            performance.getEntriesByType('resource').forEach((entry) => addResource(entry.name));
+          } catch (_) {}
+          return JSON.stringify({ title, canonicalURL, siteName, author, publishedAt, bodyText, paragraphCount, visibleTextLength: document.body?.innerText?.length || 0, links, resources });
         })()
         """
     }
+
 }
 
 @MainActor
