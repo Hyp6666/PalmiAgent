@@ -248,6 +248,7 @@
 "evidence.updatedAt" = "更新于 %@";
 "filePreview.emptyFile" = "该文件暂无可预览内容。";
 "filePreview.emptyImage" = "图片不可预览。";
+"filePreview.fileNotFound" = "文件已不存在。";
 "filePreview.nextAttachment" = "下一项附件";
 "filePreview.noAttachments" = "暂无可预览附件";
 "filePreview.previousAttachment" = "上一项附件";
@@ -921,3 +922,13 @@
 "model.manual.title" = "手动添加";
 "model.model.title" = "模型";
 "model.plan.deleteKeepsModels" = "只删除方案；全局模型和连接会保留。";
+"tool.facade.break_down" = "拆解文件";
+"tool.facade.readSkill" = "读取技能";
+"tool.facade.importSkill" = "导入技能";
+"tool.group.skills.title" = "技能";
+"tool.group.skills.subtitle" = "渐进读取与验证导入";
+"tool.action.readSkill.title" = "读取技能";
+"tool.action.readSkill.effect" = "从受保护技能容器渐进读取已启用技能";
+"tool.action.importSkill.title" = "导入技能";
+"tool.action.importSkill.effect" = "验证并安装当前项目工作区内的技能包";
+"skill.system.required" = "系统必备";

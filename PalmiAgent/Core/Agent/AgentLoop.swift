@@ -459,11 +459,13 @@ final class AgentLoop {
         guard !trimmedInput.isEmpty else {
             throw AppError.invalidState("请输入要让模型执行的自然语言指令。")
         }
+        AgentToolCallProtocolIntegrity.closeDanglingCalls(in: &session)
         emittedModelNotices = []
         // 置位本轮模式注入态；无论正常返回还是抛错，结束时（defer）都清回标准态。
         activeTurnMode = mode
         activeTurnDeepResearchFolder = (mode == .deepResearch) ? Self.makeDeepResearchFolderPath() : ""
         defer {
+            AgentToolCallProtocolIntegrity.closeDanglingCalls(in: &session)
             activeTurnMode = .standard
             activeTurnDeepResearchFolder = ""
             activeTurnHasImageAttachments = false
@@ -561,6 +563,7 @@ final class AgentLoop {
             var toolNarrationRetryPending = false
 
             while true {
+                AgentToolCallProtocolIntegrity.closeDanglingCalls(in: &session)
                 try Task.checkCancellation()
                 try runBudget.admitIteration(nowNanoseconds: DispatchTime.now().uptimeNanoseconds)
                 _ = consumePendingInterruptions()
@@ -1384,6 +1387,7 @@ final class AgentLoop {
                 }
 
                 if shouldStopAfterBatch {
+                    AgentToolCallProtocolIntegrity.closeDanglingCalls(in: &session)
                     if consumePendingInterruptions() {
                         continue
                     }

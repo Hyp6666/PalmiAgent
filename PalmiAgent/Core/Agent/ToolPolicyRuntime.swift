@@ -34,6 +34,7 @@ enum ToolSideEffect: String, Codable, Sendable {
     case none
     case readsPublicWeb
     case readsWorkspace
+    case writesDerivedWorkspaceCache
     case mutatesWorkspace
     case executesSandboxCode
     case readsPersonalData
@@ -49,6 +50,8 @@ enum ToolSideEffect: String, Codable, Sendable {
             "读取公开网页"
         case .readsWorkspace:
             "读取工作区"
+        case .writesDerivedWorkspaceCache:
+            "写入派生缓存"
         case .mutatesWorkspace:
             "改动工作区"
         case .executesSandboxCode:
@@ -129,13 +132,16 @@ extension ToolActionID {
                 isIdempotent: true
             )
 
-        case .fileRead, .listDirectory:
+        case .fileRead, .listDirectory, .readSkill:
             return .localRead
+
+        case .breakDownFile:
+            return ToolPolicyMetadata(riskLevel: .r2LocalRead, sideEffect: .writesDerivedWorkspaceCache, parallelPolicy: .sequential, confirmationPolicy: .allow, mutatesWorkspace: true, touchesPersonalData: false, isInteractive: false, isCacheable: true, isIdempotent: true)
 
         case .detectWebSearchProviders, .searchWeb, .fetchStaticWebPage, .fetchWebBatch:
             return .publicRead
 
-        case .fileWrite, .fileAppend, .fileManage, .saveWebPageToWorkspace:
+        case .fileWrite, .fileAppend, .fileManage, .saveWebPageToWorkspace, .importSkill:
             return ToolPolicyMetadata(
                 riskLevel: .r3WorkspaceMutationOrSandbox,
                 sideEffect: .mutatesWorkspace,

@@ -10,7 +10,10 @@ import VisionKit
 @MainActor
 final class ActionExecutor {
     private let workspaceManager: WorkspaceManager
+    private let skillRegistry: SkillRegistry
     private let workspaceReadService: WorkspaceReadService
+    private let rawTextReadService: RawTextReadService
+    private let documentBreakdownService: DocumentBreakdownService
     private let pythonNotebookSandboxService: PythonNotebookSandboxService
     private let calendarService: CalendarService
     private let remindersService: RemindersService
@@ -32,7 +35,10 @@ final class ActionExecutor {
 
     init(
         workspaceManager: WorkspaceManager,
+        skillRegistry: SkillRegistry,
         workspaceReadService: WorkspaceReadService,
+        rawTextReadService: RawTextReadService,
+        documentBreakdownService: DocumentBreakdownService,
         pythonNotebookSandboxService: PythonNotebookSandboxService,
         calendarService: CalendarService,
         remindersService: RemindersService,
@@ -53,7 +59,10 @@ final class ActionExecutor {
         userDefaults: UserDefaults = .standard
     ) {
         self.workspaceManager = workspaceManager
+        self.skillRegistry = skillRegistry
         self.workspaceReadService = workspaceReadService
+        self.rawTextReadService = rawTextReadService
+        self.documentBreakdownService = documentBreakdownService
         self.pythonNotebookSandboxService = pythonNotebookSandboxService
         self.calendarService = calendarService
         self.remindersService = remindersService
@@ -83,20 +92,15 @@ final class ActionExecutor {
             switch action.id {
             case .fileRead:
                 let path = try arguments.requiredString("path")
-                let readMode = WorkspaceReadMode(
-                    rawValue: arguments.string("mode")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
-                ) ?? .auto
-                let result = try await workspaceReadService.read(
-                    at: path,
-                    recursive: false,
-                    maxCharacters: arguments.int("max_chars") ?? 20_000,
-                    maxFiles: 1,
-                    mode: readMode,
-                    offset: max(0, arguments.int("offset") ?? 0),
-                    chunkSize: arguments.int("chunk_size"),
-                    focus: arguments.string("focus") ?? arguments.string("query")
-                )
-                return success(action, result.summary, details: result.details)
+                let result = try await rawTextReadService.read(at: path, start: arguments.int("start") ?? 0, count: arguments.int("count") ?? 20_000)
+                return success(action, result.summary, details: result.text, inlineMetadata: ToolCallInlineMetadataBuilder.workspaceMetadata(path: path))
+
+            case .breakDownFile:
+                let path = try arguments.requiredString("path")
+                let result = try await documentBreakdownService.breakDown(at: path, start: arguments.int("start"), count: arguments.int("count"), items: arguments.stringArray("items") ?? [])
+                return success(action, result.summary, details: "索引入口：\(result.readmeRelativePath)\n请调用 read(path=\"\(result.readmeRelativePath)\") 查看。", fileDeltas: [
+                    FileDelta(toolName: action.id.rawValue, path: result.readmeRelativePath, kind: result.readmeWasCreated ? .created : .modified, beforeByteCount: nil, afterByteCount: Int(result.readmeByteCount), summary: "复杂文件索引已生成或更新")
+                ], inlineMetadata: ToolCallInlineMetadataBuilder.workspaceMetadata(path: result.readmeRelativePath))
 
             case .fileWrite:
                 let path = try arguments.requiredString("path")
@@ -343,6 +347,43 @@ final class ActionExecutor {
                     """,
                     fileDeltas: fileDeltas,
                     inlineMetadata: ToolCallInlineMetadataBuilder.workspaceMetadata(path: result.sourcePath)
+                )
+
+            case .readSkill:
+                let projectID = try workspaceManager.currentSelection().projectID
+                let request = SkillReadRequest(
+                    skill: try arguments.requiredString("skill"),
+                    paths: arguments.stringArray("paths") ?? [],
+                    recursive: arguments.bool("recursive") ?? true,
+                    maxCharacters: arguments.int("max_chars") ?? 600_000
+                )
+                let result = try skillRegistry.readSkill(request, projectID: projectID)
+                return success(action, result.summary, details: result.details)
+
+            case .importSkill:
+                let projectID = try workspaceManager.currentSelection().projectID
+                let rawScope = arguments.string("scope")?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased() ?? SkillScope.global.rawValue
+                guard let scope = SkillScope(rawValue: rawScope) else {
+                    throw AppError.invalidState("scope 只支持 global 或 project。")
+                }
+                let result = try skillRegistry.importWorkspaceSkill(
+                    path: try arguments.requiredString("path"),
+                    scope: scope,
+                    replaceExisting: arguments.bool("replace_existing") ?? false,
+                    projectID: projectID
+                )
+                return success(
+                    action,
+                    "技能已验证并导入",
+                    details: """
+                    技能：\(result.name)
+                    稳定 ID：\(result.id)
+                    作用域：\(result.scope.displayTitle)
+                    文件数：\(result.fileCount)
+                    总大小：\(result.totalBytes) bytes
+                    """
                 )
 
             case .recognizeImageText:
@@ -1751,6 +1792,30 @@ final class ActionExecutor {
         let retrievalProfile = currentRetrievalQualityProfile()
 
         switch action.id {
+        case .fileRead:
+            return normalizedArgumentsJSONString(["path": arguments.string("path") ?? "", "start": arguments.int("start") ?? 0, "count": arguments.int("count") ?? 20_000], fallback: arguments.normalizedJSONString())
+        case .breakDownFile:
+            var payload: [String: Any] = ["path": arguments.string("path") ?? ""]
+            if let start = arguments.int("start") { payload["start"] = start }
+            if let count = arguments.int("count") { payload["count"] = count }
+            if let items = arguments.stringArray("items") { payload["items"] = items }
+            return normalizedArgumentsJSONString(payload, fallback: arguments.normalizedJSONString())
+        case .readSkill:
+            var payload: [String: Any] = [
+                "skill": arguments.string("skill") ?? "",
+                "recursive": arguments.bool("recursive") ?? true,
+                "max_chars": arguments.int("max_chars") ?? 600_000
+            ]
+            if let paths = arguments.stringArray("paths"), !paths.isEmpty {
+                payload["paths"] = paths
+            }
+            return normalizedArgumentsJSONString(payload, fallback: arguments.normalizedJSONString())
+        case .importSkill:
+            return normalizedArgumentsJSONString([
+                "path": arguments.string("path") ?? "",
+                "scope": arguments.string("scope") ?? SkillScope.global.rawValue,
+                "replace_existing": arguments.bool("replace_existing") ?? false
+            ], fallback: arguments.normalizedJSONString())
         case .detectWebSearchProviders:
             var payload: [String: Any] = [
                 "enabled_sources": enabledSearchProviderIDs().map(\.rawValue)

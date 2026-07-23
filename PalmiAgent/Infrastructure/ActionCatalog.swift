@@ -3,11 +3,14 @@ import Foundation
 enum ActionCatalog {
     static let agentExposedActionIDs: [ToolActionID] = [
         .fileRead,
+        .breakDownFile,
         .fileWrite,
         .fileAppend,
         .listDirectory,
         .fileManage,
         .runPython,
+        .readSkill,
+        .importSkill,
         .recognizeImageText,
         .scanImageWithMultimodalModel,
         .searchWeb,
@@ -17,12 +20,15 @@ enum ActionCatalog {
     ]
 
     static let all: [ToolAction] = [
-        .init(id: .fileRead, category: .workspace, title: "读取文件", effect: "读取工作区内单个文件的文本内容", details: "支持代码、Markdown、JSON、CSV、PDF、RTF、plist、ipynb 等文本内容；图片和其他二进制会自动忽略。支持用 mode / focus / offset / chunk_size 控制读取范围，适合精读长文档。", availability: .live),
+        .init(id: .fileRead, category: .workspace, title: "读取文本", effect: "原样读取工作区中的单个文本文件", details: "按 start/count 读取可解码文本，保留原始内容，不做摘要、搜索、格式化或复杂文档解析。PDF、Office、iWork、RAR、7z 等二进制文件使用 break_down。", availability: .live),
+        .init(id: .breakDownFile, category: .workspace, title: "拆解复杂文件", effect: "将复杂文件拆成可读取的文本 part 和可按需提取的原始资产", details: "支持 PDF、现代及旧版 Word/PowerPoint/Excel、Pages、Numbers、Keynote、RAR 和 7z。默认只生成索引与文本，不调用 OCR、vision 或模型，不修改源文件。", availability: .live),
         .init(id: .fileWrite, category: .workspace, title: "写入文件", effect: "创建或覆盖写入工作区内的文本文件", details: "由模型提供文件路径和内容，支持 .md、.py、.txt、.json 等所有文本格式。父目录会自动创建。", availability: .live),
         .init(id: .fileAppend, category: .workspace, title: "追加内容", effect: "向工作区内已有文件末尾追加文本", details: "文件不存在时自动创建。适合日志追加、分步写入等场景。", availability: .live),
         .init(id: .listDirectory, category: .workspace, title: "列出目录", effect: "列出工作区目录的内容或递归目录树", details: "可查看指定目录下的文件和子目录，支持递归输出完整目录树。还可批量读取目录内所有可读文本文件的内容。", availability: .live),
         .init(id: .fileManage, category: .workspace, title: "文件管理", effect: "移动、复制、重命名、删除文件或创建目录", details: "通过 operation 参数选择操作：mkdir（创建目录）、delete（删除）、move（移动/重命名）、copy（复制）、info（查看文件信息）、exists（检查是否存在）。覆盖人手工能做的所有文件管理操作。", availability: .live),
         .init(id: .runPython, category: .workspace, title: "执行 Python", effect: "执行真实 CPython 脚本并返回结果", details: "使用内嵌 CPython 3.14 运行 Python 代码。适合数学计算、符号推导、图算法、JSON/CSV/Excel 处理；支持标准库、内置 workspace 辅助模块，以及预装纯 Python 包：\(PythonPackageCatalog.supportedImportsSentence)。\(PythonPackageCatalog.toolingSummary) 不支持 pip 即装即用、系统进程、GUI、长期阻塞脚本，以及任何未列出的第三方库（例如 \(PythonPackageCatalog.unsupportedExamplesSentence)）。文件操作请优先使用专用文件工具（读取文件、写入文件、文件管理等），不要用 Python 绕路。", availability: .live),
+        .init(id: .readSkill, category: .workspace, title: "读取技能", effect: "从封闭技能容器渐进读取已启用技能", details: "默认返回完整 SKILL.md 和目录树；可按包内相对路径继续读取 references、scripts 等文本资源。不会泄露 App 容器绝对路径。", availability: .live),
+        .init(id: .importSkill, category: .workspace, title: "导入技能", effect: "验证并安装当前项目工作区内的技能包", details: "支持目录、单个 Markdown 和 ZIP。先在临时区验证，再原子安装到全局或项目技能目录；不能覆盖系统技能。", availability: .live),
         .init(id: .recognizeImageText, category: .multimodal, title: "OCR 扫描", effect: "识别工作区图片里的文字并写出 OCR 文本与 JSON", details: "使用随包集成的 PP-OCRv6 Tiny det/rec 模型资源作为本地 OCR 能力入口。传入工作区图片相对路径后，会把纯文本写入 .ocr.txt，把行级文本、置信度、位置和模型信息写入 .ocr.json；附件图片默认输出到同批次 extracted 目录，其他图片默认输出到 .files/ocr。", availability: .live),
         .init(id: .scanImageWithMultimodalModel, category: .multimodal, title: "多模态模型扫描", effect: "调用当前配置的多模态模型理解工作区图片并返回文本结果", details: "传入工作区图片相对路径和提示词后，Palmi 会把图片内联给当前会话配置的多模态模型。若当前会话没有可用多模态模型，工具调用会直接返回失败。", availability: .live),
         .init(id: .detectWebSearchProviders, category: .web, title: "网络环境检测", effect: "探测当前已开启搜索源的可访问性", details: "按设置中开启的搜索源发起轻量网络探测，返回每个搜索源是否可访问、响应耗时和 HTTP 状态。它只做环境检测，不读取搜索结果。", availability: .live),

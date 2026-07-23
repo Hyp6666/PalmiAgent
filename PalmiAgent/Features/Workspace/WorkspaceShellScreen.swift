@@ -1090,22 +1090,9 @@ private struct WorkspaceBrowser: View {
         }
 
         do {
-            let kind = WorkspacePreviewFile.previewKind(for: node.url)
-            let preview: String?
-            switch kind {
-            case .markdown, .text:
-                preview = try store.previewText(at: node.relativePath)
-                    ?? PalmiL10n.tr("filePreview.emptyFile")
-            case .quickLook:
-                preview = nil
-            }
-
-            previewedFile = WorkspacePreviewFile(
-                title: node.name,
+            previewedFile = try WorkspacePreviewFileLoader.load(
                 relativePath: node.relativePath,
-                url: node.url,
-                preview: preview,
-                kind: kind
+                resolveURL: store.workspaceURL(for:)
             )
             store.statusMessage = nil
         } catch {

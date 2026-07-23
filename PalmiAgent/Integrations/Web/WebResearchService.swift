@@ -1376,11 +1376,13 @@ struct PalmiBrowserScreen: View {
 
     var body: some View {
         GeometryReader { proxy in
-            ZStack(alignment: .top) {
-                PalmiWebBrowserView(options: options)
-                    .ignoresSafeArea()
-
+            VStack(spacing: 0) {
                 browserChrome(safeAreaTop: proxy.safeAreaInsets.top)
+                    .background(browserChromeBackdrop)
+                    .zIndex(1)
+
+                PalmiWebBrowserView(options: options)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .background(Color(.systemBackground))
             .ignoresSafeArea()
@@ -1431,7 +1433,16 @@ struct PalmiBrowserScreen: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, safeAreaTop + 8)
+            .padding(.bottom, 10)
         }
+    }
+
+    private var browserChromeBackdrop: some View {
+        Color(.systemBackground)
+            .overlay(alignment: .bottom) {
+                Divider()
+                    .opacity(0.45)
+            }
     }
 
     private func browserChromeButton(

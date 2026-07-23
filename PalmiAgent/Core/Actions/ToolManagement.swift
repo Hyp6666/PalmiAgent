@@ -34,6 +34,7 @@ enum ToolManagementGroupID: String, CaseIterable, Identifiable, Codable, Sendabl
     case communication
     case systemEntrypoints
     case workspaceFiles
+    case skills
     case multimodal
     case webResearch
 
@@ -130,7 +131,14 @@ enum ToolManagementCatalog {
             sectionID: .nonApp,
             title: "工作区文件",
             subtitle: "文件读写、目录、管理、Python",
-            actionIDs: [.fileRead, .fileWrite, .fileAppend, .listDirectory, .fileManage, .runPython]
+            actionIDs: [.fileRead, .breakDownFile, .fileWrite, .fileAppend, .listDirectory, .fileManage, .runPython]
+        ),
+        .init(
+            id: .skills,
+            sectionID: .nonApp,
+            title: "技能",
+            subtitle: "渐进读取与验证导入",
+            actionIDs: [.readSkill, .importSkill]
         ),
         .init(
             id: .multimodal,
@@ -152,6 +160,7 @@ enum ToolManagementCatalog {
         settingsGroup(.timeAlarms, actionIDs: [.getCurrentDateTime]),
         settingsGroup(.mapsLocation, actionIDs: [.requestLocation]),
         settingsGroup(.workspaceFiles),
+        settingsGroup(.skills),
         settingsGroup(.multimodal),
         settingsGroup(.webResearch, actionIDs: [.searchWeb, .fetchStaticWebPage])
     ]
@@ -172,7 +181,9 @@ enum ToolManagementCatalog {
         case .mapsLocation:
             names = [.location]
         case .workspaceFiles:
-            names = [.read, .edit, .workspace, .python]
+            names = [.read, .breakDown, .edit, .workspace, .python]
+        case .skills:
+            names = [.readSkill, .importSkill]
         case .multimodal:
             names = [.ocr, .vision]
         case .webResearch:

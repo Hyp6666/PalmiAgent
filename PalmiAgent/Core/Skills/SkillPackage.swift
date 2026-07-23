@@ -1,6 +1,6 @@
 import Foundation
 
-enum SkillScope: String, Codable, Sendable {
+enum SkillScope: String, CaseIterable, Codable, Sendable {
     case global
     case project
 
@@ -96,6 +96,10 @@ struct SkillPackage: Identifiable, Sendable, Hashable {
     let projectID: UUID?
     let isEnabled: Bool
 
+    var isAlwaysEnabled: Bool {
+        source == .builtIn
+    }
+
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }
@@ -139,8 +143,10 @@ struct SkillPackage: Identifiable, Sendable, Hashable {
             slug: manifest.slug,
             name: manifest.name,
             description: manifest.description,
-            scope: manifest.scope,
-            source: manifest.source,
+            // The containing registry is authoritative. A package-local manifest
+            // must never be able to promote an imported skill to a system skill.
+            scope: scope,
+            source: scope == .project ? .project : .imported,
             installedAt: manifest.installedAt,
             packageURL: packageURL,
             skillFileURL: skillFileURL,
@@ -151,13 +157,38 @@ struct SkillPackage: Identifiable, Sendable, Hashable {
         )
     }
 
+    static func loadBuiltIn(from packageURL: URL) throws -> SkillPackage {
+        let validation = try SkillPackageValidator().validate(packageURL: packageURL)
+        let markdown = try String(contentsOf: validation.skillFileURL, encoding: .utf8)
+        let parsed = SkillMarkdownParser.parse(markdown)
+        let installedAt = (try? validation.skillFileURL.resourceValues(
+            forKeys: [.contentModificationDateKey]
+        ).contentModificationDate) ?? .now
+
+        return SkillPackage(
+            id: "global:\(validation.slug)",
+            slug: validation.slug,
+            name: validation.name,
+            description: validation.description,
+            scope: .global,
+            source: .builtIn,
+            installedAt: installedAt,
+            packageURL: packageURL,
+            skillFileURL: validation.skillFileURL,
+            rawMarkdown: markdown,
+            promptBody: parsed.body.trimmingCharacters(in: .whitespacesAndNewlines),
+            projectID: nil,
+            isEnabled: true
+        )
+    }
+
     private static func readManifest(from url: URL) throws -> SkillPackageManifest {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(SkillPackageManifest.self, from: Data(contentsOf: url))
     }
 
-    private static func locateSkillFile(in packageURL: URL) throws -> URL {
+    static func locateSkillFile(in packageURL: URL) throws -> URL {
         let exactURL = packageURL.appendingPathComponent(skillFilename, isDirectory: false)
         if FileManager.default.fileExists(atPath: exactURL.path) {
             return exactURL

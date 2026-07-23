@@ -62,7 +62,7 @@ enum ToolCallInlineMetadataBuilder {
             ?? actionID.flatMap { AgentExternalToolFacadeCatalog.facade(backing: $0)?.name }
 
         switch facadeName {
-        case .read, .edit, .ocr, .vision:
+        case .read, .breakDown, .edit, .ocr, .vision:
             return workspaceMetadata(path: arguments.string("path"))
         case .workspace:
             let operation = normalized(arguments.string("operation")) ?? "list"
@@ -80,6 +80,10 @@ enum ToolCallInlineMetadataBuilder {
                 return workspaceMetadata(path: saveTo)
             }
             return ToolCallInlineMetadata(operation: "inline_script")
+        case .readSkill:
+            return textMetadata(arguments.string("skill"))
+        case .importSkill:
+            return workspaceMetadata(path: arguments.string("path"))
         case .webSearch:
             return textMetadata(arguments.string("query"))
         case .fetch:

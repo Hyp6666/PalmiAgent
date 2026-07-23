@@ -129,7 +129,9 @@ private struct SelectableAttributedTextView: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> UITextView {
-        let textView = UITextView()
+        // Link hit-testing below intentionally uses NSLayoutManager. Start in TextKit 1
+        // instead of letting UITextView render with TextKit 2 and downgrade on the first tap.
+        let textView = UITextView(usingTextLayoutManager: false)
         textView.backgroundColor = .clear
         textView.isOpaque = false
         textView.isEditable = false
@@ -147,15 +149,20 @@ private struct SelectableAttributedTextView: UIViewRepresentable {
         textView.dataDetectorTypes = []
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textView.setContentHuggingPriority(.required, for: .vertical)
-        textView.delegate = context.coordinator
-        applyConfiguration(to: textView)
+        let linkTapRecognizer = UITapGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handleLinkTap(_:))
+        )
+        linkTapRecognizer.delegate = context.coordinator
+        linkTapRecognizer.cancelsTouchesInView = true
+        textView.addGestureRecognizer(linkTapRecognizer)
+        applyConfiguration(to: textView, coordinator: context.coordinator)
         return textView
     }
 
     func updateUIView(_ uiView: UITextView, context: Context) {
         context.coordinator.onOpenURL = onOpenURL
-        uiView.delegate = context.coordinator
-        applyConfiguration(to: uiView)
+        applyConfiguration(to: uiView, coordinator: context.coordinator)
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
@@ -192,42 +199,88 @@ private struct SelectableAttributedTextView: UIViewRepresentable {
         }
     }
 
-    private func applyConfiguration(to textView: UITextView) {
-        if !(textView.attributedText?.isEqual(attributedText) ?? false) {
-            textView.attributedText = attributedText
+    private func applyConfiguration(to textView: UITextView, coordinator: Coordinator) {
+        let displayText = SelectableLinkTextStorage.displayText(
+            from: attributedText,
+            tintColor: tintColor
+        )
+        coordinator.displayText = displayText
+        if !(textView.attributedText?.isEqual(displayText) ?? false) {
+            // UITextView/TextKit normalizes its assigned attributed string in place during
+            // selection and link interaction. Always hand it an isolated snapshot so those
+            // mutations cannot corrupt the renderer cache.
+            textView.attributedText = displayText
         }
         textView.backgroundColor = .clear
         textView.tintColor = tintColor
-        textView.linkTextAttributes = [
-            .foregroundColor: tintColor
-        ]
     }
 
-    final class Coordinator: NSObject, UITextViewDelegate {
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var onOpenURL: ((SelectableLinkInteraction) -> Void)?
+        var displayText: NSAttributedString?
 
         init(onOpenURL: ((SelectableLinkInteraction) -> Void)?) {
             self.onOpenURL = onOpenURL
         }
 
-        func textView(
-            _ textView: UITextView,
-            shouldInteractWith url: URL,
-            in characterRange: NSRange,
-            interaction: UITextItemInteraction
-        ) -> Bool {
-            guard let onOpenURL else { return true }
-            onOpenURL(
-                SelectableLinkInteraction(
-                    url: url,
-                    title: linkTitle(in: textView, range: characterRange),
-                    sourceRect: linkSourceRect(in: textView, range: characterRange)
-                )
-            )
-            return false
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let tapRecognizer = gestureRecognizer as? UITapGestureRecognizer,
+                  let textView = tapRecognizer.view as? UITextView else {
+                return false
+            }
+            return link(at: tapRecognizer.location(in: textView), in: textView) != nil
         }
 
-        private func linkTitle(in textView: UITextView, range: NSRange) -> String? {
+        @objc func handleLinkTap(_ recognizer: UITapGestureRecognizer) {
+            guard recognizer.state == .ended,
+                  let textView = recognizer.view as? UITextView,
+                  let onOpenURL,
+                  let hit = link(at: recognizer.location(in: textView), in: textView) else {
+                return
+            }
+
+            onOpenURL(
+                SelectableLinkInteraction(
+                    url: hit.url,
+                    title: Self.linkTitle(in: textView, range: hit.range),
+                    sourceRect: Self.linkSourceRect(in: textView, range: hit.range)
+                )
+            )
+        }
+
+        private func link(
+            at viewPoint: CGPoint,
+            in textView: UITextView
+        ) -> SelectableLinkTextStorage.Hit? {
+            let containerPoint = CGPoint(
+                x: viewPoint.x - textView.textContainerInset.left,
+                y: viewPoint.y - textView.textContainerInset.top
+            )
+            textView.layoutManager.ensureLayout(for: textView.textContainer)
+
+            var fraction: CGFloat = 0
+            let glyphIndex = textView.layoutManager.glyphIndex(
+                for: containerPoint,
+                in: textView.textContainer,
+                fractionOfDistanceThroughGlyph: &fraction
+            )
+            guard glyphIndex < textView.layoutManager.numberOfGlyphs else { return nil }
+
+            let glyphRect = textView.layoutManager.boundingRect(
+                forGlyphRange: NSRange(location: glyphIndex, length: 1),
+                in: textView.textContainer
+            )
+            guard glyphRect.insetBy(dx: -3, dy: -4).contains(containerPoint) else { return nil }
+
+            let characterIndex = textView.layoutManager.characterIndexForGlyph(at: glyphIndex)
+            guard let displayText else { return nil }
+            return SelectableLinkTextStorage.link(
+                in: displayText,
+                at: characterIndex
+            )
+        }
+
+        private static func linkTitle(in textView: UITextView, range: NSRange) -> String? {
             guard range.location != NSNotFound,
                   NSMaxRange(range) <= textView.attributedText.length else {
                 return nil
@@ -238,7 +291,7 @@ private struct SelectableAttributedTextView: UIViewRepresentable {
             return title.isEmpty ? nil : title
         }
 
-        private func linkSourceRect(in textView: UITextView, range: NSRange) -> CGRect? {
+        private static func linkSourceRect(in textView: UITextView, range: NSRange) -> CGRect? {
             guard range.location != NSNotFound,
                   NSMaxRange(range) <= textView.attributedText.length else {
                 return nil
@@ -262,7 +315,68 @@ private struct SelectableAttributedTextView: UIViewRepresentable {
     }
 }
 
-private enum MarkdownAttributedTextRenderer {
+enum SelectableLinkTextStorage {
+    struct Hit {
+        let url: URL
+        let range: NSRange
+    }
+
+    private static let targetAttribute = NSAttributedString.Key(
+        "com.palmi.selectableText.linkTarget"
+    )
+
+    static func displayText(
+        from source: NSAttributedString,
+        tintColor: UIColor
+    ) -> NSAttributedString {
+        let display = NSMutableAttributedString(attributedString: source)
+        var links: [(value: Any, range: NSRange)] = []
+        source.enumerateAttribute(
+            .link,
+            in: NSRange(location: 0, length: source.length)
+        ) { value, range, _ in
+            if let value {
+                links.append((value, range))
+            }
+        }
+
+        for link in links {
+            display.addAttributes(
+                [
+                    targetAttribute: link.value,
+                    .foregroundColor: tintColor
+                ],
+                range: link.range
+            )
+            display.removeAttribute(.link, range: link.range)
+        }
+        return display.copy() as! NSAttributedString
+    }
+
+    static func link(in text: NSAttributedString, at characterIndex: Int) -> Hit? {
+        guard characterIndex >= 0, characterIndex < text.length else { return nil }
+        var range = NSRange(location: NSNotFound, length: 0)
+        let value = text.attribute(
+            targetAttribute,
+            at: characterIndex,
+            effectiveRange: &range
+        )
+        let url: URL?
+        if let value = value as? URL {
+            url = value
+        } else if let value = value as? NSURL {
+            url = value as URL
+        } else if let value = value as? String {
+            url = URL(string: value)
+        } else {
+            url = nil
+        }
+        guard let url, range.location != NSNotFound else { return nil }
+        return Hit(url: url, range: range)
+    }
+}
+
+enum MarkdownAttributedTextRenderer {
     static func render(
         markdown: String,
         textColor: UIColor,
@@ -281,7 +395,11 @@ private enum MarkdownAttributedTextRenderer {
                   data: data,
                   options: [
                       .documentType: NSAttributedString.DocumentType.html,
-                      .characterEncoding: String.Encoding.utf8.rawValue
+                      .characterEncoding: String.Encoding.utf8.rawValue,
+                      // This UITextView intentionally uses TextKit 1 layout APIs for sizing
+                      // and hit-testing. Ask the HTML importer for the matching representation,
+                      // where list markers are real text instead of TextKit 2-only metadata.
+                      .textKit1ListMarkerFormatDocumentOption: true
                   ],
                   documentAttributes: nil
               ) else {
@@ -295,7 +413,10 @@ private enum MarkdownAttributedTextRenderer {
         }
 
         trimTrailingWhitespace(in: attributedString)
-        return attributedString
+        // The HTML importer returns NSMutableAttributedString. Keeping that reference in
+        // SwiftUI state lets UITextView mutate the cached Markdown while handling a tap.
+        // Freeze it before it crosses the renderer/view boundary.
+        return attributedString.copy() as! NSAttributedString
     }
 
     private static func markdownToHTML(_ markdown: String) -> String {
@@ -328,12 +449,59 @@ private enum MarkdownAttributedTextRenderer {
         }
         defer { cmark_node_free(doc) }
 
+        canonicalizeRelativeWorkspaceLinks(in: doc)
+
         guard let htmlPointer = cmark_render_html(doc, CMARK_OPT_DEFAULT, extensionsList) else {
             return escapedFallbackHTML(for: markdown)
         }
         defer { free(htmlPointer) }
 
         return String(cString: htmlPointer)
+    }
+
+    /// TextKit's HTML importer does not reliably preserve relative `href` values as links.
+    /// Convert only safe workspace-relative Markdown links while they are still structural
+    /// cmark nodes, before HTML rendering and import. Images and absolute web links are untouched.
+    private static func canonicalizeRelativeWorkspaceLinks(
+        in root: UnsafeMutablePointer<cmark_node>
+    ) {
+        guard let iterator = cmark_iter_new(root) else { return }
+        defer { cmark_iter_free(iterator) }
+
+        while true {
+            let event = cmark_iter_next(iterator)
+            guard event != CMARK_EVENT_DONE else { break }
+            guard event == CMARK_EVENT_ENTER,
+                  let node = cmark_iter_get_node(iterator),
+                  cmark_node_get_type(node) == CMARK_NODE_LINK,
+                  let rawDestination = cmark_node_get_url(node),
+                  let canonicalDestination = canonicalWorkspaceURLString(
+                      for: String(cString: rawDestination)
+                  ) else {
+                continue
+            }
+
+            canonicalDestination.withCString { destination in
+                _ = cmark_node_set_url(node, destination)
+            }
+        }
+    }
+
+    private static func canonicalWorkspaceURLString(for destination: String) -> String? {
+        guard let originalURL = URL(string: destination),
+              originalURL.scheme == nil,
+              originalURL.host == nil,
+              let relativePath = WorkspaceLinkResolver.relativeWorkspacePath(from: originalURL)
+        else {
+            return nil
+        }
+
+        var components = URLComponents()
+        components.scheme = "palmi-workspace"
+        components.path = "/" + relativePath
+        components.query = originalURL.query
+        components.fragment = originalURL.fragment
+        return components.url?.absoluteString
     }
 
     private static func makeHTMLDocument(
@@ -432,10 +600,21 @@ private enum MarkdownAttributedTextRenderer {
     }
 
     private static func trimTrailingWhitespace(in attributedString: NSMutableAttributedString) {
-        let trimmed = attributedString.string.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count < attributedString.string.count else { return }
-        let delta = attributedString.string.count - trimmed.count
-        attributedString.deleteCharacters(in: NSRange(location: attributedString.length - delta, length: delta))
+        let string = attributedString.string as NSString
+        let lastContentRange = string.rangeOfCharacter(
+            from: CharacterSet.whitespacesAndNewlines.inverted,
+            options: .backwards
+        )
+        let trailingStart = lastContentRange.location == NSNotFound
+            ? 0
+            : NSMaxRange(lastContentRange)
+        guard trailingStart < attributedString.length else { return }
+        attributedString.deleteCharacters(
+            in: NSRange(
+                location: trailingStart,
+                length: attributedString.length - trailingStart
+            )
+        )
     }
 }
 

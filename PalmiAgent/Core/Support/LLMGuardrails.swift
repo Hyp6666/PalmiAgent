@@ -78,6 +78,12 @@ enum LLMGuardrails {
         if actionID == .fetchStaticWebPage {
             return .max
         }
+        if actionID == .readSkill {
+            // SkillIOService already applies package-aware file and character caps.
+            // A second generic truncation here would violate read_skill's contract
+            // to return the complete SKILL.md on its default call.
+            return .max
+        }
         if extendedContextActionIDs.contains(actionID) {
             return ReasoningStrengthProfile.extendedToolPayloadMaxCharacters
         }

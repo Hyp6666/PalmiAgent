@@ -351,6 +351,60 @@ struct OpenAIChatToolFunction: Codable {
     let arguments: String
 }
 
+/// Keeps PalmiAgent's stable tool names intact while avoiding names that some
+/// OpenAI-compatible models reserve for their own built-in tools.
+enum OpenAICompatibleToolNameCodec {
+    nonisolated private static let canonicalPythonName = "python"
+    nonisolated private static let wirePythonName = "palmi_python"
+
+    nonisolated static func wireName(forCanonical name: String) -> String {
+        name == canonicalPythonName ? wirePythonName : name
+    }
+
+    nonisolated static func canonicalName(forWire name: String) -> String {
+        name == wirePythonName ? canonicalPythonName : name
+    }
+
+    static func wireTools(_ tools: [OpenAIChatToolDefinition]?) -> [OpenAIChatToolDefinition]? {
+        tools?.map { tool in
+            OpenAIChatToolDefinition(
+                function: OpenAIChatFunctionDefinition(
+                    name: wireName(forCanonical: tool.function.name),
+                    description: tool.function.description,
+                    parameters: tool.function.parameters
+                )
+            )
+        }
+    }
+
+    static func wireMessages(_ messages: [OpenAIChatMessage]) -> [OpenAIChatMessage] {
+        messages.map { message in
+            OpenAIChatMessage(
+                role: message.role,
+                content: message.content,
+                toolCalls: message.toolCalls?.map { call in
+                    OpenAIChatToolCall(
+                        id: call.id,
+                        type: call.type,
+                        function: OpenAIChatToolFunction(
+                            name: wireName(forCanonical: call.function.name),
+                            arguments: call.function.arguments
+                        )
+                    )
+                },
+                toolCallID: message.toolCallID,
+                reasoningContent: message.reasoningContent,
+                reasoningDetails: message.reasoningDetails,
+                reasoningSourceProfileID: message.reasoningSourceProfileID,
+                reasoningSourceEndpointFingerprint: message.reasoningSourceEndpointFingerprint,
+                reasoningSourceModelID: message.reasoningSourceModelID,
+                reasoningSourceWireProtocol: message.reasoningSourceWireProtocol,
+                imageDataURLs: message.imageDataURLs
+            )
+        }
+    }
+}
+
 struct OpenAICompatibleErrorEnvelope: Decodable {
     let error: OpenAICompatibleErrorBody
 }

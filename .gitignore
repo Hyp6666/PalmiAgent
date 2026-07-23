@@ -4,10 +4,15 @@ AGENTS.md
 CLAUDE.md
 .claude/
 .codex/
+.agents/
 .cursor/
 .cursorrules
 .windsurf/
 .playwright-mcp/
+.idea/
+.vscode/
+*.swp
+*.swo
 
 # Internal planning notes and local verification prompts
 docs/*
@@ -15,6 +20,7 @@ docs/*
 TestPrompts/
 strength-mapping-template.md
 artifacts/
+output/
 simulator-preview.png
 
 # Xcode and Apple build output
@@ -23,6 +29,7 @@ DerivedData/
 build/
 Build/
 *.xcuserstate
+*.xcscmblueprint
 *.xccheckout
 *.moved-aside
 *.hmap

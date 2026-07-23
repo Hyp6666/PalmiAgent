@@ -58,9 +58,18 @@ authorization asks every time, allows all, or uses automatic review.
 
 **Skills**
 
-Skills are Markdown packages with optional metadata. They can be installed
-globally or per project, toggled on and off, and injected into the agent prompt
-for the active workspace.
+Skills are sandboxed instruction packages rooted at `SKILL.md`. The agent sees
+only each enabled skill's name, description, and stable ID in its system prompt;
+it uses the non-app `read_skill` tool to load the full instructions and package
+tree only when a task needs them. Additional package files can then be read by
+relative path, with traversal, symlinks, file counts, depth, size, and output
+limits enforced inside the app container.
+
+Authors build a package in the current project workspace and use `import_skill`
+to validate and atomically install it globally or for that project. Imports may
+be directories, Markdown files, or ZIP archives. PalmiAgent includes an
+always-enabled, non-deletable `skill-creator` system skill that teaches the model
+this mobile workflow; imported skills cannot overwrite system skills.
 
 ## Multimodal Flow
 
@@ -95,6 +104,9 @@ work.
 - The repository does not include general-purpose LLM weights or provider
   services.
 - Workspace files live in the app container unless exported by the user.
+- The global skill store is closed to ordinary file tools. Skill content enters
+  it only through validated `import_skill` calls and leaves it only through
+  bounded `read_skill` results.
 - Tool calls that touch personal data, open system UI, mutate workspace files,
   or create persistent system changes are represented separately in the runtime.
 - App background transitions flush active chat state so interrupted sessions can

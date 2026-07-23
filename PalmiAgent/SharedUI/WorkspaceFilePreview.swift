@@ -4,7 +4,7 @@ import UIKit
 import ImageIO
 
 struct WorkspacePreviewFile: Identifiable {
-    enum PreviewKind {
+    enum PreviewKind: Equatable {
         case markdown
         case text
         case quickLook
@@ -37,6 +37,78 @@ struct WorkspacePreviewFile: Identifiable {
         }
 
         return .quickLook
+    }
+}
+
+enum WorkspaceLinkResolver {
+    static func relativeWorkspacePath(from url: URL) -> String? {
+        if url.scheme?.lowercased() == "palmi-workspace" {
+            let path = url.path.isEmpty ? url.host ?? "" : url.path
+            return normalizedRelativePath(path)
+        }
+
+        guard url.scheme == nil, url.host == nil else { return nil }
+        return normalizedRelativePath(url.path)
+    }
+
+    private static func normalizedRelativePath(_ rawPath: String) -> String? {
+        let components = rawPath
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
+            .filter { $0 != "." }
+        guard !components.isEmpty, !components.contains("..") else { return nil }
+        return components.joined(separator: "/")
+    }
+}
+
+enum WorkspacePreviewContentLoader {
+    static func loadCompleteText(at url: URL) throws -> String {
+        let data = try Data(contentsOf: url, options: .mappedIfSafe)
+        // Encoding detection only needs the prefix. Keep the complete mapped data for the
+        // actual decode so viewing a large text file does not create a second full-size byte copy.
+        let detected = try TextEncodingDetector.detect(sample: Data(data.prefix(64 * 1024)))
+        let encodedContent = data.dropFirst(detected.bomLength)
+        let encoding = TextEncodingDetector.stringEncoding(detected.encoding)
+        guard let text = String(data: encodedContent, encoding: encoding) else {
+            throw RawTextReadError.decodingFailed
+        }
+        return text
+    }
+}
+
+enum WorkspacePreviewFileLoader {
+    static func load(
+        relativePath: String,
+        resolveURL: (String) throws -> URL
+    ) throws -> WorkspacePreviewFile {
+        let trimmedPath = relativePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !trimmedPath.isEmpty else {
+            throw AppError.invalidState(PalmiL10n.tr("filePreview.fileNotFound"))
+        }
+
+        let url = try resolveURL(trimmedPath)
+        let values = try url.resourceValues(forKeys: [.isRegularFileKey])
+        guard values.isRegularFile == true else {
+            throw AppError.invalidState(PalmiL10n.tr("filePreview.fileNotFound"))
+        }
+
+        let kind = WorkspacePreviewFile.previewKind(for: url)
+        let preview: String?
+        switch kind {
+        case .markdown, .text:
+            let content = try WorkspacePreviewContentLoader.loadCompleteText(at: url)
+            preview = content.isEmpty ? PalmiL10n.tr("filePreview.emptyFile") : content
+        case .quickLook:
+            preview = nil
+        }
+
+        return WorkspacePreviewFile(
+            title: url.lastPathComponent,
+            relativePath: trimmedPath,
+            url: url,
+            preview: preview,
+            kind: kind
+        )
     }
 }
 
@@ -329,7 +401,7 @@ struct QuickLookPreview: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: QLPreviewController, context: Context) {
-        context.coordinator.url = url
+        guard context.coordinator.replaceURLIfNeeded(url) else { return }
         uiViewController.reloadData()
     }
 
@@ -338,6 +410,13 @@ struct QuickLookPreview: UIViewControllerRepresentable {
 
         init(url: URL) {
             self.url = url
+        }
+
+        @discardableResult
+        func replaceURLIfNeeded(_ newURL: URL) -> Bool {
+            guard url != newURL else { return false }
+            url = newURL
+            return true
         }
 
         func numberOfPreviewItems(in controller: QLPreviewController) -> Int {

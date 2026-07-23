@@ -168,8 +168,10 @@ enum OpenAICompatibleChatAdapter {
         let resolvedModelID = runtimeProfile.model.id.isEmpty ? model : runtimeProfile.model.id
         return OpenAIChatCompletionRequest(
             model: resolvedModelID,
-            messages: preparedMessages(messages, runtimeProfile: runtimeProfile),
-            tools: tools,
+            messages: OpenAICompatibleToolNameCodec.wireMessages(
+                preparedMessages(messages, runtimeProfile: runtimeProfile)
+            ),
+            tools: OpenAICompatibleToolNameCodec.wireTools(tools),
             toolChoice: tools == nil ? nil : toolChoice,
             stream: stream,
             reasoningEffort: reasoning.reasoningEffort,

@@ -380,8 +380,8 @@ final class LLMAPIClient: AgentModelRuntime {
     ) throws -> URLRequest {
         let body = OpenAIResponsesRequest(
             model: context.runtimeProfile.model.id,
-            messages: context.messages,
-            tools: context.tools,
+            messages: OpenAICompatibleToolNameCodec.wireMessages(context.messages),
+            tools: OpenAICompatibleToolNameCodec.wireTools(context.tools) ?? [],
             toolChoice: context.toolChoice,
             stream: stream,
             reasoningEffort: responsesReasoningEffort(context.runtimeProfile.preferredReasoning),
@@ -440,7 +440,11 @@ final class LLMAPIClient: AgentModelRuntime {
             nativeReasoning = nil
         }
         let tools = decoded.toolCalls.map {
-            AgentToolUse(id: $0.id, name: $0.name, input: $0.arguments)
+            AgentToolUse(
+                id: $0.id,
+                name: OpenAICompatibleToolNameCodec.canonicalName(forWire: $0.name),
+                input: $0.arguments
+            )
         }
         let observedReasoning = nativeReasoning != nil
             || (decoded.tokenUsage.reasoningOutputTokens ?? 0) > 0
@@ -725,7 +729,7 @@ final class LLMAPIClient: AgentModelRuntime {
         let toolUses = (message.toolCalls ?? []).map { toolCall in
             AgentToolUse(
                 id: toolCall.id,
-                name: toolCall.function.name,
+                name: OpenAICompatibleToolNameCodec.canonicalName(forWire: toolCall.function.name),
                 input: toolCall.function.arguments
             )
         }
@@ -883,7 +887,11 @@ final class LLMAPIClient: AgentModelRuntime {
                 signature: reasoningControlSignature
             )
             let toolUses = result.toolCalls.map { call in
-                AgentToolUse(id: call.id, name: call.name, input: call.arguments)
+                AgentToolUse(
+                    id: call.id,
+                    name: OpenAICompatibleToolNameCodec.canonicalName(forWire: call.name),
+                    input: call.arguments
+                )
             }
             let nativeReasoning: AgentNativeReasoningPayload?
             if result.reasoningContent != nil || result.reasoningDetails != nil {

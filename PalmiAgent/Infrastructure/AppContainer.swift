@@ -27,6 +27,8 @@ final class AppContainer {
     )
     lazy var modelCandidateValidationService = ModelCandidateValidationService()
     lazy var workspaceReadService = WorkspaceReadService(workspaceManager: workspaceManager)
+    lazy var rawTextReadService = RawTextReadService(workspaceManager: workspaceManager)
+    lazy var documentBreakdownService = DocumentBreakdownService(workspaceManager: workspaceManager)
     lazy var pythonNotebookSandboxService = PythonNotebookSandboxService(
         workspaceManager: workspaceManager
     )
@@ -47,7 +49,10 @@ final class AppContainer {
 
     lazy var executor = ActionExecutor(
         workspaceManager: workspaceManager,
+        skillRegistry: skillRegistry,
         workspaceReadService: workspaceReadService,
+        rawTextReadService: rawTextReadService,
+        documentBreakdownService: documentBreakdownService,
         pythonNotebookSandboxService: pythonNotebookSandboxService,
         calendarService: calendarService,
         remindersService: remindersService,

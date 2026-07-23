@@ -19,11 +19,14 @@ enum ToolPresentationKind: String, Codable, Sendable {
 
 enum ToolActionID: String, CaseIterable, Codable, Hashable, Sendable {
     case fileRead
+    case breakDownFile
     case fileWrite
     case fileAppend
     case listDirectory
     case fileManage
     case runPython
+    case readSkill
+    case importSkill
     case recognizeImageText
     case scanImageWithMultimodalModel
     case detectWebSearchProviders

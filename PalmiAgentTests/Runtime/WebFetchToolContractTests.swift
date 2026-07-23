@@ -1,8 +1,58 @@
 import XCTest
+import SwiftUI
+import WebKit
 @testable import PalmiAgent
 
 @MainActor
 final class WebFetchToolContractTests: XCTestCase {
+    func testInAppBrowserReservesChromeRegionAboveWebContent() throws {
+        let options = SafariPresentationOptions(
+            url: try XCTUnwrap(URL(string: "about:blank")),
+            fileReadAccessURL: nil,
+            displayTitle: "测试网页",
+            entersReaderIfAvailable: false,
+            barCollapsingEnabled: false
+        )
+        let hostingController = UIHostingController(
+            rootView: PalmiBrowserScreen(options: options, onClose: {})
+        )
+        let windowScene = try XCTUnwrap(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        )
+        let window = UIWindow(windowScene: windowScene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        window.rootViewController = hostingController
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+
+        hostingController.loadViewIfNeeded()
+        hostingController.view.frame = window.bounds
+        hostingController.view.setNeedsLayout()
+        hostingController.view.layoutIfNeeded()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+        hostingController.view.layoutIfNeeded()
+
+        func firstWebView(in view: UIView) -> WKWebView? {
+            if let webView = view as? WKWebView {
+                return webView
+            }
+            return view.subviews.lazy.compactMap(firstWebView(in:)).first
+        }
+
+        let webView = try XCTUnwrap(firstWebView(in: hostingController.view))
+        let webFrame = webView.convert(webView.bounds, to: hostingController.view)
+
+        XCTAssertGreaterThanOrEqual(
+            webFrame.minY,
+            60,
+            "网页内容必须从浏览器玻璃顶栏的水平下沿之后开始。"
+        )
+        XCTAssertGreaterThan(webFrame.height, 0)
+    }
+
     func testFetchReadsTheWholeVisibleBodyInsteadOfSelectingOneContainer() {
         let script = WebResearchService.visiblePageExtractionJavaScript(includeLinks: true)
 

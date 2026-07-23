@@ -2942,32 +2942,9 @@ struct ChatScreen: View {
 
     private func makeWorkspacePreviewFile(at relativePath: String) -> WorkspacePreviewFile? {
         do {
-            let trimmedPath = relativePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            guard !trimmedPath.isEmpty else {
-                return nil
-            }
-
-            let url = try workspaceStore.workspaceURL(for: trimmedPath)
-            guard FileManager.default.fileExists(atPath: url.path) else {
-                return nil
-            }
-            let kind = previewKind(for: url)
-            let preview: String?
-
-            switch kind {
-            case .markdown, .text:
-                preview = try workspaceStore.previewText(at: trimmedPath)
-                    ?? PalmiL10n.tr("filePreview.emptyFile")
-            case .quickLook:
-                preview = nil
-            }
-
-            return WorkspacePreviewFile(
-                title: url.lastPathComponent,
-                relativePath: trimmedPath,
-                url: url,
-                preview: preview,
-                kind: kind
+            return try WorkspacePreviewFileLoader.load(
+                relativePath: relativePath,
+                resolveURL: workspaceStore.workspaceURL(for:)
             )
         } catch {
             return nil
@@ -2983,13 +2960,7 @@ struct ChatScreen: View {
     }
 
     private func workspaceRelativePath(from url: URL) -> String? {
-        guard url.scheme == "palmi-workspace" else { return nil }
-        let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        if !path.isEmpty {
-            return path
-        }
-        let host = url.host?.trimmingCharacters(in: CharacterSet(charactersIn: "/")) ?? ""
-        return host.isEmpty ? nil : host
+        WorkspaceLinkResolver.relativeWorkspacePath(from: url)
     }
 
     private func relativePathWithinCurrentWorkspace(for url: URL) -> String? {
@@ -3107,9 +3078,6 @@ struct ChatScreen: View {
         return output
     }
 
-    private func previewKind(for url: URL) -> WorkspacePreviewFile.PreviewKind {
-        WorkspacePreviewFile.previewKind(for: url)
-    }
 }
 
 // 纯文本框：直接绑 store.inputText（无本地副本/无防抖）。整棵视图树里只有它读 inputText，
@@ -4369,12 +4337,18 @@ private struct ToolCallCard: View {
             switch facade.name {
             case .read:
                 return "doc.text"
+            case .breakDown:
+                return "doc.badge.gearshape"
             case .edit:
                 return "pencil"
             case .workspace:
                 return "folder"
             case .python:
                 return "chevron.left.forwardslash.chevron.right"
+            case .readSkill:
+                return "sparkles.rectangle.stack"
+            case .importSkill:
+                return "square.and.arrow.down"
             case .ocr:
                 return "text.viewfinder"
             case .vision:

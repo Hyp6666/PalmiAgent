@@ -48,7 +48,11 @@ enum LLMToolDefinitionBuilder {
         switch facade.name {
         case .read:
             lines = [
-                "[工作区] 读取单个工作区文件的可读文本。长内容可通过 mode、focus、offset 和 chunk_size 定点读取；目录浏览使用 workspace(operation=list)。"
+                "[工作区] 原样读取单个文本文件。参数只有 path、start、count；返回解码后的原始文字和 next_start。它不解析 PDF、Office、iWork 或归档文件，这些文件先使用 break_down。"
+            ]
+        case .breakDown:
+            lines = [
+                "[工作区] 拆解复杂文件。支持 PDF、DOCX/DOCM/DOTX/DOTM、PPTX/PPTM/POTX/POTM/PPSX/PPSM、XLSX/XLSM/XLTX/XLTM、DOC、PPT、XLS、Pages、Numbers、Keynote、RAR 和 7z。默认生成 README 与文本 part；图片、附件、宏和归档 entry 只建立 item 索引，需要时再用 items 物化。完成后先 read 返回的 README。"
             ]
         case .edit:
             lines = [
@@ -64,6 +68,14 @@ enum LLMToolDefinitionBuilder {
             lines = [
                 "[计算] 执行真实 CPython 3.14 脚本。只用于代码、已知数据的计算与转换，不得模拟网页、系统或个人数据工具。",
                 "支持标准库、内置 workspace 模块和随 app 提供的 Python 包；不支持 pip 动态安装、系统进程、GUI 或长期阻塞任务。"
+            ]
+        case .readSkill:
+            lines = [
+                "[技能] 渐进读取一个已启用技能。默认返回完整 SKILL.md 和目录树；只有任务需要时才用 paths 读取 references、scripts 或其他包内资源。"
+            ]
+        case .importSkill:
+            lines = [
+                "[技能] 将当前项目工作区内准备好的技能目录、Markdown 或 ZIP 验证后安装到封闭技能容器。不能覆盖系统技能。"
             ]
         case .ocr:
             lines = [
@@ -98,6 +110,19 @@ enum LLMToolDefinitionBuilder {
         primaryAction: ToolAction
     ) -> JSONValue {
         switch facade.name {
+        case .read:
+            return ToolJSONSchema.object(properties: [
+                "path": ToolJSONSchema.string(description: "必填。工作区中的文本文件相对路径。"),
+                "start": ToolJSONSchema.integer(description: "可选。解码后 Unicode scalar 起始位置，默认 0。继续读取时传上次返回的 next_start。"),
+                "count": ToolJSONSchema.integer(description: "可选。最多返回多少个 Unicode scalar，默认 20000，最大 100000。")
+            ], required: ["path"])
+        case .breakDown:
+            return ToolJSONSchema.object(properties: [
+                "path": ToolJSONSchema.string(description: "必填。要拆解的复杂文件或 iWork package 相对路径。"),
+                "start": ToolJSONSchema.integer(description: "可选。要生成文本 part 的逻辑单位起始索引，0-based。"),
+                "count": ToolJSONSchema.integer(description: "可选。要生成多少个 page、slide、sheet、table、chunk 或 archive entry 索引。"),
+                "items": ToolJSONSchema.stringArray(description: "可选。README/manifest 中列出的 item ID；传入后只物化这些原始资产。不能与 start/count 同时使用。")
+            ], required: ["path"])
         case .edit:
             return ToolJSONSchema.object(
                 properties: [
@@ -130,6 +155,25 @@ enum LLMToolDefinitionBuilder {
                     "focus": ToolJSONSchema.string(description: "可选。include_content=true 时围绕该主题抽取相关片段。")
                 ],
                 required: ["operation"]
+            )
+        case .readSkill:
+            return ToolJSONSchema.object(
+                properties: [
+                    "skill": ToolJSONSchema.string(description: "必填。system prompt 中列出的稳定技能 ID、唯一 slug 或名称。"),
+                    "paths": ToolJSONSchema.stringArray(description: "可选。要继续读取的包内相对文件或目录。省略时返回完整 SKILL.md 和目录树。"),
+                    "recursive": ToolJSONSchema.bool(description: "可选。paths 指向目录时是否递归展平，默认 true。"),
+                    "max_chars": ToolJSONSchema.integer(description: "可选。总输出字符上限，默认及运行时最大 600000；省略 paths 时足以完整返回合规 SKILL.md。")
+                ],
+                required: ["skill"]
+            )
+        case .importSkill:
+            return ToolJSONSchema.object(
+                properties: [
+                    "path": ToolJSONSchema.string(description: "必填。当前项目工作区内的技能目录、Markdown 或 ZIP 相对路径。"),
+                    "scope": ToolJSONSchema.string(description: "可选。安装为全局或当前项目技能，默认 global。", enumValues: SkillScope.allCases.map(\.rawValue)),
+                    "replace_existing": ToolJSONSchema.bool(description: "可选。是否原子替换同名普通技能，默认 false。系统技能永远不能替换。")
+                ],
+                required: ["path"]
             )
         default:
             return toolParametersSchema(for: primaryAction)
@@ -172,7 +216,9 @@ enum LLMToolDefinitionBuilder {
         case .fileWrite, .fileAppend:
             return "这是通用工作区工具，不是系统能力替身。不要用它模拟通知、闹钟、地图、短信、电话、邮件或在线搜索。"
         case .fileRead:
-            return "读取工作区内单个文件的可读文本。长文档优先围绕当前目标抽取关键事实；需要定点阅读时，使用 mode、focus、offset、chunk_size 控制读取范围。读取目录或批量浏览文件请使用 workspace(operation=list)。"
+            return "只读取真正的文本文件，保持原文。PDF、Office、iWork、RAR、7z 或其他二进制文件不要反复尝试 read，改用 break_down。"
+        case .breakDownFile:
+            return "复杂文件先调用一次 break_down，然后 read 返回的 README。优先读取已有 parts；只有确实需要某个原始图片、附件、页面图或归档 entry 时，才将对应 item ID 传回 break_down。不要一次物化所有 items。"
         case .listDirectory:
             return "对应 workspace(operation=list)：查看目录结构和文件列表；设置 include_content=true 可批量读取目录下所有可读文本文件的内容。"
         case .fileManage:
@@ -205,16 +251,19 @@ enum LLMToolDefinitionBuilder {
         case .fileRead:
             return ToolJSONSchema.object(
                 properties: [
-                    "path": ToolJSONSchema.string(description: "必填。要读取的文件相对路径。"),
-                    "mode": ToolJSONSchema.string(description: "可选。读取模式。`auto` 默认；`head` 读开头；`tail` 读结尾；`chunk` 从 offset 开始读一段；`section` 围绕 focus 读相关片段；`abstract` 优先提取摘要/概要段。", enumValues: WorkspaceReadMode.allCases.map(\.rawValue)),
-                    "offset": ToolJSONSchema.integer(description: "可选。`chunk` 模式下从第几个字符开始读取，默认 0。"),
-                    "chunk_size": ToolJSONSchema.integer(description: "可选。单次返回的目标字符数。未传时使用 max_chars。"),
-                    "focus": ToolJSONSchema.string(description: "可选。`section` 或 `auto` 模式下围绕该关键词/主题提取相关片段。"),
-                    "query": ToolJSONSchema.string(description: "可选。`focus` 的同义参数。"),
-                    "max_chars": ToolJSONSchema.integer(description: "可选。总输出最大字符数，默认 20000。")
+                    "path": ToolJSONSchema.string(description: "必填。工作区中的文本文件相对路径。"),
+                    "start": ToolJSONSchema.integer(description: "可选。解码后 Unicode scalar 起始位置，默认 0。"),
+                    "count": ToolJSONSchema.integer(description: "可选。最多返回多少个 Unicode scalar，默认 20000，最大 100000。")
                 ],
                 required: ["path"]
             )
+        case .breakDownFile:
+            return ToolJSONSchema.object(properties: [
+                "path": ToolJSONSchema.string(description: "必填。要拆解的复杂文件或 iWork package 相对路径。"),
+                "start": ToolJSONSchema.integer(description: "可选。逻辑单位起始索引，0-based。"),
+                "count": ToolJSONSchema.integer(description: "可选。要生成的逻辑单位数量。"),
+                "items": ToolJSONSchema.stringArray(description: "可选。要物化的 item ID，不能与 start/count 同时使用。")
+            ], required: ["path"])
         case .fileWrite:
             return ToolJSONSchema.object(
                 properties: [
@@ -260,6 +309,25 @@ enum LLMToolDefinitionBuilder {
                     "save_to": ToolJSONSchema.string(description: "可选。执行内联 Python 时，先保存到工作区的相对路径。")
                 ],
                 description: "执行真实 CPython 3.14 脚本。优先使用标准库、内置 workspace 模块和以下预装纯 Python 包：\(PythonPackageCatalog.supportedImportsSentence)。\(PythonPackageCatalog.toolingSummary) 不要依赖 pip 动态装包、系统进程、GUI、长期阻塞任务或任何未列出的第三方库。文件操作请优先使用 read、edit、workspace。"
+            )
+        case .readSkill:
+            return ToolJSONSchema.object(
+                properties: [
+                    "skill": ToolJSONSchema.string(description: "必填。稳定技能 ID、唯一 slug 或名称。"),
+                    "paths": ToolJSONSchema.stringArray(description: "可选。包内相对文件或目录。"),
+                    "recursive": ToolJSONSchema.bool(description: "可选。目录是否递归，默认 true。"),
+                    "max_chars": ToolJSONSchema.integer(description: "可选。输出字符上限。")
+                ],
+                required: ["skill"]
+            )
+        case .importSkill:
+            return ToolJSONSchema.object(
+                properties: [
+                    "path": ToolJSONSchema.string(description: "必填。当前项目工作区内的技能目录、Markdown 或 ZIP 相对路径。"),
+                    "scope": ToolJSONSchema.string(description: "可选。默认 global。", enumValues: SkillScope.allCases.map(\.rawValue)),
+                    "replace_existing": ToolJSONSchema.bool(description: "可选。默认 false。")
+                ],
+                required: ["path"]
             )
         case .recognizeImageText:
             return ToolJSONSchema.object(

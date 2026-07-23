@@ -276,6 +276,57 @@ struct AgentSession: Codable, Sendable {
     }
 }
 
+enum AgentToolCallProtocolIntegrity {
+    private static let interruptedToolOutput = #"{"status":"error","reason":"interrupted","outcome":"unknown","message":"工具调用在返回结果前被中断；实际执行结果未知。"}"#
+
+    @discardableResult
+    static func closeDanglingCalls(in session: inout AgentSession) -> Int {
+        let replayStart = min(
+            max(0, session.hiddenContextSummary?.compactedMessageCount ?? 0),
+            session.messages.count
+        )
+        var repairedCount = 0
+        var messageIndex = replayStart
+
+        while messageIndex < session.messages.count {
+            let toolUses = session.messages[messageIndex].toolUses
+            guard session.messages[messageIndex].role == .assistant, !toolUses.isEmpty else {
+                messageIndex += 1
+                continue
+            }
+
+            var insertionIndex = messageIndex + 1
+            var completedCallIDs = Set<String>()
+            while insertionIndex < session.messages.count,
+                  session.messages[insertionIndex].role == .tool {
+                completedCallIDs.formUnion(
+                    session.messages[insertionIndex].toolResultRecords.map(\.toolUseID)
+                )
+                insertionIndex += 1
+            }
+
+            let missingToolUses = toolUses.filter { !completedCallIDs.contains($0.id) }
+            if !missingToolUses.isEmpty {
+                let interruptedResults = missingToolUses.map { toolUse in
+                    AgentMessage.toolResult(
+                        toolUseID: toolUse.id,
+                        toolName: toolUse.name,
+                        output: interruptedToolOutput,
+                        isError: true
+                    )
+                }
+                session.messages.insert(contentsOf: interruptedResults, at: insertionIndex)
+                repairedCount += interruptedResults.count
+                insertionIndex += interruptedResults.count
+            }
+
+            messageIndex = insertionIndex
+        }
+
+        return repairedCount
+    }
+}
+
 struct AgentHiddenContextSummary: Codable, Sendable {
     let summary: String
     let compactedMessageCount: Int

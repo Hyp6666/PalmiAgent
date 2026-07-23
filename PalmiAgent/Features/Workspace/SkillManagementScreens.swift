@@ -327,9 +327,15 @@ private struct SkillCard: View {
             }
             .buttonStyle(.plain)
 
-            Toggle("", isOn: $isEnabled)
-                .labelsHidden()
-                .tint(.green)
+            if skill.isAlwaysEnabled {
+                Text(PalmiL10n.tr("skill.system.required"))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.indigo)
+            } else {
+                Toggle("", isOn: $isEnabled)
+                    .labelsHidden()
+                    .tint(.green)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)

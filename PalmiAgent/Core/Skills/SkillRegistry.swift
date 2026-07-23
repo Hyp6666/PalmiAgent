@@ -5,28 +5,41 @@ import Foundation
 final class SkillRegistry {
     private let workspaceManager: WorkspaceManager
     private let fileManager = FileManager.default
+    private let builtInSkillsRootURL: URL?
+    private let skillIOService: SkillIOService
 
     var globalSkills: [SkillPackage] = []
     var statusMessage: String?
 
     private var projectSkillsByProjectID: [UUID: [SkillPackage]] = [:]
 
-    init(workspaceManager: WorkspaceManager) {
+    init(
+        workspaceManager: WorkspaceManager,
+        builtInSkillsRootURL: URL? = nil,
+        skillIOService: SkillIOService? = nil
+    ) {
         self.workspaceManager = workspaceManager
+        self.builtInSkillsRootURL = builtInSkillsRootURL ?? Self.bundledSkillsRootURL()
+        self.skillIOService = skillIOService ?? SkillIOService()
         do {
-            try migrateLegacyBuiltInSkillsIfNeeded()
             try reloadGlobalSkills()
         } catch {
             statusMessage = error.localizedDescription
         }
     }
 
+    // This registry is owned for the app lifetime. Keeping destruction nonisolated also
+    // avoids an unnecessary executor hop when short-lived instances are used in tests.
+    nonisolated deinit {}
+
     func reloadGlobalSkills() throws {
-        globalSkills = try loadSkills(
+        let builtIns = try loadBuiltInSkills()
+        let imported = try loadSkills(
             in: workspaceManager.globalSkillsRootURL(),
             scope: .global,
             projectID: nil
         )
+        globalSkills = (builtIns + imported).sorted(by: skillSort)
         statusMessage = nil
     }
 
@@ -54,6 +67,9 @@ final class SkillRegistry {
     }
 
     func setEnabled(_ isEnabled: Bool, for skill: SkillPackage) throws {
+        guard !skill.isAlwaysEnabled else {
+            throw AppError.permissionDenied("系统技能始终启用，不能关闭。")
+        }
         let manifestURL = skill.packageURL.appendingPathComponent(SkillPackage.manifestFilename, isDirectory: false)
         var manifest = try SkillPackageManifest.load(from: manifestURL)
         manifest.isEnabled = isEnabled
@@ -69,18 +85,33 @@ final class SkillRegistry {
     }
 
     func importGlobalSkill(from sourceURL: URL) throws {
-        try importSkill(from: sourceURL, scope: .global, projectID: nil)
+        _ = try importSkill(
+            from: sourceURL,
+            scope: .global,
+            projectID: nil,
+            replaceExisting: false,
+            usesSecurityScopedResource: true
+        )
         try reloadGlobalSkills()
         statusMessage = PalmiL10n.tr("skill.status.importedGlobal")
     }
 
     func importProjectSkill(from sourceURL: URL, projectID: UUID) throws {
-        try importSkill(from: sourceURL, scope: .project, projectID: projectID)
+        _ = try importSkill(
+            from: sourceURL,
+            scope: .project,
+            projectID: projectID,
+            replaceExisting: false,
+            usesSecurityScopedResource: true
+        )
         try reloadProjectSkills(for: projectID)
         statusMessage = PalmiL10n.tr("skill.status.importedProject")
     }
 
     func deleteSkill(_ skill: SkillPackage) throws {
+        guard skill.source != .builtIn else {
+            throw AppError.permissionDenied("系统技能不能删除。")
+        }
         guard fileManager.fileExists(atPath: skill.packageURL.path) else {
             throw AppError.invalidState(PalmiL10n.tr("skill.error.packageMissing"))
         }
@@ -95,8 +126,66 @@ final class SkillRegistry {
         statusMessage = PalmiL10n.tr("skill.status.deleted")
     }
 
-    private func importSkill(from sourceURL: URL, scope: SkillScope, projectID: UUID?) throws {
-        let accessed = sourceURL.startAccessingSecurityScopedResource()
+    func skill(matching identifier: String, projectID: UUID?) throws -> SkillPackage {
+        let normalized = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        let enabled = enabledSkills(for: projectID)
+        if let exact = enabled.first(where: { $0.id == normalized }) {
+            return exact
+        }
+        let matches = enabled.filter {
+            $0.slug.caseInsensitiveCompare(normalized) == .orderedSame
+                || $0.name.caseInsensitiveCompare(normalized) == .orderedSame
+        }
+        guard matches.count == 1, let match = matches.first else {
+            if matches.isEmpty {
+                throw AppError.invalidState("未找到已启用的技能：\(identifier)")
+            }
+            throw AppError.invalidState("技能标识不唯一，请使用稳定 ID：\(identifier)")
+        }
+        return match
+    }
+
+    func readSkill(_ request: SkillReadRequest, projectID: UUID?) throws -> SkillReadResult {
+        let package = try skill(matching: request.skill, projectID: projectID)
+        return try skillIOService.read(package: package, request: request)
+    }
+
+    func importWorkspaceSkill(
+        path: String,
+        scope: SkillScope,
+        replaceExisting: Bool,
+        projectID: UUID
+    ) throws -> SkillImportResult {
+        let sourceURL = try workspaceManager.withProject(projectID) {
+            try workspaceManager.url(for: path)
+        }
+        let result = try importSkill(
+            from: sourceURL,
+            scope: scope,
+            projectID: scope == .project ? projectID : nil,
+            replaceExisting: replaceExisting,
+            usesSecurityScopedResource: false
+        )
+        switch scope {
+        case .global:
+            try reloadGlobalSkills()
+        case .project:
+            try reloadProjectSkills(for: projectID)
+        }
+        statusMessage = scope == .global
+            ? PalmiL10n.tr("skill.status.importedGlobal")
+            : PalmiL10n.tr("skill.status.importedProject")
+        return result
+    }
+
+    private func importSkill(
+        from sourceURL: URL,
+        scope: SkillScope,
+        projectID: UUID?,
+        replaceExisting: Bool,
+        usesSecurityScopedResource: Bool
+    ) throws -> SkillImportResult {
+        let accessed = usesSecurityScopedResource && sourceURL.startAccessingSecurityScopedResource()
         defer {
             if accessed {
                 sourceURL.stopAccessingSecurityScopedResource()
@@ -104,31 +193,50 @@ final class SkillRegistry {
         }
 
         let destinationRoot = try skillRootURL(for: scope, projectID: projectID)
-        let packageRoot = try materializePackageRoot(from: sourceURL)
-        let skillFileURL = try locateSkillFile(in: packageRoot)
-        let markdown = try String(contentsOf: skillFileURL, encoding: .utf8)
-        let parsed = SkillMarkdownParser.parse(markdown)
-        let inferredName = parsed.name ?? packageRoot.lastPathComponent
-            let manifest = SkillPackageManifest(
-                slug: uniqueSlug(
-                    base: SkillSlug.make(from: inferredName),
-                    in: destinationRoot
-                ),
-            name: inferredName,
-            description: parsed.description ?? SkillMarkdownParser.inferDescription(from: parsed.body),
-                source: scope == .project ? .project : .imported,
-                scope: scope,
-                installedAt: .now,
-                isEnabled: true
-            )
+        let stagingContainer = try makeTemporaryDirectory()
+        defer { try? fileManager.removeItem(at: stagingContainer) }
+        let packageRoot = try stagePackage(from: sourceURL, in: stagingContainer)
+        try normalizeSkillFileCasing(in: packageRoot)
+        let validation = try SkillPackageValidator(fileManager: fileManager).validate(packageURL: packageRoot)
 
-        let destinationURL = destinationRoot.appendingPathComponent(manifest.slug, isDirectory: true)
-        if fileManager.fileExists(atPath: destinationURL.path) {
-            try fileManager.removeItem(at: destinationURL)
+        guard globalSkills.first(where: { $0.source == .builtIn && $0.slug == validation.slug }) == nil else {
+            throw AppError.permissionDenied("系统技能不能被导入内容覆盖：\(validation.slug)")
         }
-        try fileManager.copyItem(at: packageRoot, to: destinationURL)
-        try normalizeSkillFileCasing(in: destinationURL)
-        try writeManifest(manifest, to: destinationURL.appendingPathComponent(SkillPackage.manifestFilename, isDirectory: false))
+
+        let manifest = SkillPackageManifest(
+            slug: validation.slug,
+            name: validation.name,
+            description: validation.description,
+            source: scope == .project ? .project : .imported,
+            scope: scope,
+            installedAt: .now,
+            isEnabled: true
+        )
+        let candidateURL = stagingContainer.appendingPathComponent("candidate-\(validation.slug)", isDirectory: true)
+        try fileManager.copyItem(at: packageRoot, to: candidateURL)
+        try writeManifest(
+            manifest,
+            to: candidateURL.appendingPathComponent(SkillPackage.manifestFilename, isDirectory: false)
+        )
+
+        let destinationURL = destinationRoot.appendingPathComponent(validation.slug, isDirectory: true)
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            guard replaceExisting else {
+                throw AppError.invalidState("技能已存在：\(validation.slug)。如需更新，请明确允许覆盖。")
+            }
+            try replaceDirectoryAtomically(destinationURL: destinationURL, candidateURL: candidateURL)
+        } else {
+            try fileManager.moveItem(at: candidateURL, to: destinationURL)
+        }
+
+        return SkillImportResult(
+            id: "\(projectID?.uuidString ?? scope.rawValue):\(validation.slug)",
+            slug: validation.slug,
+            name: validation.name,
+            scope: scope,
+            fileCount: validation.fileCount,
+            totalBytes: validation.totalBytes
+        )
     }
 
     private func loadSkills(
@@ -151,37 +259,25 @@ final class SkillRegistry {
             guard isDirectory else { return nil }
             return try SkillPackage.load(from: url, scope: scope, projectID: projectID)
         }
-        .filter { $0.source != .builtIn }
 
-        return packages.sorted { lhs, rhs in
-            if lhs.source != rhs.source {
-                return sourceOrder(lhs.source) < sourceOrder(rhs.source)
-            }
-            return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-        }
+        return packages.sorted(by: skillSort)
     }
 
-    private func migrateLegacyBuiltInSkillsIfNeeded() throws {
-        let rootURL = try workspaceManager.globalSkillsRootURL()
-        guard fileManager.fileExists(atPath: rootURL.path) else { return }
-
-        let entries = try fileManager.contentsOfDirectory(
-            at: rootURL,
+    private func loadBuiltInSkills() throws -> [SkillPackage] {
+        guard let builtInSkillsRootURL,
+              fileManager.fileExists(atPath: builtInSkillsRootURL.path) else {
+            return []
+        }
+        return try fileManager.contentsOfDirectory(
+            at: builtInSkillsRootURL,
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
-        )
-
-        for url in entries {
-            let isDirectory = try url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
-            guard isDirectory else { continue }
-
-            let manifestURL = url.appendingPathComponent(SkillPackage.manifestFilename, isDirectory: false)
-            guard fileManager.fileExists(atPath: manifestURL.path) else { continue }
-            guard let manifest = try? SkillPackageManifest.load(from: manifestURL),
-                  manifest.source == .builtIn else { continue }
-
-            try fileManager.removeItem(at: url)
-        }
+        ).compactMap { url in
+            guard try url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true else {
+                return nil
+            }
+            return try SkillPackage.loadBuiltIn(from: url)
+        }.sorted(by: skillSort)
     }
 
     private func skillRootURL(for scope: SkillScope, projectID: UUID?) throws -> URL {
@@ -196,10 +292,13 @@ final class SkillRegistry {
         }
     }
 
-    private func materializePackageRoot(from sourceURL: URL) throws -> URL {
+    private func stagePackage(from sourceURL: URL, in stagingContainer: URL) throws -> URL {
         let values = try sourceURL.resourceValues(forKeys: [.isDirectoryKey])
         if values.isDirectory == true {
-            return try locatePackageRoot(in: sourceURL)
+            let sourceRoot = try locatePackageRoot(in: sourceURL)
+            let destination = stagingContainer.appendingPathComponent(sourceRoot.lastPathComponent, isDirectory: true)
+            try fileManager.copyItem(at: sourceRoot, to: destination)
+            return destination
         }
 
         let lowercaseName = sourceURL.lastPathComponent.lowercased()
@@ -207,7 +306,15 @@ final class SkillRegistry {
         if lowercaseName == SkillPackage.skillFilename.lowercased()
             || fileExtension == "md"
             || fileExtension == "markdown" {
-            let temporaryRoot = try makeTemporaryDirectory()
+            let markdown = try String(contentsOf: sourceURL, encoding: .utf8)
+            let parsed = SkillMarkdownParser.parse(markdown)
+            guard let name = parsed.name,
+                  name.range(of: #"^[a-z0-9]+(?:-[a-z0-9]+)*$"#, options: .regularExpression) != nil,
+                  name.count <= 64 else {
+                throw AppError.invalidState("单文件技能必须在 frontmatter 中提供合法 name。")
+            }
+            let temporaryRoot = stagingContainer.appendingPathComponent(name, isDirectory: true)
+            try fileManager.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
             try fileManager.copyItem(
                 at: sourceURL,
                 to: temporaryRoot.appendingPathComponent(SkillPackage.skillFilename, isDirectory: false)
@@ -216,12 +323,52 @@ final class SkillRegistry {
         }
 
         if sourceURL.pathExtension.lowercased() == "zip" {
-            let temporaryRoot = try makeTemporaryDirectory()
-            try fileManager.unzipItem(at: sourceURL, to: temporaryRoot)
-            return try locatePackageRoot(in: temporaryRoot)
+            try validateArchiveBeforeExtraction(sourceURL)
+            let extractionRoot = stagingContainer.appendingPathComponent("extracted", isDirectory: true)
+            try fileManager.createDirectory(at: extractionRoot, withIntermediateDirectories: true)
+            try fileManager.unzipItem(at: sourceURL, to: extractionRoot)
+            let extractedPackage = try locatePackageRoot(in: extractionRoot)
+            let packageDirectoryName: String
+            if extractedPackage.standardizedFileURL == extractionRoot.standardizedFileURL {
+                let skillFileURL = try locateSkillFile(in: extractedPackage)
+                let parsed = SkillMarkdownParser.parse(try String(contentsOf: skillFileURL, encoding: .utf8))
+                guard let name = parsed.name,
+                      name.range(of: #"^[a-z0-9]+(?:-[a-z0-9]+)*$"#, options: .regularExpression) != nil,
+                      name.count <= 64 else {
+                    throw AppError.invalidState("ZIP 根目录中的 SKILL.md 必须提供合法 name。")
+                }
+                packageDirectoryName = name
+            } else {
+                packageDirectoryName = extractedPackage.lastPathComponent
+            }
+            let destination = stagingContainer.appendingPathComponent(packageDirectoryName, isDirectory: true)
+            if extractedPackage.standardizedFileURL != destination.standardizedFileURL {
+                try fileManager.copyItem(at: extractedPackage, to: destination)
+            }
+            return destination
         }
 
         throw AppError.invalidState(PalmiL10n.tr("skill.error.unsupportedImport", SkillPackage.skillFilename))
+    }
+
+    private func validateArchiveBeforeExtraction(_ sourceURL: URL) throws {
+        let archive = try Archive(url: sourceURL, accessMode: .read)
+        let entries = try ZIPPackageReader.validatedEntries(in: archive)
+        guard entries.count <= SkillPackageValidator.maximumFiles + 32 else {
+            throw AppError.invalidState("技能 ZIP 文件数量超过限制。")
+        }
+        var totalBytes: UInt64 = 0
+        for entry in entries {
+            guard entry.type != .symlink else {
+                throw AppError.permissionDenied("技能 ZIP 不允许包含符号链接。")
+            }
+            let addition = totalBytes.addingReportingOverflow(entry.uncompressedSize)
+            guard !addition.overflow,
+                  addition.partialValue <= UInt64(SkillPackageValidator.maximumTotalBytes) else {
+                throw AppError.invalidState("技能 ZIP 解压后大小超过限制。")
+            }
+            totalBytes = addition.partialValue
+        }
     }
 
     private func locatePackageRoot(in directoryURL: URL) throws -> URL {
@@ -279,14 +426,20 @@ final class SkillRegistry {
         try fileManager.moveItem(at: skillFileURL, to: normalizedURL)
     }
 
-    private func uniqueSlug(base: String, in rootURL: URL) -> String {
-        var candidate = base
-        var index = 2
-        while fileManager.fileExists(atPath: rootURL.appendingPathComponent(candidate, isDirectory: true).path) {
-            candidate = "\(base)-\(index)"
-            index += 1
+    private func replaceDirectoryAtomically(destinationURL: URL, candidateURL: URL) throws {
+        let backupURL = destinationURL.deletingLastPathComponent()
+            .appendingPathComponent(".skill-backup-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.moveItem(at: destinationURL, to: backupURL)
+        do {
+            try fileManager.moveItem(at: candidateURL, to: destinationURL)
+            try fileManager.removeItem(at: backupURL)
+        } catch {
+            if !fileManager.fileExists(atPath: destinationURL.path),
+               fileManager.fileExists(atPath: backupURL.path) {
+                try? fileManager.moveItem(at: backupURL, to: destinationURL)
+            }
+            throw error
         }
-        return candidate
     }
 
     private func writeManifest(_ manifest: SkillPackageManifest, to url: URL) throws {
@@ -311,6 +464,26 @@ final class SkillRegistry {
             return 1
         case .project:
             return 2
+        }
+    }
+
+    private func skillSort(_ lhs: SkillPackage, _ rhs: SkillPackage) -> Bool {
+        if lhs.source != rhs.source {
+            return sourceOrder(lhs.source) < sourceOrder(rhs.source)
+        }
+        return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+    }
+
+    private static func bundledSkillsRootURL(bundle: Bundle = .main) -> URL? {
+        if let direct = bundle.url(forResource: "Skills", withExtension: nil) {
+            return direct
+        }
+        let candidates = [
+            bundle.resourceURL?.appendingPathComponent("Skills", isDirectory: true),
+            bundle.resourceURL?.appendingPathComponent("Resources/Skills", isDirectory: true)
+        ]
+        return candidates.compactMap { $0 }.first {
+            FileManager.default.fileExists(atPath: $0.path)
         }
     }
 }

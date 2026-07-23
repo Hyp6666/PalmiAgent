@@ -1,5 +1,5 @@
 {
-  "originHash" : "427e2f78970f33b38feca26c7986bebb5f56cf55a388a29b6bade958aaa6607e",
+  "originHash" : "6f37ceb1272b58bdd09068751b1b7492b3e70a0f3caaf89d0af9800bcedf4460",
   "pins" : [
     {
       "identity" : "markdownui",
@@ -17,6 +17,14 @@
       "state" : {
         "revision" : "2849f5323265386e200484b0d0f896e73c3411b9",
         "version" : "6.0.1"
+      }
+    },
+    {
+      "identity" : "olekit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/CoreOffice/OLEKit",
+      "state" : {
+        "revision" : "398248735e690ac422b728acb79d30bd3d675554"
       }
     },
     {

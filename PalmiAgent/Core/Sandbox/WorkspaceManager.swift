@@ -18,9 +18,21 @@ final class WorkspaceManager {
     @TaskLocal static var pinnedProjectID: UUID?
 
     private let fileManager = FileManager.default
+    private let storageRootOverride: URL?
     private var activeSelection: WorkspaceSelection?
 
+    init(storageRootURL: URL? = nil) {
+        storageRootOverride = storageRootURL
+    }
+
+    // Workspace managers may be short-lived in isolated import/validation contexts;
+    // releasing one does not need access to main-actor state.
+    nonisolated deinit {}
+
     private var storageRoot: URL {
+        if let storageRootOverride {
+            return storageRootOverride
+        }
         let baseURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return baseURL.appendingPathComponent("ManualWorkspace", isDirectory: true)
     }
@@ -106,6 +118,21 @@ final class WorkspaceManager {
 
     func url(for relativePath: String = ".") throws -> URL {
         try resolvePath(relativePath)
+    }
+
+    func breakdownsRootURL() throws -> URL {
+        let url = try resolvePath(".files/breakdowns")
+        try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    func workspaceRelativePath(for url: URL) throws -> String {
+        let root = try ensureWorkspace().standardizedFileURL.resolvingSymlinksInPath()
+        let candidate = url.standardizedFileURL.resolvingSymlinksInPath()
+        guard candidate.pathComponents.starts(with: root.pathComponents) else {
+            throw AppError.permissionDenied("路径不在工作区内。")
+        }
+        return candidate.pathComponents.dropFirst(root.pathComponents.count).joined(separator: "/")
     }
 
     func itemExists(at relativePath: String) throws -> Bool {

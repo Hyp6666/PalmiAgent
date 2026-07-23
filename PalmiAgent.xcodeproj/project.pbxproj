@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		763490682F8A30B100B9CA3F /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = 76MD00022F8A000000MDUI2 /* MarkdownUI */; };
+		76OLE0002F99000000OLE002 /* OLEKit in Frameworks */ = {isa = PBXBuildFile; productRef = 76OLE0002F99000000OLE003 /* OLEKit */; };
+		76SK00012FA0000000SK0001 /* PalmiAgent/Resources/Skills in Resources */ = {isa = PBXBuildFile; fileRef = 76SK00022FA0000000SK0002 /* PalmiAgent/Resources/Skills */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -22,6 +24,7 @@
 
 /* Begin PBXFileReference section */
 		762415DB2F89627200FBB4F0 /* PalmiAgent.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PalmiAgent.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		76SK00022FA0000000SK0002 /* PalmiAgent/Resources/Skills */ = {isa = PBXFileReference; lastKnownFileType = folder; path = PalmiAgent/Resources/Skills; sourceTree = SOURCE_ROOT; };
 		A10000000000000000000001 /* PalmiAgentTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PalmiAgentTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -30,6 +33,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				"Resources/Skills/skill-creator/SKILL.md",
 			);
 			target = 762415DA2F89627200FBB4F0 /* PalmiAgent */;
 		};
@@ -57,6 +61,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				763490682F8A30B100B9CA3F /* MarkdownUI in Frameworks */,
+				76OLE0002F99000000OLE002 /* OLEKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -73,6 +78,7 @@
 		762415D22F89627200FBB4F0 = {
 			isa = PBXGroup;
 			children = (
+				76SK00022FA0000000SK0002 /* PalmiAgent/Resources/Skills */,
 				762415DD2F89627200FBB4F0 /* PalmiAgent */,
 				A10000000000000000000002 /* PalmiAgentTests */,
 				762415DC2F89627200FBB4F0 /* Products */,
@@ -110,6 +116,7 @@
 			name = PalmiAgent;
 			packageProductDependencies = (
 				76MD00022F8A000000MDUI2 /* MarkdownUI */,
+				76OLE0002F99000000OLE003 /* OLEKit */,
 			);
 			productName = PalmiAgent;
 			productReference = 762415DB2F89627200FBB4F0 /* PalmiAgent.app */;
@@ -172,6 +179,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				76MD00012F8A000000MDUI1 /* XCRemoteSwiftPackageReference "MarkdownUI" */,
+				76OLE0002F99000000OLE001 /* XCRemoteSwiftPackageReference "OLEKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 762415DC2F89627200FBB4F0 /* Products */;
@@ -189,6 +197,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				76SK00012FA0000000SK0001 /* PalmiAgent/Resources/Skills in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -588,6 +597,14 @@
 				minimumVersion = 2.0.0;
 			};
 		};
+		76OLE0002F99000000OLE001 /* XCRemoteSwiftPackageReference "OLEKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/CoreOffice/OLEKit";
+			requirement = {
+				kind = revision;
+				revision = 398248735e690ac422b728acb79d30bd3d675554;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -595,6 +612,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 76MD00012F8A000000MDUI1 /* XCRemoteSwiftPackageReference "MarkdownUI" */;
 			productName = MarkdownUI;
+		};
+		76OLE0002F99000000OLE003 /* OLEKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 76OLE0002F99000000OLE001 /* XCRemoteSwiftPackageReference "OLEKit" */;
+			productName = OLEKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -248,6 +248,7 @@
 "evidence.updatedAt" = "Updated at %@";
 "filePreview.emptyFile" = "This file has no previewable content.";
 "filePreview.emptyImage" = "Image preview is unavailable.";
+"filePreview.fileNotFound" = "The file no longer exists.";
 "filePreview.nextAttachment" = "Next attachment";
 "filePreview.noAttachments" = "No attachments to preview";
 "filePreview.previousAttachment" = "Previous attachment";
@@ -921,3 +922,13 @@
 "model.manual.title" = "Manual Add";
 "model.model.title" = "Model";
 "model.plan.deleteKeepsModels" = "Only the plan is deleted; global models and connections are kept.";
+"tool.facade.break_down" = "Break Down";
+"tool.facade.readSkill" = "Read Skill";
+"tool.facade.importSkill" = "Import Skill";
+"tool.group.skills.title" = "Skills";
+"tool.group.skills.subtitle" = "Progressive reading and validated import";
+"tool.action.readSkill.title" = "Read Skill";
+"tool.action.readSkill.effect" = "Progressively read an enabled skill from the protected skill container";
+"tool.action.importSkill.title" = "Import Skill";
+"tool.action.importSkill.effect" = "Validate and install a skill package from the current project workspace";
+"skill.system.required" = "Required";

@@ -6,6 +6,9 @@ Third-party components remain under their own licenses.
 ## Bundled and Direct Dependencies
 
 - **ZIPFoundation** by Thomas Zoechling is vendored under `PalmiAgent/Vendor/ZIPFoundation` and is licensed under the MIT License. Its license file is included at `PalmiAgent/Vendor/ZIPFoundation/LICENSE.txt`.
+- **OLEKit** by CoreOffice is linked as the `OLEKit` Swift package product at revision `398248735e690ac422b728acb79d30bd3d675554` and is used only to read OLE/CFBF containers for legacy Office indexing. Upstream: https://github.com/CoreOffice/OLEKit. OLEKit is Apache-2.0 and contains portions derived from `olefile` under its FreeBSD-style notice. The resolved package contains `LICENSE` and `LICENSE-olefile`.
+
+`libxls` is intentionally not included or linked. SwiftText, libarchive, and XZ/liblzma are not included in this build and are therefore not represented as bundled dependencies.
 - **MarkdownUI** by Guillermo Gonzalez is used as a Swift Package dependency from `https://github.com/gonzalezreal/MarkdownUI` and is licensed under the MIT License.
 - **NetworkImage** by Guille Gonzalez is resolved as a Swift Package dependency and is licensed under the MIT License.
 - **swift-cmark / cmark-gfm** is resolved as a Swift Package dependency and includes BSD-style and MIT-style license notices in its `COPYING` file.

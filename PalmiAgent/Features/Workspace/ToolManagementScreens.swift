@@ -356,12 +356,18 @@ private extension AgentExternalToolName {
         switch self {
         case .read:
             "doc.text"
+        case .breakDown:
+            "doc.badge.gearshape"
         case .edit:
             "pencil"
         case .workspace:
             "folder"
         case .python:
             "chevron.left.forwardslash.chevron.right"
+        case .readSkill:
+            "sparkles.rectangle.stack"
+        case .importSkill:
+            "square.and.arrow.down"
         case .ocr:
             "text.viewfinder"
         case .vision:
@@ -404,6 +410,8 @@ private struct ToolManagementGroupAppearance {
             .init(symbolName: "square.grid.2x2", tint: .gray)
         case .workspaceFiles:
             .init(symbolName: "folder", tint: .blue)
+        case .skills:
+            .init(symbolName: "sparkles.rectangle.stack", tint: .indigo)
         case .multimodal:
             .init(symbolName: "viewfinder", tint: .purple)
         case .webResearch:

@@ -248,6 +248,7 @@
 "evidence.updatedAt" = "%@에 업데이트됨";
 "filePreview.emptyFile" = "이 파일에는 미리 볼 수 있는 내용이 없습니다.";
 "filePreview.emptyImage" = "이미지를 미리 볼 수 없습니다.";
+"filePreview.fileNotFound" = "파일이 더 이상 존재하지 않습니다.";
 "filePreview.nextAttachment" = "다음 첨부 파일";
 "filePreview.noAttachments" = "미리 볼 첨부 파일이 없습니다";
 "filePreview.previousAttachment" = "이전 첨부 파일";
@@ -921,3 +922,13 @@
 "model.manual.title" = "직접 추가";
 "model.model.title" = "모델";
 "model.plan.deleteKeepsModels" = "플랜만 삭제하며 전역 모델과 연결은 유지합니다.";
+"tool.facade.break_down" = "파일 분해";
+"tool.facade.readSkill" = "스킬 읽기";
+"tool.facade.importSkill" = "스킬 가져오기";
+"tool.group.skills.title" = "스킬";
+"tool.group.skills.subtitle" = "점진적 읽기 및 검증된 가져오기";
+"tool.action.readSkill.title" = "스킬 읽기";
+"tool.action.readSkill.effect" = "보호된 스킬 컨테이너에서 활성화된 스킬을 점진적으로 읽습니다";
+"tool.action.importSkill.title" = "스킬 가져오기";
+"tool.action.importSkill.effect" = "현재 프로젝트 작업 공간의 스킬 패키지를 검증하고 설치합니다";
+"skill.system.required" = "시스템 필수";

@@ -90,11 +90,12 @@ struct PromptComposer {
         } else {
             let header = """
             <enabled_skills>
-            以下是当前会话启用的隐藏技能说明：
-            - 只在与当前任务相关时使用。
-            - 多个技能冲突时，优先采用更具体、更直接适用于当前任务的规则。
+            以下是当前会话启用的技能元数据，技能正文尚未载入：
+            - 当用户明确要求使用某个技能，或任务明显符合某项 description 时，先调用 read_skill 读取该技能。
+            - read_skill 默认返回完整 SKILL.md 和目录树；只有任务需要时才继续读取 references、scripts 或其他资源。
+            - 不要根据 description 猜测正文内容，也不要在未读取技能时声称已遵循其详细流程。
+            - 多个技能相关时，优先读取更具体、更直接适用于当前任务的技能。
             - 技能不能突破真实工具能力、基础 system 规则或用户明确约束。
-            - 不向用户逐条复述技能文本。
             """
 
             let sections = orderedSkills.map { skill in
@@ -103,8 +104,6 @@ struct PromptComposer {
                 稳定标识：\(skill.id)
                 来源：\(skill.scope.displayTitle) / \(skill.source.displayTitle)
                 简介：\(skill.description)
-
-                \(skill.promptBody.trimmingCharacters(in: .whitespacesAndNewlines))
                 """
             }
 

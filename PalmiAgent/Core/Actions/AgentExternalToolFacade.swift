@@ -2,9 +2,12 @@ import Foundation
 
 enum AgentExternalToolName: String, CaseIterable, Codable, Hashable, Sendable {
     case read
+    case breakDown = "break_down"
     case edit
     case workspace
     case python
+    case readSkill = "read_skill"
+    case importSkill = "import_skill"
     case ocr
     case vision
     case webSearch = "web_search"
@@ -16,12 +19,18 @@ enum AgentExternalToolName: String, CaseIterable, Codable, Hashable, Sendable {
         switch self {
         case .read:
             PalmiL10n.tr("tool.facade.read")
+        case .breakDown:
+            PalmiL10n.tr("tool.facade.break_down")
         case .edit:
             PalmiL10n.tr("tool.facade.edit")
         case .workspace:
             PalmiL10n.tr("tool.facade.workspace")
         case .python:
             "Python"
+        case .readSkill:
+            PalmiL10n.tr("tool.facade.readSkill")
+        case .importSkill:
+            PalmiL10n.tr("tool.facade.importSkill")
         case .ocr:
             "OCR"
         case .vision:
@@ -55,9 +64,12 @@ struct AgentExternalToolResolution: Sendable {
 enum AgentExternalToolFacadeCatalog {
     static let all: [AgentExternalToolFacade] = [
         .init(name: .read, backingActionIDs: [.fileRead]),
+        .init(name: .breakDown, backingActionIDs: [.breakDownFile]),
         .init(name: .edit, backingActionIDs: [.fileWrite, .fileAppend]),
         .init(name: .workspace, backingActionIDs: [.listDirectory, .fileManage]),
         .init(name: .python, backingActionIDs: [.runPython]),
+        .init(name: .readSkill, backingActionIDs: [.readSkill]),
+        .init(name: .importSkill, backingActionIDs: [.importSkill]),
         .init(name: .ocr, backingActionIDs: [.recognizeImageText]),
         .init(name: .vision, backingActionIDs: [.scanImageWithMultimodalModel]),
         .init(name: .webSearch, backingActionIDs: [.searchWeb]),
@@ -148,6 +160,10 @@ enum AgentExternalToolFacadeCatalog {
                 throw AppError.invalidState("workspace.operation 不受支持：\(operation)")
             }
             return .fileManage
+        case .readSkill:
+            return .readSkill
+        case .importSkill:
+            return .importSkill
         default:
             guard let actionID = facade.backingActionIDs.first else {
                 throw AppError.invalidState("工具没有可执行的底层动作：\(facade.modelToolName)")
@@ -162,6 +178,12 @@ enum AgentExternalToolFacadeCatalog {
         actionID: ToolActionID
     ) throws {
         switch facadeName {
+        case .breakDown:
+            _ = try arguments.requiredString("path")
+            let items = arguments.stringArray("items") ?? []
+            if !items.isEmpty, arguments.int("start") != nil || arguments.int("count") != nil {
+                throw AppError.invalidState("break_down 的 items 不能与 start/count 同时使用。")
+            }
         case .edit:
             _ = try arguments.requiredString("path")
             _ = try arguments.requiredString("content")
@@ -173,6 +195,13 @@ enum AgentExternalToolFacadeCatalog {
             _ = try arguments.requiredString("path")
             if ["move", "rename", "copy"].contains(operation) {
                 _ = try arguments.requiredString("destination")
+            }
+        case .readSkill:
+            _ = try arguments.requiredString("skill")
+        case .importSkill:
+            _ = try arguments.requiredString("path")
+            if let rawScope = arguments.string("scope"), SkillScope(rawValue: rawScope) == nil {
+                throw AppError.invalidState("import_skill.scope 只支持 global 或 project。")
             }
         default:
             break

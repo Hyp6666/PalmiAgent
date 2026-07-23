@@ -248,6 +248,7 @@
 "evidence.updatedAt" = "%@ に更新";
 "filePreview.emptyFile" = "このファイルにはプレビュー可能な内容がありません。";
 "filePreview.emptyImage" = "画像をプレビューできません。";
+"filePreview.fileNotFound" = "ファイルは存在しません。";
 "filePreview.nextAttachment" = "次の添付ファイル";
 "filePreview.noAttachments" = "プレビューできる添付ファイルがありません";
 "filePreview.previousAttachment" = "前の添付ファイル";
@@ -921,3 +922,13 @@
 "model.manual.title" = "手動追加";
 "model.model.title" = "モデル";
 "model.plan.deleteKeepsModels" = "プランのみ削除し、グローバルモデルと接続は保持します。";
+"tool.facade.break_down" = "ファイルを分解";
+"tool.facade.readSkill" = "スキルを読む";
+"tool.facade.importSkill" = "スキルを読み込む";
+"tool.group.skills.title" = "スキル";
+"tool.group.skills.subtitle" = "段階的な読み込みと検証付きインポート";
+"tool.action.readSkill.title" = "スキルを読む";
+"tool.action.readSkill.effect" = "保護されたスキルコンテナから有効なスキルを段階的に読み込みます";
+"tool.action.importSkill.title" = "スキルを読み込む";
+"tool.action.importSkill.effect" = "現在のプロジェクトワークスペースのスキルパッケージを検証してインストールします";
+"skill.system.required" = "システム必須";

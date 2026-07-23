@@ -2,6 +2,10 @@ import Foundation
 import PDFKit
 import UniformTypeIdentifiers
 
+// Legacy workspace batch-content reader.
+// It is intentionally not used by the model-facing `read` tool.
+// Only workspace(operation=list, include_content=true) may call this service.
+
 enum WorkspaceReadMode: String, CaseIterable, Sendable {
     case auto
     case head
