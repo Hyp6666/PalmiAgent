@@ -1357,10 +1357,6 @@ final class ActionExecutor {
             }
             throw AppError.invalidState("当前会话未选择可用的多模态模型。")
         }
-        guard resolved.capabilities.supportsVision else {
-            throw AppError.invalidState("当前多模态模型尚未通过视觉输入验证。")
-        }
-
         var userMessage = AgentModelMessage.user(prompt)
         userMessage.imageDataURLs = [imageDataURL]
         let response = try await modelRuntime.complete(

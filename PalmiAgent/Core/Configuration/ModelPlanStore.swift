@@ -18,7 +18,6 @@ enum ModelPlanSlot: String, CaseIterable, Codable, Identifiable, Sendable {
 
     var listTitle: String { PalmiL10n.tr("model.slot.candidates", title) }
     var isRequired: Bool { self == .primary }
-    var requiresVisionValidation: Bool { self == .multimodal }
 }
 
 struct ModelPlanSessionOverride: Codable, Hashable, Sendable {
@@ -250,8 +249,7 @@ struct ModelCandidateSnapshot: Identifiable, Equatable, Sendable {
     var subtitle: String { connection.inputAddress }
 
     func isValid(for slot: ModelPlanSlot) -> Bool {
-        guard validationStatus == .valid, capabilities.supportsText else { return false }
-        return slot.requiresVisionValidation ? capabilities.supportsVision : true
+        isConfigured(for: slot)
     }
 
     func isConfigured(for _: ModelPlanSlot) -> Bool {
@@ -537,6 +535,11 @@ final class ModelPlanStore {
                 guard let index = archive.plans.firstIndex(where: { $0.id == planID }) else {
                     throw AppError.invalidState(PalmiL10n.tr("model.error.planMissing"))
                 }
+                if slot == .multimodal,
+                   let modelIndex = archive.models.firstIndex(where: { $0.id == modelID }) {
+                    archive.models[modelIndex].capabilities.supportsVision = true
+                    archive.models[modelIndex].updatedAt = .now
+                }
                 archive.plans[index].slotCandidateIDs.add(modelID, to: slot)
                 if archive.plans[index].selectedCandidateID(for: slot) == nil {
                     archive.plans[index].setSelectedCandidateID(modelID, for: slot)
@@ -555,11 +558,15 @@ final class ModelPlanStore {
         slot: ModelPlanSlot,
         selectAfterAdd: Bool = false
     ) throws {
-        guard archive.models.contains(where: { $0.id == candidateID }) else {
+        guard let modelIndex = archive.models.firstIndex(where: { $0.id == candidateID }) else {
             throw AppError.invalidState(PalmiL10n.tr("model.error.libraryModelMissing"))
         }
         guard let index = archive.plans.firstIndex(where: { $0.id == planID }) else {
             throw AppError.invalidState(PalmiL10n.tr("model.error.planMissing"))
+        }
+        if slot == .multimodal {
+            archive.models[modelIndex].capabilities.supportsVision = true
+            archive.models[modelIndex].updatedAt = .now
         }
         archive.plans[index].slotCandidateIDs.add(candidateID, to: slot)
         if selectAfterAdd || archive.plans[index].selectedCandidateID(for: slot) == nil {
@@ -658,11 +665,15 @@ final class ModelPlanStore {
 
     func selectCandidate(_ candidateID: UUID, planID: UUID, slot: ModelPlanSlot) throws {
         guard let index = archive.plans.firstIndex(where: { $0.id == planID }),
-              archive.models.contains(where: { $0.id == candidateID }) else {
+              let modelIndex = archive.models.firstIndex(where: { $0.id == candidateID }) else {
             throw AppError.invalidState(PalmiL10n.tr("model.error.candidateMissing"))
         }
         guard archive.plans[index].slotCandidateIDs.contains(candidateID, in: slot) else {
             throw AppError.invalidState(PalmiL10n.tr("model.error.addToSlotFirst", slot.title))
+        }
+        if slot == .multimodal {
+            archive.models[modelIndex].capabilities.supportsVision = true
+            archive.models[modelIndex].updatedAt = .now
         }
         archive.plans[index].setSelectedCandidateID(candidateID, for: slot)
         archive.plans[index].updatedAt = .now
@@ -791,6 +802,9 @@ final class ModelPlanStore {
                 archive.models[index].validationMessage = validation.message
                 archive.models[index].validatedAt = .now
             }
+            if draft.slot == .multimodal {
+                archive.models[index].capabilities.supportsVision = true
+            }
             archive.models[index].updatedAt = .now
             return archive.models[index].id
         }
@@ -808,7 +822,7 @@ final class ModelPlanStore {
                 ownedBy: draft.ownedBy,
                 capabilities: validation?.capabilities ?? ModelCandidateCapabilities(
                     supportsText: true,
-                    supportsVision: false
+                    supportsVision: draft.slot == .multimodal
                 ),
                 validationStatus: validation == nil ? .unvalidated : .valid,
                 validationMessage: validation?.message ?? PalmiL10n.tr("model.status.untested"),
@@ -856,16 +870,20 @@ final class ModelPlanStore {
             apiKey: key.isEmpty ? nil : key,
             selectedServer: nil
         )
+        var effectiveCapabilities = candidate.capabilities
+        if slot == .multimodal {
+            effectiveCapabilities.supportsVision = true
+        }
         let integrationSpec = LLMModelIntegrationCatalog.conservativeOpenAICompatibleSpec(
             modelID: candidate.modelName,
-            capabilities: candidate.capabilities
+            capabilities: effectiveCapabilities
         )
         var capabilities = LLMProviderRuntimeResolver.runtimeProfile(
             for: configuration,
             model: model,
             integrationSpec: integrationSpec
         ).capabilities
-        capabilities.supportsVision = candidate.capabilities.supportsVision
+        capabilities.supportsVision = effectiveCapabilities.supportsVision
         capabilities.supportsStreaming = true
         return .resolved(
             AgentModelResolvedConfiguration(
@@ -882,7 +900,9 @@ final class ModelPlanStore {
         slot: ModelPlanSlot
     ) -> APIModelDefinition {
         var traits = Set<APIModelTrait>()
-        if candidate.capabilities.supportsVision { traits.insert(.multimodal) }
+        if slot == .multimodal || candidate.capabilities.supportsVision {
+            traits.insert(.multimodal)
+        }
         if slot == .lightweight { traits.insert(.lightweight) }
         return APIModelDefinition(
             id: candidate.modelName,

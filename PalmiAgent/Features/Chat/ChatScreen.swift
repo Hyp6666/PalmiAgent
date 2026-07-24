@@ -235,7 +235,7 @@ struct ChatScreen: View {
         slot: ModelPlanSlot
     ) -> APIModelDefinition {
         var traits = Set<APIModelTrait>()
-        if candidate.capabilities.supportsVision {
+        if slot == .multimodal || candidate.capabilities.supportsVision {
             traits.insert(.multimodal)
         }
         if slot == .lightweight {

@@ -16,7 +16,7 @@ final class ModelCandidateValidationService {
 
         let apiKey = draft.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let initialProtocol = resolution.explicitWireProtocol ?? .responses
-        let textResult = try await performValidationRequest(
+        _ = try await performValidationRequest(
             resolution: resolution,
             wireProtocol: initialProtocol,
             allowsChatFallback: resolution.explicitWireProtocol == nil,
@@ -28,39 +28,12 @@ final class ModelCandidateValidationService {
             ]
         )
 
-        guard draft.slot.requiresVisionValidation else {
-            return ModelCandidateValidationResult(
-                capabilities: ModelCandidateCapabilities(supportsText: true, supportsVision: false),
-                message: "文本联通验证通过。"
-            )
-        }
-
-        var visionMessage = OpenAIChatMessage.user("这是一张 1x1 的纯色图片。只回答它的颜色英文单词。")
-        visionMessage.imageDataURLs = [Self.redPixelDataURL]
-        let visionResponse = try await performValidationRequest(
-            resolution: resolution,
-            wireProtocol: textResult.wireProtocol,
-            allowsChatFallback: false,
-            apiKey: apiKey,
-            modelName: modelName,
-            messages: [
-                .system("You validate image input support. Answer the image color with one word."),
-                visionMessage
-            ]
-        )
-        let normalizedVisionText = visionResponse.text
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard normalizedVisionText.contains("red") ||
-                normalizedVisionText.contains("红") ||
-                normalizedVisionText.contains("#ff0000") ||
-                normalizedVisionText.contains("ff0000") else {
-            throw AppError.operationFailed("视觉验证失败：模型没有正确识别 1x1 红色图片。")
-        }
-
         return ModelCandidateValidationResult(
-            capabilities: ModelCandidateCapabilities(supportsText: true, supportsVision: true),
-            message: "文本联通与视觉输入验证通过。"
+            capabilities: ModelCandidateCapabilities(
+                supportsText: true,
+                supportsVision: draft.slot == .multimodal
+            ),
+            message: "文本联通验证通过。"
         )
     }
 
@@ -241,9 +214,6 @@ final class ModelCandidateValidationService {
             return AppError.operationFailed("模型服务返回了无法识别的响应格式。")
         }
     }
-
-    private static let redPixelDataURL =
-        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR42mP8z8BQDwAFgwJ/lDqd9AAAAABJRU5ErkJggg=="
 
     private static let validationSession: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral

@@ -75,8 +75,6 @@ final class AgentLoop {
     // 这些动态内容只追加到本轮隐藏 user 文本，不改变稳定 system prompt，也不重复保存完整用户输入。
     private var activeTurnMode: AgentComposerMode = .standard
     private var activeTurnDeepResearchFolder: String = ""
-    private var activeTurnHasImageAttachments = false
-    private var activeTurnMultimodalScannerAvailable = false
 
     let events: AsyncStream<AgentEvent>
     private let eventContinuation: AsyncStream<AgentEvent>.Continuation
@@ -468,16 +466,11 @@ final class AgentLoop {
             AgentToolCallProtocolIntegrity.closeDanglingCalls(in: &session)
             activeTurnMode = .standard
             activeTurnDeepResearchFolder = ""
-            activeTurnHasImageAttachments = false
-            activeTurnMultimodalScannerAvailable = false
         }
         let selection = try workspaceManager.currentSelection()
         let promptCacheKey = "palmi:thread:v1:\(selection.threadID.uuidString.lowercased())"
         let surface = (try? workspaceManager.currentProject().surface) ?? .professional
         let runProfile = surface == .chat ? AgentRunProfile.profile(for: .speed) : currentAgentRunProfile()
-        activeTurnHasImageAttachments = !imagePaths.isEmpty
-        activeTurnMultimodalScannerAvailable = multimodalScannerAvailable(modelOverrides: modelOverrides)
-
         if surface == .chat && actions.isEmpty {
             return try await runPlainChatTurn(
                 userInput: trimmedInput,
@@ -2349,34 +2342,6 @@ final class AgentLoop {
         )
     }
 
-    private func multimodalRoutingInstructionLayer(actions: [ToolAction]) -> String? {
-        guard activeTurnHasImageAttachments else { return nil }
-        let toolIDs = Set(actions.map(\.id))
-        let canUseOCR = toolIDs.contains(.recognizeImageText)
-        let canUseMultimodalScanner = toolIDs.contains(.scanImageWithMultimodalModel)
-
-        let decision = MultimodalImageRoutingDecision.resolve(
-            hasImageAttachments: activeTurnHasImageAttachments,
-            primaryHasInlineImage: false,
-            multimodalScannerAvailable: activeTurnMultimodalScannerAvailable,
-            canUseMultimodalScanner: canUseMultimodalScanner,
-            canUseOCR: canUseOCR
-        )
-
-        switch decision {
-        case .primaryInlineImage:
-            return "【本轮图片路由】图片不得由主模型内联读取；必须通过图片工具读取。优先调用 `vision`，结果失败或分析有歧义时再调用 `ocr`。"
-        case .multimodalScannerTool:
-            return "【本轮图片路由】图片必须通过工具读取。优先调用 `vision`；如果失败、分析有歧义或任务只需要文字，再调用 `ocr`。"
-        case .ocrFallback:
-            return "【本轮图片路由】当前没有可用的视觉理解后端；直接调用 `ocr` 提取图片文字，再基于可读文字回答。"
-        case .unavailable:
-            return "【本轮图片路由】当前没有可用的图片读取工具；不要臆测图片内容，直接说明当前无法读取附件图片。"
-        case nil:
-            return nil
-        }
-    }
-
     // 目标 / 深度研究模式注入层：纯提示词，随本轮 user 文本入历史。standard 时返回 nil。
     private func composerModeInstructionLayer() -> String? {
         switch activeTurnMode {
@@ -2458,14 +2423,12 @@ final class AgentLoop {
         switch surface {
         case .chat:
             layers = [
-                chatToolInstructionLayer(actions: actions),
-                multimodalRoutingInstructionLayer(actions: actions)
+                chatToolInstructionLayer(actions: actions)
             ]
         case .professional:
             layers = [
                 tierInstructionLayer(runProfile: runProfile, surface: surface),
-                composerModeInstructionLayer(),
-                multimodalRoutingInstructionLayer(actions: actions)
+                composerModeInstructionLayer()
             ]
         }
 
@@ -2495,9 +2458,6 @@ final class AgentLoop {
         }
         if toolIDs.contains(.requestLocation) {
             lines.append("定位：涉及我的位置、我的地址、附近、本地、离我最近等依赖当前位置的问题时，调用定位并反查；未授权或失败时如实说明。")
-        }
-        if toolIDs.contains(.scanImageWithMultimodalModel) || toolIDs.contains(.recognizeImageText) {
-            lines.append("图片：用户上传图片且需要理解内容时，优先调用多模态扫描；如果不可用或失败，或任务只需要文字，则调用 OCR。不要声称自己直接看到了未通过工具读取的图片。")
         }
         if toolIDs.contains(.searchWeb) || toolIDs.contains(.fetchStaticWebPage) {
             lines.append("联网搜索：需要当前网页事实、未知网址或 URL 正文时使用。未知网址先搜索候选；用户给出明确 URL 时直接网页浏览；关键事实以网页浏览正文为准。")
@@ -2570,13 +2530,6 @@ final class AgentLoop {
             - 最终回复完整但不堆砌，明确结论、依据、验证、限制和真实未决项。
             """
         }
-    }
-
-    private func multimodalScannerAvailable(modelOverrides: AgentModelRoleOverrides) -> Bool {
-        guard case .resolved(let resolved) = modelOverrides.override(for: .multimodalModel) else {
-            return false
-        }
-        return resolved.capabilities.supportsVision
     }
 
     private var isExternalReasoningEnabled: Bool {

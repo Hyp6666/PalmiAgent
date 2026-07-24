@@ -17,11 +17,6 @@ struct PalmiAgentApp: App {
             .onChange(of: scenePhase) { _, newPhase in
                 handleScenePhaseChange(newPhase)
             }
-#if DEBUG
-            .task {
-                MultimodalRoutingSelfTest.runIfRequested()
-            }
-#endif
         }
     }
 
