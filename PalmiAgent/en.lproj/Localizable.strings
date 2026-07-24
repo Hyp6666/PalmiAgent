@@ -112,7 +112,7 @@
 "chat.quickConfig.phaseThoughtCaption" = "Allow Palmi to move tasks forward with phase summaries.";
 "chat.quickConfig.thinkingCaption" = "Thinking controls require model support.";
 "chat.quickConfig.thinkingMode" = "Thinking Mode";
-"chat.quickConfig.thinkingStrength" = "Thinking Strength";
+"chat.quickConfig.thinkingStrength" = "Thinking Effort";
 "chat.quickConfig.toolAuthorization" = "Tool Authorization";
 "chat.quickConfig.tools" = "Tools";
 "chat.quickConfig.toolsCaption" = "Enable tools to let Palmi use more capabilities.";
@@ -383,7 +383,7 @@
 "model.profile.legacyStandardAPI" = "%@ + Standard API";
 "model.reasoning.strength.high" = "High";
 "model.reasoning.strength.low" = "Low";
-"model.reasoning.strength.maximum" = "Strongest";
+"model.reasoning.strength.maximum" = "Max";
 "model.reasoning.strength.medium" = "Medium";
 "model.reasoning.strength.xhigh" = "Extra High";
 "model.role.default" = "Default model";
