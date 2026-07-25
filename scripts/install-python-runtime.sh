@@ -61,6 +61,18 @@ fi
 . "$PYTHON_XCFRAMEWORK_PATH/build/utils.sh"
 install_python "Vendor/PythonSupport/Python.xcframework"
 
+for module in _ssl _hashlib; do
+  privacy_manifest="$FRAMEWORKS_DIR/$module.framework/PrivacyInfo.xcprivacy"
+
+  if [ ! -f "$privacy_manifest" ]; then
+    echo "error: Missing PrivacyInfo.xcprivacy in $module.framework"
+    exit 1
+  fi
+
+  /usr/bin/plutil -lint "$privacy_manifest"
+  echo "Verified privacy manifest: $privacy_manifest"
+done
+
 PYTHON_VER=$(find "$CODESIGNING_FOLDER_PATH/python/lib" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | head -n 1)
 if [ -z "$PYTHON_VER" ]; then
   echo "error: failed to locate bundled Python version directory"
