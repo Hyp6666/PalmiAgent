@@ -7,12 +7,18 @@ CLAUDE.md
 .agents/
 .cursor/
 .cursorrules
+.continue/
+.fleet/
+.gemini/
+.roo/
 .windsurf/
+.workbuddy-ai/
 .playwright-mcp/
 .idea/
 .vscode/
 *.swp
 *.swo
+*~
 
 # Internal planning notes and local verification prompts
 docs/*
@@ -26,8 +32,8 @@ simulator-preview.png
 # Xcode and Apple build output
 DerivedData/
 .derivedData*/
-build/
-Build/
+/build/
+/Build/
 *.xcuserstate
 *.xcscmblueprint
 *.xccheckout
@@ -36,7 +42,19 @@ Build/
 *.ipa
 *.dSYM
 *.dSYM.zip
+*.xcarchive
 *.xcresult
+*.xctestrun
+*.xcactivitylog
+*.xccovarchive
+*.xccovreport
+*.xccovdata
+*.profdata
+*.profraw
+*.memgraph
+*.trace
+*.crash
+*.ips
 *.xcodeproj/project.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
 *.xcworkspace/xcuserdata/
@@ -44,11 +62,29 @@ Build/
 # Swift Package Manager local state
 .build/
 .swiftpm/
+.cache/
 
 # macOS filesystem noise
 .DS_Store
 .AppleDouble
 .LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+
+# Logs, temporary files, and local scratch output
+*.log
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+/.tmp/
+/.temp/
+/tmp/
 
 # Local secrets, signing material, and environment overrides
 .env
