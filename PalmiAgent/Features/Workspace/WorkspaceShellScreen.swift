@@ -114,6 +114,7 @@ struct WorkspaceShellScreen: View {
                     completeOnboarding(nil)
                 }
             )
+            .interactiveDismissDisabled(true)
         }
         .onAppear {
             presentOnboardingIfNeeded()
@@ -1201,6 +1202,7 @@ private func workspaceBrowserActionButton(
 
 private enum OnboardingStep {
     case language
+    case policyNotice
     case modelConfiguration
     case modeChoice
 }
@@ -1224,7 +1226,27 @@ private struct OnboardingFlowScreen: View {
                     selectedLanguageID: $selectedLanguageID,
                     onContinue: {
                         withAnimation(.snappy(duration: 0.36, extraBounce: 0.06)) {
+                            step = .policyNotice
+                        }
+                    }
+                )
+
+            case .policyNotice:
+                OnboardingAIDataSharingConsentStep(
+                    selectedLanguageID: selectedLanguageID,
+                    onBack: {
+                        withAnimation(.snappy(duration: 0.32, extraBounce: 0.04)) {
+                            step = .language
+                        }
+                    },
+                    onAgree: {
+                        withAnimation(.snappy(duration: 0.32, extraBounce: 0.04)) {
                             step = .modelConfiguration
+                        }
+                    },
+                    onNotNow: {
+                        withAnimation(.snappy(duration: 0.32, extraBounce: 0.04)) {
+                            step = .language
                         }
                     }
                 )
@@ -1234,7 +1256,7 @@ private struct OnboardingFlowScreen: View {
                     store: manualLabStore,
                     onBack: {
                         withAnimation(.snappy(duration: 0.32, extraBounce: 0.04)) {
-                            step = .language
+                            step = .policyNotice
                         }
                     },
                     onContinue: {
@@ -1422,6 +1444,192 @@ private struct OnboardingAppIcon: View {
             return nil
         }
         return UIImage(named: name)
+    }
+}
+
+private struct OnboardingAIDataSharingConsentStep: View {
+    let selectedLanguageID: String
+    let onBack: () -> Void
+    let onAgree: () -> Void
+    let onNotNow: () -> Void
+
+    @State private var isChecked = false
+    @State private var isShowingPolicy = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                Button(action: onBack) {
+                    Label(PalmiL10n.tr("common.back"), systemImage: "chevron.left")
+                        .font(.headline)
+                        .frame(minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(PalmiL10n.tr("common.back"))
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(PalmiL10n.tr("consent.title"))
+                        .font(.largeTitle.weight(.bold))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text(PalmiL10n.tr("consent.introduction"))
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                disclosureSection(
+                    title: PalmiL10n.tr("consent.data.title"),
+                    systemImage: "doc.text.magnifyingglass"
+                ) {
+                    bullet(PalmiL10n.tr("consent.data.messages"))
+                    bullet(PalmiL10n.tr("consent.data.attachments"))
+                    bullet(PalmiL10n.tr("consent.data.tools"))
+                    bullet(PalmiL10n.tr("consent.data.system"))
+                }
+
+                disclosureSection(
+                    title: PalmiL10n.tr("consent.recipients.title"),
+                    systemImage: "network"
+                ) {
+                    Text(PalmiL10n.tr("consent.recipients.description"))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                disclosureSection(
+                    title: PalmiL10n.tr("consent.purpose.title"),
+                    systemImage: "sparkles"
+                ) {
+                    Text(PalmiL10n.tr("consent.purpose.description"))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Text(PalmiL10n.tr("consent.noProxy"))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                consentCheckbox
+
+                Button {
+                    isShowingPolicy = true
+                } label: {
+                    Label(PalmiL10n.tr("consent.viewPolicy"), systemImage: "doc.richtext")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, minHeight: 52)
+                }
+                .buttonStyle(.bordered)
+            }
+            .frame(maxWidth: 760, alignment: .leading)
+            .padding(.horizontal, 22)
+            .padding(.top, 24)
+            .padding(.bottom, 120)
+            .frame(maxWidth: .infinity)
+        }
+        .safeAreaInset(edge: .bottom) {
+            actionBar
+        }
+        .sheet(isPresented: $isShowingPolicy) {
+            NavigationStack {
+                PalmiPolicyDocumentScreen(languageID: selectedLanguageID)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button(PalmiL10n.tr("common.done")) {
+                                isShowingPolicy = false
+                            }
+                        }
+                    }
+            }
+        }
+    }
+
+    private var consentCheckbox: some View {
+        Button {
+            isChecked.toggle()
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: isChecked ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(isChecked ? Color.accentColor : .secondary)
+                    .accessibilityHidden(true)
+
+                Text(PalmiL10n.tr("consent.checkbox"))
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .contentShape(Rectangle())
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.primary.opacity(0.10), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(PalmiL10n.tr("consent.checkbox"))
+        .accessibilityValue(
+            isChecked
+                ? PalmiL10n.tr("consent.checkbox.selected")
+                : PalmiL10n.tr("consent.checkbox.notSelected")
+        )
+        .accessibilityAddTraits(.isButton)
+    }
+
+    private var actionBar: some View {
+        VStack(spacing: 10) {
+            Button {
+                guard isChecked else { return }
+                onAgree()
+            } label: {
+                Text(PalmiL10n.tr("consent.allowContinue"))
+                    .font(.headline.weight(.semibold))
+                    .frame(maxWidth: .infinity, minHeight: 52)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!isChecked)
+
+            Button(action: onNotNow) {
+                Text(PalmiL10n.tr("consent.notNow"))
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity, minHeight: 40)
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: 760)
+        .padding(.horizontal, 22)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
+        .frame(maxWidth: .infinity)
+        .background(.ultraThinMaterial)
+    }
+
+    private func disclosureSection<Content: View>(
+        title: String,
+        systemImage: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 13) {
+            Label(title, systemImage: systemImage)
+                .font(.title3.weight(.semibold))
+            VStack(alignment: .leading, spacing: 11, content: content)
+                .font(.body)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private func bullet(_ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 9) {
+            Text("•")
+                .accessibilityHidden(true)
+            Text(text)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 
@@ -2267,6 +2475,7 @@ private struct PersonalizationSettingsScreen: View {
 private struct ModelConfigurationManagerScreen: View {
     @Bindable var store: ManualLabStore
     @State private var presentedPlan: ModelPlanPresentation?
+    @State private var isAddingModel = false
     @State private var pendingDeletion: ModelPlanSnapshot?
     @State private var renamingPlanID: UUID?
     @State private var renameDraft = ""
@@ -2310,15 +2519,44 @@ private struct ModelConfigurationManagerScreen: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    presentedPlan = ModelPlanPresentation(planID: planStore.createPlan())
+                Menu {
+                    Button {
+                        presentedPlan = ModelPlanPresentation(planID: planStore.createPlan())
+                    } label: {
+                        Label(
+                            PalmiL10n.tr("model.management.addMenu.plan"),
+                            systemImage: "rectangle.stack.badge.plus"
+                        )
+                    }
+
+                    Button {
+                        isAddingModel = true
+                    } label: {
+                        Label(
+                            PalmiL10n.tr("model.management.addMenu.model"),
+                            systemImage: "cube.box"
+                        )
+                    }
+
+                    Divider()
+
+                    Button(PalmiL10n.tr("common.cancel"), role: .cancel) {}
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 20, weight: .semibold))
                         .frame(width: 48, height: 48)
                 }
-                .accessibilityLabel(PalmiL10n.tr("model.plan.add"))
+                .menuOrder(.fixed)
+                .accessibilityLabel(PalmiL10n.tr("model.management.addMenu.title"))
             }
+        }
+        .navigationDestination(isPresented: $isAddingModel) {
+            ModelCandidateAddScreen(
+                planStore: planStore,
+                planID: nil,
+                slot: nil,
+                attachToSlot: false
+            )
         }
         .sheet(item: $presentedPlan) { presentation in
             NavigationStack {
