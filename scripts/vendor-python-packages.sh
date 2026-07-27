@@ -38,6 +38,28 @@ python3 -m pip install \
   --target "$TMP_DIR" \
   "$@"
 
+# NetworkX 3.2.1 includes an Iran-hosted reference URL in a docstring. App Store
+# static analysis flags the inert string when this package is bundled, so strip
+# that reference while preserving the implementation and the primary citation.
+NETWORKX_PRODUCT_FILE="$TMP_DIR/networkx/algorithms/operators/product.py"
+python3 - "$NETWORKX_PRODUCT_FILE" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+source = path.read_text(encoding="utf-8")
+citation = '    [2] A. Faraji, "Corona Product in Graph Theory," Ali Faraji, May 11, 2021.\n'
+lines = source.splitlines(keepends=True)
+try:
+    index = lines.index(citation)
+except ValueError:
+    raise SystemExit(f"error: expected NetworkX reference not found in {path}")
+if index + 1 >= len(lines) or "(accessed Dec. 07, 2021)." not in lines[index + 1]:
+    raise SystemExit(f"error: unexpected NetworkX reference format in {path}")
+del lines[index:index + 2]
+path.write_text("".join(lines), encoding="utf-8")
+PY
+
 find "$TMP_DIR" -type d -name "__pycache__" -prune -exec rm -rf {} +
 
 rm -rf "$TARGET_DIR"
