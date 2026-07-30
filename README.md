@@ -1,165 +1,206 @@
-<h1><img src="Screenshots/palmi-icon-github.png" width="44" alt="PalmiAgent icon"> PalmiAgent</h1>
-
-PalmiAgent is a SwiftUI iOS workspace for model-driven work. It combines chat,
-project files, model plans, multimodal input, local OCR, web research, Python
-execution, and controlled system tools in one app.
-
-<p align="center">
-  <img src="Screenshots/palmi-multimodal-image-analysis.png" width="320" alt="PalmiAgent analyzing an image attachment">
+<p align="right">
+  <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a>
 </p>
 
-## What It Does
+<h1 align="center">
+  <img src="Screenshots/palmi-icon-github.png" width="88" alt="PalmiAgent icon"><br>
+  PalmiAgent
+</h1>
 
-- Runs conversations inside project and thread workspaces, so files, attachments,
-  tool results, and chat history stay tied to the active task.
-- Uses model plans with separate primary, multimodal, and lightweight model
-  roles. Profiles can connect GLM/Z.AI, DeepSeek, local servers, or custom
-  OpenAI-compatible endpoints.
-- Supports multimodal work through inline image input, a dedicated multimodal
-  scanning tool, and bundled PP-OCRv6 Tiny OCR assets for local text extraction.
-- Streams model reasoning content while a task is running, then presents tool
-  calls, progress notes, summaries, and final answers as structured chat cards.
-- Provides workspace tools for reading, writing, appending, managing files,
-  browsing directory trees, previewing generated files, and exporting folders.
-- Includes an embedded CPython runtime with curated pure-Python packages for
-  calculations, data handling, parsing, notebooks, and workspace automation.
-- Adds web research tools for search-provider probing, search results, static
-  page reading, batch fetches, and in-app browser previews.
-- Can request controlled access to iOS capabilities such as Calendar,
-  Reminders, Contacts, Location, Photos, Camera, Notifications, Speech,
-  Spotlight, App Intents, Maps, Mail, Messages, Phone, FaceTime, Books,
-  Podcasts, TV, and App Settings.
+<p align="center">
+  <a href="https://apps.apple.com/us/app/palmiagent/id6787664658"><strong> Download free on the App Store</strong></a>
+</p>
 
-## Core Concepts
+<p align="center">
+  <strong>Put AI to work, right on your iPhone.</strong><br>
+  A local-first, model-flexible, permission-aware personal AI agent workspace.
+</p>
 
-**Workspace**
+PalmiAgent goes beyond answering questions. It stays with a real task: understanding the goal, reading files, researching the web, using tools, running Python, creating deliverables, and keeping the entire conversation and its results together in your workspace.
 
-Every task runs in a local workspace managed by PalmiAgent. Projects contain
-threads, and each thread has its own file area for attachments, generated
-artifacts, OCR output, Python logs, web captures, and chat state.
+You choose the models. PalmiAgent turns them into an agent that can actually get things done on the go.
 
-**Model Plan**
+<p align="center">
+  <a href="Screenshots/Product/01-Real-Agent.png"><img src="Screenshots/Product/01-Real-Agent.png" width="430" alt="A real AI agent planning and using tools on iPhone"></a>
+</p>
 
-A model plan describes how the app should route work:
+## More than chat. Built to finish.
 
-- Primary model for the main agent loop.
-- Multimodal model for image understanding when the primary model is text-only.
-- Lightweight model for smaller support tasks such as titles or compact work.
+Most AI chats stop when the answer ends. PalmiAgent is designed for continued execution.
 
-Model candidates can be validated without blocking configuration, and each
-thread can temporarily override the active model plan.
+- **A complete agent loop:** analyzes the goal, plans the work, calls tools, reads the results, and keeps moving until it can deliver an answer or an artifact.
+- **Three task styles inside a conversation:** use standard chat for everyday questions, Goal mode for multi-step outcomes, and Deep Research mode for evidence-heavy work.
+- **Long-task continuity:** earlier context can be compacted while important task state is preserved. With background processing enabled, work may continue while the app is away or the device is locked, for as long as iOS allows.
+- **Add ideas while it works:** new messages can wait in a queue and be delivered at the next safe point in the run.
+- **A process you can inspect:** phase updates, tool calls, approvals, task state, evidence, file changes, timing, and token usage appear as structured records.
 
-**Tools**
+### Multiple agents, working in parallel
 
-Tools are grouped by risk and capability. Read-only actions, workspace writes,
-personal-data access, system UI handoffs, and persistent changes are handled
-with separate metadata and approval paths. The user can choose whether tool
-authorization asks every time, allows all, or uses automatic review.
+Complex work can be split among independent child agents while the primary agent coordinates the work and combines their findings.
 
-**Skills**
+<p align="center">
+  <a href="Screenshots/Product/03-Multi-Agent.png"><img src="Screenshots/Product/03-Multi-Agent.png" width="430" alt="Multiple child agents working in parallel"></a>
+</p>
 
-Skills are sandboxed instruction packages rooted at `SKILL.md`. The agent sees
-only each enabled skill's name, description, and stable ID in its system prompt;
-it uses the non-app `read_skill` tool to load the full instructions and package
-tree only when a task needs them. Additional package files can then be read by
-relative path, with traversal, symlinks, file counts, depth, size, and output
-limits enforced inside the app container.
+### From one prompt to an interactive result
 
-Authors build a package in the current project workspace and use `import_skill`
-to validate and atomically install it globally or for that project. Imports may
-be directories, Markdown files, or ZIP archives. PalmiAgent includes an
-always-enabled, non-deletable `skill-creator` system skill that teaches the model
-this mobile workflow; imported skills cannot overwrite system skills.
+PalmiAgent can create self-contained HTML tools, visualizations, and browser games, then open and use them directly inside the app.
 
-## Multimodal Flow
+<p align="center">
+  <a href="Screenshots/Product/02-Playable-Game.png"><img src="Screenshots/Product/02-Playable-Game.png" width="430" alt="A playable browser game created and previewed inside PalmiAgent"></a>
+</p>
 
-When a message includes images, PalmiAgent chooses the best available route for
-the current model setup:
+## Your models, your choice
 
-1. Inline the image to the primary model when the primary model supports vision.
-2. Use the configured multimodal model through the image scanning tool.
-3. Fall back to local OCR when text extraction is the right path.
+PalmiAgent does not lock you into one AI provider, and it does not proxy your model requests through a PalmiAgent cloud.
 
-OCR results are written back to the workspace as `.ocr.txt` and `.ocr.json`
-files, including recognized lines, confidence values, bounding boxes, and model
-asset metadata.
+### Bring your own endpoint
 
-## Interface
+Connect your own API account, a model server on your local network, or any supported OpenAI-compatible endpoint. Built-in setup is available for OpenAI, Azure OpenAI, GLM / Z.AI, DeepSeek, Qwen, Kimi, MiniMax, Doubao, Hunyuan, Qianfan, StepFun, ModelScope, SiliconFlow, OpenRouter, Ollama, and LM Studio. Other compatible services can be added manually.
 
-PalmiAgent has two main app surfaces:
+<p align="center">
+  <a href="Screenshots/Product/07-OpenAI-Compatible.png"><img src="Screenshots/Product/07-OpenAI-Compatible.png" width="430" alt="Adding an OpenAI-compatible model endpoint"></a>
+</p>
 
-- **Chat mode** for direct conversations and quick multimodal questions.
-- **Professional workspace mode** for project navigation, thread management,
-  file browsing, skill management, and long-running agent work.
+### Three model roles, one flexible system
 
-The chat composer includes standard chat, goal mode, and deep research mode.
-Goal and research modes are prompt-level task modes for a single turn; they do
-not change the tool runtime, but they shape how the agent plans and reports the
-work.
+Assign separate **primary, multimodal, and lightweight model** roles to balance capability, speed, and cost. Save models in a global library, then reuse them across different plans and conversations.
 
-## Privacy And Safety
+<p align="center">
+  <a href="Screenshots/Product/06-Model-Roles.png"><img src="Screenshots/Product/06-Model-Roles.png" width="430" alt="Separate primary, multimodal, and lightweight model roles"></a>
+</p>
 
-- API keys are supplied by the user at runtime and stored through the app's
-  configuration layer.
-- The repository does not include general-purpose LLM weights or provider
-  services.
-- Workspace files live in the app container unless exported by the user.
-- The global skill store is closed to ordinary file tools. Skill content enters
-  it only through validated `import_skill` calls and leaves it only through
-  bounded `read_skill` results.
-- Tool calls that touch personal data, open system UI, mutate workspace files,
-  or create persistent system changes are represented separately in the runtime.
-- App background transitions flush active chat state so interrupted sessions can
-  recover more predictably.
+### Tune the depth for each conversation
 
-## Requirements
+Discover remote model lists, enter model IDs manually, validate connections, switch plans per conversation, and control supported thinking modes and effort levels. API keys are stored in the system Keychain.
 
-- macOS with Xcode and the iOS 26.1 SDK.
-- Swift 5 project settings.
-- An Apple development team configured in Xcode for device builds.
-- Runtime access to the model endpoints you want to use.
+<p align="center">
+  <a href="Screenshots/Product/08-Thinking-Effort.png"><img src="Screenshots/Product/08-Thinking-Effort.png" width="430" alt="Adjustable model thinking effort and tool authorization"></a>
+</p>
 
-## Build
+Use a flagship cloud model, a cost-efficient service, a private model on your LAN, or a mix of all three—the architecture stays yours.
 
-1. Open `PalmiAgent.xcodeproj` in Xcode.
-2. Select the `PalmiAgent` scheme.
-3. Choose an iOS simulator or a signed device.
-4. Let Xcode resolve Swift Package dependencies.
-5. Build and run.
+## A workspace for every task
 
-The project uses MarkdownUI through Swift Package Manager, vendored
-ZIPFoundation for archive handling, an embedded CPython runtime for Python
-tools, and bundled PP-OCRv6 Tiny assets for OCR.
+PalmiAgent turns chat from a disposable message stream into a project you can return to.
 
-## Repository Map
+- **Two interface surfaces:** separate from the task styles above, **Chat mode** stays lightweight and direct, while **Professional mode** adds projects, conversations, files, and long-running task management.
+- Conversations, attachments, web research, OCR output, Python logs, and generated artifacts remain attached to the active project and task.
+- The agent can read, create, append, move, copy, rename, and organize workspace files.
+- Browse folders, preview attachments and generated work, and export an entire project from the app.
+- Break down PDF, Word, Excel, PowerPoint, Pages, Numbers, Keynote, RAR, and 7z files into readable text and extractable assets.
+- Conversation and task state persist on device. Interrupted runs are recognized so potentially unsafe side effects are not blindly repeated.
 
-- `PalmiAgent/Core/Agent` - agent loop, context assembly, tool routing,
-  compaction, task state, reasoning, and multimodal routing.
-- `PalmiAgent/Core/Configuration` - API profiles and model plan storage.
-- `PalmiAgent/Core/LLM` - OpenAI-compatible model integration, capability
-  metadata, reasoning controls, and runtime selection.
-- `PalmiAgent/Core/Sandbox` - workspace storage, file operations, and Python
-  execution.
-- `PalmiAgent/Core/Skills` - skill package parsing, import, registry, and prompt
-  composition.
-- `PalmiAgent/Features/Chat` - chat UI, message state, attachments, tool cards,
-  reasoning display, and context controls.
-- `PalmiAgent/Features/Workspace` - project list, thread navigation, file
-  browser, settings, model controls, and skill screens.
-- `PalmiAgent/Integrations` - model calls, web research, OCR, media, personal
-  data, system routing, and App Intents.
-- `PalmiAgent/SharedUI` - reusable SwiftUI components, previews, attachment UI,
-  selectable text, and visual effects.
-- `Vendor/PythonSupport` - embedded Python runtime and curated Python packages.
-- `PalmiAgent/Resources/OCR` - bundled PP-OCRv6 Tiny model resources and notices.
+Research today, add data tomorrow, and finish the report next week without rebuilding the context from scratch.
 
-## License
+## Real Python, on your iPhone
 
-PalmiAgent is licensed under Apache License 2.0.
+PalmiAgent includes a real **CPython 3.14** runtime, so the agent does not have to rely on language-model arithmetic alone.
 
-Third-party components remain under their own licenses. See
-`THIRD_PARTY_NOTICES.md`.
+- Run calculations, symbolic math, date operations, parsing, and structured-data transformations.
+- Read and create Excel workbooks; work with JSON, CSV, HTML, XML, and tables.
+- Use a curated pure-Python bundle including SymPy, openpyxl, NetworkX, Beautiful Soup, tabulate, and more.
+- Scripts execute inside a restricted local workspace and can read task inputs or write result files back to the project.
 
-## Chinese
+Turn a dataset into a workbook, or a formula into a reproducible calculation—not merely an answer that sounds plausible.
 
-简体中文说明见 `README.zh-CN.md`.
+## Understand images and extract text
+
+Add an image from Camera, Photos, or Files, and PalmiAgent selects the best available route for the task.
+
+- Send the image directly to the primary model when it supports vision.
+- Route it to a separately configured multimodal model when the primary model is text-only.
+
+<p align="center">
+  <a href="Screenshots/Product/04-Multimodal.png"><img src="Screenshots/Product/04-Multimodal.png" width="430" alt="Multimodal image understanding in PalmiAgent"></a>
+</p>
+
+- Use bundled PP-OCRv6 Tiny resources for lightweight on-device OCR when text extraction is the right job.
+- Save not only recognized text, but also structured line content, confidence values, and bounding boxes for later processing.
+- Access native document scanning and live text scanning from the tool center.
+
+<p align="center">
+  <a href="Screenshots/Product/05-On-Device-OCR.png"><img src="Screenshots/Product/05-On-Device-OCR.png" width="430" alt="On-device OCR with bundled PP-OCRv6 Tiny resources"></a>
+</p>
+
+A screenshot, a photographed page, or a scanned document can become actionable task context in seconds.
+
+## Research the web with traceable evidence
+
+PalmiAgent's web tools support a research workflow, not just a search box.
+
+- Enable multiple search sources and test which ones are reachable on the current network.
+- Find candidate pages, then read websites, JavaScript-rendered pages, PDFs, JSON, XML, and plain text.
+- Fetch multiple sources in a batch and read selected ranges from long pages to reduce irrelevant context and token use.
+- When needed, archive a page together with its referenced images, styles, scripts, and fonts.
+- Continue reading links in PalmiAgent's built-in browser or Safari.
+
+With Deep Research mode, the agent can search, read, compare, and synthesize while keeping the supporting trail visible to you.
+
+## Teach Palmi new workflows with Skills
+
+Different jobs need different methods. Skills give the agent reusable task instructions without permanently stuffing every rule into every conversation.
+
+- Import a `SKILL.md` file or a ZIP skill package.
+- Make a skill available globally or only inside one project.
+- Enable, disable, inspect, or remove imported skills at any time.
+- Use the built-in Skill Creator to build your own skills from the mobile workspace.
+- Load skill instructions only when needed, keeping unrelated context out of the task.
+
+<p align="center">
+  <a href="Screenshots/Product/09-Skills.png"><img src="Screenshots/Product/09-Skills.png" width="430" alt="Importing and managing reusable agent skills"></a>
+</p>
+
+Create specialized workflows for research, writing, data analysis, code review, or your own profession—and make Palmi fit the way you work.
+
+## Connected to iPhone, with your permission
+
+PalmiAgent is a native SwiftUI app, not a chat website wrapped in a shell.
+
+Its tool center integrates with Calendar, Reminders, Contacts, system alarms and timers, Location, nearby place search, Apple Maps, Camera, Photos, Notifications, speech recognition and text-to-speech, Mail, Messages, Phone, FaceTime, Spotlight, App Intents, Handoff, and more.
+
+Each capability follows its own risk and system-permission path. Actions that require your participation are handed back to the appropriate iOS interface instead of being performed silently in the background.
+
+The interface is available in Simplified Chinese, Traditional Chinese, English, Japanese, and Korean. You can also choose a focused or friendly response style—or define a custom personality for Palmi.
+
+## Privacy is part of the architecture
+
+- **Stored locally:** conversations, workspace files, task state, and settings stay on the device by default.
+- **No PalmiAgent model relay:** model requests go directly from your device to the third-party endpoint you configure.
+- **Secrets in Keychain:** API keys are stored using the system Keychain.
+- **Only what you choose:** files, photos, and personal data that you have not added to the task are not automatically uploaded simply because the app is open.
+- **Tool control:** choose Ask Every Time, Allow All, or Auto Review with your own policy. Individual tools can also be approved for a session.
+- **Traceable side effects:** file changes, tool actions, and approvals are recorded in the task process.
+- **Local capabilities first:** file operations, Python execution, and OCR can run directly on the device.
+
+When you call a third-party model or search service, the content required for that request is still sent to that provider and is governed by its terms and privacy policy. PalmiAgent makes that boundary explicit and leaves the final choice with you.
+
+## What can you do with it?
+
+- **Research and learning:** search across sources, read long documents, extract key points, and build evidence-backed summaries.
+- **Data and office work:** transform spreadsheets, run calculations, and leave reports as real files in the workspace.
+- **Images and documents:** understand screenshots, scan paper documents, extract text, and continue with classification or analysis.
+- **Development and technical work:** inspect project files, create code and documentation, and use Python to verify results.
+- **Long-term personal projects:** keep conversations, source material, decisions, and deliverables together over time.
+- **Model experimentation:** combine cloud, local, multimodal, and lightweight models while controlling thinking effort and tool permissions.
+
+## Get started in three steps
+
+1. [Download PalmiAgent from the App Store](https://apps.apple.com/us/app/palmiagent/id6787664658).
+2. Add your model service, API key, or local-network endpoint, then select a primary model.
+3. Start a chat or project, add a file, image, or goal, and let Palmi get to work.
+
+> **Requirements:** iOS 26.1 or later. PalmiAgent does not include general-purpose model weights or third-party model credits. You need to provide a compatible model service. Cloud models, web research, and some system capabilities also require network access, provider availability, or the relevant iOS permission. Background execution time is controlled by iOS.
+
+## Open source
+
+PalmiAgent is built with SwiftUI and released under the [Apache License 2.0](LICENSE). Inspect the implementation, report an issue, improve a feature, or use the project to explore what a mobile agent can become.
+
+- [View the source](https://github.com/Hyp6666/PalmiAgent)
+- [Report an issue or suggest an idea](https://github.com/Hyp6666/PalmiAgent/issues)
+- [Third-party components and licenses](THIRD_PARTY_NOTICES.md)
+
+<p align="center">
+  <strong>Bring models into your workflow. Bring your agent everywhere.</strong><br><br>
+  <a href="https://apps.apple.com/us/app/palmiagent/id6787664658"><strong> Download PalmiAgent free on the App Store</strong></a>
+</p>
