@@ -53,6 +53,8 @@
 "chat.answer.copied" = "답변을 복사했습니다";
 "chat.answer.copy" = "답변 복사";
 "chat.answer.share" = "답변 공유";
+"chat.code.copied" = "복사됨";
+"chat.code.copy" = "복사";
 "chat.attachment.limitReached" = "첨부 파일은 최대 %d개까지 추가할 수 있습니다.";
 "chat.attachment.limitTrimmed" = "첨부 파일은 최대 %d개까지 추가할 수 있습니다. 처음 %d개를 유지했습니다.";
 "chat.capability.chat" = "채팅";

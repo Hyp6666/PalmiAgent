@@ -10,6 +10,7 @@
 		763490682F8A30B100B9CA3F /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = 76MD00022F8A000000MDUI2 /* MarkdownUI */; };
 		76OLE0002F99000000OLE002 /* OLEKit in Frameworks */ = {isa = PBXBuildFile; productRef = 76OLE0002F99000000OLE003 /* OLEKit */; };
 		76SK00012FA0000000SK0001 /* PalmiAgent/Resources/Skills in Resources */ = {isa = PBXBuildFile; fileRef = 76SK00022FA0000000SK0002 /* PalmiAgent/Resources/Skills */; };
+		76SM00012FB0000000SM0001 /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = 76SM00032FB0000000SM0003 /* SwiftMath */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -62,6 +63,7 @@
 			files = (
 				763490682F8A30B100B9CA3F /* MarkdownUI in Frameworks */,
 				76OLE0002F99000000OLE002 /* OLEKit in Frameworks */,
+				76SM00012FB0000000SM0001 /* SwiftMath in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -117,6 +119,7 @@
 			packageProductDependencies = (
 				76MD00022F8A000000MDUI2 /* MarkdownUI */,
 				76OLE0002F99000000OLE003 /* OLEKit */,
+				76SM00032FB0000000SM0003 /* SwiftMath */,
 			);
 			productName = PalmiAgent;
 			productReference = 762415DB2F89627200FBB4F0 /* PalmiAgent.app */;
@@ -180,6 +183,7 @@
 			packageReferences = (
 				76MD00012F8A000000MDUI1 /* XCRemoteSwiftPackageReference "MarkdownUI" */,
 				76OLE0002F99000000OLE001 /* XCRemoteSwiftPackageReference "OLEKit" */,
+				76SM00022FB0000000SM0002 /* XCRemoteSwiftPackageReference "SwiftMath" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 762415DC2F89627200FBB4F0 /* Products */;
@@ -605,6 +609,14 @@
 				revision = 398248735e690ac422b728acb79d30bd3d675554;
 			};
 		};
+		76SM00022FB0000000SM0002 /* XCRemoteSwiftPackageReference "SwiftMath" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mgriebling/SwiftMath";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.7.3;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -617,6 +629,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 76OLE0002F99000000OLE001 /* XCRemoteSwiftPackageReference "OLEKit" */;
 			productName = OLEKit;
+		};
+		76SM00032FB0000000SM0003 /* SwiftMath */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 76SM00022FB0000000SM0002 /* XCRemoteSwiftPackageReference "SwiftMath" */;
+			productName = SwiftMath;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -53,6 +53,8 @@
 "chat.answer.copied" = "回答をコピーしました";
 "chat.answer.copy" = "回答をコピー";
 "chat.answer.share" = "回答を共有";
+"chat.code.copied" = "コピー済み";
+"chat.code.copy" = "コピー";
 "chat.attachment.limitReached" = "添付ファイルは最大 %d 個まで追加できます。";
 "chat.attachment.limitTrimmed" = "添付ファイルは最大 %d 個まで追加できます。先頭の %d 個を保持しました。";
 "chat.capability.chat" = "チャット";

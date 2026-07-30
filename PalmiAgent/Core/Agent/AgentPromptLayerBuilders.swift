@@ -1,5 +1,23 @@
 import Foundation
 
+enum AgentOutputFormattingPolicy {
+    static let instructions = #"""
+    <output_format>
+    除非用户明确指定其他格式，所有用户可见答复都使用结构清晰、可直接渲染的 GitHub Flavored Markdown。
+    - 普通说明写在普通段落中；只在确实有层次时使用简短标题和列表，不滥用粗体、表格或引用块。
+    - 文件名、命令名、参数和短代码用单个反引号标记。
+    - 多行代码、配置、日志、终端输出或需要保留空格/换行的纯文本，必须单独放进 fenced code block。开启围栏使用三个反引号，并紧接准确的小写语言标识，例如 `python`、`swift`、`javascript`、`json`、`bash`、`text`；不要省略语言标识。
+    - 一个代码块只放一种完整内容；解释文字放在代码块外。围栏必须成对闭合，不在代码块内嵌套 Markdown 围栏，也不要把普通说明文字伪装成代码。
+    - 行内数学使用 \( ... \)，独立公式使用 \[ ... \]。不要把 LaTeX 命令作为普通文字裸露输出，也不要为了显示公式把数学内容放进代码块。
+    - 输出链接时使用 `[名称](URL)`；除非用户要求原始 URL，不裸贴链接。
+    </output_format>
+    """#
+
+    static func appending(to prompt: String) -> String {
+        [prompt, instructions].joined(separator: "\n\n")
+    }
+}
+
 struct ChatSystemPromptBuilder {
     func build(
         actions: [ToolAction],
@@ -11,7 +29,7 @@ struct ChatSystemPromptBuilder {
         _ = tier
         _ = exposesTools
         _ = exposesPhaseThought
-        return Self.systemPrompt
+        return AgentOutputFormattingPolicy.appending(to: Self.systemPrompt)
     }
 
     private static let systemPrompt = """
@@ -30,7 +48,7 @@ struct ProfessionalSystemPromptBuilder {
         _ = tier
         _ = exposesTools
         _ = exposesPhaseThought
-        return Self.systemPrompt
+        return AgentOutputFormattingPolicy.appending(to: Self.systemPrompt)
     }
 
     private static let systemPrompt = """

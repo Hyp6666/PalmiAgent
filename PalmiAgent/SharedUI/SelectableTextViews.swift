@@ -4,6 +4,7 @@ import Foundation
 import Darwin
 import cmark_gfm
 import cmark_gfm_extensions
+import SwiftMath
 
 enum SelectableTextWidthBehavior {
     case fillWidth
@@ -131,7 +132,7 @@ private struct SelectableAttributedTextView: UIViewRepresentable {
     func makeUIView(context: Context) -> UITextView {
         // Link hit-testing below intentionally uses NSLayoutManager. Start in TextKit 1
         // instead of letting UITextView render with TextKit 2 and downgrade on the first tap.
-        let textView = UITextView(usingTextLayoutManager: false)
+        let textView = PalmiSelectableTextView(usingTextLayoutManager: false)
         textView.backgroundColor = .clear
         textView.isOpaque = false
         textView.isEditable = false
@@ -315,6 +316,24 @@ private struct SelectableAttributedTextView: UIViewRepresentable {
     }
 }
 
+private final class PalmiSelectableTextView: UITextView {
+    override func copy(_ sender: Any?) {
+        guard selectedRange.location != NSNotFound,
+              selectedRange.length > 0,
+              NSMaxRange(selectedRange) <= attributedText.length,
+              SelectableMathTextStorage.containsMath(in: attributedText, range: selectedRange)
+        else {
+            super.copy(sender)
+            return
+        }
+
+        UIPasteboard.general.string = SelectableMathTextStorage.copyableText(
+            from: attributedText,
+            range: selectedRange
+        )
+    }
+}
+
 enum SelectableLinkTextStorage {
     struct Hit {
         let url: URL
@@ -376,6 +395,70 @@ enum SelectableLinkTextStorage {
     }
 }
 
+enum SelectableMathTextStorage {
+    private static let sourceAttribute = NSAttributedString.Key(
+        "com.palmi.selectableText.mathSource"
+    )
+
+    static func attributedAttachment(
+        _ attachment: NSTextAttachment,
+        source: String,
+        isDisplay: Bool
+    ) -> NSAttributedString {
+        let result = NSMutableAttributedString(attachment: attachment)
+        let range = NSRange(location: 0, length: result.length)
+        result.addAttribute(sourceAttribute, value: source, range: range)
+
+        if isDisplay {
+            let paragraphStyle = NSMutableParagraphStyle()
+            paragraphStyle.alignment = .center
+            paragraphStyle.paragraphSpacingBefore = 4
+            paragraphStyle.paragraphSpacing = 10
+            result.addAttribute(.paragraphStyle, value: paragraphStyle, range: range)
+        }
+        return result
+    }
+
+    static func containsMath(in text: NSAttributedString, range: NSRange) -> Bool {
+        guard range.location != NSNotFound,
+              range.location >= 0,
+              NSMaxRange(range) <= text.length else {
+            return false
+        }
+
+        var containsMath = false
+        text.enumerateAttribute(sourceAttribute, in: range) { value, _, stop in
+            if value is String {
+                containsMath = true
+                stop.pointee = true
+            }
+        }
+        return containsMath
+    }
+
+    static func copyableText(from text: NSAttributedString, range: NSRange) -> String {
+        guard range.location != NSNotFound,
+              range.location >= 0,
+              NSMaxRange(range) <= text.length else {
+            return ""
+        }
+
+        let copy = NSMutableAttributedString(attributedString: text.attributedSubstring(from: range))
+        let copyRange = NSRange(location: 0, length: copy.length)
+        var replacements: [(range: NSRange, source: String)] = []
+        copy.enumerateAttribute(sourceAttribute, in: copyRange) { value, valueRange, _ in
+            if let source = value as? String {
+                replacements.append((valueRange, source))
+            }
+        }
+
+        for replacement in replacements.reversed() {
+            copy.replaceCharacters(in: replacement.range, with: replacement.source)
+        }
+        return copy.string
+    }
+}
+
 enum MarkdownAttributedTextRenderer {
     static func render(
         markdown: String,
@@ -383,8 +466,9 @@ enum MarkdownAttributedTextRenderer {
         tintColor: UIColor,
         baseFont: UIFont
     ) -> NSAttributedString {
+        let mathDocument = MathMarkdownPreprocessor.prepare(markdown)
         let document = makeHTMLDocument(
-            bodyHTML: markdownToHTML(markdown),
+            bodyHTML: markdownToHTML(mathDocument.markdown),
             textColor: textColor,
             tintColor: tintColor,
             baseFont: baseFont
@@ -412,11 +496,165 @@ enum MarkdownAttributedTextRenderer {
             )
         }
 
+        materializeMathFragments(
+            mathDocument.fragments,
+            in: attributedString,
+            textColor: textColor,
+            baseFont: baseFont
+        )
         trimTrailingWhitespace(in: attributedString)
         // The HTML importer returns NSMutableAttributedString. Keeping that reference in
         // SwiftUI state lets UITextView mutate the cached Markdown while handling a tap.
         // Freeze it before it crosses the renderer/view boundary.
         return attributedString.copy() as! NSAttributedString
+    }
+
+    private static func materializeMathFragments(
+        _ fragments: [MathMarkdownDocument.Fragment],
+        in attributedString: NSMutableAttributedString,
+        textColor: UIColor,
+        baseFont: UIFont
+    ) {
+        guard !fragments.isEmpty else { return }
+
+        for fragment in fragments.reversed() {
+            let tokenRange = (attributedString.string as NSString).range(of: fragment.token)
+            guard tokenRange.location != NSNotFound else { continue }
+
+            let formula = normalizedLatexForSwiftMath(fragment.latex)
+            var imageRenderer = MathImage(
+                latex: formula.latex,
+                fontSize: baseFont.pointSize,
+                textColor: textColor,
+                labelMode: fragment.style == .display ? .display : .text,
+                textAlignment: fragment.style == .display ? .center : .left
+            )
+            let (_, renderedImage, layoutInfo) = imageRenderer.asImage()
+
+            guard let renderedImage else {
+                attributedString.replaceCharacters(in: tokenRange, with: fragment.source)
+                continue
+            }
+
+            let boxedImage = formula.drawsOuterBox
+                ? makeBoxedFormulaImage(
+                    renderedImage,
+                    textColor: textColor,
+                    fontSize: baseFont.pointSize
+                )
+                : (image: renderedImage, padding: CGFloat.zero)
+            let attachment = PalmiMathTextAttachment(
+                image: boxedImage.image,
+                descent: (layoutInfo?.descent ?? 0) + boxedImage.padding,
+                isDisplay: fragment.style == .display
+            )
+            let replacement = SelectableMathTextStorage.attributedAttachment(
+                attachment,
+                source: fragment.source,
+                isDisplay: fragment.style == .display
+            )
+            attributedString.replaceCharacters(in: tokenRange, with: replacement)
+        }
+    }
+
+    /// SwiftMath names its bold math alphabet command `\bm`, while many LLMs emit the
+    /// equivalent amsmath command `\boldsymbol`. Normalize only for typesetting; the
+    /// attachment keeps `fragment.source`, so selecting and copying preserves the answer.
+    private static func normalizedLatexForSwiftMath(
+        _ latex: String
+    ) -> (latex: String, drawsOuterBox: Bool) {
+        let normalizedCommands = latex.replacingOccurrences(
+            of: #"\boldsymbol"#,
+            with: #"\bm"#
+        )
+        let outerBoxedArgument = wholeBoxedArgument(in: normalizedCommands)
+        let renderSource = outerBoxedArgument ?? normalizedCommands
+
+        // `\boxed` is an amsmath wrapper unsupported by SwiftMath. Nested or partial uses
+        // still degrade to their grouped contents instead of making the whole formula fail.
+        return (
+            renderSource.replacingOccurrences(of: #"\boxed"#, with: ""),
+            outerBoxedArgument != nil
+        )
+    }
+
+    private static func wholeBoxedArgument(in latex: String) -> String? {
+        let source = latex.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard source.hasPrefix(#"\boxed"#),
+              let commandRange = source.range(of: #"\boxed"#) else {
+            return nil
+        }
+
+        var openingBrace = commandRange.upperBound
+        while openingBrace < source.endIndex, source[openingBrace].isWhitespace {
+            openingBrace = source.index(after: openingBrace)
+        }
+        guard openingBrace < source.endIndex,
+              source[openingBrace] == "{",
+              let closingBrace = matchingClosingBrace(in: source, opening: openingBrace),
+              source.index(after: closingBrace) == source.endIndex else {
+            return nil
+        }
+        return String(source[source.index(after: openingBrace)..<closingBrace])
+    }
+
+    private static func matchingClosingBrace(
+        in source: String,
+        opening: String.Index
+    ) -> String.Index? {
+        var depth = 0
+        var index = opening
+        while index < source.endIndex {
+            let character = source[index]
+            if character == "{" && !isEscaped(index, in: source) {
+                depth += 1
+            } else if character == "}" && !isEscaped(index, in: source) {
+                depth -= 1
+                if depth == 0 { return index }
+            }
+            index = source.index(after: index)
+        }
+        return nil
+    }
+
+    private static func isEscaped(_ index: String.Index, in source: String) -> Bool {
+        var slashCount = 0
+        var cursor = index
+        while cursor > source.startIndex {
+            let previous = source.index(before: cursor)
+            guard source[previous] == "\\" else { break }
+            slashCount += 1
+            cursor = previous
+        }
+        return slashCount.isMultiple(of: 2) == false
+    }
+
+    private static func makeBoxedFormulaImage(
+        _ image: UIImage,
+        textColor: UIColor,
+        fontSize: CGFloat
+    ) -> (image: UIImage, padding: CGFloat) {
+        let padding = max(3, fontSize * 0.18)
+        let lineWidth = max(1, fontSize * 0.06)
+        let size = CGSize(
+            width: image.size.width + padding * 2,
+            height: image.size.height + padding * 2
+        )
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = image.scale
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        let boxed = renderer.image { context in
+            image.draw(at: CGPoint(x: padding, y: padding))
+            let strokeRect = CGRect(origin: .zero, size: size).insetBy(
+                dx: lineWidth / 2,
+                dy: lineWidth / 2
+            )
+            context.cgContext.setStrokeColor(textColor.cgColor)
+            context.cgContext.setLineWidth(lineWidth)
+            context.cgContext.stroke(strokeRect)
+        }
+        return (boxed, padding)
     }
 
     private static func markdownToHTML(_ markdown: String) -> String {
@@ -614,6 +852,46 @@ enum MarkdownAttributedTextRenderer {
                 location: trailingStart,
                 length: attributedString.length - trailingStart
             )
+        )
+    }
+}
+
+private final class PalmiMathTextAttachment: NSTextAttachment {
+    private let renderedSize: CGSize
+    private let renderedDescent: CGFloat
+    private let isDisplay: Bool
+
+    init(image: UIImage, descent: CGFloat, isDisplay: Bool) {
+        renderedSize = image.size
+        renderedDescent = descent
+        self.isDisplay = isDisplay
+        super.init(data: nil, ofType: nil)
+        self.image = image
+        bounds = CGRect(
+            x: 0,
+            y: isDisplay ? 0 : -descent,
+            width: image.size.width,
+            height: image.size.height
+        )
+    }
+
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    override func attachmentBounds(
+        for textContainer: NSTextContainer?,
+        proposedLineFragment lineFrag: CGRect,
+        glyphPosition position: CGPoint,
+        characterIndex charIndex: Int
+    ) -> CGRect {
+        let availableWidth = max(1, lineFrag.width)
+        let scale = min(1, availableWidth / max(1, renderedSize.width))
+        return CGRect(
+            x: 0,
+            y: isDisplay ? 0 : -renderedDescent * scale,
+            width: renderedSize.width * scale,
+            height: renderedSize.height * scale
         )
     }
 }

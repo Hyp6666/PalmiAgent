@@ -53,6 +53,8 @@
 "chat.answer.copied" = "已復制回答";
 "chat.answer.copy" = "復制回答";
 "chat.answer.share" = "分享回答";
+"chat.code.copied" = "已複製";
+"chat.code.copy" = "複製";
 "chat.attachment.limitReached" = "最多只能加入 %d 個附件。";
 "chat.attachment.limitTrimmed" = "最多只能加入 %d 個附件，已保留前 %d 個。";
 "chat.capability.chat" = "聊天";

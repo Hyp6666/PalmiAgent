@@ -53,6 +53,8 @@
 "chat.answer.copied" = "Answer copied";
 "chat.answer.copy" = "Copy answer";
 "chat.answer.share" = "Share answer";
+"chat.code.copied" = "Copied";
+"chat.code.copy" = "Copy";
 "chat.attachment.limitReached" = "You can add up to %d attachments.";
 "chat.attachment.limitTrimmed" = "You can add up to %d attachments. The first %d were kept.";
 "chat.capability.chat" = "Chat";

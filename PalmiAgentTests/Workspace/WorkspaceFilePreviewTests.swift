@@ -100,8 +100,12 @@ final class WorkspaceFilePreviewTests: XCTestCase {
             source.contains("primaryActionFor textItem: UITextItem"),
             "Palmi-owned links must not enter UITextView's system link interaction state."
         )
+        let textKit1Initializers = [
+            "UITextView(usingTextLayoutManager: false)",
+            "PalmiSelectableTextView(usingTextLayoutManager: false)"
+        ]
         XCTAssertTrue(
-            source.contains("UITextView(usingTextLayoutManager: false)"),
+            textKit1Initializers.contains(where: source.contains),
             "The view must start in TextKit 1 instead of changing layout engines on the first link tap."
         )
     }

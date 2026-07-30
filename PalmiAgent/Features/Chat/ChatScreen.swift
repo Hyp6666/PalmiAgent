@@ -2986,7 +2986,13 @@ struct ChatScreen: View {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return true }
 
-        let inlineMarkdownHints = ["```", "**", "__", "~~", "![", "]("]
+        // Math needs the Markdown renderer even when the surrounding answer is plain prose.
+        // Otherwise CommonMark/UITextView never gets a chance to materialize the formula.
+        if !MathMarkdownPreprocessor.prepare(trimmed).fragments.isEmpty {
+            return false
+        }
+
+        let inlineMarkdownHints = ["```", "~~~", "**", "__", "~~", "![", "]("]
         if inlineMarkdownHints.contains(where: trimmed.contains) {
             return false
         }
@@ -3179,7 +3185,7 @@ private struct AssistantMarkdownBlock: View {
     let markdown: String
 
     var body: some View {
-        SelectableMarkdownTextView(markdown: markdown)
+        AssistantMarkdownContentView(markdown: markdown)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
