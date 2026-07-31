@@ -260,15 +260,16 @@ private final class ValidationURLProtocol: URLProtocol, @unchecked Sendable {
     nonisolated override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     nonisolated override func startLoading() {
+        let capturedRequest = request.materializingHTTPBodyForTesting()
         let handler = Self.lock.withLock { () -> Handler? in
-            Self.requests.append(request)
+            Self.requests.append(capturedRequest)
             return Self.handler
         }
-        guard let handler, let url = request.url else {
+        guard let handler, let url = capturedRequest.url else {
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
             return
         }
-        let result = handler(request)
+        let result = handler(capturedRequest)
         guard let response = HTTPURLResponse(
             url: url,
             statusCode: result.statusCode,

@@ -165,15 +165,15 @@ final class OpenAIResponsesReasoningTests: XCTestCase {
 
     func testSSEAccumulatorAssemblesTextReasoningToolCallsUsageAndRawItems() throws {
         var accumulator = OpenAIResponsesStreamAccumulator()
-        try accumulator.consume(payload: #"{"type":"response.reasoning_summary_text.delta","delta":"check"}"#)
-        try accumulator.consume(payload: #"{"type":"response.reasoning_summary_text.delta","delta":"ed"}"#)
-        try accumulator.consume(payload: #"{"type":"response.output_text.delta","delta":"hel"}"#)
-        try accumulator.consume(payload: #"{"type":"response.output_text.delta","delta":"lo"}"#)
-        try accumulator.consume(payload: #"{"type":"response.output_item.added","output_index":2,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":""}}"#)
-        try accumulator.consume(payload: #"{"type":"response.function_call_arguments.delta","output_index":2,"item_id":"fc_1","delta":"{\"q\":"}"#)
-        try accumulator.consume(payload: #"{"type":"response.function_call_arguments.delta","output_index":2,"item_id":"fc_1","delta":"\"x\"}"}"#)
-        try accumulator.consume(payload: #"{"type":"response.output_item.done","output_index":2,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{\"q\":\"x\"}"}}"#)
-        try accumulator.consume(payload: #"""
+        _ = try accumulator.consume(payload: #"{"type":"response.reasoning_summary_text.delta","delta":"check"}"#)
+        _ = try accumulator.consume(payload: #"{"type":"response.reasoning_summary_text.delta","delta":"ed"}"#)
+        _ = try accumulator.consume(payload: #"{"type":"response.output_text.delta","delta":"hel"}"#)
+        _ = try accumulator.consume(payload: #"{"type":"response.output_text.delta","delta":"lo"}"#)
+        _ = try accumulator.consume(payload: #"{"type":"response.output_item.added","output_index":2,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":""}}"#)
+        _ = try accumulator.consume(payload: #"{"type":"response.function_call_arguments.delta","output_index":2,"item_id":"fc_1","delta":"{\"q\":"}"#)
+        _ = try accumulator.consume(payload: #"{"type":"response.function_call_arguments.delta","output_index":2,"item_id":"fc_1","delta":"\"x\"}"}"#)
+        _ = try accumulator.consume(payload: #"{"type":"response.output_item.done","output_index":2,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{\"q\":\"x\"}"}}"#)
+        _ = try accumulator.consume(payload: #"""
         {
           "type":"response.completed",
           "response":{
@@ -200,7 +200,7 @@ final class OpenAIResponsesReasoningTests: XCTestCase {
 
     func testSSEAccumulatorRejectsCompletionWithoutTerminalEvent() throws {
         var accumulator = OpenAIResponsesStreamAccumulator()
-        try accumulator.consume(payload: #"{"type":"response.output_text.delta","delta":"partial"}"#)
+        _ = try accumulator.consume(payload: #"{"type":"response.output_text.delta","delta":"partial"}"#)
 
         XCTAssertThrowsError(try accumulator.finish()) { error in
             XCTAssertEqual(error as? OpenAIResponsesCodecError, .incompleteStream)
@@ -537,8 +537,9 @@ private final class ResponsesTransportURLProtocol: URLProtocol, @unchecked Senda
     nonisolated override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     nonisolated override func startLoading() {
+        let capturedRequest = request.materializingHTTPBodyForTesting()
         let state = Self.lock.withLock { () -> (Mode, Int) in
-            Self.requests.append(request)
+            Self.requests.append(capturedRequest)
             return (Self.mode, Self.requests.count)
         }
         let statusCode: Int
@@ -583,7 +584,7 @@ private final class ResponsesTransportURLProtocol: URLProtocol, @unchecked Senda
         default:
             contentType = "application/json"
         }
-        guard let url = request.url,
+        guard let url = capturedRequest.url,
               let response = HTTPURLResponse(
                 url: url,
                 statusCode: statusCode,

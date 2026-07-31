@@ -123,13 +123,14 @@ private final class ReasoningControlCacheURLProtocol: URLProtocol, @unchecked Se
     nonisolated override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     nonisolated override func startLoading() {
-        Self.lock.withLock { Self.requests.append(request) }
-        guard let url = request.url else {
+        let capturedRequest = request.materializingHTTPBodyForTesting()
+        Self.lock.withLock { Self.requests.append(capturedRequest) }
+        guard let url = capturedRequest.url else {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL))
             return
         }
 
-        let body = (try? Self.requestObject(request)) ?? [:]
+        let body = (try? Self.requestObject(capturedRequest)) ?? [:]
         let rejectsReasoning = body["reasoning"] != nil
         let statusCode = rejectsReasoning ? 400 : 200
         let responseBody = rejectsReasoning

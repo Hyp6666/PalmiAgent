@@ -310,7 +310,7 @@ final class ContinuedProcessingCoordinatorTests: XCTestCase {
     }
 }
 
-private nonisolated actor AsyncGate {
+private actor AsyncGate {
     private var continuation: CheckedContinuation<Void, Never>?
     private var isOpen = false
 

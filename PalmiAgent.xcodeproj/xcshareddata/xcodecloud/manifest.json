@@ -1,0 +1,9 @@
+{
+  "id" : "6ccab00c-f377-4fc2-bc49-e38b8c8baad8",
+  "targets" : [
+    {
+      "id" : "9537cf29-45ea-4d86-a0cb-41b089dbcaa2",
+      "name" : "PalmiAgent"
+    }
+  ]
+}

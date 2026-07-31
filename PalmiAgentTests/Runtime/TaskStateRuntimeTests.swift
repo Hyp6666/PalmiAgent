@@ -2,22 +2,51 @@ import XCTest
 @testable import PalmiAgent
 
 final class TaskStateRuntimeTests: XCTestCase {
-    func testModernTasksFieldAndLegacyItemsAliasDecodeToSameContract() throws {
-        let modern = try JSONDecoder().decode(
-            UpdateTaskStateArgs.self,
-            from: Data(#"{"reason":"plan","expectedRevision":4,"tasks":[{"id":"t1","title":"Inspect","status":"in_progress"}]}"#.utf8)
-        )
-        let legacy = try JSONDecoder().decode(
-            UpdateTaskStateArgs.self,
-            from: Data(#"{"reason":"plan","items":[{"id":"t1","title":"Inspect","status":"in_progress"}]}"#.utf8)
+    func testSnakeCaseFieldsDecodeIntoSingleTaskContract() throws {
+        let args = try JSONDecoder().decode(
+            UpdateTaskArgs.self,
+            from: Data(
+                #"{"operation":"create","task_id":"custom","title":"Inspect","status":"in_progress","display_summary":"Reviewing","hidden_detail":"Check every file","acceptance_criteria":["Tests pass"],"evidence_tool_use_ids":["call-1"]}"#.utf8
+            )
         )
 
-        XCTAssertEqual(modern.tasks.count, 1)
-        XCTAssertEqual(modern.expectedRevision, 4)
-        XCTAssertEqual(legacy.tasks.map(\.title), modern.tasks.map(\.title))
+        XCTAssertEqual(args.operation, .create)
+        XCTAssertEqual(args.taskID, "custom")
+        XCTAssertEqual(args.title, "Inspect")
+        XCTAssertEqual(args.status, .inProgress)
+        XCTAssertEqual(args.displaySummary, "Reviewing")
+        XCTAssertEqual(args.hiddenDetail, "Check every file")
+        XCTAssertEqual(args.acceptanceCriteria, ["Tests pass"])
+        XCTAssertEqual(args.evidenceToolUseIDs, ["call-1"])
     }
 
-    func testCompletedLifecycleNormalizesEveryRemainingTaskAndPreservesTerminalItems() throws {
+    func testCreateStartsNewTaskListAndPromotesFirstPendingTask() throws {
+        let identity = AgentTaskStateIdentity(
+            projectID: UUID(),
+            threadID: UUID(),
+            sessionID: UUID(),
+            taskRunID: nil
+        )
+        let args = try JSONDecoder().decode(
+            UpdateTaskArgs.self,
+            from: Data(#"{"operation":"create","title":"Inspect","status":"pending"}"#.utf8)
+        )
+
+        let result = try AgentTaskStateReducer().reduce(
+            args: args,
+            identity: identity,
+            existingState: nil,
+            now: Date(timeIntervalSince1970: 10)
+        )
+
+        XCTAssertEqual(result.revision, 1)
+        XCTAssertEqual(result.lifecycle, .active)
+        XCTAssertEqual(result.focusItemID, "t1")
+        XCTAssertEqual(result.items.map(\.id), ["t1"])
+        XCTAssertEqual(result.items.map(\.status), [.inProgress])
+    }
+
+    func testCompletingLastActiveTaskCompletesLifecycleAndPreservesTerminalItems() throws {
         let identity = AgentTaskStateIdentity(
             projectID: UUID(),
             threadID: UUID(),
@@ -27,8 +56,8 @@ final class TaskStateRuntimeTests: XCTestCase {
         let now = Date(timeIntervalSince1970: 10)
         let existing = makeState(identity: identity, now: now)
         let args = try JSONDecoder().decode(
-            UpdateTaskStateArgs.self,
-            from: Data(#"{"reason":"done","expectedRevision":2,"lifecycle":"completed","tasks":[{"id":"t1","title":"One","status":"pending"},{"id":"t2","title":"Two","status":"pending"}]}"#.utf8)
+            UpdateTaskArgs.self,
+            from: Data(#"{"operation":"update","task_id":"t2","status":"completed"}"#.utf8)
         )
 
         let result = try AgentTaskStateReducer().reduce(
@@ -41,9 +70,10 @@ final class TaskStateRuntimeTests: XCTestCase {
         XCTAssertEqual(result.lifecycle, .completed)
         XCTAssertEqual(result.items.map(\.status), [.completed, .completed])
         XCTAssertEqual(result.completedCount, result.totalCount)
+        XCTAssertNil(result.focusItemID)
     }
 
-    func testExpectedRevisionRejectsStaleWholeListUpdate() throws {
+    func testUpdateRejectsUnknownTaskID() throws {
         let identity = AgentTaskStateIdentity(
             projectID: UUID(),
             threadID: UUID(),
@@ -52,8 +82,8 @@ final class TaskStateRuntimeTests: XCTestCase {
         )
         let existing = makeState(identity: identity, now: .now)
         let args = try JSONDecoder().decode(
-            UpdateTaskStateArgs.self,
-            from: Data(#"{"reason":"stale","expectedRevision":1,"tasks":[{"id":"t1","title":"One","status":"completed"}]}"#.utf8)
+            UpdateTaskArgs.self,
+            from: Data(#"{"operation":"update","task_id":"missing","status":"completed"}"#.utf8)
         )
 
         XCTAssertThrowsError(
@@ -66,7 +96,7 @@ final class TaskStateRuntimeTests: XCTestCase {
         )
     }
 
-    func testExistingActiveListRejectsMissingExpectedRevision() throws {
+    func testTerminalTaskRejectsRegressionToNonterminalStatus() throws {
         let identity = AgentTaskStateIdentity(
             projectID: UUID(),
             threadID: UUID(),
@@ -75,8 +105,8 @@ final class TaskStateRuntimeTests: XCTestCase {
         )
         let existing = makeState(identity: identity, now: .now)
         let args = try JSONDecoder().decode(
-            UpdateTaskStateArgs.self,
-            from: Data(#"{"reason":"unsafe","tasks":[{"id":"t1","title":"One","status":"completed"}]}"#.utf8)
+            UpdateTaskArgs.self,
+            from: Data(#"{"operation":"update","task_id":"t1","status":"pending"}"#.utf8)
         )
 
         XCTAssertThrowsError(

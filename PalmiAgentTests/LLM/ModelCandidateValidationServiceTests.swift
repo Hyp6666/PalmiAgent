@@ -89,7 +89,7 @@ final class ModelCandidateValidationServiceTests: XCTestCase {
         )
     }
 
-    func testVisionValidationReusesResponsesProtocolSelectedByTextProbe() async throws {
+    func testMultimodalCandidateUsesSingleResponsesTextProbe() async throws {
         let host = "validation-vision-responses.test"
         let result = try await service().validate(
             draft(slot: .multimodal, baseURL: "https://\(host)/v1")
@@ -97,12 +97,15 @@ final class ModelCandidateValidationServiceTests: XCTestCase {
 
         XCTAssertEqual(result.capabilities, ModelCandidateCapabilities(supportsText: true, supportsVision: true))
         let requests = ValidationURLProtocol.requests(forHost: host)
-        XCTAssertEqual(requests.map(\.url?.path), ["/v1/responses", "/v1/responses"])
-        let visionBody = try bodyObject(of: try XCTUnwrap(requests.last))
-        XCTAssertTrue(String(decoding: try JSONSerialization.data(withJSONObject: visionBody), as: UTF8.self).contains("input_image"))
+        XCTAssertEqual(requests.map(\.url?.path), ["/v1/responses"])
+        let body = try bodyObject(of: try XCTUnwrap(requests.first))
+        XCTAssertFalse(
+            String(decoding: try JSONSerialization.data(withJSONObject: body), as: UTF8.self)
+                .contains("input_image")
+        )
     }
 
-    func testVisionValidationReusesChatProtocolAfterTextFallback() async throws {
+    func testMultimodalCandidateUsesSingleTextProbeWithChatFallback() async throws {
         let host = "validation-vision-chat-fallback.test"
         let result = try await service().validate(
             draft(slot: .multimodal, baseURL: "https://\(host)/v1")
@@ -111,7 +114,7 @@ final class ModelCandidateValidationServiceTests: XCTestCase {
         XCTAssertEqual(result.capabilities, ModelCandidateCapabilities(supportsText: true, supportsVision: true))
         XCTAssertEqual(
             ValidationURLProtocol.requests(forHost: host).map(\.url?.path),
-            ["/v1/responses", "/v1/chat/completions", "/v1/chat/completions"]
+            ["/v1/responses", "/v1/chat/completions"]
         )
     }
 
@@ -153,13 +156,14 @@ private final class ValidationURLProtocol: URLProtocol, @unchecked Sendable {
     nonisolated override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     nonisolated override func startLoading() {
-        Self.lock.withLock { Self.recordedRequests.append(request) }
-        guard let url = request.url else {
+        let capturedRequest = request.materializingHTTPBodyForTesting()
+        Self.lock.withLock { Self.recordedRequests.append(capturedRequest) }
+        guard let url = capturedRequest.url else {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL))
             return
         }
 
-        let body = request.httpBody.map { String(decoding: $0, as: UTF8.self) } ?? ""
+        let body = capturedRequest.httpBody.map { String(decoding: $0, as: UTF8.self) } ?? ""
         let isVision = body.contains("input_image") || body.contains("image_url")
         let statusCode: Int
         let responseBody: Data
@@ -201,7 +205,7 @@ private final class ValidationURLProtocol: URLProtocol, @unchecked Sendable {
 
     nonisolated override func stopLoading() {}
 
-    private static func responsesPayload(text: String) -> Data {
+    private nonisolated static func responsesPayload(text: String) -> Data {
         try! JSONSerialization.data(withJSONObject: [
             "id": "resp_validation",
             "object": "response",
@@ -214,7 +218,7 @@ private final class ValidationURLProtocol: URLProtocol, @unchecked Sendable {
         ])
     }
 
-    private static func chatPayload(text: String) -> Data {
+    private nonisolated static func chatPayload(text: String) -> Data {
         try! JSONSerialization.data(withJSONObject: [
             "choices": [["message": ["role": "assistant", "content": text]]]
         ])

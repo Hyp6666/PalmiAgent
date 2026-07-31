@@ -135,7 +135,7 @@ struct OpenAIResponsesRequest: Encodable {
         }
     }
 
-    private static func toolValue(_ tool: OpenAIChatToolDefinition) -> JSONRuntimeValue {
+    private nonisolated static func toolValue(_ tool: OpenAIChatToolDefinition) -> JSONRuntimeValue {
         .object([
             "type": .string("function"),
             "name": .string(tool.function.name),
@@ -144,7 +144,7 @@ struct OpenAIResponsesRequest: Encodable {
         ])
     }
 
-    private static func runtimeValue(from value: JSONValue) -> JSONRuntimeValue {
+    private nonisolated static func runtimeValue(from value: JSONValue) -> JSONRuntimeValue {
         switch value {
         case .string(let value): .string(value)
         case .number(let value): .number(value)

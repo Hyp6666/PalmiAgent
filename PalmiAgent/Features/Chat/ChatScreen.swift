@@ -3678,7 +3678,7 @@ private final class PalmiProcessingSpriteUIView: UIView {
         spriteLayer.contentsGravity = .resizeAspect
         spriteLayer.magnificationFilter = .linear
         spriteLayer.minificationFilter = .linear
-        spriteLayer.contentsScale = UIScreen.main.scale
+        spriteLayer.contentsScale = traitCollection.displayScale
         layer.addSublayer(spriteLayer)
         setFirstFrame()
     }

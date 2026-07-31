@@ -531,7 +531,7 @@ final class ChatStore {
             }
             await workspaceManager.withSelection(turnSelection) {
                 do {
-                    let modelInput = await inputWithAgentRuntimeContext(
+                    let modelInput = inputWithAgentRuntimeContext(
                         hiddenText,
                         surface: turnSurface,
                         selection: turnSelection,
