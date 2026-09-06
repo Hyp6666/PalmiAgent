@@ -369,56 +369,57 @@ final class APIConnectionValidationService {
         )
 
         do {
+            try await performNegotiatedValidation(
+                attemptedProtocol: initialProtocol,
+                configuration: configuration,
+                runtimeProfile: runtimeProfile,
+                resolvedModel: resolvedModel
+            )
+        } catch {
+            try throwMappedValidationError(
+                error,
+                configuration: configuration,
+                role: role,
+                model: model
+            )
+        }
+
+        return model
+    }
+
+    private func performNegotiatedValidation(
+        attemptedProtocol: LLMWireProtocol,
+        configuration: APIResolvedConfiguration,
+        runtimeProfile: LLMProviderRuntimeProfile,
+        resolvedModel: APIModelDefinition
+    ) async throws {
+        do {
             try await performValidation(
-                wireProtocol: initialProtocol,
+                wireProtocol: attemptedProtocol,
                 configuration: configuration,
                 runtimeProfile: runtimeProfile,
                 resolvedModel: resolvedModel
             )
             wireProtocolContractStore.recordSuccess(
-                protocol: initialProtocol,
+                protocol: attemptedProtocol,
                 profileID: configuration.profileID,
                 modelID: resolvedModel.id,
-                endpoints: endpoints
+                endpoints: configuration.endpointResolution
             )
         } catch {
-            if fallbackProtocol(
+            guard let fallback = fallbackProtocol(
                 after: error,
-                attemptedProtocol: initialProtocol,
+                attemptedProtocol: attemptedProtocol,
                 configuration: configuration,
                 modelID: resolvedModel.id
-            ) == .chatCompletions {
-                do {
-                    try await performChatValidation(
-                        configuration: configuration,
-                        runtimeProfile: runtimeProfile,
-                        resolvedModel: resolvedModel
-                    )
-                    wireProtocolContractStore.recordSuccess(
-                        protocol: .chatCompletions,
-                        profileID: configuration.profileID,
-                        modelID: resolvedModel.id,
-                        endpoints: endpoints
-                    )
-                } catch {
-                    try throwMappedValidationError(
-                        error,
-                        configuration: configuration,
-                        role: role,
-                        model: model
-                    )
-                }
-            } else {
-                try throwMappedValidationError(
-                    error,
-                    configuration: configuration,
-                    role: role,
-                    model: model
-                )
-            }
+            ) else { throw error }
+            try await performNegotiatedValidation(
+                attemptedProtocol: fallback,
+                configuration: configuration,
+                runtimeProfile: runtimeProfile,
+                resolvedModel: resolvedModel
+            )
         }
-
-        return model
     }
 
     private func performValidation(
@@ -438,6 +439,11 @@ final class APIConnectionValidationService {
             try await performChatValidation(
                 configuration: configuration,
                 runtimeProfile: runtimeProfile,
+                resolvedModel: resolvedModel
+            )
+        case .anthropicMessages:
+            try await performMessagesValidation(
+                configuration: configuration,
                 resolvedModel: resolvedModel
             )
         }
@@ -501,6 +507,39 @@ final class APIConnectionValidationService {
         _ = try await LLMHTTPTransport.perform(request, using: session)
     }
 
+    private func performMessagesValidation(
+        configuration: APIResolvedConfiguration,
+        resolvedModel: APIModelDefinition
+    ) async throws {
+        let requestBody = AnthropicMessagesRequest(
+            model: resolvedModel.id,
+            messages: [.user("你好")],
+            tools: [],
+            toolChoice: nil,
+            stream: true,
+            maxTokens: 128
+        )
+        var request = URLRequest(
+            url: configuration.messagesURL,
+            timeoutInterval: LLMHTTPTransport.defaultTimeoutInterval
+        )
+        request.httpMethod = "POST"
+        applyHeaders(
+            AnthropicMessagesAdapter.headers(
+                apiKey: configuration.apiKey,
+                acceptsStreaming: true
+            ),
+            to: &request
+        )
+        request.httpBody = try JSONEncoder().encode(requestBody)
+        _ = try await AnthropicMessagesTransport.performStreaming(
+            request,
+            using: session,
+            onDelta: { _ in },
+            onReasoningDelta: { _ in }
+        )
+    }
+
     private func fallbackProtocol(
         after error: Error,
         attemptedProtocol: LLMWireProtocol,
@@ -518,15 +557,7 @@ final class APIConnectionValidationService {
                 endpoints: endpoints
             )
         }
-        let isIncompatiblePayload = (error as? OpenAIResponsesCodecError) == .invalidEnvelope
-            || error is DecodingError
-        guard isIncompatiblePayload else { return nil }
-        return wireProtocolContractStore.fallbackProtocolAfterIncompatiblePayload(
-            attemptedProtocol: attemptedProtocol,
-            profileID: configuration.profileID,
-            modelID: modelID,
-            endpoints: endpoints
-        )
+        return nil
     }
 
     private func throwMappedValidationError(
@@ -573,6 +604,16 @@ final class APIConnectionValidationService {
             switch codecError {
             case .remoteFailure(let message):
                 throw AppError.operationFailed(message ?? "联通验证失败：模型服务报告 Responses 请求失败。")
+            case .invalidEnvelope:
+                throw AppError.operationFailed("联通验证失败：模型服务返回的数据无法解析。")
+            case .incompleteStream:
+                throw AppError.operationFailed("联通验证失败：模型流提前中断。")
+            }
+        }
+        if let codecError = error as? AnthropicMessagesCodecError {
+            switch codecError {
+            case .remoteFailure(let message):
+                throw AppError.operationFailed(message ?? "联通验证失败：模型服务报告 Messages 请求失败。")
             case .invalidEnvelope:
                 throw AppError.operationFailed("联通验证失败：模型服务返回的数据无法解析。")
             case .incompleteStream:

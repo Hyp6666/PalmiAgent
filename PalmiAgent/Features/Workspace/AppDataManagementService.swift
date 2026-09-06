@@ -43,6 +43,7 @@ enum AppDataManagementService {
     static func clearPalmiKeychainSecrets() throws {
         try KeychainSecretStore(service: "com.hongyupeng.PalmiAgent.api-config").deleteAllSecrets()
         try KeychainSecretStore(service: "com.hongyupeng.PalmiAgent.model-plans").deleteAllSecrets()
+        try KeychainSecretStore(service: "com.hongyupeng.PalmiAgent.remote-search").deleteAllSecrets()
     }
 
     @MainActor

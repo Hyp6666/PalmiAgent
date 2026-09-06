@@ -56,10 +56,12 @@ PalmiAgent 不把你绑定在某一家模型服务上，也不通过自有云端
 
 ### 接入你自己的模型服务
 
-直接连接你自己的 API 账号、局域网模型服务或 OpenAI-compatible endpoint。内置支持 OpenAI、Azure OpenAI、GLM / Z.AI、DeepSeek、Qwen、Kimi、MiniMax、豆包、混元、千帆、阶跃星辰、ModelScope、SiliconFlow、OpenRouter、Ollama 与 LM Studio，也可手动添加其他兼容服务。
+直接连接你自己的 API 账号或局域网模型服务。支持选择 **OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 三种协议**，以及**自动协议匹配**。按服务需要填写请求地址、API Key 与模型，即可接入。
+
+内置支持 OpenAI、Azure OpenAI、GLM / Z.AI、DeepSeek、Qwen、Kimi、MiniMax、豆包、混元、千帆、阶跃星辰、ModelScope、SiliconFlow、OpenRouter、Ollama 与 LM Studio，也可手动添加其他兼容服务。
 
 <p align="center">
-  <a href="Screenshots/Product/zh-CN/07-OpenAI兼容.png"><img src="Screenshots/Product/zh-CN/07-OpenAI兼容.png" width="430" alt="添加 OpenAI-compatible 模型接口"></a>
+  <a href="Screenshots/Product/zh-CN/07-OpenAI兼容.png"><img src="Screenshots/Product/zh-CN/07-OpenAI兼容.png" width="430" alt="模型配置支持三种协议及自动协议匹配"></a>
 </p>
 
 ### 三种模型角色，一套灵活方案
@@ -129,7 +131,9 @@ PalmiAgent 内置真实的 **CPython 3.14** 运行环境，让 Agent 不必只�
 
 PalmiAgent 的网页能力面向研究流程，而不只是打开一个搜索框。
 
-- 支持多个搜索源，并可先检测当前网络环境下哪些来源可用。
+- 在「设置 → 搜索配置」中选择**本地搜索或远端搜索**。
+- **本地搜索**：由设备直接进行联网搜索，可从百度、必应、DuckDuckGo、搜狗、360 搜索中选择一个搜索源。
+- **远端搜索**：通过 Responses 或 Messages 接入具备服务端联网搜索能力的服务。可保存多套服务地址、模型和 API Key 配置，验证连接，并按需切换使用。
 - 搜索候选页面后，继续读取网页、JavaScript 页面、PDF、JSON、XML 与纯文本内容。
 - 可批量获取多个来源，按区间读取长页面，减少无关上下文与 Token 消耗。
 - 必要时可归档网页及其图片、样式、脚本和字体，保留可追溯的研究素材。

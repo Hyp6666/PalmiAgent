@@ -185,7 +185,7 @@ enum LLMBuiltInAPIProviderCatalog {
             endpointPlaceholder: "https://api.example.com/v1",
             secretRequirement: .optional,
             categoryNote: "",
-            // 不预置任何模型：模型名由用户手动填写（只要走 OpenAI 兼容协议即可）。
+            // 不预置任何模型：模型名与请求地址由用户配置。
             models: [],
             editableModelRoles: [.reasoningModel]
         )
@@ -223,7 +223,7 @@ enum LLMBuiltInAPIProviderCatalog {
                     id: .standardAPI,
                     title: text("access.standard.title"),
                     subtitle: text("access.standard.subtitle"),
-                    badgeText: "OpenAI-compatible",
+                    badgeText: "Chat Completions",
                     baseURL: URL(string: baseURL)!,
                     models: models,
                     note: ""
@@ -261,7 +261,7 @@ enum LLMBuiltInAPIProviderCatalog {
                     id: .standardAPI,
                     title: text("access.customEndpoint.title"),
                     subtitle: endpointPlaceholder,
-                    badgeText: "OpenAI-compatible",
+                    badgeText: "Chat Completions",
                     baseURL: nil,
                     models: models,
                     note: categoryNote

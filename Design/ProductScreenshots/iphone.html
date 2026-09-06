@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=1284, initial-scale=1" />
+  <link rel="icon" href="data:,">
+  <title>PalmiAgent App Store Screens</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      width: 1284px;
+      height: 2778px;
+      margin: 0;
+      overflow: hidden;
+      background: #071d4a;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: geometricPrecision;
+    }
+    .canvas {
+      position: relative;
+      width: 1284px;
+      height: 2778px;
+      overflow: hidden;
+      isolation: isolate;
+      color: white;
+      background:
+        radial-gradient(circle at 84% 6%, rgba(140, 221, 255, .70) 0, rgba(140, 221, 255, 0) 28%),
+        radial-gradient(circle at 4% 48%, rgba(69, 191, 255, .52) 0, rgba(69, 191, 255, 0) 36%),
+        linear-gradient(155deg, #0b8dff 0%, #0875f1 35%, #0759ce 70%, #063b9b 100%);
+    }
+    .canvas.light {
+      color: #082353;
+      background:
+        radial-gradient(circle at 88% 7%, rgba(98, 195, 255, .46) 0, rgba(98, 195, 255, 0) 27%),
+        radial-gradient(circle at 4% 55%, rgba(32, 132, 255, .18) 0, rgba(32, 132, 255, 0) 38%),
+        linear-gradient(160deg, #f7fbff 0%, #e7f3ff 42%, #cfe7ff 100%);
+    }
+    .canvas.deep {
+      background:
+        radial-gradient(circle at 87% 8%, rgba(96, 223, 255, .50) 0, rgba(96, 223, 255, 0) 29%),
+        radial-gradient(circle at 0% 70%, rgba(31, 139, 255, .42) 0, rgba(31, 139, 255, 0) 34%),
+        linear-gradient(155deg, #0a70f5 0%, #0750c8 44%, #07286e 100%);
+    }
+    .grain {
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      opacity: .16;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.13'/%3E%3C/svg%3E");
+      mix-blend-mode: soft-light;
+      pointer-events: none;
+    }
+    .orbit, .orbit::before, .orbit::after {
+      position: absolute;
+      border: 2px solid rgba(255,255,255,.16);
+      border-radius: 50%;
+      content: "";
+    }
+    .light .orbit, .light .orbit::before, .light .orbit::after {
+      border-color: rgba(0, 112, 235, .12);
+    }
+    .orbit {
+      width: 930px;
+      height: 930px;
+      right: -450px;
+      top: 255px;
+    }
+    .orbit::before { width: 680px; height: 680px; left: 123px; top: 123px; }
+    .orbit::after { width: 410px; height: 410px; left: 258px; top: 258px; }
+    .header {
+      position: absolute;
+      z-index: 3;
+      left: 92px;
+      right: 92px;
+      top: 96px;
+    }
+    .title {
+      max-width: 1100px;
+      margin: 0;
+      font-family: "Yuanti SC", "圆体-简", "Hannotate SC", "PingFang SC", sans-serif;
+      font-size: 104px;
+      line-height: 1.12;
+      letter-spacing: -.025em;
+      font-weight: 700;
+      text-wrap: balance;
+      text-shadow: 0 8px 32px rgba(0, 25, 78, .16);
+    }
+    .light .title { text-shadow: none; }
+    .subtitle {
+      max-width: 1060px;
+      margin: 24px 0 0;
+      color: rgba(255,255,255,.82);
+      font-family: "Yuanti SC", "圆体-简", "PingFang SC", sans-serif;
+      font-size: 42px;
+      line-height: 1.45;
+      letter-spacing: -.006em;
+      font-weight: 400;
+    }
+    .light .subtitle { color: rgba(8,35,83,.67); }
+    .canvas.en .title {
+      max-width: 1120px;
+      font-family: "Avenir Next Rounded", -apple-system, sans-serif;
+      font-size: 98px;
+      line-height: 1.04;
+      letter-spacing: -.035em;
+    }
+    .canvas.en .subtitle {
+      max-width: 1110px;
+      margin-top: 26px;
+      font-family: "Avenir Next Rounded", -apple-system, sans-serif;
+      font-size: 38px;
+      line-height: 1.36;
+      letter-spacing: -.015em;
+    }
+    .stage {
+      position: absolute;
+      z-index: 2;
+      left: 111px;
+      top: 480px;
+      width: 1062px;
+      padding: 14px;
+      border: 1px solid rgba(255,255,255,.64);
+      border-radius: 72px 72px 48px 48px;
+      background: linear-gradient(145deg, rgba(255,255,255,.91), rgba(245,250,255,.76));
+      box-shadow:
+        0 54px 120px rgba(0, 29, 91, .30),
+        0 8px 24px rgba(0, 39, 120, .17),
+        inset 0 1px 1px rgba(255,255,255,.94);
+      backdrop-filter: blur(32px) saturate(150%);
+      transform: none;
+    }
+    .light .stage {
+      border-color: rgba(255,255,255,.92);
+      box-shadow:
+        0 58px 125px rgba(17, 89, 174, .22),
+        0 8px 24px rgba(9, 70, 148, .12),
+        inset 0 1px 1px #fff;
+    }
+    .screen {
+      position: relative;
+      overflow: hidden;
+      width: 100%;
+      aspect-ratio: 1170 / 2532;
+      border-radius: 58px 58px 36px 36px;
+      background: #f5f6f9;
+      box-shadow: inset 0 0 0 1px rgba(7,42,92,.08);
+    }
+    .screen img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      object-position: center;
+      transform: none;
+    }
+  </style>
+</head>
+<body>
+  <main id="canvas" class="canvas">
+    <div class="grain"></div>
+    <div class="orbit"></div>
+    <header class="header">
+      <h1 id="title" class="title"></h1>
+      <p id="subtitle" class="subtitle"></p>
+    </header>
+    <section id="stage" class="stage">
+      <div class="screen"><img id="screen" alt="PalmiAgent app screenshot" /></div>
+    </section>
+  </main>
+
+  <script>
+    const pages = {
+      zh: [{ tone: "deep", title: "三种协议，\n自由接入模型", subtitle: "Chat Completions · Responses · Messages，支持自动匹配", image: "assets/iphone-zh.PNG" }],
+      en: [{ tone: "deep", title: "Three Protocols.\nYour Choice of Model.", subtitle: "Chat Completions · Responses · Messages, with automatic matching.", image: "assets/iphone-en.PNG" }]
+    };
+
+    const params = new URLSearchParams(location.search);
+    const language = params.get("lang") === "en" ? "en" : "zh";
+    const number = 1;
+    const page = pages[language][number - 1];
+    const canvas = document.getElementById("canvas");
+    canvas.className = `canvas ${page.tone} ${language}`;
+    document.documentElement.lang = language === "en" ? "en" : "zh-CN";
+    document.getElementById("title").innerHTML = page.title.replace(/\n/g, "<br>");
+    document.getElementById("subtitle").textContent = page.subtitle;
+    document.getElementById("screen").src = page.image;
+    document.getElementById("stage").className = "stage";
+  </script>
+</body>
+</html>

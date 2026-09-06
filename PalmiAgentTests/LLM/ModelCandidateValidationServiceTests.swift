@@ -66,13 +66,51 @@ final class ModelCandidateValidationServiceTests: XCTestCase {
         }
     }
 
-    func testUnknownBaseFallsBackOnceForSuccessfulNonResponsesPayload() async throws {
+    func testUnknownBaseDoesNotReplayAfterSuccessfulIncompatibleResponsesPayload() async throws {
         let host = "validation-fallback-payload.test"
-        _ = try await service().validate(draft(baseURL: "https://\(host)/v1"))
+
+        await XCTAssertThrowsErrorAsync {
+            _ = try await self.service().validate(self.draft(baseURL: "https://\(host)/v1"))
+        }
 
         XCTAssertEqual(
             ValidationURLProtocol.requests(forHost: host).map(\.url?.path),
-            ["/v1/responses", "/v1/chat/completions"]
+            ["/v1/responses"]
+        )
+    }
+
+    func testAutomaticFallsThroughUnsupportedChatEndpointToMessages() async throws {
+        let host = "validation-messages-fallback.test"
+
+        _ = try await service().validate(draft(baseURL: "https://\(host)/v1"))
+
+        let requests = ValidationURLProtocol.requests(forHost: host)
+        XCTAssertEqual(
+            requests.map(\.url?.path),
+            ["/v1/responses", "/v1/chat/completions", "/v1/messages"]
+        )
+        let messagesRequest = try XCTUnwrap(requests.last)
+        XCTAssertEqual(messagesRequest.value(forHTTPHeaderField: "x-api-key"), "test-key")
+        XCTAssertEqual(messagesRequest.value(forHTTPHeaderField: "anthropic-version"), "2023-06-01")
+        let body = try bodyObject(of: messagesRequest)
+        XCTAssertEqual(body["model"] as? String, "opaque-model-id")
+        XCTAssertNotNil(body["messages"])
+        XCTAssertNotNil(body["max_tokens"])
+    }
+
+    func testExplicitMessagesPreferenceUsesOnlyMessages() async throws {
+        let host = "validation-explicit-messages.test"
+
+        _ = try await service().validate(
+            draft(
+                baseURL: "https://\(host)/v1",
+                wireProtocolPreference: .anthropicMessages
+            )
+        )
+
+        XCTAssertEqual(
+            ValidationURLProtocol.requests(forHost: host).map(\.url?.path),
+            ["/v1/messages"]
         )
     }
 
@@ -126,14 +164,16 @@ final class ModelCandidateValidationServiceTests: XCTestCase {
 
     private func draft(
         slot: ModelPlanSlot = .primary,
-        baseURL: String
+        baseURL: String,
+        wireProtocolPreference: LLMWireProtocolPreference = .automatic
     ) -> ModelCandidateDraft {
         ModelCandidateDraft(
             slot: slot,
             displayName: "Opaque",
             baseURLString: baseURL,
             apiKey: "test-key",
-            modelName: "opaque-model-id"
+            modelName: "opaque-model-id",
+            wireProtocolPreference: wireProtocolPreference
         )
     }
 
@@ -178,6 +218,9 @@ private final class ValidationURLProtocol: URLProtocol, @unchecked Sendable {
         case (let host, "/v1/responses") where host.contains("vision-chat-fallback"):
             statusCode = 404
             responseBody = Data(#"{"error":{"message":"not found"}}"#.utf8)
+        case (let host, let path) where host.contains("messages-fallback") && path != "/v1/messages":
+            statusCode = 404
+            responseBody = Data(#"{"error":{"message":"not found"}}"#.utf8)
         case (let host, "/v1/responses") where host.contains("validation-fallback-") && !host.contains("payload"):
             statusCode = Int(host.split(separator: "-").last?.split(separator: ".").first ?? "") ?? 404
             responseBody = Data(#"{"error":{"message":"unsupported endpoint"}}"#.utf8)
@@ -187,6 +230,9 @@ private final class ValidationURLProtocol: URLProtocol, @unchecked Sendable {
         case (_, let path) where path.hasSuffix("/responses"):
             statusCode = 200
             responseBody = Self.responsesPayload(text: isVision ? "red" : "OK")
+        case (_, let path) where path.hasSuffix("/messages"):
+            statusCode = 200
+            responseBody = Self.messagesPayload(text: isVision ? "red" : "OK")
         default:
             statusCode = 200
             responseBody = Self.chatPayload(text: isVision ? "red" : "OK")
@@ -221,6 +267,16 @@ private final class ValidationURLProtocol: URLProtocol, @unchecked Sendable {
     private nonisolated static func chatPayload(text: String) -> Data {
         try! JSONSerialization.data(withJSONObject: [
             "choices": [["message": ["role": "assistant", "content": text]]]
+        ])
+    }
+
+    private nonisolated static func messagesPayload(text: String) -> Data {
+        try! JSONSerialization.data(withJSONObject: [
+            "id": "msg_validation",
+            "type": "message",
+            "role": "assistant",
+            "content": [["type": "text", "text": text]],
+            "usage": ["input_tokens": 2, "output_tokens": 1]
         ])
     }
 }

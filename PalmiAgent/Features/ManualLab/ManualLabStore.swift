@@ -47,6 +47,8 @@ final class ManualLabStore {
     let executor: ActionExecutor
     let apiConfigurationStore: APIConfigurationStore
     let modelPlanStore: ModelPlanStore
+    let remoteSearchConfigurationStore: RemoteSearchConfigurationStore
+    let remoteWebSearchService: RemoteWebSearchService
     let llmToolCallingService: LLMToolCallingService
     let apiConnectionValidationService: APIConnectionValidationService
     let modelCandidateValidationService: ModelCandidateValidationService
@@ -81,6 +83,8 @@ final class ManualLabStore {
         executor: ActionExecutor,
         apiConfigurationStore: APIConfigurationStore,
         modelPlanStore: ModelPlanStore,
+        remoteSearchConfigurationStore: RemoteSearchConfigurationStore,
+        remoteWebSearchService: RemoteWebSearchService,
         llmToolCallingService: LLMToolCallingService,
         apiConnectionValidationService: APIConnectionValidationService,
         modelCandidateValidationService: ModelCandidateValidationService,
@@ -93,6 +97,8 @@ final class ManualLabStore {
         self.executor = executor
         self.apiConfigurationStore = apiConfigurationStore
         self.modelPlanStore = modelPlanStore
+        self.remoteSearchConfigurationStore = remoteSearchConfigurationStore
+        self.remoteWebSearchService = remoteWebSearchService
         self.llmToolCallingService = llmToolCallingService
         self.apiConnectionValidationService = apiConnectionValidationService
         self.modelCandidateValidationService = modelCandidateValidationService
@@ -263,6 +269,12 @@ final class ManualLabStore {
     func setActiveProviderID(_ providerID: APIProviderID) {
         apiConfigurationStore.setActiveProviderID(providerID)
         refreshAPIConfiguration()
+    }
+
+    func restoreFactoryStateAfterPreferencesReset() {
+        refreshAPIConfiguration()
+        modelPlanStore.refresh()
+        remoteSearchConfigurationStore.refresh()
     }
 
     func snapshot(for providerID: APIProviderID) -> APIProviderConfigurationSnapshot {

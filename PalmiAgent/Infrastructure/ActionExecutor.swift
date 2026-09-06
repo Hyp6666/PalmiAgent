@@ -9,6 +9,8 @@ import VisionKit
 
 @MainActor
 final class ActionExecutor {
+    private static let remoteSearchTimeoutSeconds: TimeInterval = 30
+
     private let workspaceManager: WorkspaceManager
     private let skillRegistry: SkillRegistry
     private let workspaceReadService: WorkspaceReadService
@@ -24,6 +26,8 @@ final class ActionExecutor {
     private let speechService: SpeechService
     private let router: SystemRouter
     private let webResearchService: WebResearchService
+    private let remoteSearchConfigurationStore: RemoteSearchConfigurationStore
+    private let remoteWebSearchService: RemoteWebSearchService
     private let spotlightService: SpotlightService
     private let foundationModelService: FoundationModelService
     private let currentDateTimeService: CurrentDateTimeService
@@ -49,6 +53,8 @@ final class ActionExecutor {
         speechService: SpeechService,
         router: SystemRouter,
         webResearchService: WebResearchService,
+        remoteSearchConfigurationStore: RemoteSearchConfigurationStore,
+        remoteWebSearchService: RemoteWebSearchService,
         spotlightService: SpotlightService,
         foundationModelService: FoundationModelService,
         currentDateTimeService: CurrentDateTimeService,
@@ -73,6 +79,8 @@ final class ActionExecutor {
         self.speechService = speechService
         self.router = router
         self.webResearchService = webResearchService
+        self.remoteSearchConfigurationStore = remoteSearchConfigurationStore
+        self.remoteWebSearchService = remoteWebSearchService
         self.spotlightService = spotlightService
         self.foundationModelService = foundationModelService
         self.currentDateTimeService = currentDateTimeService
@@ -496,11 +504,59 @@ final class ActionExecutor {
             case .searchWeb:
                 let retrievalProfile = currentRetrievalQualityProfile()
                 let query = try arguments.requiredString("query")
-                let providerID = try selectedSearchProvider(from: arguments)
                 let maxResults = effectiveSearchWebMaxResults(
                     from: arguments,
                     profile: retrievalProfile.webSearch
                 )
+
+                if let configuration = remoteSearchConfigurationStore.activeConfigurationSnapshot() {
+                    let apiKey = try remoteSearchConfigurationStore.apiKey(for: configuration.id)
+                    let remoteResult = try await remoteWebSearchService.search(
+                        query: query,
+                        configuration: configuration,
+                        apiKey: apiKey,
+                        maxResults: maxResults,
+                        timeoutSeconds: Self.remoteSearchTimeoutSeconds
+                    )
+                    let sources = remoteResult.sources.enumerated().map { index, source in
+                        let title = source.title
+                            ?? source.url.host
+                            ?? source.url.absoluteString
+                        var lines = [
+                            "[\(index + 1)] \(title)",
+                            source.url.absoluteString
+                        ]
+                        if let snippet = source.snippet {
+                            lines.append(snippet)
+                        }
+                        if let publishedAt = source.publishedAt {
+                            lines.append("发布时间：\(publishedAt)")
+                        }
+                        return lines.joined(separator: "\n")
+                    }.joined(separator: "\n\n")
+                    return success(
+                        action,
+                        "远端网页搜索完成：\(remoteResult.sources.count) 个来源",
+                        details: """
+                        查询：\(query)
+                        搜索方式：远端搜索
+                        配置：\(configuration.displayName)
+                        协议：\(configuration.apiProtocol.localizedTitle)
+                        模型：\(configuration.modelName)
+                        目标结果数：\(maxResults)
+                        实际来源数：\(remoteResult.sources.count)
+                        抓取提示：若题目要求逐来源核验、精确数字、时间线或明确引用，请继续调用 fetch 读取候选网页正文。
+
+                        远端搜索摘要：
+                        \(remoteResult.answer ?? "未返回独立摘要。")
+
+                        来源：
+                        \(sources.isEmpty ? "未返回结构化来源。" : sources)
+                        """
+                    )
+                }
+
+                let providerID = try selectedSearchProvider(from: arguments)
                 let results = try await webResearchService.search(
                     query: query,
                     maxResults: maxResults,
@@ -1823,18 +1879,25 @@ final class ActionExecutor {
             return normalizedArgumentsJSONString(payload, fallback: arguments.normalizedJSONString())
 
         case .searchWeb:
-            let selectedSource = (try? selectedSearchProvider(from: arguments))?.rawValue
-                ?? arguments.string("source")?.trimmingCharacters(in: .whitespacesAndNewlines)
-                ?? WebSearchProviderSettings.defaultProviderID.rawValue
             let maxResults = effectiveSearchWebMaxResults(
                 from: arguments,
                 profile: retrievalProfile.webSearch
             )
-            var payload: [String: Any] = [
-                "max_results": maxResults,
-                "source": selectedSource,
-                "timeout_seconds": Int(retrievalProfile.webSearch.timeoutSeconds)
-            ]
+            var payload: [String: Any] = ["max_results": maxResults]
+            // Match execution routing: an active remote configuration takes precedence over source.
+            if let configuration = remoteSearchConfigurationStore.activeConfigurationSnapshot() {
+                payload["source"] = "remote"
+                payload["configuration_id"] = configuration.id.uuidString.lowercased()
+                payload["configuration"] = configuration.displayName
+                payload["protocol"] = configuration.apiProtocol.rawValue
+                payload["model"] = configuration.modelName
+                payload["timeout_seconds"] = Int(Self.remoteSearchTimeoutSeconds)
+            } else {
+                payload["source"] = (try? selectedSearchProvider(from: arguments))?.rawValue
+                    ?? arguments.string("source")?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    ?? WebSearchProviderSettings.defaultProviderID.rawValue
+                payload["timeout_seconds"] = Int(retrievalProfile.webSearch.timeoutSeconds)
+            }
             if let query = arguments.string("query")?.trimmingCharacters(in: .whitespacesAndNewlines),
                !query.isEmpty {
                 payload["query"] = query

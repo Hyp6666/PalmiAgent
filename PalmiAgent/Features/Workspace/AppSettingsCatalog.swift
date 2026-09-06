@@ -4,7 +4,7 @@ enum AppSettingsRowID: String, CaseIterable, Hashable, Sendable {
     case modelManagement
     case toolManagement
     case toolAuthorization
-    case searchSources
+    case searchConfiguration
     case skills
     case personalization
     case systemSettings
@@ -46,7 +46,7 @@ enum AppSettingsCatalog {
             rows: [
                 .init(id: .toolManagement, titleKey: "settings.row.toolManagement", systemImageName: "switch.2"),
                 .init(id: .toolAuthorization, titleKey: "tool.authorization.title", systemImageName: "checkmark.shield"),
-                .init(id: .searchSources, titleKey: "settings.row.searchSources", systemImageName: "magnifyingglass.circle"),
+                .init(id: .searchConfiguration, titleKey: "settings.row.searchConfiguration", systemImageName: "magnifyingglass.circle"),
                 .init(id: .skills, titleKey: "settings.row.skills", systemImageName: "sparkles.rectangle.stack")
             ]
         ),

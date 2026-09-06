@@ -118,15 +118,41 @@ enum WebSearchProviderID: String, CaseIterable, Identifiable, Codable, Sendable 
 
 enum WebSearchProviderSettings {
     static let disabledProviderIDsStorageKey = "palmi.web-search.disabled-provider-ids.v1"
+    static let selectedProviderIDStorageKey = "palmi.web-search.selected-provider-id.v1"
 
     static var defaultProviderID: WebSearchProviderID {
         .baidu
     }
 
     static func enabledProviderIDs(userDefaults: UserDefaults = .standard) -> [WebSearchProviderID] {
+        [selectedProviderID(userDefaults: userDefaults)]
+    }
+
+    static func selectedProviderID(
+        userDefaults: UserDefaults = .standard
+    ) -> WebSearchProviderID {
+        if let rawValue = userDefaults.string(forKey: selectedProviderIDStorageKey),
+           let selected = WebSearchProviderID(rawValue: rawValue) {
+            return selected
+        }
+
         let disabled = disabledProviderIDs(userDefaults: userDefaults)
-        let enabled = WebSearchProviderID.allCases.filter { !disabled.contains($0) }
-        return enabled.isEmpty ? [defaultProviderID] : enabled
+        let migrated = WebSearchProviderID.allCases.first { !disabled.contains($0) }
+            ?? defaultProviderID
+        userDefaults.set(migrated.rawValue, forKey: selectedProviderIDStorageKey)
+        return migrated
+    }
+
+    static func setSelectedProviderID(
+        _ providerID: WebSearchProviderID,
+        userDefaults: UserDefaults = .standard
+    ) {
+        userDefaults.set(providerID.rawValue, forKey: selectedProviderIDStorageKey)
+        let disabled = WebSearchProviderID.allCases
+            .filter { $0 != providerID }
+            .map(\.rawValue)
+            .sorted()
+        userDefaults.set(disabled, forKey: disabledProviderIDsStorageKey)
     }
 
     static func isEnabled(_ providerID: WebSearchProviderID, userDefaults: UserDefaults = .standard) -> Bool {
@@ -138,17 +164,9 @@ enum WebSearchProviderSettings {
         providerID: WebSearchProviderID,
         userDefaults: UserDefaults = .standard
     ) {
-        var disabled = disabledProviderIDs(userDefaults: userDefaults)
         if enabled {
-            disabled.remove(providerID)
-        } else {
-            let currentlyEnabled = WebSearchProviderID.allCases.filter { !disabled.contains($0) }
-            guard currentlyEnabled.count > 1 else {
-                return
-            }
-            disabled.insert(providerID)
+            setSelectedProviderID(providerID, userDefaults: userDefaults)
         }
-        userDefaults.set(disabled.map(\.rawValue).sorted(), forKey: disabledProviderIDsStorageKey)
     }
 
     static func provider(id rawValue: String) -> WebSearchProviderID? {

@@ -117,6 +117,30 @@ final class ModelPlanStoreTests: XCTestCase {
         )
     }
 
+    func testConnectionSavedBeforeProtocolSelectionDecodesAsAutomaticWithoutDataLoss() throws {
+        let legacy = LegacyTestConnection(
+            id: UUID(),
+            displayName: "Existing",
+            inputAddress: "https://example.com/v1",
+            chatCompletionsURLString: "https://example.com/v1/chat/completions",
+            responsesURLString: "https://example.com/v1/responses",
+            modelsURLString: "https://example.com/v1/models",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            updatedAt: Date(timeIntervalSince1970: 1_700_000_100)
+        )
+
+        let decoded = try JSONDecoder().decode(
+            ModelAPIConnectionRecord.self,
+            from: JSONEncoder().encode(legacy)
+        )
+
+        XCTAssertEqual(decoded.id, legacy.id)
+        XCTAssertEqual(decoded.inputAddress, legacy.inputAddress)
+        XCTAssertEqual(decoded.modelsURLString, legacy.modelsURLString)
+        XCTAssertEqual(decoded.wireProtocolPreference, .automatic)
+        XCTAssertNil(decoded.messagesURLString)
+    }
+
     func testLegacyCandidatesAreDeduplicatedAndSelectionsAreRemapped() throws {
         let suiteName = "ModelPlanStoreTests.legacy.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -247,4 +271,15 @@ private struct LegacyTestPlan: Codable {
     var candidates: [LegacyTestCandidate]
     var createdAt: Date
     var updatedAt: Date
+}
+
+private struct LegacyTestConnection: Codable {
+    let id: UUID
+    let displayName: String
+    let inputAddress: String
+    let chatCompletionsURLString: String
+    let responsesURLString: String?
+    let modelsURLString: String?
+    let createdAt: Date
+    let updatedAt: Date
 }

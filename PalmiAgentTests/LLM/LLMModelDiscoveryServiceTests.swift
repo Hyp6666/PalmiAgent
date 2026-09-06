@@ -58,6 +58,37 @@ final class LLMModelDiscoveryServiceTests: XCTestCase {
         )
     }
 
+    func testMessagesDiscoveryUsesProtocolHeadersAndFollowsOpaquePaginationCursor() async throws {
+        ModelDiscoveryURLProtocol.setHandler { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "x-api-key"), "secret")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "anthropic-version"), "2023-06-01")
+            if request.url?.query?.contains("after_id=model-a") == true {
+                return (
+                    200,
+                    #"{"data":[{"type":"model","id":"model-b","display_name":"Model B"}],"has_more":false,"last_id":"model-b"}"#
+                )
+            }
+            return (
+                200,
+                #"{"data":[{"type":"model","id":"model-a","display_name":"Model A"}],"has_more":true,"last_id":"model-a"}"#
+            )
+        }
+        let service = LLMModelDiscoveryService(session: makeSession())
+
+        let result = try await service.fetchModels(
+            inputAddress: "https://example.com/v1/messages",
+            apiKey: "secret",
+            protocolPreference: .anthropicMessages
+        )
+
+        XCTAssertEqual(result.endpoint.absoluteString, "https://example.com/v1/models")
+        XCTAssertEqual(result.models.map(\.id), ["model-a", "model-b"])
+        XCTAssertEqual(
+            ModelDiscoveryURLProtocol.recordedRequests().compactMap(\.url?.query),
+            ["after_id=model-a"]
+        )
+    }
+
     private func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ModelDiscoveryURLProtocol.self]

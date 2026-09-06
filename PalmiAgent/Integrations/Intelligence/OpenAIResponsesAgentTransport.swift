@@ -859,7 +859,7 @@ enum OpenAIResponsesTransport {
     }
 }
 
-private extension JSONRuntimeValue {
+extension JSONRuntimeValue {
     var objectValue: [String: JSONRuntimeValue]? {
         guard case .object(let value) = self else { return nil }
         return value

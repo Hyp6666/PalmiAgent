@@ -351,18 +351,19 @@ struct OpenAIChatToolFunction: Codable {
     let arguments: String
 }
 
-/// Keeps PalmiAgent's stable tool names intact while avoiding names that some
-/// OpenAI-compatible models reserve for their own built-in tools.
+/// Keeps PalmiAgent's stable internal tool names intact while giving every local tool a
+/// collision-resistant wire namespace. Prefixing is reversible even when a canonical name
+/// already begins with `palmi_`.
 enum OpenAICompatibleToolNameCodec {
-    nonisolated private static let canonicalPythonName = "python"
-    nonisolated private static let wirePythonName = "palmi_python"
+    nonisolated private static let wirePrefix = "palmi_"
 
     nonisolated static func wireName(forCanonical name: String) -> String {
-        name == canonicalPythonName ? wirePythonName : name
+        wirePrefix + name
     }
 
     nonisolated static func canonicalName(forWire name: String) -> String {
-        name == wirePythonName ? canonicalPythonName : name
+        guard name.hasPrefix(wirePrefix) else { return name }
+        return String(name.dropFirst(wirePrefix.count))
     }
 
     static func wireTools(_ tools: [OpenAIChatToolDefinition]?) -> [OpenAIChatToolDefinition]? {

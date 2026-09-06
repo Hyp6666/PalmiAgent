@@ -1,48 +1,28 @@
 import SwiftUI
 
 struct WebSearchProviderSettingsScreen: View {
-    @State private var enabledProviderIDs = WebSearchProviderSettings.enabledProviderIDs()
+    @State private var selectedProviderID = WebSearchProviderSettings.selectedProviderID()
 
     var body: some View {
         List {
             Section {
-                ForEach(WebSearchProviderID.allCases) { providerID in
-                    HStack(spacing: 14) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(.blue)
-                            .frame(width: 28)
-
+                Picker("", selection: $selectedProviderID) {
+                    ForEach(WebSearchProviderID.allCases) { providerID in
                         Text(providerID.localizedTitleForUI)
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(.primary)
-
-                        Spacer(minLength: 12)
-
-                        Toggle("", isOn: Binding(
-                            get: { enabledProviderIDs.contains(providerID) },
-                            set: { newValue in
-                                WebSearchProviderSettings.setEnabled(newValue, providerID: providerID)
-                                enabledProviderIDs = WebSearchProviderSettings.enabledProviderIDs()
-                            }
-                        ))
-                        .labelsHidden()
-                        .tint(.green)
-                        .disabled(!canDisable(providerID))
+                            .tag(providerID)
                     }
-                    .padding(.vertical, 6)
-                    .opacity(canDisable(providerID) ? 1 : 0.72)
                 }
+                .pickerStyle(.inline)
+                .labelsHidden()
             }
         }
-        .navigationTitle(PalmiL10n.tr("webSearch.title"))
+        .navigationTitle(PalmiL10n.tr("searchConfiguration.local.title"))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            enabledProviderIDs = WebSearchProviderSettings.enabledProviderIDs()
+            selectedProviderID = WebSearchProviderSettings.selectedProviderID()
         }
-    }
-
-    private func canDisable(_ providerID: WebSearchProviderID) -> Bool {
-        enabledProviderIDs.count > 1 || !enabledProviderIDs.contains(providerID)
+        .onChange(of: selectedProviderID) { _, providerID in
+            WebSearchProviderSettings.setSelectedProviderID(providerID)
+        }
     }
 }

@@ -7,6 +7,7 @@ final class OpenAIEndpointResolverTests: XCTestCase {
 
         XCTAssertEqual(result.chatCompletionsURL.absoluteString, "http://example.com:8317/v1/chat/completions")
         XCTAssertEqual(result.responsesURL.absoluteString, "http://example.com:8317/v1/responses")
+        XCTAssertEqual(result.messagesURL.absoluteString, "http://example.com:8317/v1/messages")
         XCTAssertNil(result.explicitWireProtocol)
         XCTAssertEqual(
             result.modelURLCandidates.map(\.absoluteString),
@@ -46,6 +47,44 @@ final class OpenAIEndpointResolverTests: XCTestCase {
         XCTAssertEqual(result.chatCompletionsURL.absoluteString, "https://example.com/api/v1/chat/completions")
         XCTAssertEqual(result.explicitWireProtocol, .responses)
         XCTAssertEqual(result.modelURLCandidates.map(\.absoluteString), ["https://example.com/api/v1/models"])
+    }
+
+    func testFullAnthropicMessagesEndpointIsPreservedAndDerivesSiblingResources() throws {
+        let result = try OpenAICompatibleEndpointResolver.resolve(
+            "https://example.com/api/v1/messages/"
+        )
+
+        XCTAssertEqual(result.messagesURL.absoluteString, "https://example.com/api/v1/messages")
+        XCTAssertEqual(result.responsesURL.absoluteString, "https://example.com/api/v1/responses")
+        XCTAssertEqual(result.chatCompletionsURL.absoluteString, "https://example.com/api/v1/chat/completions")
+        XCTAssertEqual(result.explicitWireProtocol, .anthropicMessages)
+        XCTAssertEqual(result.modelURLCandidates.map(\.absoluteString), ["https://example.com/api/v1/models"])
+    }
+
+    func testUserPreferenceLocksAProtocolWithoutChangingTheEnteredAddress() throws {
+        let result = try OpenAICompatibleEndpointResolver.resolve(
+            "https://example.com/v1",
+            preference: .anthropicMessages
+        )
+
+        XCTAssertEqual(result.inputURL.absoluteString, "https://example.com/v1")
+        XCTAssertEqual(result.wireProtocolPreference, .anthropicMessages)
+        XCTAssertEqual(result.lockedWireProtocol, .anthropicMessages)
+    }
+
+    func testExplicitProtocolRejectsAConflictingFullEndpointAddress() {
+        XCTAssertThrowsError(
+            try OpenAICompatibleEndpointResolver.resolve(
+                "https://example.com/v1/chat/completions",
+                preference: .responses
+            )
+        )
+        XCTAssertThrowsError(
+            try OpenAICompatibleEndpointResolver.resolve(
+                "https://example.com/v1/messages",
+                preference: .chatCompletions
+            )
+        )
     }
 
     func testMissingSchemeUsesHTTPS() throws {

@@ -6,10 +6,12 @@ final class AppContainer {
     lazy var workspaceStore = WorkspaceStore(workspaceManager: workspaceManager)
     let apiConfigurationStore = APIConfigurationStore()
     let modelPlanStore = ModelPlanStore()
+    let remoteSearchConfigurationStore = RemoteSearchConfigurationStore()
     let toolPermissionStore = ToolPermissionStore()
     let toolAuthorizationStore = ToolAuthorizationStore()
     lazy var skillRegistry = SkillRegistry(workspaceManager: workspaceManager)
     let llmSession = URLSession.palmiLLM
+    lazy var remoteWebSearchService = RemoteWebSearchService(session: llmSession)
     lazy var lmStudioDiscoveryService = LMStudioDiscoveryService(session: llmSession)
     lazy var llmToolCallingService = LLMToolCallingService(
         apiConfigurationStore: apiConfigurationStore,
@@ -63,6 +65,8 @@ final class AppContainer {
         speechService: speechService,
         router: router,
         webResearchService: webResearchService,
+        remoteSearchConfigurationStore: remoteSearchConfigurationStore,
+        remoteWebSearchService: remoteWebSearchService,
         spotlightService: spotlightService,
         foundationModelService: foundationModelService,
         currentDateTimeService: currentDateTimeService,
@@ -116,6 +120,8 @@ final class AppContainer {
         executor: executor,
         apiConfigurationStore: apiConfigurationStore,
         modelPlanStore: modelPlanStore,
+        remoteSearchConfigurationStore: remoteSearchConfigurationStore,
+        remoteWebSearchService: remoteWebSearchService,
         llmToolCallingService: llmToolCallingService,
         apiConnectionValidationService: apiConnectionValidationService,
         modelCandidateValidationService: modelCandidateValidationService,

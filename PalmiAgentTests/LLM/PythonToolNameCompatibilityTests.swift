@@ -6,7 +6,11 @@ final class PythonToolNameCompatibilityTests: XCTestCase {
         XCTAssertEqual(AgentExternalToolName.python.rawValue, "python")
         XCTAssertEqual(OpenAICompatibleToolNameCodec.wireName(forCanonical: "python"), "palmi_python")
         XCTAssertEqual(OpenAICompatibleToolNameCodec.canonicalName(forWire: "palmi_python"), "python")
-        XCTAssertEqual(OpenAICompatibleToolNameCodec.wireName(forCanonical: "read"), "read")
+        XCTAssertEqual(OpenAICompatibleToolNameCodec.wireName(forCanonical: "web_search"), "palmi_web_search")
+        XCTAssertEqual(OpenAICompatibleToolNameCodec.canonicalName(forWire: "palmi_web_search"), "web_search")
+        XCTAssertEqual(OpenAICompatibleToolNameCodec.wireName(forCanonical: "read"), "palmi_read")
+        XCTAssertEqual(OpenAICompatibleToolNameCodec.canonicalName(forWire: "palmi_read"), "read")
+        XCTAssertEqual(OpenAICompatibleToolNameCodec.canonicalName(forWire: "vendor_search"), "vendor_search")
     }
 
     func testChatRequestAliasesPythonDefinitionAndHistoryOnlyOnWire() throws {

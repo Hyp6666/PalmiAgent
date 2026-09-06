@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=2732, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>PalmiAgent iPad App Store Screens</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      width: 2732px;
+      height: 2048px;
+      margin: 0;
+      overflow: hidden;
+      background: #071d4a;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: geometricPrecision;
+    }
+    .canvas {
+      position: relative;
+      width: 2732px;
+      height: 2048px;
+      overflow: hidden;
+      isolation: isolate;
+      color: #fff;
+      background:
+        radial-gradient(circle at 87% 5%, rgba(103, 223, 255, .56) 0, rgba(103, 223, 255, 0) 29%),
+        radial-gradient(circle at 4% 74%, rgba(31, 139, 255, .42) 0, rgba(31, 139, 255, 0) 35%),
+        linear-gradient(150deg, #0b8dff 0%, #0769dd 43%, #073489 100%);
+    }
+    .canvas.light {
+      color: #082353;
+      background:
+        radial-gradient(circle at 88% 6%, rgba(98, 195, 255, .48) 0, rgba(98, 195, 255, 0) 28%),
+        radial-gradient(circle at 4% 68%, rgba(32, 132, 255, .17) 0, rgba(32, 132, 255, 0) 40%),
+        linear-gradient(155deg, #f8fbff 0%, #e5f2ff 44%, #cde6ff 100%);
+    }
+    .grain {
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      opacity: .14;
+      pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.13'/%3E%3C/svg%3E");
+      mix-blend-mode: soft-light;
+    }
+    .orbit, .orbit::before, .orbit::after {
+      position: absolute;
+      border: 2px solid rgba(255,255,255,.15);
+      border-radius: 50%;
+      content: "";
+    }
+    .light .orbit, .light .orbit::before, .light .orbit::after {
+      border-color: rgba(0,112,235,.11);
+    }
+    .orbit { width: 1180px; height: 1180px; right: -420px; top: 56px; }
+    .orbit::before { width: 860px; height: 860px; left: 158px; top: 158px; }
+    .orbit::after { width: 520px; height: 520px; left: 328px; top: 328px; }
+    .header {
+      position: absolute;
+      z-index: 3;
+      left: 226px;
+      right: 226px;
+      top: 66px;
+    }
+    .title {
+      margin: 0;
+      font-family: "Yuanti SC", "圆体-简", "PingFang SC", sans-serif;
+      font-size: 108px;
+      line-height: 1.06;
+      letter-spacing: -.025em;
+      font-weight: 700;
+      text-shadow: 0 8px 30px rgba(0,25,78,.15);
+    }
+    .subtitle {
+      margin: 16px 0 0;
+      color: rgba(255,255,255,.80);
+      font-family: "Yuanti SC", "圆体-简", "PingFang SC", sans-serif;
+      font-size: 40px;
+      line-height: 1.35;
+      font-weight: 400;
+    }
+    .light .title { text-shadow: none; }
+    .light .subtitle { color: rgba(8,35,83,.66); }
+    .canvas.en .title,
+    .canvas.en .subtitle {
+      font-family: "Avenir Next Rounded", -apple-system, sans-serif;
+    }
+    .canvas.en .title { font-size: 102px; letter-spacing: -.035em; }
+    .canvas.en .subtitle { font-size: 38px; letter-spacing: -.012em; }
+    .stage {
+      position: absolute;
+      z-index: 2;
+      left: 226px;
+      top: 315px;
+      width: 2280px;
+      padding: 12px;
+      border: 1px solid rgba(255,255,255,.72);
+      border-radius: 54px 54px 38px 38px;
+      background: linear-gradient(145deg, rgba(255,255,255,.93), rgba(244,250,255,.79));
+      box-shadow:
+        0 50px 112px rgba(0,29,91,.28),
+        0 8px 24px rgba(0,39,120,.15),
+        inset 0 1px 1px rgba(255,255,255,.96);
+    }
+    .light .stage {
+      border-color: rgba(255,255,255,.94);
+      box-shadow:
+        0 52px 116px rgba(17,89,174,.20),
+        0 8px 24px rgba(9,70,148,.11),
+        inset 0 1px 1px #fff;
+    }
+    .screen {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      overflow: hidden;
+      border-radius: 42px 42px 28px 28px;
+      background: #f5f6f9;
+      box-shadow: inset 0 0 0 1px rgba(7,42,92,.08);
+    }
+    .screen img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 75%;
+      height: 133.333333%;
+      object-position: center;
+      transform: translate(-50%, -50%) rotate(-90deg);
+    }
+  </style>
+</head>
+<body>
+  <main id="canvas" class="canvas">
+    <div class="grain"></div>
+    <div class="orbit"></div>
+    <header class="header">
+      <h1 id="title" class="title"></h1>
+      <p id="subtitle" class="subtitle"></p>
+    </header>
+    <section class="stage">
+      <div class="screen"><img id="screen" alt="PalmiAgent on iPad"></div>
+    </section>
+  </main>
+  <script>
+    const pages = {
+      zh: [{ tone: "deep", title: "模型自由接入", subtitle: "Chat Completions · Responses · Messages，支持自动协议匹配", image: "assets/ipad-zh.png" }],
+      en: [{ tone: "deep", title: "Bring Your Own Model", subtitle: "Chat Completions · Responses · Messages, with automatic protocol matching.", image: "assets/ipad-zh.png" }]
+    };
+    const params = new URLSearchParams(location.search);
+    const language = params.get("lang") === "en" ? "en" : "zh";
+    const number = 1;
+    const page = pages[language][number - 1];
+    const canvas = document.getElementById("canvas");
+    canvas.className = `canvas ${page.tone} ${language}`;
+    document.documentElement.lang = language === "en" ? "en" : "zh-CN";
+    document.getElementById("title").textContent = page.title;
+    document.getElementById("subtitle").textContent = page.subtitle;
+    document.getElementById("screen").src = page.image;
+  </script>
+</body>
+</html>

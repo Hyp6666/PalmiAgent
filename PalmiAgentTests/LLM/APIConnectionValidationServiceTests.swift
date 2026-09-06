@@ -66,18 +66,96 @@ final class APIConnectionValidationServiceTests: XCTestCase {
         XCTAssertNil(firstChatBody["reasoning"])
     }
 
-    func testUnknownEndpointFallsBackAfterSuccessfulIncompatibleResponsesPayload() async throws {
+    func testUnknownEndpointDoesNotReplayAfterSuccessfulIncompatibleResponsesPayload() async throws {
         ValidationURLProtocol.setHandler { request in
             switch request.url?.path {
             case "/v1/responses":
-                return (200, Self.chatSuccessBody)
-            case "/v1/chat/completions":
                 return (200, Self.chatSuccessBody)
             default:
                 return (500, #"{"error":{"message":"unexpected path"}}"#)
             }
         }
         let context = try makeContext(inputAddress: "https://relay.example/v1")
+
+        do {
+            _ = try await context.service.validateConnection(
+                providerID: .lmstudio,
+                profileID: context.profileID,
+                role: .reasoningModel
+            )
+            XCTFail("Expected incompatible Responses payload to fail without replay")
+        } catch {
+            // Expected: a 2xx response may already represent a billable generation.
+        }
+
+        XCTAssertEqual(
+            ValidationURLProtocol.recordedRequests().compactMap(\.url?.path),
+            ["/v1/responses"]
+        )
+        XCTAssertEqual(
+            context.contractStore.protocolForRequest(
+                profileID: context.profileID,
+                modelID: context.configuration.reasoningModel.id,
+                endpoints: context.configuration.endpointResolution
+            ),
+            .responses
+        )
+    }
+
+    func testUnknownEndpointNegotiatesThroughMessagesAndCachesIt() async throws {
+        ValidationURLProtocol.setHandler { request in
+            switch request.url?.path {
+            case "/v1/responses", "/v1/chat/completions":
+                return (404, #"{"error":{"message":"unsupported endpoint"}}"#)
+            case "/v1/messages":
+                return (200, Self.messagesSuccessBody)
+            default:
+                return (500, #"{"error":{"message":"unexpected path"}}"#)
+            }
+        }
+        let context = try makeContext(inputAddress: "https://relay-messages.example/v1")
+
+        _ = try await context.service.validateConnection(
+            providerID: .lmstudio,
+            profileID: context.profileID,
+            role: .reasoningModel
+        )
+        _ = try await context.service.validateConnection(
+            providerID: .lmstudio,
+            profileID: context.profileID,
+            role: .reasoningModel
+        )
+
+        let requests = ValidationURLProtocol.recordedRequests()
+        XCTAssertEqual(requests.compactMap(\.url?.path), [
+            "/v1/responses",
+            "/v1/chat/completions",
+            "/v1/messages",
+            "/v1/messages"
+        ])
+        let messagesRequest = requests[2]
+        XCTAssertEqual(messagesRequest.value(forHTTPHeaderField: "x-api-key"), nil)
+        XCTAssertEqual(messagesRequest.value(forHTTPHeaderField: "anthropic-version"), "2023-06-01")
+        let body = try requestObject(messagesRequest)
+        XCTAssertNotNil(body["messages"])
+        XCTAssertNotNil(body["max_tokens"])
+        XCTAssertEqual(
+            context.contractStore.protocolForRequest(
+                profileID: context.profileID,
+                modelID: context.configuration.reasoningModel.id,
+                endpoints: context.configuration.endpointResolution
+            ),
+            .anthropicMessages
+        )
+    }
+
+    func testExplicitMessagesEndpointIsLockedToMessages() async throws {
+        ValidationURLProtocol.setHandler { request in
+            request.url?.path == "/v1/messages"
+                ? (200, Self.messagesSuccessBody)
+                : (500, #"{"error":{"message":"unexpected path"}}"#)
+        }
+        let context = try makeContext(inputAddress: "https://relay-explicit.example/v1/messages")
 
         _ = try await context.service.validateConnection(
             providerID: .lmstudio,
@@ -87,15 +165,7 @@ final class APIConnectionValidationServiceTests: XCTestCase {
 
         XCTAssertEqual(
             ValidationURLProtocol.recordedRequests().compactMap(\.url?.path),
-            ["/v1/responses", "/v1/chat/completions"]
-        )
-        XCTAssertEqual(
-            context.contractStore.protocolForRequest(
-                profileID: context.profileID,
-                modelID: context.configuration.reasoningModel.id,
-                endpoints: context.configuration.endpointResolution
-            ),
-            .chatCompletions
+            ["/v1/messages"]
         )
     }
 
@@ -232,6 +302,9 @@ final class APIConnectionValidationServiceTests: XCTestCase {
 
     private nonisolated static let responsesSuccessBody =
         #"{"object":"response","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}]}"#
+
+    private nonisolated static let messagesSuccessBody =
+        #"{"id":"msg_validation","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":2,"output_tokens":1}}"#
 }
 
 private final class ValidationURLProtocol: URLProtocol, @unchecked Sendable {

@@ -77,6 +77,17 @@ final class LLMWireProtocolContractStoreTests: XCTestCase {
                 ),
                 .chatCompletions
             )
+
+            XCTAssertEqual(
+                store.fallbackProtocol(
+                    afterHTTPStatus: status,
+                    attemptedProtocol: .chatCompletions,
+                    profileID: UUID(),
+                    modelID: modelID,
+                    endpoints: endpoints
+                ),
+                .anthropicMessages
+            )
         }
     }
 
@@ -99,20 +110,19 @@ final class LLMWireProtocolContractStoreTests: XCTestCase {
         XCTAssertEqual(store.protocolForRequest(profileID: profileID, modelID: modelID, endpoints: chat), .chatCompletions)
     }
 
-    func testIncompatibleSuccessfulPayloadFallsBackOnlyForAutomaticResponsesRoute() throws {
+    func testIncompatibleSuccessfulPayloadNeverChangesProtocol() throws {
         let profileID = UUID()
         let store = LLMWireProtocolContractStore(userDefaults: defaults)
         let automatic = try OpenAICompatibleEndpointResolver.resolve("https://example.com/v1")
         let explicit = try OpenAICompatibleEndpointResolver.resolve("https://example.com/v1/responses")
 
-        XCTAssertEqual(
+        XCTAssertNil(
             store.fallbackProtocolAfterIncompatiblePayload(
                 attemptedProtocol: .responses,
                 profileID: profileID,
                 modelID: modelID,
                 endpoints: automatic
-            ),
-            .chatCompletions
+            )
         )
         XCTAssertNil(
             store.fallbackProtocolAfterIncompatiblePayload(
@@ -128,6 +138,29 @@ final class LLMWireProtocolContractStoreTests: XCTestCase {
                 profileID: profileID,
                 modelID: modelID,
                 endpoints: explicit
+            )
+        )
+    }
+
+    func testExplicitPreferenceNeverFallsBackEvenWhenAddressIsOnlyABaseURL() throws {
+        let profileID = UUID()
+        let store = LLMWireProtocolContractStore(userDefaults: defaults)
+        let messages = try OpenAICompatibleEndpointResolver.resolve(
+            "https://example.com/v1",
+            preference: .anthropicMessages
+        )
+
+        XCTAssertEqual(
+            store.protocolForRequest(profileID: profileID, modelID: modelID, endpoints: messages),
+            .anthropicMessages
+        )
+        XCTAssertNil(
+            store.fallbackProtocol(
+                afterHTTPStatus: 404,
+                attemptedProtocol: .anthropicMessages,
+                profileID: profileID,
+                modelID: modelID,
+                endpoints: messages
             )
         )
     }

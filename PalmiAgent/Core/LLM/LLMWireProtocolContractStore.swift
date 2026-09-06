@@ -38,8 +38,8 @@ final class LLMWireProtocolContractStore {
         modelID: String,
         endpoints: OpenAICompatibleEndpointResolution
     ) -> LLMWireProtocol {
-        if let explicit = endpoints.explicitWireProtocol {
-            return explicit
+        if let locked = endpoints.lockedWireProtocol {
+            return locked
         }
         let storedRecords = records()
         let matchingRecord = storedRecords.first {
@@ -66,17 +66,18 @@ final class LLMWireProtocolContractStore {
         modelID: String,
         endpoints: OpenAICompatibleEndpointResolution
     ) -> LLMWireProtocol? {
-        guard endpoints.explicitWireProtocol == nil,
-              attemptedProtocol == .responses,
-              protocolForRequest(
-                  profileID: profileID,
-                  modelID: modelID,
-                  endpoints: endpoints
-              ) == attemptedProtocol,
+        guard endpoints.lockedWireProtocol == nil,
               Self.unsupportedEndpointStatusCodes.contains(statusCode) else {
             return nil
         }
-        return .chatCompletions
+        switch attemptedProtocol {
+        case .responses:
+            return .chatCompletions
+        case .chatCompletions:
+            return .anthropicMessages
+        case .anthropicMessages:
+            return nil
+        }
     }
 
     /// Handles a 2xx response whose body cannot be decoded as a Responses API payload.
@@ -88,16 +89,10 @@ final class LLMWireProtocolContractStore {
         modelID: String,
         endpoints: OpenAICompatibleEndpointResolution
     ) -> LLMWireProtocol? {
-        guard endpoints.explicitWireProtocol == nil,
-              attemptedProtocol == .responses,
-              protocolForRequest(
-                  profileID: profileID,
-                  modelID: modelID,
-                  endpoints: endpoints
-              ) == attemptedProtocol else {
-            return nil
-        }
-        return .chatCompletions
+        // A syntactically unexpected 2xx body is not evidence that the endpoint itself is
+        // unsupported. Switching protocols here can duplicate a completed generation or tool
+        // call, so automatic negotiation is intentionally limited to HTTP endpoint errors.
+        nil
     }
 
     func recordSuccess(
@@ -106,7 +101,7 @@ final class LLMWireProtocolContractStore {
         modelID: String,
         endpoints: OpenAICompatibleEndpointResolution
     ) {
-        guard endpoints.explicitWireProtocol == nil else { return }
+        guard endpoints.lockedWireProtocol == nil else { return }
         let storedRecords = records()
         let existing = storedRecords.first {
             $0.profileID == profileID

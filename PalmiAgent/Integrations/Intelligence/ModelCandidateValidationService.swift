@@ -12,14 +12,17 @@ final class ModelCandidateValidationService {
         guard !modelName.isEmpty else {
             throw AppError.invalidState("模型名称必填。")
         }
-        let resolution = try OpenAICompatibleEndpointResolver.resolve(draft.baseURLString)
+        let resolution = try OpenAICompatibleEndpointResolver.resolve(
+            draft.baseURLString,
+            preference: draft.wireProtocolPreference
+        )
 
         let apiKey = draft.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        let initialProtocol = resolution.explicitWireProtocol ?? .responses
+        let initialProtocol = resolution.lockedWireProtocol ?? .responses
         _ = try await performValidationRequest(
             resolution: resolution,
             wireProtocol: initialProtocol,
-            allowsChatFallback: resolution.explicitWireProtocol == nil,
+            allowsFallback: resolution.lockedWireProtocol == nil,
             apiKey: apiKey,
             modelName: modelName,
             messages: [
@@ -40,7 +43,7 @@ final class ModelCandidateValidationService {
     private func performValidationRequest(
         resolution: OpenAICompatibleEndpointResolution,
         wireProtocol: LLMWireProtocol,
-        allowsChatFallback: Bool,
+        allowsFallback: Bool,
         apiKey: String,
         modelName: String,
         messages: [OpenAIChatMessage]
@@ -54,22 +57,18 @@ final class ModelCandidateValidationService {
                 messages: messages
             )
         } catch {
-            guard wireProtocol == .responses,
-                  allowsChatFallback,
-                  Self.shouldFallbackToChat(after: error) else {
+            guard allowsFallback,
+                  let fallback = Self.fallbackProtocol(after: error, attemptedProtocol: wireProtocol) else {
                 throw Self.validationError(from: error)
             }
-            do {
-                return try await performLockedValidationRequest(
-                    endpoint: resolution.chatCompletionsURL,
-                    wireProtocol: .chatCompletions,
-                    apiKey: apiKey,
-                    modelName: modelName,
-                    messages: messages
-                )
-            } catch {
-                throw Self.validationError(from: error)
-            }
+            return try await performValidationRequest(
+                resolution: resolution,
+                wireProtocol: fallback,
+                allowsFallback: true,
+                apiKey: apiKey,
+                modelName: modelName,
+                messages: messages
+            )
         }
     }
 
@@ -90,6 +89,13 @@ final class ModelCandidateValidationService {
             )
         case .chatCompletions:
             return try await performChatValidationRequest(
+                endpoint: endpoint,
+                apiKey: apiKey,
+                modelName: modelName,
+                messages: messages
+            )
+        case .anthropicMessages:
+            return try await performMessagesValidationRequest(
                 endpoint: endpoint,
                 apiKey: apiKey,
                 modelName: modelName,
@@ -168,6 +174,43 @@ final class ModelCandidateValidationService {
         return ValidationResponse(text: text, wireProtocol: .chatCompletions)
     }
 
+    private func performMessagesValidationRequest(
+        endpoint: URL,
+        apiKey: String,
+        modelName: String,
+        messages: [OpenAIChatMessage]
+    ) async throws -> ValidationResponse {
+        var request = URLRequest(url: endpoint, timeoutInterval: 45)
+        request.httpMethod = "POST"
+        for (name, value) in AnthropicMessagesAdapter.headers(
+            apiKey: apiKey,
+            acceptsStreaming: true
+        ) {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+        request.httpBody = try JSONEncoder().encode(
+            AnthropicMessagesRequest(
+                model: modelName,
+                messages: messages,
+                tools: [],
+                toolChoice: nil,
+                stream: true,
+                maxTokens: 128
+            )
+        )
+        let result = try await AnthropicMessagesTransport.performStreaming(
+            request,
+            using: session,
+            onDelta: { _ in },
+            onReasoningDelta: { _ in }
+        )
+        let text = result.decoded.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            throw AppError.operationFailed("模型服务没有返回候选内容。")
+        }
+        return ValidationResponse(text: text, wireProtocol: .anthropicMessages)
+    }
+
     private static func validationRequest(endpoint: URL, apiKey: String) -> URLRequest {
         var request = URLRequest(url: endpoint, timeoutInterval: 45)
         request.httpMethod = "POST"
@@ -179,22 +222,28 @@ final class ModelCandidateValidationService {
         return request
     }
 
-    private static func shouldFallbackToChat(after error: Error) -> Bool {
+    private static func fallbackProtocol(
+        after error: Error,
+        attemptedProtocol: LLMWireProtocol
+    ) -> LLMWireProtocol? {
         if let transportError = error as? LLMHTTPTransportError,
-           case .http(let statusCode, _, _) = transportError {
-            return [404, 405, 415, 501].contains(statusCode)
+           case .http(let statusCode, _, _) = transportError,
+           [404, 405, 415, 501].contains(statusCode) {
+            switch attemptedProtocol {
+            case .responses: return .chatCompletions
+            case .chatCompletions: return .anthropicMessages
+            case .anthropicMessages: return nil
+            }
         }
-        if let codecError = error as? OpenAIResponsesCodecError,
-           codecError == .invalidEnvelope {
-            return true
-        }
-        return false
+        return nil
     }
 
     private static func validationError(from error: Error) -> Error {
         if error is AppError { return error }
         guard let transportError = error as? LLMHTTPTransportError else {
-            if error is OpenAIResponsesCodecError || error is DecodingError {
+            if error is OpenAIResponsesCodecError
+                || error is AnthropicMessagesCodecError
+                || error is DecodingError {
                 return AppError.operationFailed("模型服务返回了无法识别的响应格式。")
             }
             return AppError.operationFailed("联通验证失败：\(error.localizedDescription)")

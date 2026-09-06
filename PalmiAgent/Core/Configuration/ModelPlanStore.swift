@@ -109,9 +109,65 @@ struct ModelAPIConnectionRecord: Identifiable, Codable, Equatable, Sendable {
     var inputAddress: String
     var chatCompletionsURLString: String
     var responsesURLString: String?
+    var messagesURLString: String?
     var modelsURLString: String?
+    var wireProtocolPreference: LLMWireProtocolPreference
     var createdAt: Date
     var updatedAt: Date
+
+    init(
+        id: UUID,
+        displayName: String,
+        inputAddress: String,
+        chatCompletionsURLString: String,
+        responsesURLString: String?,
+        messagesURLString: String? = nil,
+        modelsURLString: String?,
+        wireProtocolPreference: LLMWireProtocolPreference = .automatic,
+        createdAt: Date,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.inputAddress = inputAddress
+        self.chatCompletionsURLString = chatCompletionsURLString
+        self.responsesURLString = responsesURLString
+        self.messagesURLString = messagesURLString
+        self.modelsURLString = modelsURLString
+        self.wireProtocolPreference = wireProtocolPreference
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case displayName
+        case inputAddress
+        case chatCompletionsURLString
+        case responsesURLString
+        case messagesURLString
+        case modelsURLString
+        case wireProtocolPreference
+        case createdAt
+        case updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        inputAddress = try container.decode(String.self, forKey: .inputAddress)
+        chatCompletionsURLString = try container.decode(String.self, forKey: .chatCompletionsURLString)
+        responsesURLString = try container.decodeIfPresent(String.self, forKey: .responsesURLString)
+        messagesURLString = try container.decodeIfPresent(String.self, forKey: .messagesURLString)
+        modelsURLString = try container.decodeIfPresent(String.self, forKey: .modelsURLString)
+        wireProtocolPreference = try container.decodeIfPresent(
+            LLMWireProtocolPreference.self,
+            forKey: .wireProtocolPreference
+        ) ?? .automatic
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+    }
 }
 
 struct GlobalModelRecord: Identifiable, Codable, Equatable, Sendable {
@@ -308,6 +364,7 @@ struct ModelCandidateDraft: Sendable {
     var canonicalID: String? = nil
     var ownedBy: String? = nil
     var modelsURLString: String? = nil
+    var wireProtocolPreference: LLMWireProtocolPreference = .automatic
 }
 
 @MainActor
@@ -485,7 +542,8 @@ final class ModelPlanStore {
         let connectionID = try upsertConnection(
             inputAddress: draft.baseURLString,
             apiKey: draft.apiKey,
-            modelsURLString: draft.modelsURLString
+            modelsURLString: draft.modelsURLString,
+            wireProtocolPreference: draft.wireProtocolPreference
         )
         let modelID = try upsertModel(connectionID: connectionID, draft: draft, validation: validation)
         if addToSlot {
@@ -509,12 +567,14 @@ final class ModelPlanStore {
         discovery: LLMModelDiscoveryResult,
         aliases: [String: String],
         planID: UUID? = nil,
-        slot: ModelPlanSlot? = nil
+        slot: ModelPlanSlot? = nil,
+        wireProtocolPreference: LLMWireProtocolPreference = .automatic
     ) throws -> [UUID] {
         let connectionID = try upsertConnection(
             inputAddress: inputAddress,
             apiKey: apiKey,
-            modelsURLString: discovery.endpoint.absoluteString
+            modelsURLString: discovery.endpoint.absoluteString,
+            wireProtocolPreference: wireProtocolPreference
         )
         var imported: [UUID] = []
         for discovered in discovery.models {
@@ -527,7 +587,8 @@ final class ModelPlanStore {
                 remoteDisplayName: discovered.remoteDisplayName,
                 canonicalID: discovered.canonicalID,
                 ownedBy: discovered.ownedBy,
-                modelsURLString: discovery.endpoint.absoluteString
+                modelsURLString: discovery.endpoint.absoluteString,
+                wireProtocolPreference: wireProtocolPreference
             )
             let modelID = try upsertModel(connectionID: connectionID, draft: draft, validation: nil)
             imported.append(modelID)
@@ -639,7 +700,8 @@ final class ModelPlanStore {
         displayName: String,
         modelName: String,
         baseURLString: String,
-        apiKey: String
+        apiKey: String,
+        wireProtocolPreference: LLMWireProtocolPreference? = nil
     ) throws {
         let trimmedModelName = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedModelName.isEmpty else {
@@ -648,12 +710,15 @@ final class ModelPlanStore {
         guard let modelIndex = archive.models.firstIndex(where: { $0.id == candidateID }) else {
             throw AppError.invalidState(PalmiL10n.tr("model.error.modelMissing"))
         }
+        let existingConnection = archive.connections
+            .first(where: { $0.id == archive.models[modelIndex].connectionID })
         let connectionID = try upsertConnection(
             inputAddress: baseURLString,
             apiKey: apiKey,
-            modelsURLString: archive.connections
-                .first(where: { $0.id == archive.models[modelIndex].connectionID })?
-                .modelsURLString
+            modelsURLString: existingConnection?.modelsURLString,
+            wireProtocolPreference: wireProtocolPreference
+                ?? existingConnection?.wireProtocolPreference
+                ?? .automatic
         )
         archive.models[modelIndex].connectionID = connectionID
         archive.models[modelIndex].displayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -738,14 +803,19 @@ final class ModelPlanStore {
     private func upsertConnection(
         inputAddress: String,
         apiKey: String,
-        modelsURLString: String?
+        modelsURLString: String?,
+        wireProtocolPreference: LLMWireProtocolPreference
     ) throws -> UUID {
-        let resolution = try OpenAICompatibleEndpointResolver.resolve(inputAddress)
+        let resolution = try OpenAICompatibleEndpointResolver.resolve(
+            inputAddress,
+            preference: wireProtocolPreference
+        )
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         if let existing = try archive.connections.first(where: { connection in
             guard connection.inputAddress == resolution.inputURL.absoluteString else {
                 return false
             }
+            guard connection.wireProtocolPreference == wireProtocolPreference else { return false }
             let stored = try secretStore.readSecret(account: apiKeyAccount(connectionID: connection.id)) ?? ""
             return stored == trimmedKey
         }) {
@@ -753,7 +823,9 @@ final class ModelPlanStore {
                 archive.connections[index].inputAddress = resolution.inputURL.absoluteString
                 archive.connections[index].chatCompletionsURLString = resolution.chatCompletionsURL.absoluteString
                 archive.connections[index].responsesURLString = resolution.responsesURL.absoluteString
+                archive.connections[index].messagesURLString = resolution.messagesURL.absoluteString
                 archive.connections[index].modelsURLString = modelsURLString ?? existing.modelsURLString
+                archive.connections[index].wireProtocolPreference = wireProtocolPreference
                 archive.connections[index].updatedAt = .now
             }
             return existing.id
@@ -768,7 +840,9 @@ final class ModelPlanStore {
                 inputAddress: resolution.inputURL.absoluteString,
                 chatCompletionsURLString: resolution.chatCompletionsURL.absoluteString,
                 responsesURLString: resolution.responsesURL.absoluteString,
+                messagesURLString: resolution.messagesURL.absoluteString,
                 modelsURLString: modelsURLString,
+                wireProtocolPreference: wireProtocolPreference,
                 createdAt: now,
                 updatedAt: now
             )
@@ -846,7 +920,10 @@ final class ModelPlanStore {
         for candidate: ModelCandidateSnapshot,
         slot: ModelPlanSlot
     ) -> AgentModelConfigurationOverride? {
-        guard let endpoints = try? OpenAICompatibleEndpointResolver.resolve(candidate.connection.inputAddress) else {
+        guard let endpoints = try? OpenAICompatibleEndpointResolver.resolve(
+            candidate.connection.inputAddress,
+            preference: candidate.connection.wireProtocolPreference
+        ) else {
             return nil
         }
         let provider = APIProviderCatalog.definition(for: .customOpenAI)
@@ -866,7 +943,9 @@ final class ModelPlanStore {
             inputURL: endpoints.inputURL,
             chatCompletionsURL: endpoints.chatCompletionsURL,
             responsesURL: endpoints.responsesURL,
+            messagesURL: endpoints.messagesURL,
             explicitWireProtocol: endpoints.explicitWireProtocol,
+            wireProtocolPreference: endpoints.wireProtocolPreference,
             apiKey: key.isEmpty ? nil : key,
             selectedServer: nil
         )
@@ -977,7 +1056,9 @@ final class ModelPlanStore {
                             inputAddress: endpoint.inputURL.absoluteString,
                             chatCompletionsURLString: endpoint.chatCompletionsURL.absoluteString,
                             responsesURLString: endpoint.responsesURL.absoluteString,
+                            messagesURLString: endpoint.messagesURL.absoluteString,
                             modelsURLString: nil,
+                            wireProtocolPreference: .automatic,
                             createdAt: legacyModel.createdAt,
                             updatedAt: now
                         )

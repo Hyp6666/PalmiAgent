@@ -56,10 +56,12 @@ PalmiAgent does not lock you into one AI provider, and it does not proxy your mo
 
 ### Bring your own endpoint
 
-Connect your own API account, a model server on your local network, or any supported OpenAI-compatible endpoint. Built-in setup is available for OpenAI, Azure OpenAI, GLM / Z.AI, DeepSeek, Qwen, Kimi, MiniMax, Doubao, Hunyuan, Qianfan, StepFun, ModelScope, SiliconFlow, OpenRouter, Ollama, and LM Studio. Other compatible services can be added manually.
+Connect your own API account or a model server on your local network. Choose **OpenAI Chat Completions, OpenAI Responses, or Anthropic Messages**, or use **automatic protocol matching**. Configure the service address, API key, and model to suit your provider.
+
+Built-in setup is available for OpenAI, Azure OpenAI, GLM / Z.AI, DeepSeek, Qwen, Kimi, MiniMax, Doubao, Hunyuan, Qianfan, StepFun, ModelScope, SiliconFlow, OpenRouter, Ollama, and LM Studio. Other compatible services can be added manually.
 
 <p align="center">
-  <a href="Screenshots/Product/07-OpenAI-Compatible.png"><img src="Screenshots/Product/07-OpenAI-Compatible.png" width="430" alt="Adding an OpenAI-compatible model endpoint"></a>
+  <a href="Screenshots/Product/07-OpenAI-Compatible.png"><img src="Screenshots/Product/07-OpenAI-Compatible.png" width="430" alt="Model setup with three protocols and automatic protocol matching"></a>
 </p>
 
 ### Three model roles, one flexible system
@@ -129,7 +131,9 @@ A screenshot, a photographed page, or a scanned document can become actionable t
 
 PalmiAgent's web tools support a research workflow, not just a search box.
 
-- Enable multiple search sources and test which ones are reachable on the current network.
+- Choose **local search or remote search** in Settings → Search Configuration.
+- **Local search:** search the web directly from your device using one selected source: Baidu, Bing, DuckDuckGo, Sogou, or 360 Search.
+- **Remote search:** connect a service with server-side web search using Responses or Messages. Save separate configurations with a service address, model, and API key; validate the connection and switch between configurations as needed.
 - Find candidate pages, then read websites, JavaScript-rendered pages, PDFs, JSON, XML, and plain text.
 - Fetch multiple sources in a batch and read selected ranges from long pages to reduce irrelevant context and token use.
 - When needed, archive a page together with its referenced images, styles, scripts, and fonts.

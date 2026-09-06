@@ -699,7 +699,9 @@ struct APIResolvedConfiguration: Sendable {
     let inputURL: URL
     let chatCompletionsURL: URL
     let responsesURL: URL
+    let messagesURL: URL
     let explicitWireProtocol: LLMWireProtocol?
+    let wireProtocolPreference: LLMWireProtocolPreference
     let apiKey: String?
     let selectedServer: LMStudioDiscoveredServer?
 
@@ -709,8 +711,10 @@ struct APIResolvedConfiguration: Sendable {
             inputURL: inputURL,
             chatCompletionsURL: chatCompletionsURL,
             responsesURL: responsesURL,
+            messagesURL: messagesURL,
             modelURLCandidates: [],
-            explicitWireProtocol: explicitWireProtocol
+            explicitWireProtocol: explicitWireProtocol,
+            wireProtocolPreference: wireProtocolPreference
         )
     }
 
@@ -1112,7 +1116,9 @@ final class APIConfigurationStore {
             inputURL: endpoints.inputURL,
             chatCompletionsURL: endpoints.chatCompletionsURL,
             responsesURL: endpoints.responsesURL,
+            messagesURL: endpoints.messagesURL,
             explicitWireProtocol: endpoints.explicitWireProtocol,
+            wireProtocolPreference: endpoints.wireProtocolPreference,
             apiKey: trimmedSecret?.isEmpty == false ? trimmedSecret : nil,
             selectedServer: snapshot.selectedServer
         )

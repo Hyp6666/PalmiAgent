@@ -1875,8 +1875,12 @@ private struct AppSettingsScreen: View {
             )
         case .toolAuthorization:
             ToolAuthorizationSettingsScreen(authorizationStore: store.toolAuthorizationStore)
-        case .searchSources:
-            WebSearchProviderSettingsScreen()
+        case .searchConfiguration:
+            SearchConfigurationScreen(
+                remoteSearchStore: store.remoteSearchConfigurationStore,
+                permissionStore: store.toolPermissionStore,
+                remoteWebSearchService: store.remoteWebSearchService
+            )
         case .skills:
             SkillCatalogScreen(registry: skillRegistry, mode: .global)
         case .personalization:
@@ -2166,6 +2170,7 @@ private struct DataManagementSettingsScreen: View {
                     workspaceStore: store.workspaceStore,
                     afterResettingPreferences: {
                         OnboardingStorage.markNeedsOnboarding()
+                        store.restoreFactoryStateAfterPreferencesReset()
                     }
                 )
                 onFactoryResetCompleted()
@@ -3223,6 +3228,8 @@ private struct ModelCandidateEditorSheet: View {
     @State private var modelName: String
     @State private var inputAddress: String
     @State private var apiKey: String
+    @State private var wireProtocolPreference: LLMWireProtocolPreference
+    @State private var isShowingProtocolSettings = false
     @State private var isValidating = false
     @State private var validation: ModelCandidateValidationResult?
     @State private var errorMessage: String?
@@ -3239,6 +3246,7 @@ private struct ModelCandidateEditorSheet: View {
         _modelName = State(initialValue: candidate.modelName)
         _inputAddress = State(initialValue: candidate.connection.inputAddress)
         _apiKey = State(initialValue: planStore.apiKey(for: candidate.id))
+        _wireProtocolPreference = State(initialValue: candidate.connection.wireProtocolPreference)
     }
 
     var body: some View {
@@ -3249,6 +3257,11 @@ private struct ModelCandidateEditorSheet: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                 SecureField(PalmiL10n.tr("model.field.apiKey"), text: $apiKey)
+
+                modelWireProtocolSettingsButton(
+                    selection: wireProtocolPreference,
+                    action: { isShowingProtocolSettings = true }
+                )
             }
 
             Section(PalmiL10n.tr("model.model.title")) {
@@ -3289,6 +3302,12 @@ private struct ModelCandidateEditorSheet: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .sheet(isPresented: $isShowingProtocolSettings) {
+            ModelWireProtocolSelectionSheet(selection: $wireProtocolPreference)
+        }
+        .onChange(of: wireProtocolPreference) { _, _ in
+            validation = nil
+        }
     }
 
     private func validate() {
@@ -3298,7 +3317,8 @@ private struct ModelCandidateEditorSheet: View {
             displayName: displayName,
             baseURLString: inputAddress,
             apiKey: apiKey,
-            modelName: modelName
+            modelName: modelName,
+            wireProtocolPreference: wireProtocolPreference
         )
         Task {
             defer { isValidating = false }
@@ -3315,7 +3335,8 @@ private struct ModelCandidateEditorSheet: View {
                 displayName: displayName,
                 modelName: modelName,
                 baseURLString: inputAddress,
-                apiKey: apiKey
+                apiKey: apiKey,
+                wireProtocolPreference: wireProtocolPreference
             )
             if let validation {
                 try planStore.updateCandidateValidation(
@@ -3350,9 +3371,11 @@ private struct ModelAddressHelpScreen: View {
     let languageID: String
 
     private let examples = [
-        "https://api.openai.com",
-        "https://api.openai.com/v1",
-        "https://api.openai.com/v1/chat/completions"
+        "https://api.example.com",
+        "https://api.example.com/v1",
+        "https://api.example.com/v1/responses",
+        "https://api.example.com/v1/chat/completions",
+        "https://api.example.com/v1/messages"
     ]
 
     var body: some View {
@@ -3408,7 +3431,8 @@ private struct ModelCandidateAddScreen: View {
     @State private var inputAddress = ""
     @State private var apiKey = ""
     @State private var isShowingAPIKey = false
-    @State private var isShowingAddressHelp = false
+    @State private var presentedConnectionSheet: ModelConnectionSheet?
+    @State private var wireProtocolPreference: LLMWireProtocolPreference = .automatic
     @State private var discoveryState: ModelDiscoveryViewState = .idle
     @State private var aliases: [String: String] = [:]
     @State private var expandedAliasIDs: Set<String> = []
@@ -3421,6 +3445,7 @@ private struct ModelCandidateAddScreen: View {
 
     var body: some View {
         Form {
+            advancedSettingsSection
             addressSection
             apiKeySection
             discoverySection
@@ -3438,6 +3463,9 @@ private struct ModelCandidateAddScreen: View {
         .onChange(of: apiKey) { _, _ in
             invalidateDiscovery()
         }
+        .onChange(of: wireProtocolPreference) { _, _ in
+            invalidateDiscovery()
+        }
         .onDisappear {
             discoveryTask?.cancel()
         }
@@ -3446,9 +3474,14 @@ private struct ModelCandidateAddScreen: View {
         } message: {
             Text(errorMessage ?? "")
         }
-        .sheet(isPresented: $isShowingAddressHelp) {
-            NavigationStack {
-                ModelAddressHelpScreen(languageID: PalmiLanguage.current.rawValue)
+        .sheet(item: $presentedConnectionSheet) { destination in
+            switch destination {
+            case .addressHelp:
+                NavigationStack {
+                    ModelAddressHelpScreen(languageID: PalmiLanguage.current.rawValue)
+                }
+            case .protocolSettings:
+                ModelWireProtocolSelectionSheet(selection: $wireProtocolPreference)
             }
         }
     }
@@ -3469,7 +3502,7 @@ private struct ModelCandidateAddScreen: View {
                 Text(PalmiL10n.tr("model.connection.compatibleAddress"))
                 Spacer()
                 Button {
-                    isShowingAddressHelp = true
+                    presentedConnectionSheet = .addressHelp
                 } label: {
                     Image(systemName: "questionmark.circle")
                 }
@@ -3516,6 +3549,15 @@ private struct ModelCandidateAddScreen: View {
             }
         } header: {
             Text(PalmiL10n.tr("model.field.apiKey"))
+        }
+    }
+
+    private var advancedSettingsSection: some View {
+        Section {
+            modelWireProtocolSettingsButton(
+                selection: wireProtocolPreference,
+                action: { presentedConnectionSheet = .protocolSettings }
+            )
         }
     }
 
@@ -3748,11 +3790,13 @@ private struct ModelCandidateAddScreen: View {
         discoveryState = .loading
         let address = inputAddress
         let key = apiKey
+        let preference = wireProtocolPreference
         discoveryTask = Task {
             do {
                 let result = try await discoveryService.fetchModels(
                     inputAddress: address,
-                    apiKey: key
+                    apiKey: key,
+                    protocolPreference: preference
                 )
                 guard !Task.isCancelled else { return }
                 discoveryState = .loaded(
@@ -3781,7 +3825,8 @@ private struct ModelCandidateAddScreen: View {
                 discovery: filtered,
                 aliases: aliases,
                 planID: attachToSlot ? planID : nil,
-                slot: attachToSlot ? slot : nil
+                slot: attachToSlot ? slot : nil,
+                wireProtocolPreference: wireProtocolPreference
             )
             dismiss()
         } catch {
@@ -3797,7 +3842,8 @@ private struct ModelCandidateAddScreen: View {
             displayName: manualAlias,
             baseURLString: inputAddress,
             apiKey: apiKey,
-            modelName: manualModelID
+            modelName: manualModelID,
+            wireProtocolPreference: wireProtocolPreference
         )
         do {
             _ = try planStore.addCandidate(
@@ -3817,6 +3863,113 @@ private struct ModelCandidateAddScreen: View {
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )
+    }
+}
+
+private enum ModelConnectionSheet: String, Identifiable {
+    case addressHelp
+    case protocolSettings
+
+    var id: String { rawValue }
+}
+
+private struct ModelWireProtocolSelectionSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var selection: LLMWireProtocolPreference
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(LLMWireProtocolPreference.allCases) { preference in
+                        Button {
+                            selection = preference
+                        } label: {
+                            HStack(alignment: .top, spacing: 12) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(preference.localizedTitle)
+                                        .foregroundStyle(.primary)
+                                    if let detail = preference.localizedDetail {
+                                        Text(detail)
+                                            .font(.footnote)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                Spacer(minLength: 12)
+                                if selection == preference {
+                                    Image(systemName: "checkmark")
+                                        .font(.body.weight(.semibold))
+                                        .foregroundStyle(Color.accentColor)
+                                        .accessibilityHidden(true)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityValue(
+                            selection == preference
+                                ? PalmiL10n.tr("model.discovery.selected")
+                                : ""
+                        )
+                    }
+                } header: {
+                    Text(PalmiL10n.tr("model.connection.protocol.title"))
+                }
+            }
+            .navigationTitle(PalmiL10n.tr("model.connection.advanced"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(PalmiL10n.tr("common.done")) { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+@ViewBuilder
+private func modelWireProtocolSettingsButton(
+    selection: LLMWireProtocolPreference,
+    action: @escaping () -> Void
+) -> some View {
+    Button(action: action) {
+        HStack(spacing: 8) {
+            Text(PalmiL10n.tr("model.connection.advanced"))
+                .foregroundStyle(.primary)
+            Spacer()
+            Text(selection.localizedTitle)
+                .foregroundStyle(.secondary)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+}
+
+private extension LLMWireProtocolPreference {
+    var localizedTitle: String {
+        switch self {
+        case .automatic:
+            PalmiL10n.tr("model.connection.protocol.automatic")
+        case .responses:
+            "Responses"
+        case .chatCompletions:
+            "Chat Completions"
+        case .anthropicMessages:
+            "Messages"
+        }
+    }
+
+    var localizedDetail: String? {
+        switch self {
+        case .automatic:
+            PalmiL10n.tr("model.connection.protocol.automatic.detail")
+        case .responses, .chatCompletions, .anthropicMessages:
+            nil
+        }
     }
 }
 private struct ModelPlanPresentation: Identifiable {
