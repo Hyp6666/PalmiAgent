@@ -4,19 +4,31 @@ import Security
 struct AppDataUsageSummary: Equatable, Sendable {
     let workspaceBytes: Int64
     let cacheBytes: Int64
+    var bionicBytes: Int64 = 0
 
     static let empty = AppDataUsageSummary(workspaceBytes: 0, cacheBytes: 0)
 
     var totalBytes: Int64 {
-        workspaceBytes + cacheBytes
+        workspaceBytes + cacheBytes + bionicBytes
     }
 }
 
 enum AppDataManagementService {
+    @MainActor static var prepareBionicReset: (() async throws -> Void)?
+
+    @MainActor
+    static func restoreAllAppData(workspaceStore: WorkspaceStore,
+                                  afterResettingPreferences: (() -> Void)? = nil) async throws {
+        try await prepareBionicReset?()
+        try restoreFactoryState(workspaceStore: workspaceStore,
+                                afterResettingPreferences: afterResettingPreferences)
+    }
+
     static func usageSummary(workspaceManager: WorkspaceManager) -> AppDataUsageSummary {
         AppDataUsageSummary(
             workspaceBytes: byteCount(at: workspaceManager.workspaceStorageRootURL()),
-            cacheBytes: byteCount(at: cachesURL())
+            cacheBytes: byteCount(at: cachesURL()),
+            bionicBytes: byteCount(at: BionicDisk.root)
         )
     }
 

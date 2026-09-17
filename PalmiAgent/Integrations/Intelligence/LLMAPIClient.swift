@@ -78,6 +78,9 @@ final class LLMAPIClient: AgentModelRuntime {
     }
 
     func complete(_ request: AgentModelRequest) async throws -> AgentModelResponse {
+        if request.maximumOutputTokens != nil {
+            return try await completeBionic(request)
+        }
         let messages = openAICompatibleMessages(from: request.apiMessages)
         let tools = openAICompatibleTools(from: request.tools)
         let toolChoice = request.toolIntent.wireToolChoice ?? "none"
@@ -2466,4 +2469,93 @@ extension URLSession {
 @MainActor
 private final class StreamingProgressState {
     var content = ""
+}
+
+// Append to LLMAPIClient.swift. Same-file extension intentionally reuses private endpoint resolution.
+extension LLMAPIClient {
+    private func completeBionic(_ request: AgentModelRequest) async throws -> AgentModelResponse {
+        let messages = openAICompatibleMessages(from: request.apiMessages)
+        let tools = openAICompatibleTools(from: request.tools)
+        let choice = request.toolIntent.wireToolChoice ?? "none"
+        let context = try await unifiedRequestContext(selection: request.selection, messages: messages, tools: tools,
+                                                       toolChoice: choice, promptCacheKey: request.promptCacheKey)
+        let endpoints = context.configuration.endpointResolution
+        var wire = wireProtocolContractStore.protocolForRequest(profileID: context.configuration.profileID, modelID: context.runtimeProfile.model.id, endpoints: endpoints)
+        var attempted: Set<LLMWireProtocol> = []
+        while attempted.insert(wire).inserted {
+            do {
+                let response = try await performBionic(request, context: context, wire: wire)
+                recordProtocolSuccess(wire, context: context)
+                return response
+            } catch {
+                if let transport = error as? LLMHTTPTransportError, case .http(_, let data, _) = transport {
+                    let message = String(decoding: data, as: UTF8.self).lowercased()
+                    if message.contains("context") && (message.contains("length") || message.contains("window") || message.contains("token")) { throw BionicControl.capacity }
+                }
+                if let next = fallbackProtocol(after: error, attemptedProtocol: wire, configuration: context.configuration, modelID: context.runtimeProfile.model.id), !attempted.contains(next) {
+                    wire = next; continue
+                }
+                throw error
+            }
+        }
+        throw BionicFailure("networkFailed")
+    }
+    private func performBionic(_ input: AgentModelRequest, context: UnifiedRequestContext, wire: LLMWireProtocol) async throws -> AgentModelResponse {
+        let limit = input.maximumOutputTokens ?? 8192
+        guard limit > 0 else { throw BionicFailure("invalidFields") }
+        var request: URLRequest
+        switch wire {
+        case .responses:
+            request = try makeResponsesURLRequest(context: context, stream: true)
+        case .anthropicMessages:
+            request = try makeMessagesURLRequest(context: context, stream: true)
+        case .chatCompletions:
+            let body = OpenAICompatibleChatAdapter.makeRequestBody(model: context.runtimeProfile.model.id,
+                messages: context.messages, tools: context.tools.isEmpty ? nil : context.tools, toolChoice: context.toolChoice,
+                stream: nil, runtimeProfile: context.runtimeProfile, promptCacheKey: context.promptCacheKey)
+            request = URLRequest(url: context.configuration.chatCompletionsURL, timeoutInterval: LLMHTTPTransport.defaultTimeoutInterval)
+            request.httpMethod = "POST"
+            applyHeaders(OpenAICompatibleChatAdapter.headers(for: context.runtimeProfile, acceptsStreaming: false), to: &request)
+            request.httpBody = try encodeRequestBody(body)
+        }
+        guard let body = request.httpBody else { throw BionicFailure("invalidFields") }
+        var payload = try BionicCodec.json(String(decoding: body, as: UTF8.self))
+        switch wire {
+        case .responses:
+            payload["max_output_tokens"] = .count(limit)
+            if !context.tools.isEmpty { payload["parallel_tool_calls"] = .bool(input.parallelToolCalls ?? true) }
+        case .anthropicMessages:
+            payload["max_tokens"] = .count(limit)
+            if !context.tools.isEmpty {
+                var choice = payload.object("tool_choice")
+                choice["disable_parallel_tool_use"] = .bool(!(input.parallelToolCalls ?? true))
+                payload["tool_choice"] = .object(choice)
+            }
+        case .chatCompletions:
+            let host = request.url?.host?.lowercased() ?? ""
+            let completionKey = host == "api.openai.com" || host.hasSuffix(".openai.azure.com")
+            payload[completionKey ? "max_completion_tokens" : "max_tokens"] = .count(limit)
+            if !context.tools.isEmpty { payload["parallel_tool_calls"] = .bool(input.parallelToolCalls ?? true) }
+        }
+        request.httpBody = try BionicCodec.encode(.object(payload))
+        let response: LLMHTTPResponse
+        do { response = try await LLMHTTPTransport.perform(request, using: session) }
+        catch let error as LLMHTTPTransportError {
+            guard wire == .chatCompletions, case .http(let status, let data, _) = error, [400, 422].contains(status) else { throw error }
+            let text = String(decoding: data, as: UTF8.self).lowercased()
+            let old = payload["max_completion_tokens"] != nil ? "max_completion_tokens" : "max_tokens"
+            guard text.contains(old), ["unsupported", "unknown", "not supported", "not allowed", "unrecognized"].contains(where: text.contains) else { throw error }
+            let alternate = old == "max_tokens" ? "max_completion_tokens" : "max_tokens"
+            payload.removeValue(forKey: old); payload[alternate] = .count(limit)
+            request.httpBody = try BionicCodec.encode(.object(payload))
+            response = try await LLMHTTPTransport.perform(request, using: session)
+        }
+        try Task.checkCancellation()
+        let decoded = try BionicWireCodec.decode(response.data, protocol: wire)
+        if decoded.reasoningObserved { throw BionicFailure("reasoningIncompatible") }
+        let notices: [AgentModelNotice] = response.optionalControlFallbackIntent == .disabled ? [.reasoningDisableNotGuaranteed] : []
+        return AgentModelResponse(message: .assistant(text: decoded.text, toolUses: decoded.tools),
+                                  totalTokens: decoded.usage.totalTokens ?? 0, tokenUsage: decoded.usage, notices: notices,
+                                  outputWasTruncated: decoded.truncated, wasRefused: decoded.refused)
+    }
 }

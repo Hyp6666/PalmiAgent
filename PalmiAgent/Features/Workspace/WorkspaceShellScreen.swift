@@ -33,6 +33,7 @@ struct WorkspaceShellScreen: View {
     @Bindable var manualLabStore: ManualLabStore
     @Bindable var skillRegistry: SkillRegistry
     @State private var chatStore: ChatStore
+    @State private var bionicStore: BionicStore
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var compactPath: [CompactWorkspaceRoute] = []
     @State private var isShowingWorkspaceBrowser = false
@@ -42,21 +43,22 @@ struct WorkspaceShellScreen: View {
     @State private var isShowingOnboarding = false
     @State private var chatModePath: [ChatModeRoute] = []
 
-    init(
-        workspaceStore: WorkspaceStore,
-        manualLabStore: ManualLabStore,
-        skillRegistry: SkillRegistry,
-        chatStore: ChatStore
-    ) {
+    init(workspaceStore: WorkspaceStore, manualLabStore: ManualLabStore,
+         skillRegistry: SkillRegistry, chatStore: ChatStore, bionicStore: BionicStore) {
         self._workspaceStore = Bindable(wrappedValue: workspaceStore)
         self._manualLabStore = Bindable(wrappedValue: manualLabStore)
         self._skillRegistry = Bindable(wrappedValue: skillRegistry)
         self._chatStore = State(initialValue: chatStore)
+        self._bionicStore = State(initialValue: bionicStore)
     }
 
     var body: some View {
         Group {
-            if shellMode == .chat {
+            if shellMode == .bionic {
+                BionicRootScreen(store: bionicStore,
+                                  onOpenSettings: { isShowingSettings = true },
+                                  onSelectMode: selectShellMode)
+            } else if shellMode == .chat {
                 chatModeBody
             } else if horizontalSizeClass == .compact {
                 compactBody
@@ -118,6 +120,11 @@ struct WorkspaceShellScreen: View {
         }
         .onAppear {
             presentOnboardingIfNeeded()
+            bionicStore.visibleMode(shellMode == .bionic)
+        }
+        .onChange(of: bionicStore.pendingNotificationRouteID) { _, routeID in
+            guard routeID != nil else { return }
+            selectShellMode(.bionic)
         }
         .onChange(of: hasCompletedOnboarding) { _, completed in
             if !completed {
@@ -125,15 +132,17 @@ struct WorkspaceShellScreen: View {
             }
         }
         .task(id: workspaceStore.selectedSelection) {
+            guard shellMode != .bionic else { return }
             chatStore.loadMessagesForActiveThread()
         }
         .task(id: workspaceStore.selectedProjectID) {
-            do {
-                try skillRegistry.reloadProjectSkills(for: workspaceStore.selectedProjectID)
-            } catch {}
+            guard shellMode != .bionic else { return }
+            do { try skillRegistry.reloadProjectSkills(for: workspaceStore.selectedProjectID) }
+            catch { /* Preserve the existing non-fatal project-skill reload behavior. */ }
         }
         .task(id: storedShellMode) {
             synchronizeShellModeSelection()
+            bionicStore.visibleMode(shellMode == .bionic)
         }
     }
 
@@ -180,6 +189,10 @@ struct WorkspaceShellScreen: View {
         selectShellMode(resolvedMode)
 
         switch resolvedMode {
+        case .bionic:
+            compactPath = []
+            chatModePath = []
+            bionicStore.visibleMode(true)
         case .chat:
             let project = workspaceStore.ensureDefaultChatConversation()
             workspaceStore.activateChatSurface()
@@ -301,14 +314,16 @@ struct WorkspaceShellScreen: View {
     }
 
     private func synchronizeShellModeSelection() {
-        if shellMode == .chat {
+        switch shellMode {
+        case .chat:
             workspaceStore.activateChatSurface()
-            if workspaceStore.selectedChatProjectID == nil {
-                chatModePath = []
-            }
-        } else {
+            if workspaceStore.selectedChatProjectID == nil { chatModePath = [] }
+        case .professional:
             chatModePath = []
             workspaceStore.activateProfessionalSurface()
+        case .bionic:
+            chatModePath = []
+            compactPath = []
         }
     }
 }
@@ -1805,6 +1820,9 @@ private struct OnboardingModeChoiceStep: View {
                 modeButton(PalmiL10n.tr("appMode.professionalMode")) {
                     onSelect(.professional)
                 }
+                modeButton(PalmiL10n.tr("appMode.bionicMode")) {
+                    onSelect(.bionic)
+                }
             }
             .frame(maxWidth: 380)
 
@@ -2007,6 +2025,7 @@ private struct LanguageSettingsScreen: View {
 private struct DataManagementSettingsScreen: View {
     @Bindable var store: ManualLabStore
     let onFactoryResetCompleted: () -> Void
+    @State private var isPerforming = false
     @State private var usageSummary = AppDataUsageSummary.empty
     @State private var pendingOperation: DataManagementOperation?
     @State private var feedbackMessage: String?
@@ -2068,6 +2087,7 @@ private struct DataManagementSettingsScreen: View {
         List {
             Section(PalmiL10n.tr("data.section.storage")) {
                 usageRow(title: PalmiL10n.tr("data.storage.workspaceAndSessions"), byteCount: usageSummary.workspaceBytes)
+                usageRow(title: PalmiL10n.tr("bionic.appData"), byteCount: usageSummary.bionicBytes)
 
                 Button(role: .destructive) {
                     pendingOperation = .clearWorkspaceData
@@ -2106,6 +2126,7 @@ private struct DataManagementSettingsScreen: View {
         .listStyle(.insetGrouped)
         .navigationTitle(PalmiL10n.tr("settings.row.dataManagement"))
         .navigationBarTitleDisplayMode(.inline)
+        .disabled(isPerforming)
         .task {
             reloadUsageSummary()
         }
@@ -2159,26 +2180,31 @@ private struct DataManagementSettingsScreen: View {
     }
 
     private func perform(_ operation: DataManagementOperation) {
-        do {
-            switch operation {
-            case .clearWorkspaceData:
-                try AppDataManagementService.clearWorkspaceData(workspaceStore: store.workspaceStore)
-            case .clearCaches:
-                try AppDataManagementService.clearCaches()
-            case .restoreFactoryState:
-                try AppDataManagementService.restoreFactoryState(
-                    workspaceStore: store.workspaceStore,
-                    afterResettingPreferences: {
-                        OnboardingStorage.markNeedsOnboarding()
-                        store.restoreFactoryStateAfterPreferencesReset()
-                    }
-                )
-                onFactoryResetCompleted()
+        guard !isPerforming else { return }
+        isPerforming = true
+        Task { @MainActor in
+            defer { isPerforming = false }
+            do {
+                switch operation {
+                case .clearWorkspaceData:
+                    try AppDataManagementService.clearWorkspaceData(workspaceStore: store.workspaceStore)
+                case .clearCaches:
+                    try AppDataManagementService.clearCaches()
+                case .restoreFactoryState:
+                    try await AppDataManagementService.restoreAllAppData(
+                        workspaceStore: store.workspaceStore,
+                        afterResettingPreferences: {
+                            OnboardingStorage.markNeedsOnboarding()
+                            store.restoreFactoryStateAfterPreferencesReset()
+                        }
+                    )
+                    onFactoryResetCompleted()
+                }
+                feedbackMessage = operation.successMessage
+                reloadUsageSummary()
+            } catch {
+                errorMessage = error is BionicFailure ? BionicStore.errorText(error) : error.localizedDescription
             }
-            feedbackMessage = operation.successMessage
-            reloadUsageSummary()
-        } catch {
-            errorMessage = error.localizedDescription
         }
     }
 

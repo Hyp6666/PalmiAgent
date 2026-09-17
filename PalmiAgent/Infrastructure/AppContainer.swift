@@ -2,6 +2,17 @@ import Foundation
 
 @MainActor
 final class AppContainer {
+    lazy var bionicStore = BionicStore(modelRuntime: llmAPIClient,
+                                      modelPlanStore: modelPlanStore,
+                                      notificationService: notificationService)
+
+    init() {
+        AppDataManagementService.prepareBionicReset = { [weak self] in
+            guard let self else { return }
+            try await self.bionicStore.reset()
+        }
+    }
+
     let workspaceManager = WorkspaceManager()
     lazy var workspaceStore = WorkspaceStore(workspaceManager: workspaceManager)
     let apiConfigurationStore = APIConfigurationStore()

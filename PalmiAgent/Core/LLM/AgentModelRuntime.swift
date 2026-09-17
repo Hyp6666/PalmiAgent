@@ -219,19 +219,20 @@ struct AgentModelRequest: Sendable {
     let tools: [AgentModelToolDefinition]
     let toolIntent: AgentModelToolIntent
     let promptCacheKey: String?
+    let maximumOutputTokens: Int?
+    let parallelToolCalls: Bool?
 
-    init(
-        selection: AgentModelSelection,
-        apiMessages: [AgentModelMessage],
-        tools: [AgentModelToolDefinition] = [],
-        toolIntent: AgentModelToolIntent = .auto,
-        promptCacheKey: String? = nil
-    ) {
+    init(selection: AgentModelSelection, apiMessages: [AgentModelMessage],
+         tools: [AgentModelToolDefinition] = [], toolIntent: AgentModelToolIntent = .auto,
+         promptCacheKey: String? = nil, maximumOutputTokens: Int? = nil,
+         parallelToolCalls: Bool? = nil) {
         self.selection = selection
         self.apiMessages = apiMessages
         self.tools = tools
         self.toolIntent = toolIntent
         self.promptCacheKey = promptCacheKey
+        self.maximumOutputTokens = maximumOutputTokens
+        self.parallelToolCalls = parallelToolCalls
     }
 }
 
@@ -391,17 +392,18 @@ struct AgentModelResponse: Sendable {
     let totalTokens: Int
     let tokenUsage: AgentModelTokenUsage
     let notices: [AgentModelNotice]
+    let outputWasTruncated: Bool
+    let wasRefused: Bool
 
-    init(
-        message: AgentMessage,
-        totalTokens: Int,
-        tokenUsage: AgentModelTokenUsage = .empty,
-        notices: [AgentModelNotice] = []
-    ) {
+    init(message: AgentMessage, totalTokens: Int,
+         tokenUsage: AgentModelTokenUsage = .empty, notices: [AgentModelNotice] = [],
+         outputWasTruncated: Bool = false, wasRefused: Bool = false) {
         self.message = message
         self.totalTokens = totalTokens
         self.tokenUsage = tokenUsage
         self.notices = notices
+        self.outputWasTruncated = outputWasTruncated
+        self.wasRefused = wasRefused
     }
 }
 

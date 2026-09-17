@@ -3,31 +3,27 @@ import SwiftUI
 enum AppShellMode: String {
     case chat
     case professional
+    case bionic
 
     var title: String {
         switch self {
-        case .chat:
-            PalmiL10n.tr("appMode.chat")
-        case .professional:
-            PalmiL10n.tr("appMode.professional")
+        case .chat: PalmiL10n.tr("appMode.chat")
+        case .professional: PalmiL10n.tr("appMode.professional")
+        case .bionic: PalmiL10n.tr("appMode.bionic")
         }
     }
-
     var pickerTitle: String {
         switch self {
-        case .chat:
-            PalmiL10n.tr("appMode.chatMode")
-        case .professional:
-            PalmiL10n.tr("appMode.professionalMode")
+        case .chat: PalmiL10n.tr("appMode.chatMode")
+        case .professional: PalmiL10n.tr("appMode.professionalMode")
+        case .bionic: PalmiL10n.tr("appMode.bionicMode")
         }
     }
-
     var symbolName: String {
         switch self {
-        case .chat:
-            "bubble.left.and.bubble.right"
-        case .professional:
-            "square.grid.2x2"
+        case .chat: "bubble.left.and.bubble.right"
+        case .professional: "square.grid.2x2"
+        case .bionic: "person.crop.circle"
         }
     }
 }
@@ -133,6 +129,11 @@ struct AppShellTopBar: View {
             } label: {
                 Label(AppShellMode.professional.title, systemImage: AppShellMode.professional.symbolName)
             }
+            Button {
+                onSelectMode(.bionic)
+            } label: {
+                Label(AppShellMode.bionic.title, systemImage: AppShellMode.bionic.symbolName)
+            }
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: mode.symbolName)
@@ -160,43 +161,31 @@ struct AppShellModePickerScreen: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        GeometryReader { proxy in
-            let layout = AppShellModePickerLayout(size: proxy.size)
-
-            ZStack {
-                ModeWaveBackground()
-                    .ignoresSafeArea()
-
-                modeButton(.chat, layout: layout)
-                    .frame(width: layout.buttonWidth, height: layout.buttonHeight)
-                    .position(x: layout.centerX, y: layout.chatCenterY)
-
-                modeButton(.professional, layout: layout)
-                    .frame(width: layout.buttonWidth, height: layout.buttonHeight)
-                    .position(x: layout.centerX, y: layout.professionalCenterY)
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 18) {
+                    ForEach([AppShellMode.chat, .professional, .bionic], id: \.rawValue) { mode in
+                        Button { onSelect(mode) } label: {
+                            HStack(spacing: 16) {
+                                Image(systemName: mode.symbolName).font(.title2).frame(width: 34)
+                                Text(mode.pickerTitle).font(.title3.weight(.semibold))
+                                Spacer()
+                                if mode == currentMode { Image(systemName: "checkmark.circle.fill") }
+                            }
+                            .foregroundStyle(.primary).padding(24).frame(maxWidth: .infinity)
+                            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 24))
+                        }.buttonStyle(.plain)
+                    }
+                }.padding(24).frame(maxWidth: 600)
+            }
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle(PalmiL10n.tr("common.mode"))
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(PalmiL10n.tr("common.cancel"), action: onDismiss)
+                }
             }
         }
-        .ignoresSafeArea()
-    }
-
-    private func modeButton(_ mode: AppShellMode, layout: AppShellModePickerLayout) -> some View {
-        return Button {
-            onSelect(mode)
-        } label: {
-            Text(mode.title)
-                .font(.system(size: 29, weight: .heavy, design: .rounded))
-                .tracking(2)
-                .frame(maxWidth: .infinity)
-                .frame(height: layout.buttonHeight)
-                .foregroundStyle(mode == .chat ? .black : .white)
-                .modifier(
-                    NativeGlassCapsule(
-                        tint: mode == .chat ? .white : .black,
-                        foregroundMode: mode
-                    )
-                )
-        }
-        .buttonStyle(.plain)
     }
 }
 
