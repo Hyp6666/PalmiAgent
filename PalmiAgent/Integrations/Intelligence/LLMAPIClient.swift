@@ -2552,8 +2552,8 @@ extension LLMAPIClient {
         }
         try Task.checkCancellation()
         let decoded = try BionicWireCodec.decode(response.data, protocol: wire)
-        if decoded.reasoningObserved { throw BionicFailure("reasoningIncompatible") }
-        let notices: [AgentModelNotice] = response.optionalControlFallbackIntent == .disabled ? [.reasoningDisableNotGuaranteed] : []
+        var notices: [AgentModelNotice] = response.optionalControlFallbackIntent == .disabled ? [.reasoningDisableNotGuaranteed] : []
+        if decoded.reasoningObserved { notices.append(.reasoningDisableViolated) }
         return AgentModelResponse(message: .assistant(text: decoded.text, toolUses: decoded.tools),
                                   totalTokens: decoded.usage.totalTokens ?? 0, tokenUsage: decoded.usage, notices: notices,
                                   outputWasTruncated: decoded.truncated, wasRefused: decoded.refused)

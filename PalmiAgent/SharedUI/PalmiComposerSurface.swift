@@ -15,7 +15,7 @@ struct PalmiComposerSurface<Attachments: View, Editor: View, Controls: View>: Vi
                     editor()
                     controls()
                 }
-                .gesture(DragGesture(minimumDistance: 24, coordinateSpace: .local).onEnded {
+                .simultaneousGesture(DragGesture(minimumDistance: 24, coordinateSpace: .local).onEnded {
                     if $0.translation.height > 0 { dismissKeyboard() }
                 })
             }
@@ -37,6 +37,7 @@ struct PalmiComposerTextEditor: View {
             .lineLimit(1...6).textFieldStyle(.plain).focused($isFocused)
             .font(.body).frame(minHeight: 28, alignment: .top)
             .padding(.horizontal, 4).padding(.top, 2)
+            .onReceive(NotificationCenter.default.publisher(for: PalmiInputFocus.dismiss)) { _ in isFocused = false }
     }
 }
 

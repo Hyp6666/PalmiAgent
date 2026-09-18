@@ -8,6 +8,10 @@ struct BionicChatScreen: View {
     @State private var details = false
     @State private var preview: BionicAssetPreview?
     @State private var localError: String?
+    @State private var composerHeight: CGFloat = 120
+    @State private var userScrolling = false
+    @State private var nearBottom = true
+    @State private var pagingNewer = false
     private var role: BionicRole? { store.roles.first { $0.installationID == instance } }
     private var rows: [BionicBubbleRowData] {
         let messages = store.selectedID == instance ? store.messages : []
@@ -31,63 +35,72 @@ struct BionicChatScreen: View {
                             VStack(spacing: 8) {
                                 if row.showsTime {
                                     Text(BionicTimelineClock.label(row.message, locale: PalmiLanguage.current.locale))
-                                        .font(.caption).foregroundStyle(.secondary).padding(.vertical, 8)
-                                        .frame(maxWidth: .infinity)
+                                        .font(.caption).foregroundStyle(.secondary).padding(.vertical, 8).frame(maxWidth: .infinity)
                                 }
                                 BionicBubbleRow(store: store, instance: instance, value: row,
-                                    maxWidth: min(440, max(120, geometry.size.width - 104)),
-                                    onQuote: { store.quote(row.message) },
-                                    onJump: { id in Task { await perform { try await store.jump(to: id) } } },
-                                    onAsset: openAsset)
-                            }
-                            .id(row.id)
-                            .onAppear { store.appeared(row.id) }
+                                    maxWidth: min(440, max(120, geometry.size.width - 104)), onQuote: { store.quote(row.message) },
+                                    onJump: { id in Task { await perform { try await store.jump(to: id) } } }, onAsset: openAsset)
+                            }.id(row.id).onAppear { store.appeared(row.id) }
                         }
-                        if store.windowEnd < store.totalMessages {
-                            Button(PalmiL10n.tr("bionic.loadNewer")) { Task { await perform { try await store.loadNewer() } } }.font(.footnote).padding(8)
-                        }
+                        if pagingNewer { ProgressView().padding(8) }
                         Color.clear.frame(height: 1).id("bionic-end")
-                    }
-                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    }.padding(.horizontal, 14).padding(.top, 10)
                 }
+                .contentMargins(.bottom, composerHeight + 8, for: .scrollContent)
                 .scrollDismissesKeyboard(.interactively)
                 .defaultScrollAnchor(.bottom)
+                .onScrollPhaseChange { _, phase in
+                    userScrolling = phase == .interacting || phase == .decelerating
+                }
                 .onScrollGeometryChange(for: Bool.self) { value in
-                    value.contentOffset.y + value.containerSize.height >= value.contentSize.height - 70
+                    value.contentOffset.y + value.containerSize.height >= value.contentSize.height + value.contentInsets.bottom - 70
                 } action: { _, bottom in
-                    if store.selectedID == instance, store.windowEnd >= store.totalMessages { store.followingLatest = bottom }
+                    nearBottom = bottom
+                    guard userScrolling, store.selectedID == instance else { return }
+                    if store.windowEnd >= store.totalMessages { store.followingLatest = bottom }
+                    else if bottom { loadFollowingPage(proxy) }
                 }
                 .onChange(of: store.scrollRequest) { _, _ in
-                    guard store.selectedID == instance, let target = store.scrollTarget else { return }
+                    guard store.selectedID == instance else { return }
                     let follow = store.followingLatest
+                    let target = follow ? "bionic-end" : store.scrollTarget
+                    guard let target else { return }
                     Task { @MainActor in
                         await Task.yield()
                         withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(target, anchor: follow ? .bottom : .top) }
                     }
                 }
+                .onChange(of: composerHeight) { _, _ in followLatest(proxy) }
+                .onChange(of: geometry.size.height) { _, _ in followLatest(proxy) }
                 .overlay(alignment: .bottomTrailing) {
-                    if store.newMessagesAvailable {
-                        Button { Task { await perform { try await store.loadLatest() } } } label: {
+                    if !store.followingLatest || store.newMessagesAvailable {
+                        Button { Task { await perform { try await store.loadLatest(forceScroll: true) } } } label: {
                             Image(systemName: "arrow.down").font(.body.bold()).padding(12).background(.regularMaterial, in: Circle())
-                        }.padding(14).accessibilityLabel(PalmiL10n.tr("bionic.latestMessages"))
+                        }
+                        .padding(.trailing, 14).padding(.bottom, composerHeight + 10)
+                        .accessibilityLabel(PalmiL10n.tr("bionic.latestMessages"))
                     }
+                }
+                .overlay(alignment: .bottom) {
+                    VStack(spacing: 0) {
+                        if let code = store.errors[instance] {
+                            HStack {
+                                Text(PalmiL10n.tr("bionic.error." + code)).font(.caption).foregroundStyle(.secondary)
+                                Spacer(minLength: 8)
+                                Button(PalmiL10n.tr("bionic.retry")) { Task { await store.coordinator.retry(instance) } }.font(.caption.bold())
+                            }.padding(.horizontal, 20).padding(.top, 6)
+                        }
+                        BionicComposerView(store: store, instance: instance, draft: store.composer(instance))
+                    }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                        if height > 0, abs(height - composerHeight) > 0.5 { composerHeight = height }
+                    }
+                    // Intentionally no background, bottom mask, material strip or safe-area fill here.
                 }
             }
         }
         .background(Color(uiColor: .systemGroupedBackground))
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(spacing: 0) {
-                if let code = store.errors[instance] {
-                    HStack {
-                        Text(PalmiL10n.tr("bionic.error." + code)).font(.caption).foregroundStyle(.secondary)
-                        Spacer(minLength: 8)
-                        Button(PalmiL10n.tr("bionic.retry")) { Task { await store.coordinator.retry(instance) } }.font(.caption.bold())
-                    }.padding(.horizontal, 20).padding(.top, 6)
-                }
-                BionicComposerView(store: store, instance: instance, draft: store.composer(instance))
-            }
-            .background(Color(uiColor: .systemGroupedBackground).opacity(0.96).ignoresSafeArea(.container, edges: .bottom))
-        }
+        .palmiKeyboardDismissOnOutsideTap(excludingBottom: composerHeight)
         .toolbar(.visible, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -105,10 +118,7 @@ struct BionicChatScreen: View {
         .navigationDestination(isPresented: $details) {
             BionicConversationDetailsScreen(store: store, instance: instance) { messageID in
                 details = false
-                Task { @MainActor in
-                    await Task.yield()
-                    await perform { try await store.jump(to: messageID) }
-                }
+                Task { @MainActor in await Task.yield(); await perform { try await store.jump(to: messageID) } }
             }
         }
         .task(id: instance) {
@@ -121,6 +131,23 @@ struct BionicChatScreen: View {
         .alert(PalmiL10n.tr("bionic.errorTitle"), isPresented: Binding(get: { localError != nil }, set: { if !$0 { localError = nil } })) {
             Button(PalmiL10n.tr("bionic.ok"), role: .cancel) {}
         } message: { Text(localError ?? "") }
+    }
+    private func followLatest(_ proxy: ScrollViewProxy) {
+        guard store.followingLatest, store.selectedID == instance else { return }
+        Task { @MainActor in await Task.yield(); proxy.scrollTo("bionic-end", anchor: .bottom) }
+    }
+    private func loadFollowingPage(_ proxy: ScrollViewProxy) {
+        guard !pagingNewer, store.windowEnd < store.totalMessages else { return }
+        pagingNewer = true
+        let anchor = store.messages.last?.text("message_id")
+        Task { @MainActor in
+            defer { pagingNewer = false }
+            do {
+                try await store.loadNewer()
+                await Task.yield()
+                if let anchor, !store.followingLatest { proxy.scrollTo(anchor, anchor: .bottom) }
+            } catch { localError = BionicStore.errorText(error) }
+        }
     }
     private func perform(_ action: () async throws -> Void) async {
         do { try await action() } catch { localError = BionicStore.errorText(error) }

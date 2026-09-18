@@ -34,10 +34,6 @@ private struct BionicSearchScreen: View {
                     label: { Label(PalmiL10n.tr("bionic.byDate"), systemImage: "calendar") }
                     NavigationLink { BionicResourcesScreen(store: store, instance: instance, kind: "media", onJump: onJump) }
                     label: { Label(PalmiL10n.tr("bionic.media"), systemImage: "photo.on.rectangle") }
-                    NavigationLink { BionicResourcesScreen(store: store, instance: instance, kind: "files", onJump: onJump) }
-                    label: { Label(PalmiL10n.tr("bionic.files"), systemImage: "doc") }
-                    NavigationLink { BionicResourcesScreen(store: store, instance: instance, kind: "links", onJump: onJump) }
-                    label: { Label(PalmiL10n.tr("bionic.links"), systemImage: "link") }
                 }
             } else {
                 ForEach(results) { result in
@@ -63,6 +59,8 @@ private struct BionicSearchScreen: View {
         .navigationTitle(PalmiL10n.tr("bionic.search")).navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, isPresented: $searchPresented, placement: .navigationBarDrawer(displayMode: .always), prompt: PalmiL10n.tr("bionic.searchPlaceholder"))
         .searchFocused($searchFocused)
+        .scrollDismissesKeyboard(.interactively)
+        .palmiKeyboardDismissOnOutsideTap { searchFocused = false }
         .onAppear { searchFocused = true }
         .task(id: query) {
             do { try await Task.sleep(for: .milliseconds(220)); try Task.checkCancellation(); await search(reset: true) }
@@ -186,88 +184,66 @@ private struct BionicCalendarScreen: View {
 }
 
 private struct BionicResourcesScreen: View {
-    private struct Resource: Identifiable {
-        let entry: BionicHistoryEntry
-        let attachment: BionicObject?
-        let link: String?
-        var id: String { entry.id + ":" + (attachment?.text("attachment_id") ?? link ?? "") }
+    private struct Photo: Identifiable {
+        let messageID: String
+        let attachment: BionicObject
+        var id: String { messageID + ":" + attachment.text("attachment_id") }
     }
     private struct Preview: Identifiable { let id = UUID(); let url: URL; let messageID: String }
-    @Environment(\.openURL) private var openURL
     let store: BionicStore
     let instance: String
     let kind: String
     let onJump: (String) -> Void
-    @State private var resources: [Resource] = []
+    @State private var photos: [Photo] = []
     @State private var loading = true
     @State private var error: String?
     @State private var preview: Preview?
     var body: some View {
         Group {
             if loading { ProgressView() }
-            else if resources.isEmpty { ContentUnavailableView(PalmiL10n.tr("bionic.noResources"), systemImage: kind == "links" ? "link" : "photo.on.rectangle") }
-            else if kind == "media" {
-                GeometryReader { proxy in
-                    let width = max(60, (proxy.size.width - 40) / 3)
+            else if photos.isEmpty { ContentUnavailableView(PalmiL10n.tr("bionic.noPhotos"), systemImage: "photo") }
+            else {
+                GeometryReader { geometry in
+                    let width = max(60, (geometry.size.width - 40) / 3)
                     ScrollView {
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 3), spacing: 4) {
-                            ForEach(resources) { resource in
-                                if let attachment = resource.attachment {
-                                    Button { show(resource) } label: {
-                                        BionicImageTile(archive: store.archive, instance: instance, attachment: attachment, width: width, height: width)
-                                    }.buttonStyle(.plain).contextMenu {
-                                        Button(PalmiL10n.tr("bionic.showInChat")) { onJump(resource.entry.id) }
-                                    }
+                            ForEach(photos) { photo in
+                                Button { show(photo) } label: {
+                                    BionicImageTile(archive: store.archive, instance: instance, attachment: photo.attachment, width: width, height: width)
                                 }
+                                .buttonStyle(.plain)
+                                .contextMenu { Button(PalmiL10n.tr("bionic.showInChat")) { onJump(photo.messageID) } }
                             }
                         }.padding(16)
                     }
                 }
-            } else {
-                List(resources) { resource in
-                    HStack {
-                        Button { kind == "links" ? onJump(resource.entry.id) : show(resource) } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: kind == "links" ? "link" : "doc").frame(width: 26)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(resource.link ?? resource.attachment?.text("filename") ?? "").font(.subheadline).lineLimit(2)
-                                    Text(resource.entry.day).font(.caption).foregroundStyle(.secondary)
-                                }
-                            }.foregroundStyle(.primary).contentShape(Rectangle())
-                        }.buttonStyle(.plain)
-                        Spacer()
-                        Menu {
-                            Button(PalmiL10n.tr("bionic.showInChat")) { onJump(resource.entry.id) }
-                            if let link = resource.link, let url = URL(string: link) { Button(PalmiL10n.tr("bionic.openLink")) { openURL(url) } }
-                        } label: { Image(systemName: "ellipsis").padding(8) }
-                    }
-                }
             }
         }
-        .navigationTitle(PalmiL10n.tr("bionic." + kind)).navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(PalmiL10n.tr("bionic.media")).navigationBarTitleDisplayMode(.inline)
         .task {
             do {
-                let rows = try await store.history.resources(instance, kind: kind)
-                resources = rows.flatMap { entry in
-                    if kind == "links" { return entry.links.map { Resource(entry: entry, attachment: nil, link: $0) } }
-                    return entry.attachments.filter { kind == "files" ? $0.text("kind") == "file" : ["image", "video"].contains($0.text("kind")) }
-                        .map { Resource(entry: entry, attachment: $0, link: nil) }
+                let entries = try await store.history.resources(instance, kind: "media")
+                photos = entries.flatMap { entry in
+                    entry.attachments.filter { $0.text("kind") == "image" }.map { Photo(messageID: entry.id, attachment: $0) }
                 }
-            } catch { self.error = BionicStore.errorText(error) }
-            loading = false
+                loading = false
+            } catch { self.error = BionicStore.errorText(error); loading = false }
         }
         .sheet(item: $preview) { item in
-            VStack(spacing: 0) {
+            NavigationStack {
                 BionicAssetPreviewSheet(url: item.url)
-                Button(PalmiL10n.tr("bionic.showInChat")) { preview = nil; onJump(item.messageID) }.padding()
+                    .toolbar { ToolbarItem(placement: .confirmationAction) {
+                        Button(PalmiL10n.tr("bionic.showInChat")) { preview = nil; onJump(item.messageID) }
+                    } }
             }
         }
-        .overlay(alignment: .bottom) { if let error { Text(error).font(.footnote).foregroundStyle(.red).padding() } }
+        .alert(PalmiL10n.tr("bionic.errorTitle"), isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+            Button(PalmiL10n.tr("bionic.ok"), role: .cancel) {}
+        } message: { Text(error ?? "") }
     }
-    private func show(_ resource: Resource) {
-        guard let attachment = resource.attachment else { return }
+    private func show(_ photo: Photo) {
         Task {
-            do { preview = Preview(url: try await store.archive.previewURL(instance, path: attachment.text("asset")), messageID: resource.entry.id) }
+            do { preview = Preview(url: try await store.archive.previewURL(instance, path: photo.attachment.text("asset")), messageID: photo.messageID) }
             catch { self.error = BionicStore.errorText(error) }
         }
     }
@@ -282,29 +258,38 @@ private struct BionicMemoryListScreen: View {
     let instance: String
     let onJump: (String) -> Void
     @State private var memories: [BionicObject] = []
+    @State private var action: BionicMemorySelection?
     @State private var selected: BionicMemorySelection?
     @State private var error: String?
     private var revision: Int { store.roles.first { $0.installationID == instance }?.state.memorySequence ?? 0 }
     var body: some View {
         List {
             ForEach(memories, id: \.memoryIdentity) { memory in
-                HStack(spacing: 12) {
-                    Button {
-                        if let id = memory.optionalText("primary_source_message_id") { onJump(id) }
-                        else { selected = BionicMemorySelection(value: memory) }
-                    } label: { Text(memory.text("title")).foregroundStyle(.primary).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 7).contentShape(Rectangle()) }
-                    .buttonStyle(.plain)
-                    Button { selected = BionicMemorySelection(value: memory) } label: { Image(systemName: "info.circle").padding(6) }
-                        .buttonStyle(.borderless).accessibilityLabel(PalmiL10n.tr("bionic.memoryDetails"))
-                }
+                Button { action = BionicMemorySelection(value: memory) } label: {
+                    Text(memory.text("title")).foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 7).contentShape(Rectangle())
+                }.buttonStyle(.plain)
             }
             if memories.isEmpty { Text(PalmiL10n.tr("bionic.noMemories")).foregroundStyle(.secondary) }
             if let error { Text(error).font(.footnote).foregroundStyle(.red) }
         }
         .navigationTitle(PalmiL10n.tr("bionic.memory")).navigationBarTitleDisplayMode(.inline)
         .task(id: revision) { await reload() }
+        .confirmationDialog(action?.value.text("title") ?? PalmiL10n.tr("bionic.memory"),
+            isPresented: Binding(get: { action != nil }, set: { if !$0 { action = nil } }),
+            titleVisibility: .visible, presenting: action) { item in
+            Button(PalmiL10n.tr("bionic.jump")) {
+                action = nil
+                if let id = item.value.optionalText("primary_source_message_id") { onJump(id) }
+            }.disabled(item.value.optionalText("primary_source_message_id") == nil)
+            Button(PalmiL10n.tr("bionic.memoryDetails")) { action = nil; selected = item }
+            Button(PalmiL10n.tr("bionic.cancel"), role: .cancel) { action = nil }
+        }
         .sheet(item: $selected) { item in
-            NavigationStack { BionicMemoryDetail(store: store, instance: instance, memory: item.value, onJump: { id in selected = nil; onJump(id) }, onSaved: { Task { await reload() } }) }
+            NavigationStack {
+                BionicMemoryDetail(store: store, instance: instance, memory: item.value,
+                    onJump: { id in selected = nil; onJump(id) }, onSaved: { Task { await reload() } })
+            }
         }
     }
     private func reload() async {

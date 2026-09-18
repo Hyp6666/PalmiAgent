@@ -405,6 +405,7 @@ struct ChatScreen: View {
             }
         }
         .coordinateSpace(name: "chat-root")
+        .palmiKeyboardDismissOnOutsideTap(excludingBottom: composerSectionHeight) { isFocused = false }
         .overlay(alignment: .top) {
             topChromeBar()
                 .frame(height: 90)

@@ -77,7 +77,10 @@ nonisolated extension Dictionary where Key == String, Value == BionicJSON {
 nonisolated struct BionicFailure: Error, Sendable, Equatable {
     let code: String
     let detail: String
-    init(_ code: String, detail: String = "") { self.code = code; self.detail = detail }
+    let evidence: BionicObject
+    init(_ code: String, detail: String = "", evidence: BionicObject = [:]) {
+        self.code = code; self.detail = detail; self.evidence = evidence
+    }
 }
 nonisolated enum BionicControl: Error { case stale, paused, capacity }
 
@@ -241,6 +244,12 @@ nonisolated struct BionicModelAnswer: Sendable {
     let callID: String?
     let usage: BionicObject
     let receivedAt: Date
+    let diagnostics: BionicObject
+    init(payload: BionicObject, toolName: String?, callID: String?, usage: BionicObject,
+         receivedAt: Date, diagnostics: BionicObject = [:]) {
+        self.payload = payload; self.toolName = toolName; self.callID = callID
+        self.usage = usage; self.receivedAt = receivedAt; self.diagnostics = diagnostics
+    }
 }
 
 nonisolated struct BionicSearchPage: Sendable {

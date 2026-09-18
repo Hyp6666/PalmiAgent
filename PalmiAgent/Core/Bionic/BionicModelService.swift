@@ -141,38 +141,7 @@ final class BionicModelService {
         }
         try Task.checkCancellation()
         guard !task.isCancelled else { throw CancellationError() }
-        if response.wasRefused { throw BionicFailure("modelRefused") }
-        if response.outputWasTruncated { throw BionicFailure("outputTruncated") }
-        if let reasoning = response.message.nativeReasoning,
-           reasoning.reasoningContent?.isEmpty == false || reasoning.reasoningDetails != nil {
-            throw BionicFailure("reasoningIncompatible")
-        }
-        if ReasoningControlEvidenceEvaluator.containsInlineReasoning(in: response.message.textContent) { throw BionicFailure("reasoningIncompatible") }
-        if response.notices.contains(.reasoningDisableNotGuaranteed) { throw BionicFailure("reasoningIncompatible") }
-        let usage = response.tokenUsage
-        let tokenRecord: BionicObject = ["input_tokens": usage.inputTokens.map(BionicJSON.count) ?? .null,
-                                         "output_tokens": usage.outputTokens.map(BionicJSON.count) ?? .null,
-                                         "total_tokens": usage.totalTokens.map(BionicJSON.count) ?? .null,
-                                         "cached_input_tokens": usage.cachedInputTokens.map(BionicJSON.count) ?? .null,
-                                         "reasoning_output_tokens": usage.reasoningOutputTokens.map(BionicJSON.count) ?? .null,
-                                         "source": .string(usage.source.rawValue)]
-        let payload: BionicObject; let name: String?; let callID: String?
-        if input.toolNames.isEmpty {
-            guard response.message.toolUses.isEmpty else { throw BionicFailure("invalidModelOutput", detail: "No tools in this stage") }
-            do { payload = try BionicCodec.json(response.message.textContent) }
-            catch { throw BionicFailure("invalidModelOutput", detail: "Return one complete JSON object without fences") }
-            name = nil; callID = nil
-            try BionicToolbox.validate(payload, name: kind == "audit" ? "audit" : "planning")
-        } else {
-            guard response.message.toolUses.count == 1, let call = response.message.toolUses.first, input.toolNames.contains(call.name) else {
-                throw BionicFailure("invalidModelOutput", detail: "Return exactly one declared tool call")
-            }
-            name = call.name; callID = call.id
-            do { payload = try BionicCodec.json(call.input) }
-            catch { throw BionicFailure("invalidModelOutput", detail: "Tool arguments must be complete JSON") }
-            try BionicToolbox.validate(payload, name: call.name)
-        }
-        return BionicModelAnswer(payload: payload, toolName: name, callID: callID, usage: tokenRecord, receivedAt: .now)
+        return try BionicResponseDecoder.decode(response, input: input, kind: kind)
     }
     func nextChatAction(_ input: BionicModelInput, binding: BionicObject, instance: String,
                           prepared: (@MainActor (BionicModelInput, String) async throws -> Void)? = nil) async throws -> BionicModelAnswer {
@@ -247,17 +216,30 @@ enum BionicWireCodec {
             guard !id.isEmpty, !name.isEmpty else { throw BionicFailure("invalidModelOutput") }
             return AgentToolUse(id: id, name: OpenAICompatibleToolNameCodec.canonicalName(forWire: name), input: arguments)
         }
+        func arguments(_ value: BionicJSON?) throws -> String {
+            if let text = value?.string { return text }
+            if case .object(let object)? = value { return try BionicCodec.string(object) }
+            throw BionicFailure("invalidModelOutput", detail: "tool.arguments: expected complete JSON text or object",
+                                evidence: ["wire_tool_arguments": value ?? .null])
+        }
         switch wire {
         case .chatCompletions:
             guard let choice = root.records("choices").first, !choice.object("message").isEmpty else { throw BionicFailure("invalidModelOutput") }
             let message = choice.object("message")
-            text = message.text("content"); truncated = choice.text("finish_reason") == "length"
+            if let content = message["content"]?.string { text = content }
+            else {
+                text = message.records("content").filter { ["text", "output_text"].contains($0.text("type")) }
+                    .map { $0.text("text") }.joined()
+            }
+            truncated = choice.text("finish_reason") == "length"
             refused = choice.text("finish_reason") == "content_filter" || !message.text("refusal").isEmpty
             reasoning = ["reasoning_content", "reasoning", "thinking", "reasoning_details"].contains { key in
                 guard let value = message[key], value != .null else { return false }
                 return value.string.map { !$0.isEmpty } ?? true
             }
-            for call in message.records("tool_calls") { tools.append(try tool(call.text("id"), call.object("function").text("name"), call.object("function").text("arguments"))) }
+            for call in message.records("tool_calls") {
+                tools.append(try tool(call.text("id"), call.object("function").text("name"), arguments(call.object("function")["arguments"])))
+            }
             input = usage["prompt_tokens"]?.int; output = usage["completion_tokens"]?.int; total = usage["total_tokens"]?.int
             cached = usage.object("prompt_tokens_details")["cached_tokens"]?.int ?? usage["prompt_cache_hit_tokens"]?.int
             reasoningCount = usage.object("completion_tokens_details")["reasoning_tokens"]?.int
@@ -283,7 +265,9 @@ enum BionicWireCodec {
             truncated = root.text("status") == "incomplete" || root.object("incomplete_details").text("reason") == "max_output_tokens"
             for item in root.records("output") {
                 switch item.text("type") {
-                case "function_call": tools.append(try tool(item.text("call_id").isEmpty ? item.text("id") : item.text("call_id"), item.text("name"), item.text("arguments")))
+                case "function_call":
+                    tools.append(try tool(item.text("call_id").isEmpty ? item.text("id") : item.text("call_id"),
+                                          item.text("name"), arguments(item["arguments"])))
                 case "message":
                     for block in item.records("content") {
                         if block.text("type") == "output_text" { text += block.text("text") }

@@ -64,9 +64,10 @@ final class BionicStore {
         let model = BionicModelService(runtime: modelRuntime, plans: modelPlanStore)
         model.archive = archive
         let coordinator = BionicCoordinator(archive: archive, model: model)
-        let notifications = BionicNotifications(archive: archive, service: notificationService)
+        let sharedHistory = BionicHistoryIndex(archive: archive)
+        let notifications = BionicNotifications(archive: archive, service: notificationService, history: sharedHistory)
         self.archive = archive; self.model = model; self.coordinator = coordinator; self.notifications = notifications
-        history = BionicHistoryIndex(archive: archive)
+        history = sharedHistory
         migration = BionicMigrationService(archive: archive, model: model)
         coordinator.onChange = { [weak self] id in Task { await self?.refresh(changed: id) } }
         coordinator.onDiagnostics = { [weak self] _ in self?.diagnosticRevision += 1 }
@@ -82,7 +83,11 @@ final class BionicStore {
             self.pendingNotificationRouteID = UUID()
             Task { await self.open(id, target: message) }
         }
-        notifications.onArrival = { [weak self] id in self?.coordinator.wake(id) }
+        notifications.onArrival = { [weak self] id in
+            guard let self else { return }
+            self.coordinator.wake(id)
+            Task { await self.refresh(changed: id) }
+        }
         notifications.onDiagnostics = { [weak self] _ in self?.diagnosticRevision += 1 }
     }
     func composer(_ instance: String) -> BionicComposerState {
@@ -188,14 +193,22 @@ final class BionicStore {
             if let target { try await jump(to: target) } else { try await loadLatest() }
         } catch { if ticket == openTicket { globalError = Self.errorText(error) } }
     }
-    func loadLatest() async throws {
-        guard let id = selectedID else { return }; windowTicket += 1; let ticket = windowTicket
+    func loadLatest(forceScroll: Bool = false) async throws {
+        guard let id = selectedID else { return }
+        if forceScroll { followingLatest = true }
+        windowTicket += 1; let ticket = windowTicket
         let window = try await archive.messageWindow(id)
         guard selectedID == id, ticket == windowTicket else { return }
+        if !followingLatest && !forceScroll {
+            newMessagesAvailable = window.total > totalMessages
+            totalMessages = window.total
+            return
+        }
         let changed = messages != window.messages
         apply(window); followingLatest = true; newMessagesAvailable = false
         try await loadQuotes()
-        if changed { scrollTarget = messages.last?.text("message_id"); scrollRequest = UUID() }
+        guard selectedID == id, ticket == windowTicket else { return }
+        if changed || forceScroll { scrollTarget = "bionic-end"; scrollRequest = UUID() }
     }
     func loadOlder() async throws {
         guard let id = selectedID, windowStart > 0 else { return }
@@ -213,6 +226,7 @@ final class BionicStore {
     }
     func jump(to messageID: String) async throws {
         guard let id = selectedID else { return }; windowTicket += 1; let ticket = windowTicket
+        followingLatest = false
         let window = try await archive.messageWindow(id, centerID: messageID)
         guard window.messages.contains(where: { $0.text("message_id") == messageID }) else { throw BionicFailure("sourceMissing") }
         guard selectedID == id, ticket == windowTicket else { return }
@@ -252,10 +266,12 @@ final class BionicStore {
             do { try await archive.markRead(id, ids: Array(ids)); await refresh(changed: id) }
             catch { continue }
         }
+        if token == invalidationToken { await notifications.reconcile() }
     }
     func send(_ instance: String) async {
         let draft = composer(instance)
         guard draft.canSend else { return }
+        if selectedID == instance { followingLatest = true; newMessagesAvailable = false }
         let text = draft.text, images = draft.images, quote = quotedIDs[instance]
         draft.saving = true; draft.error = nil; defer { draft.saving = false }
         do {
@@ -265,7 +281,7 @@ final class BionicStore {
             if draft.text == text { draft.text = "" }
             let sentIDs = Set(images.map(\.id)); draft.images.removeAll { sentIDs.contains($0.id) }
             if quotedIDs[instance] == quote { quotedIDs.removeValue(forKey: instance) }
-            if selectedID == instance { followingLatest = true; await refresh(changed: instance); try await loadLatest() }
+            if selectedID == instance { followingLatest = true; await refresh(changed: instance); try await loadLatest(forceScroll: true) }
         } catch {
             draft.error = Self.errorText(error)
         }

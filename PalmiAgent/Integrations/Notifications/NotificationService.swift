@@ -56,6 +56,20 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         let id = identifier?.isEmpty == false ? identifier! : "palmiagent.local.notification.\(UUID().uuidString)"
         try await center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
     }
+    func setBadgeCount(_ count: Int) async throws {
+        try await center.setBadgeCount(max(0, count))
+    }
+
+    func bionicNotificationSettings() async -> BionicObject {
+        let settings = await center.notificationSettings()
+        return ["authorization": .string(String(describing: settings.authorizationStatus)),
+                "badge_setting": .string(String(describing: settings.badgeSetting)),
+                "alert_setting": .string(String(describing: settings.alertSetting)),
+                "sound_setting": .string(String(describing: settings.soundSetting)),
+                "lock_screen_setting": .string(String(describing: settings.lockScreenSetting)),
+                "notification_center_setting": .string(String(describing: settings.notificationCenterSetting))]
+    }
+
     func authorizationStatus() async -> UNAuthorizationStatus { await center.notificationSettings().authorizationStatus }
     func pendingIdentifiers() async -> [String] { await center.pendingNotificationRequests().map(\.identifier) }
     func deliveredIdentifiers() async -> [String] { await center.deliveredNotifications().map { $0.request.identifier } }
@@ -72,7 +86,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         Task { @MainActor [weak self] in
             guard identifier.hasPrefix("palmi.bionic."), let self else { completionHandler([]); return }
             self.onBionicNotification?(instance, group, message, false)
-            completionHandler(self.bionicForeground && self.bionicVisibleInstance == instance ? [] : [.banner, .list, .sound])
+            completionHandler(self.bionicForeground && self.bionicVisibleInstance == instance ? [] : [.banner, .list, .sound, .badge])
         }
     }
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,

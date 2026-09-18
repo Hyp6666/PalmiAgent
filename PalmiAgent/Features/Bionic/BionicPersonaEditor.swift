@@ -14,6 +14,19 @@ struct BionicPersonaEditor: View {
     // 核验暂时停用（调试期）：audit 状态与 verify() 保留在下方注释中，恢复时连同保存门禁一起还原。
     // @State private var audit: BionicValidation?
     @State private var busy = false
+    @State private var loaded = false
+    @State private var originalEditorState: BionicObject?
+    @State private var confirmLeaving = false
+    private var editorState: BionicObject {
+        ["persona": .object(persona), "binding": .object(binding), "participant": .object(participant)]
+    }
+    private var hasUnsavedChanges: Bool { loaded && originalEditorState != editorState }
+    private func requestReturn() {
+        guard !busy else { return }
+        guard loaded else { dismiss(); return }
+        focusedField = nil
+        if hasUnsavedChanges { confirmLeaving = true } else { dismiss() }
+    }
     @State private var deleting = false
     @State private var errorText: String?
     @State private var rolePhoto: PhotosPickerItem?
@@ -141,9 +154,6 @@ struct BionicPersonaEditor: View {
                 }
                 if busy { HStack { ProgressView(); Text(PalmiL10n.tr("bionic.processing")) } }
                 Button(PalmiL10n.tr("bionic.preGenerate")) { pregenerate() }
-                Button(instance == nil ? PalmiL10n.tr("bionic.generate") : PalmiL10n.tr("bionic.save")) {
-                    Task { await save() }
-                }
             }
             if instance != nil {
                 Section {
@@ -153,10 +163,26 @@ struct BionicPersonaEditor: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .bionicKeyboardDismissOnOutsideTap()
-        .disabled(busy)
+        .disabled(!loaded || busy)
         .navigationTitle(PalmiL10n.tr(instance == nil ? "bionic.create" : "bionic.settings"))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .cancellationAction) { Button(PalmiL10n.tr("bionic.cancel")) { dismiss() }.disabled(busy) } }
+        .navigationBarBackButtonHidden(true)
+        .interactiveDismissDisabled(hasUnsavedChanges || busy)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button { requestReturn() } label: { Image(systemName: "chevron.left") }
+                    .accessibilityLabel(PalmiL10n.tr("common.back")).disabled(busy)
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button(PalmiL10n.tr(instance == nil ? "bionic.generate" : "bionic.save")) { Task { await save() } }
+                    .disabled(!loaded || busy)
+            }
+        }
+        .confirmationDialog(PalmiL10n.tr("bionic.unsavedChanges"), isPresented: $confirmLeaving, titleVisibility: .visible) {
+            Button(PalmiL10n.tr("bionic.saveAndReturn")) { Task { await save() } }
+            Button(PalmiL10n.tr("bionic.discardAndReturn"), role: .destructive) { dismiss() }
+            Button(PalmiL10n.tr("bionic.cancel"), role: .cancel) {}
+        }
         // .onChange(of: fingerprint) { _, _ in audit = nil }
         .onChange(of: rolePhoto) { _, value in Task { await beginCrop(value, role: true) } }
         .onChange(of: userPhoto) { _, value in Task { await beginCrop(value, role: false) } }
@@ -175,14 +201,17 @@ struct BionicPersonaEditor: View {
             }
         }
         .task {
-            if let instance {
-                do {
+            guard !loaded else { return }
+            do {
+                if let instance {
                     binding = try await store.archive.binding(instance)
                     let role = try await store.archive.loadRole(instance)
+                    persona = role.persona; original = role.persona
                     participant = try await store.archive.read(instance, "participants/\(role.state.participantID).json")
                     roleAvatar = try await store.archive.asset(instance, role.persona.optionalText("avatar_asset"))
-                } catch { errorText = BionicStore.errorText(error) }
-            }
+                }
+                originalEditorState = editorState; loaded = true
+            } catch { errorText = BionicStore.errorText(error) }
         }
         .confirmationDialog(PalmiL10n.tr("bionic.deleteRole"), isPresented: $deleting, titleVisibility: .visible) {
             Button(PalmiL10n.tr("bionic.delete"), role: .destructive) {
@@ -254,48 +283,8 @@ extension View {
             .background(Color(uiColor: .tertiarySystemFill), in: .rect(cornerRadius: 10))
     }
 
-    // 点表单空白处收起键盘。挂窗口级点按手势，cancelsTouchesInView=false：
-    // 手势只负责让第一响应者放弃焦点，不参与、不拦截、不延迟任何控件的触摸。
+    // 点表单空白处收起键盘。使用共享实现，不再单独维护窗口级探针。
     func bionicKeyboardDismissOnOutsideTap() -> some View {
-        background(BionicKeyboardDismissProbe())
-    }
-}
-
-private struct BionicKeyboardDismissProbe: UIViewRepresentable {
-    func makeUIView(context: Context) -> ProbeView { ProbeView() }
-    func updateUIView(_ view: ProbeView, context: Context) {}
-
-    final class ProbeView: UIView, UIGestureRecognizerDelegate {
-        final class OutsideTap: UITapGestureRecognizer {}
-        private var tap: OutsideTap?
-
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            if let window {
-                guard tap == nil, !(window.gestureRecognizers ?? []).contains(where: { $0 is OutsideTap }) else { return }
-                let gesture = OutsideTap(target: self, action: #selector(dismissKeyboard))
-                gesture.cancelsTouchesInView = false
-                gesture.delegate = self
-                window.addGestureRecognizer(gesture)
-                tap = gesture
-            } else if let tap {
-                tap.view?.removeGestureRecognizer(tap)
-                self.tap = nil
-            }
-        }
-
-        // 触点落在文本输入控件上时不接管，让系统自然切换焦点。
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            var view = touch.view
-            while let current = view {
-                if current is UITextField || current is UITextView { return false }
-                view = current.superview
-            }
-            return true
-        }
-
-        @objc private func dismissKeyboard() {
-            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        }
+        palmiKeyboardDismissOnOutsideTap()
     }
 }

@@ -60,15 +60,26 @@ final class BionicCoordinator {
     func wake(_ instance: String) { enqueue(instance) }
     func compactNow(_ instance: String) async throws -> Bool {
         let role = try await archive.loadRole(instance)
-        let active = try await archive.operations(instance)
-        guard active.isEmpty else {
-            throw BionicFailure("busyMaintenance")
+        let operations = try await archive.operations(instance)
+        if let existing = operations.first(where: { $0.text("kind") == "compaction" && valid($0, role: role) }) {
+            var checkpoint = try await archive.checkpoint(instance, operation: existing.text("operation_id"), step: "root")
+                ?? BionicRecords.checkpoint(existing, step: "root", phase: "pending")
+            checkpoint["phase"] = .string("pending"); checkpoint["last_error_code"] = .null
+            _ = try await archive.commit(instance, events: [BionicRecords.event("operation_checkpoint", checkpoint)])
+            blocked.remove(instance); onError?(instance, nil); onDiagnostics?(instance); enqueue(instance)
+            return true
         }
         let upper = try await archive.upperCursor(instance)
         guard upper > role.state.cursor else { return false }
-        blocked.remove(instance); onError?(instance, nil)
-        try await startCapacity(role)
-        onDiagnostics?(instance); enqueue(instance)
+        _ = try await start(role, kind: "compaction", from: role.state.cursor, to: upper, control: [
+            "mode": .string("capacity"), "requested_by": .string("manual"),
+            "day_key": .string(BionicPersonaCatalog.civil(.now)), "boundary_at": .null,
+            "timezone": .string(TimeZone.current.identifier)])
+        // Do not cancel an active chat. The queued compaction runs immediately after it.
+        if operations.contains(where: { $0.text("kind") == "planning" }) && !operations.contains(where: { $0.text("kind") == "chat" }) {
+            model.cancel(instance: instance, onlyConversation: true)
+        }
+        blocked.remove(instance); onError?(instance, nil); onDiagnostics?(instance); enqueue(instance)
         return true
     }
     func retry(_ instance: String) async {
@@ -128,7 +139,18 @@ final class BionicCoordinator {
             } catch BionicControl.stale {
                 onTyping?(instance, false)
                 if foreground, !queue.contains(instance) { queue.append(instance) }
-            } catch { report(instance, error) }
+            } catch {
+                let priorities = ["chat", "compaction", "evolution", "planning"]
+                let active = (try? await archive.operations(instance)) ?? []
+                if let request = priorities.compactMap({ kind in active.first(where: { $0.text("kind") == kind }) }).first {
+                    let code = (error as? BionicFailure)?.code ?? "operationFailed"
+                    let point = BionicRecords.checkpoint(request, step: "root", phase: "paused", error: code)
+                    _ = try? await archive.commit(instance, events: [BionicRecords.event("operation_checkpoint", point)], operation: request.text("operation_id"))
+                }
+                let waiting = (try? await archive.loadRole(instance))?.state.pendingReplyIDs.isEmpty == false
+                if waiting { report(instance, error) }
+                else { blocked.insert(instance); onTyping?(instance, false); onDiagnostics?(instance) }
+            }
             await Task.yield()
         }
         if foreground, lifecycle == epoch { await onNotificationReconcile?() }
@@ -145,21 +167,33 @@ final class BionicCoordinator {
         clock?.cancel()
         clock = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
                 guard let self, self.foreground, !Task.isCancelled else { return }
-                for role in await self.archive.roles() where !self.blocked.contains(role.installationID) {
-                    let id = role.installationID; let now = Date.now
-                    let due = role.state.groups.contains { g in g.records("items").contains { i in
-                        role.state.itemState(i.text("message_id")) == "pending" && ((try? BionicCodec.date(i.text("planned_at"))) ?? .distantFuture) <= now
+                var delivered = false
+                for snapshot in await self.archive.roles() {
+                    let id = snapshot.installationID, now = Date.now
+                    var role = snapshot
+                    let due = role.state.groups.contains { group in group.records("items").contains { item in
+                        role.state.itemState(item.text("message_id")) == "pending" && ((try? BionicCodec.date(item.text("planned_at"))) ?? .distantFuture) <= now
                     } }
+                    if due {
+                        do {
+                            role = try await self.archive.commitDue(id, at: now)
+                            if role.state.lastMessageSequence != snapshot.state.lastMessageSequence { self.onChange?(id); delivered = true }
+                            self.onDiagnostics?(id)
+                        } catch { self.onDiagnostics?(id) }
+                    }
+                    guard !self.blocked.contains(id) else { continue }
                     let boundary = BionicPersonaCatalog.lastBoundary(role.persona, now: now)
-                    let last = (try? BionicCodec.date(role.state.raw.object("last_settled_boundary").text("boundary_at"))) ?? ((try? BionicCodec.date(role.manifest.text("created_at"))) ?? now)
+                    let last = (try? BionicCodec.date(role.state.raw.object("last_settled_boundary").text("boundary_at")))
+                        ?? ((try? BionicCodec.date(role.manifest.text("created_at"))) ?? now)
                     let awake = !BionicPersonaCatalog.asleep(role.persona, now: now)
                     let ready = (try? await self.replyReadyAt(role)) ?? .distantFuture
-                    if due || boundary > last || (awake && !role.state.pendingReplyIDs.isEmpty && ready <= now) || (self.planningReady[id] ?? .distantFuture) <= now {
+                    if boundary > last || (awake && !role.state.pendingReplyIDs.isEmpty && ready <= now) || (self.planningReady[id] ?? .distantFuture) <= now {
                         self.enqueue(id)
                     }
                 }
+                if delivered { await self.onNotificationReconcile?() }
             }
         }
     }
@@ -169,6 +203,7 @@ final class BionicCoordinator {
         return max(debounce[role.installationID] ?? .distantPast, try BionicReplyTiming.readyAt(role.persona, latestUser: lastUser))
     }
     private func valid(_ request: BionicObject, role: BionicRole) -> Bool {
+        guard request.text("input_layout") == BionicPromptBuilder.inputLayout else { return false }
         if ["chat", "compaction", "evolution", "planning"].contains(request.text("kind")),
            request.text("context_contract") != BionicPromptBuilder.contextContract { return false }
         guard request.text("persona_revision_id") == role.state.personaID,
@@ -179,6 +214,15 @@ final class BionicCoordinator {
     private func start(_ role: BionicRole, kind: String, input: BionicModelInput? = nil, from: BionicCursor = .zero,
                        to: BionicCursor = .zero, control: BionicObject = [:], ids: [String] = []) async throws -> BionicObject {
         var request = try BionicRecords.request(role, kind: kind, input: input, from: from, to: to, control: control, ids: ids)
+        request["input_layout"] = .string(BionicPromptBuilder.inputLayout)
+        if kind == "chat", let lastUser = ids.last,
+           let cursor = role.state.order.first(where: { $0.id == lastUser }) {
+            let window = try await archive.messageWindow(role.installationID, start: cursor.sequence,
+                                                         count: max(1, role.state.lastMessageSequence - cursor.sequence))
+            let prior = window.messages.filter { $0.text("author_kind") == "character" && $0.text("origin") == "reply" }.count
+            var settings = request.object("control"); settings["prior_bubble_count"] = .count(prior)
+            request["control"] = .object(settings)
+        }
         request["model_label"] = .string(try model.modelLabel(await archive.binding(role.installationID)))
         request["context_contract"] = .string(BionicPromptBuilder.contextContract)
         let op = request.text("operation_id")
@@ -288,31 +332,43 @@ final class BionicCoordinator {
         if let saved = try await archive.result(instance, operation: op, step: step, hash: hash) { return saved }
         var input = BionicModelInput(request.object("model_input"))
         let prior = try await archive.checkpoint(instance, operation: op, step: step)
-        var totalAttempts = prior?.int("attempt_count") ?? 0
-        var repaired = false
-        for _ in 0..<maximumAttempts {
+        var attempts = prior?.int("attempt_count") ?? 0
+        for attempt in 0..<maximumAttempts {
             try await checkCurrent(role, generation: ["chat", "planning"].contains(request.text("kind")))
+            if let root = try await archive.checkpoint(instance, operation: op, step: "root"), root.text("phase") == "cancelled" { throw BionicControl.stale }
             if request.text("kind") == "chat" {
                 let current = try await archive.loadRole(instance)
-                let count = current.state.checkpoints.filter { $0.text("operation_id") == op && $0.text("step_id") != "root" }.reduce(0) { $0 + $1.int("attempt_count") }
-                guard count < 6 else { throw BionicFailure("turnLimit") }
-                if count == 5 { input.toolNames = ["speak"]; input.messages.append(BionicPromptBuilder.module("turn_control", "本轮最后一次调用，只调用speak，end_turn=true。")) }
+                let used = current.state.checkpoints.filter { $0.text("operation_id") == op && $0.text("step_id") != "root" }.reduce(0) { $0 + $1.int("attempt_count") }
+                guard used < 6 else { throw BionicFailure("turnLimit") }
+                if used == 5 {
+                    input.toolNames = ["speak"]
+                    input.messages.append(BionicPromptBuilder.tail("turn_control", "本轮最后一次调用，只调用speak，end_turn=true。"))
+                }
             }
-            totalAttempts += 1
-            let attemptPath = "operations/\(op)/steps/\(step)-\(String(format: "%04d", totalAttempts)).json"
-            let attemptNumber = totalAttempts
+            attempts += 1
+            let number = attempts
+            let attemptPath = "operations/\(op)/steps/\(step)-\(String(format: "%04d", number)).json"
+            var actualInput = input
+            var actualHash = hash
+            var evidence: BionicObject = [:]
+            var tokenUsage: BionicObject = [:]
             let prepared: @MainActor (BionicModelInput, String) async throws -> Void = { [archive, weak self] actual, label in
                 guard let self else { throw CancellationError() }
                 try await self.checkCurrent(role, generation: ["chat", "planning"].contains(request.text("kind")))
-                // These are the actual local-clock-refreshed inputs, recorded immediately before transport.
+                actualInput = actual; actualHash = try BionicCodec.hash(actual.json)
+                let definitions: [BionicObject] = actual.toolNames.map { name in
+                    ["name": .string(name), "description": .string(BionicToolbox.descriptions[name] ?? ""), "parameters": BionicToolbox.schemas[name] ?? .null]
+                }
                 try await archive.record(instance, path: attemptPath, object: [
-                    "operation_id": .string(op), "step_id": .string(step), "attempt": .count(attemptNumber),
+                    "operation_id": .string(op), "step_id": .string(step), "attempt": .count(number),
                     "prepared_at": .string(BionicCodec.instant()), "model_label": .string(label),
-                    "model_input": .object(actual.json), "input_hash": .string(try BionicCodec.hash(actual.json)),
-                    "tool_schemas": .array(actual.toolNames.compactMap { BionicToolbox.schemas[$0] })])
+                    "model_input": .object(actual.json), "input_hash": .string(actualHash), "tool_definitions": .records(definitions)])
                 self.onDiagnostics?(instance)
             }
-            _ = try await archive.commit(instance, events: [BionicRecords.event("operation_checkpoint", BionicRecords.checkpoint(request, step: step, phase: "requesting", attempts: totalAttempts))], guard: BionicGuard(role, generation: ["chat", "planning"].contains(request.text("kind"))), operation: op)
+            _ = try await archive.commit(instance, events: [BionicRecords.event("operation_checkpoint",
+                BionicRecords.checkpoint(request, step: step, phase: "requesting", attempts: number))],
+                guard: BionicGuard(role, generation: ["chat", "planning"].contains(request.text("kind"))), operation: op)
+            onDiagnostics?(instance)
             do {
                 let binding = try await archive.binding(instance)
                 let answer: BionicModelAnswer
@@ -323,40 +379,55 @@ final class BionicCoordinator {
                 case "planning": answer = try await model.planMessages(input, binding: binding, instance: instance, prepared: prepared)
                 default: throw BionicFailure("archiveInvalid")
                 }
+                evidence = answer.diagnostics; tokenUsage = answer.usage
                 try await checkCurrent(role, generation: ["chat", "planning"].contains(request.text("kind")))
-                let effect = try await normalize(answer, input)
+                if let root = try await archive.checkpoint(instance, operation: op, step: "root"), root.text("phase") == "cancelled" { throw BionicControl.stale }
+                let effect = try await normalize(answer, actualInput)
                 let result: BionicObject = ["result_id": .string(BionicCodec.id()), "operation_id": .string(op), "step_id": .string(step),
-                    "input_hash": .string(hash), "received_at": .string(BionicCodec.instant(answer.receivedAt)), "status": .string("valid"),
+                    "input_hash": .string(hash), "actual_input_hash": .string(actualHash), "attempt": .count(number),
+                    "received_at": .string(BionicCodec.instant(answer.receivedAt)), "status": .string("valid"),
                     "tool_name": .text(answer.toolName), "call_id": .text(answer.callID),
                     "payload": .object(["model_payload": .object(answer.payload), "accepted_effect": .object(effect)]),
-                    "token_usage": .object(answer.usage), "error_code": .null]
-                // Record result before the checkpoint; recovery also scans orphaned valid result files.
+                    "diagnostics": .object(evidence), "token_usage": .object(tokenUsage), "error_code": .null, "error_detail": .null]
                 try await archive.record(instance, path: "operations/\(op)/results/\(result.text("result_id")).json", object: result)
-                _ = try await archive.commit(instance, events: [BionicRecords.event("operation_checkpoint", BionicRecords.checkpoint(request, step: step, phase: "result_saved", result: result.text("result_id"), attempts: totalAttempts))], guard: BionicGuard(role, generation: ["chat", "planning"].contains(request.text("kind"))), operation: op)
+                _ = try await archive.commit(instance, events: [BionicRecords.event("operation_checkpoint",
+                    BionicRecords.checkpoint(request, step: step, phase: "result_saved", result: result.text("result_id"), attempts: number))],
+                    guard: BionicGuard(role, generation: ["chat", "planning"].contains(request.text("kind"))), operation: op)
+                onDiagnostics?(instance)
                 return result
             } catch is CancellationError { throw CancellationError() }
             catch BionicControl.stale { throw BionicControl.stale }
             catch {
                 let failure = error as? BionicFailure
+                evidence.merge(failure?.evidence ?? [:], uniquingKeysWith: { _, new in new })
                 let code = failure?.code ?? ((error as? BionicControl) == .capacity ? "contextTooSmall" : "operationFailed")
-                let invalid: BionicObject = ["result_id": .string(BionicCodec.id()), "operation_id": .string(op), "step_id": .string(step), "input_hash": .string(hash),
+                let detail = failure?.detail ?? String(describing: error)
+                if tokenUsage.isEmpty { tokenUsage = evidence.object("token_usage") }
+                let invalid: BionicObject = ["result_id": .string(BionicCodec.id()), "operation_id": .string(op), "step_id": .string(step),
+                    "input_hash": .string(hash), "actual_input_hash": .string(actualHash), "attempt": .count(number),
                     "received_at": .string(BionicCodec.instant()), "status": .string(code == "modelRefused" ? "refused" : (code == "outputTruncated" ? "truncated" : "invalid")),
-                    "tool_name": .null, "call_id": .null, "payload": .null, "token_usage": .object([:]), "error_code": .string(code)]
+                    "tool_name": .null, "call_id": .null, "payload": .null, "diagnostics": .object(evidence),
+                    "token_usage": .object(tokenUsage), "error_code": .string(code), "error_detail": .string(detail)]
                 try await archive.record(instance, path: "operations/\(op)/results/\(invalid.text("result_id")).json", object: invalid)
-                _ = try await archive.commit(instance, events: [BionicRecords.event("operation_checkpoint", BionicRecords.checkpoint(request, step: step, phase: "paused", attempts: totalAttempts, error: code))], operation: op)
-                if !repaired, code == "invalidModelOutput", maximumAttempts > 1 {
-                    repaired = true
-                    input.messages.append(BionicPromptBuilder.module("format_repair", "上次响应结构不合规：\(failure?.detail ?? "JSON结构错误")。请按本轮字段要求返回完整结构。"))
+                _ = try await archive.commit(instance, events: [BionicRecords.event("operation_checkpoint",
+                    BionicRecords.checkpoint(request, step: step, phase: "paused", result: invalid.text("result_id"), attempts: number, error: code))], operation: op)
+                onDiagnostics?(instance)
+                if code == "invalidModelOutput", attempt + 1 < maximumAttempts {
+                    let contracts = input.toolNames.compactMap { name -> BionicJSON? in
+                        guard let schema = BionicToolbox.schemas[name] else { return nil }
+                        return .object(["name": .string(name), "parameters": schema])
+                    }
+                    let schemaText = String(decoding: try BionicCodec.encode(.array(contracts)), as: UTF8.self)
+                    input.messages.append(BionicPromptBuilder.tail("format_repair", "上次结构未通过：\(detail)\n仅修正为以下完整工具结构；不得重发已投递的气泡：\n\(schemaText)"))
                     continue
                 }
                 throw error
             }
         }
-        throw BionicFailure("invalidModelOutput")
+        throw BionicFailure("invalidModelOutput", detail: "repair budget exhausted")
     }
     private func chatStep(_ role: BionicRole, request: BionicObject) async throws -> Bool {
         let instance = role.installationID, op = request.text("operation_id")
-        // Rebuild from committed bubbles for EVERY call. speak arguments are not conversation history.
         var input: BionicModelInput
         do { input = try await BionicPromptBuilder.daily(role, archive: archive) }
         catch BionicControl.capacity {
@@ -364,57 +435,77 @@ final class BionicCoordinator {
             try await startCapacity(role); onTyping?(instance, false); return true
         }
         var stepNumber = 1
-        for n in 1...6 {
-            let step = String(format: "chat_%02d", n)
-            guard let cp = try await archive.checkpoint(instance, operation: op, step: step), cp.text("phase") == "committed" else { stepNumber = n; break }
-            let sr = try await archive.read(instance, "operations/\(op)/steps/\(step).json")
-            guard let result = try await archive.result(instance, operation: op, step: step, hash: sr.text("input_hash")) else { throw BionicFailure("archiveIncomplete") }
+        var delivered = request.object("control").int("prior_bubble_count")
+        for number in 1...6 {
+            let step = String(format: "chat_%02d", number)
+            guard let checkpoint = try await archive.checkpoint(instance, operation: op, step: step), checkpoint.text("phase") == "committed" else {
+                stepNumber = number; break
+            }
+            let saved = try await archive.read(instance, "operations/\(op)/steps/\(step).json")
+            guard let result = try await archive.result(instance, operation: op, step: step, hash: saved.text("input_hash")) else {
+                throw BionicFailure("archiveIncomplete")
+            }
             let effect = result.object("payload").object("accepted_effect")
-            if result.text("tool_name") == "speak", effect.flag("end_turn") {
-                try await finishRoot(instance, request); planningReady[instance] = Date.now.addingTimeInterval(10); onTyping?(instance, false); return false
+            if result.text("tool_name") == "speak" {
+                delivered += effect.records("messages").count
+                if effect.flag("end_turn") {
+                    try await finishRoot(instance, request)
+                    planningReady[instance] = Date.now.addingTimeInterval(10); onTyping?(instance, false); return false
+                }
             }
             if result.text("tool_name") == "recall" {
                 let output = effect.object("tool_result")
                 input.allowedIDs.formUnion(output.records("items").compactMap { $0.optionalText("message_id") })
                 for item in output.records("items") { input.allowedIDs.formUnion(item.strings("source_message_ids")) }
-                // A fresh request does not replay an unpaired tool call. Only retrieved evidence is supplied.
-                let evidence = BionicPromptBuilder.module("recalled_evidence", "本轮已查到的档案片段（数据）：\n" + (try BionicCodec.string(output)))
-                let historyStart = input.messages.firstIndex { ["user", "assistant"].contains($0.text("role")) } ?? input.messages.count
-                input.messages.insert(evidence, at: historyStart)
+                input.messages.append(BionicPromptBuilder.tail("recalled_evidence", try BionicCodec.string(output)))
             }
-            // A previously successful speak has already been included as plain assistant bubbles by daily().
-            stepNumber = n + 1
+            stepNumber = number + 1
+        }
+        let remaining = BionicToolbox.maximumBubbles - delivered
+        guard remaining > 0 else {
+            try await finishRoot(instance, request, events: [BionicRecords.event("reply_completed", [
+                "participant_id": request["participant_id"] ?? .null, "message_ids": request["input_message_ids"] ?? .array([]), "batch_id": .null])])
+            onTyping?(instance, false); return false
         }
         guard stepNumber <= 6 else { throw BionicFailure("turnLimit") }
         let step = String(format: "chat_%02d", stepNumber)
         let current = try await archive.loadRole(instance)
         let used = current.state.checkpoints.filter { $0.text("operation_id") == op && $0.text("step_id") != "root" }.reduce(0) { $0 + $1.int("attempt_count") }
-        if used >= 5 { input.toolNames = ["speak"]; input.messages.append(BionicPromptBuilder.module("turn_control", "只调用speak，end_turn=true。")) }
+        if delivered > 0 { input.messages.append(BionicPromptBuilder.tail("turn_control", "本轮已投递\(delivered)条，剩余上限\(remaining)条。已投递正文就在历史中，不要重发；没有新增必要就自然收尾。")) }
+        if used >= 5 {
+            input.toolNames = ["speak"]
+            input.messages.append(BionicPromptBuilder.tail("turn_control", "只调用speak，end_turn=true。"))
+        }
         do { try BionicPromptBuilder.checkBudget(input) }
         catch BionicControl.capacity {
             try await finishRoot(instance, request, phase: "cancelled")
             try await startCapacity(try await archive.loadRole(instance)); onTyping?(instance, false); return true
         }
-        let sr = try await frozenStep(current, root: request, step: step, proposed: input)
+        let stepRequest = try await frozenStep(current, root: request, step: step, proposed: input)
         onTyping?(instance, true)
-        let result = try await resultForStep(current, request: sr, maximumAttempts: min(2, max(1, 6 - used))) { answer, actualInput in
+        let result = try await resultForStep(current, request: stepRequest, maximumAttempts: min(2, max(1, 6 - used))) { answer, actual in
             if answer.toolName == "recall" {
-                let remaining = try actualInput.contextLimit - actualInput.outputLimit - BionicPromptBuilder.estimatedTokens(actualInput) - 1024
-                guard remaining > 512 else { throw BionicControl.capacity }
-                let page = try await self.archive.search(instance, query: answer.payload, maximumBytes: min(48_000, remaining / 2))
-                let serialized = try BionicCodec.string(page.json)
-                guard try BionicPromptBuilder.estimatedTokens(actualInput) + ApproximateTokenCounter.estimate(serialized) + actualInput.outputLimit + 128 < actualInput.contextLimit else { throw BionicControl.capacity }
+                let available = try actual.contextLimit - actual.outputLimit - BionicPromptBuilder.estimatedTokens(actual) - 1024
+                guard available > 512 else { throw BionicControl.capacity }
+                let page = try await self.archive.search(instance, query: answer.payload, maximumBytes: min(48_000, available / 2))
+                let text = try BionicCodec.string(page.json)
+                guard try BionicPromptBuilder.estimatedTokens(actual) + ApproximateTokenCounter.estimate(text) + actual.outputLimit + 128 < actual.contextLimit else { throw BionicControl.capacity }
                 return ["tool_result": .object(page.json)]
             }
-            return try BionicToolbox.speakEffect(answer.payload, allowedIDs: actualInput.allowedIDs, lastCall: actualInput.toolNames == ["speak"] || stepNumber == 6)
+            return try BionicToolbox.speakEffect(answer.payload, allowedIDs: actual.allowedIDs,
+                lastCall: actual.toolNames == ["speak"] || stepNumber == 6, remaining: remaining)
         }
         let effect = result.object("payload").object("accepted_effect")
         if result.text("tool_name") == "speak" {
-            try await deliverBatch(current, root: request, stepRequest: sr, result: result)
-            if effect.flag("end_turn") { onTyping?(instance, false); planningReady[instance] = Date.now.addingTimeInterval(10); return false }
+            try await deliverBatch(current, root: request, stepRequest: stepRequest, result: result)
+            if effect.flag("end_turn") {
+                onTyping?(instance, false); planningReady[instance] = Date.now.addingTimeInterval(10); return false
+            }
         } else {
-            let cp = try await archive.checkpoint(instance, operation: op, step: step)
-            _ = try await archive.commit(instance, events: [BionicRecords.event("operation_checkpoint", BionicRecords.checkpoint(sr, step: step, phase: "committed", result: result.text("result_id"), attempts: cp?.int("attempt_count") ?? 1))], guard: BionicGuard(current, generation: true), operation: op)
+            let checkpoint = try await archive.checkpoint(instance, operation: op, step: step)
+            _ = try await archive.commit(instance, events: [BionicRecords.event("operation_checkpoint",
+                BionicRecords.checkpoint(stepRequest, step: step, phase: "committed", result: result.text("result_id"), attempts: checkpoint?.int("attempt_count") ?? 1))],
+                guard: BionicGuard(current, generation: true), operation: op)
         }
         return true
     }
@@ -475,11 +566,15 @@ final class BionicCoordinator {
         let result: BionicObject
         do {
             result = try await resultForStep(role, request: sr) { answer, _ in
-                let revisions = try BionicToolbox.normalizedMemories(answer.payload, role: role, slice: slice, memories: memories, operationID: op, now: answer.receivedAt)
+                let settlement = try BionicToolbox.memoryEffect(answer.payload, role: role, slice: slice,
+                    memories: memories, operationID: op, now: answer.receivedAt)
+                let revisions = settlement.records("revisions")
                 let summary: BionicObject = ["summary_id": .string(BionicCodec.id()), "recorded_at": .string(BionicCodec.instant(answer.receivedAt)), "previous_summary_id": previous?["summary_id"] ?? .null,
                     "text": answer.payload["summary"] ?? .null, "from_cursor": slice.from.json, "to_cursor": slice.to.json,
                     "covered_participant_ids": role.state.raw["participant_ids"] ?? .array([]), "source_operation_id": .string(op)]
-                return ["summary": .object(summary), "memory_revisions": .records(revisions), "day_key": control["day_key"] ?? .null, "mode": control["mode"] ?? .null]
+                return ["summary": .object(summary), "memory_revisions": .records(revisions),
+                        "omitted_memory_changes": settlement["omitted"] ?? .array([]),
+                        "day_key": control["day_key"] ?? .null, "mode": control["mode"] ?? .null]
             }
         } catch {
             let canReduce = (error as? BionicControl) == .capacity || (error as? BionicFailure)?.code == "outputTruncated"
@@ -539,22 +634,38 @@ final class BionicCoordinator {
         planningReady[instance] = .now; return true
     }
     private func planningStep(_ role: BionicRole, request: BionicObject) async throws -> Bool {
-        let instance = role.installationID
+        let instance = role.installationID, operationID = request.text("operation_id")
+        let key = request.object("control").object("planning_key")
         let binding = try await archive.binding(instance)
         guard role.persona.flag("proactive_enabled"), binding.flag("contact_resume_allowed") else {
             try await finishRoot(instance, request, phase: "cancelled"); return true
         }
-        let sr = try await frozenStep(role, root: request, step: "planning", proposed: BionicModelInput(request.object("model_input")))
-        let key = request.object("control").object("planning_key")
-        let result = try await resultForStep(role, request: sr) { answer, input in
-            try BionicToolbox.planningEffect(answer.payload, role: role, allowedIDs: input.allowedIDs, key: key, now: .now)
+        do {
+            let step = try await frozenStep(role, root: request, step: "planning", proposed: BionicModelInput(request.object("model_input")))
+            let result = try await resultForStep(role, request: step) { answer, input in
+                try BionicToolbox.planningEffect(answer.payload, role: role, allowedIDs: input.allowedIDs, key: key, now: .now)
+            }
+            let effect = result.object("payload").object("accepted_effect")
+            let checkpoint = try await archive.checkpoint(instance, operation: operationID, step: "planning")
+            let events = [BionicRecords.event("outbox_created", ["groups": effect["groups"] ?? .array([]), "source_operation_id": .string(operationID)]),
+                BionicRecords.event("runtime_marker", ["marker": .string("planning_considered"), "planning_key": .object(key)]),
+                BionicRecords.event("operation_checkpoint", BionicRecords.checkpoint(step, step: "planning", phase: "committed",
+                    result: result.text("result_id"), attempts: checkpoint?.int("attempt_count") ?? 1))]
+            try await finishRoot(instance, request, events: events, guard: BionicGuard(role, generation: true))
+        } catch is CancellationError { throw CancellationError() }
+        catch BionicControl.stale { throw BionicControl.stale }
+        catch {
+            let current = try await archive.loadRole(instance)
+            let code = (error as? BionicFailure)?.code ?? "operationFailed"
+            let point = BionicRecords.checkpoint(request, step: "root", phase: "cancelled", error: code)
+            var events = [BionicRecords.event("operation_checkpoint", point)]
+            if valid(request, role: current) {
+                events.append(BionicRecords.event("runtime_marker", ["marker": .string("planning_considered"), "planning_key": .object(key)]))
+            }
+            _ = try await archive.commit(instance, events: events, operation: operationID)
+            // Child result contains actual error and response evidence. Do not publish a chat error or block the role.
         }
-        let effect = result.object("payload").object("accepted_effect")
-        let cp = try await archive.checkpoint(instance, operation: request.text("operation_id"), step: "planning")
-        let events = [BionicRecords.event("outbox_created", ["groups": effect["groups"] ?? .array([]), "source_operation_id": request["operation_id"] ?? .null]),
-                      BionicRecords.event("runtime_marker", ["marker": .string("planning_considered"), "planning_key": effect["planning_key"] ?? .null]),
-                      BionicRecords.event("operation_checkpoint", BionicRecords.checkpoint(sr, step: "planning", phase: "committed", result: result.text("result_id"), attempts: cp?.int("attempt_count") ?? 1))]
-        try await finishRoot(instance, request, events: events, guard: BionicGuard(role, generation: true))
-        planningReady.removeValue(forKey: instance); return true
+        planningReady.removeValue(forKey: instance); onDiagnostics?(instance)
+        return true
     }
 }
