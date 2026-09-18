@@ -59,6 +59,11 @@ nonisolated enum BionicPersonaCatalog {
     }
     static func validate(_ p: BionicObject, existing: BionicObject? = nil, importing: Bool = false, now: Date = .now) throws {
         try p.require(fingerprintKeys + ["current_traits", "evolution_enabled", "proactive_enabled", "context_limit", "output_limit", "timezone_policy"])
+        if let timing = p["reply_timing"] {
+            guard let value = timing.string, BionicReplyTiming(rawValue: value) != nil else {
+                throw BionicFailure("invalidFields", detail: "reply_timing")
+            }
+        }
         let age = try age(p.text("birth_date"), now: now)
         guard age > 18, importing || (existing?.text("birth_date") == p.text("birth_date")) || age <= 70 else { throw BionicFailure("ageBoundary") }
         guard (1...20).contains(p.text("nickname").trimmingCharacters(in: .whitespacesAndNewlines).count), p.text("nickname").count <= 20,
@@ -101,7 +106,7 @@ nonisolated enum BionicPersonaCatalog {
                 "mbti": .null, "baseline_traits": .object(neutral), "current_traits": .object(neutral),
                 "sleep_start_minute": .integer(60), "sleep_end_minute": .integer(480), "timezone_policy": .string("follow_device"),
                 "evolution_enabled": .bool(false), "proactive_enabled": .bool(false), "context_limit": .integer(200000),
-                "output_limit": .integer(8192), "validation_receipt": .null]
+                "output_limit": .integer(8192), "reply_timing": .string("instant"), "validation_receipt": .null]
     }
     static func time(on day: Date, minute: Int, zone: TimeZone = .current) -> Date {
         let c = calendar(zone)

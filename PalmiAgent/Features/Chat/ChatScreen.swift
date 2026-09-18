@@ -1048,46 +1048,14 @@ struct ChatScreen: View {
     }
 
     private var composerSection: some View {
-        // 仿 Gemini/Grok：把「附件 / 多行输入 / 控制按钮行」合进一块液态玻璃大框。
-        GlassEffectContainer(spacing: 16) {
-            VStack(alignment: .leading, spacing: 10) {
-                if !store.pendingAttachments.isEmpty {
-                    composerAttachmentTiles
-                }
-
-                // 文本框与控制行包在一起，下拉手势只作用于这里——不连累附件横向滚动。
-                VStack(alignment: .leading, spacing: 10) {
-                    ComposerTextEditor(store: store, isFocused: $isFocused)
-
-                    composerControlRow
-                }
-                .gesture(
-                    DragGesture(minimumDistance: 24, coordinateSpace: .local)
-                        .onEnded { value in
-                            if value.translation.height > 0 {
-                                isFocused = false
-                            }
-                        }
-                )
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 12)
-            .padding(.bottom, 10)
-            // 一块玻璃；不加 .clipShape，好让专业模式的上下文轮展开面板能向上溢出、不被裁切。
-            .glassEffect(
-                .regular,
-                in: RoundedRectangle(cornerRadius: 28, style: .continuous)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .stroke(Color.black.opacity(0.06), lineWidth: 1)
-                    .allowsHitTesting(false)
-            )
+        PalmiComposerSurface(hasAttachments: !store.pendingAttachments.isEmpty,
+                             dismissKeyboard: { isFocused = false }) {
+            composerAttachmentTiles
+        } editor: {
+            ComposerTextEditor(store: store, isFocused: $isFocused)
+        } controls: {
+            composerControlRow
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 10)
-        .padding(.bottom, 8)
-        .zIndex(1)
         .background(
             GeometryReader { proxy in
                 Color.clear.preference(
@@ -3093,14 +3061,8 @@ private struct ComposerTextEditor: View {
     @FocusState.Binding var isFocused: Bool
 
     var body: some View {
-        TextField(PalmiL10n.tr("chat.input.placeholder"), text: $store.inputText, axis: .vertical)
-            .lineLimit(1...6)
-            .textFieldStyle(.plain)
-            .focused($isFocused)
-            .font(.body)
-            .frame(minHeight: 28, alignment: .top)
-            .padding(.horizontal, 4)
-            .padding(.top, 2)
+        PalmiComposerTextEditor(text: $store.inputText, isFocused: $isFocused,
+                                placeholder: PalmiL10n.tr("chat.input.placeholder"))
     }
 }
 
@@ -3111,28 +3073,12 @@ private struct ComposerSendButton: View {
     let onSend: () -> Void
 
     var body: some View {
-        Button {
-            if store.isLoading {
-                store.stopDisplayedRun()
-            } else {
-                guard store.canSend else { return }
-                onSend()
+        PalmiComposerSendControl(isLoading: store.isLoading, canSend: store.canSend,
+            accessibilityTitle: store.isLoading ? PalmiL10n.tr("bionic.stopGeneration") : PalmiL10n.tr("chat.send"),
+            animation: animation) {
+                if store.isLoading { store.stopDisplayedRun() }
+                else if store.canSend { onSend() }
             }
-        } label: {
-            Image(systemName: store.isLoading ? "stop.fill" : "arrow.up")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(store.isLoading || store.canSend ? Color.white : Color.secondary.opacity(0.45))
-                .frame(width: composerControlSize, height: composerControlSize)
-                .background {
-                    Circle()
-                        .fill(store.isLoading || store.canSend ? Color.accentColor : Color.primary.opacity(0.06))
-                }
-        }
-        .buttonStyle(.plain)
-        .disabled(!store.isLoading && !store.canSend)
-        .accessibilityLabel(store.isLoading ? "停止生成" : PalmiL10n.tr("chat.send"))
-        .animation(animation, value: store.canSend)
-        .animation(animation, value: store.isLoading)
     }
 }
 

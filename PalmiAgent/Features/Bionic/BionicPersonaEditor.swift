@@ -14,6 +14,7 @@ struct BionicPersonaEditor: View {
     // 核验暂时停用（调试期）：audit 状态与 verify() 保留在下方注释中，恢复时连同保存门禁一起还原。
     // @State private var audit: BionicValidation?
     @State private var busy = false
+    @State private var deleting = false
     @State private var errorText: String?
     @State private var rolePhoto: PhotosPickerItem?
     @State private var userPhoto: PhotosPickerItem?
@@ -95,7 +96,9 @@ struct BionicPersonaEditor: View {
                         Text(BionicPersonaCatalog.languageNames[language] ?? language).tag(language)
                     }
                 }.disabled(instance != nil)
-                Text(PalmiL10n.tr("bionic.nativeLanguageLocked")).font(.footnote).foregroundStyle(.secondary)
+                if instance == nil {
+                    Text(PalmiL10n.tr("bionic.nativeLanguageLocked")).font(.caption).foregroundStyle(.secondary)
+                }
             }
             Section(PalmiL10n.tr("bionic.personality")) {
                 ForEach(BionicPersonaCatalog.dimensions, id: \.self) { dimension in
@@ -116,7 +119,6 @@ struct BionicPersonaEditor: View {
                     Text(PalmiL10n.tr("bionic.unset")).tag("")
                     ForEach(BionicPersonaCatalog.types, id: \.self) { Text($0).tag($0) }
                 }
-                Text(PalmiL10n.tr("bionic.mbtiNote")).font(.footnote).foregroundStyle(.secondary)
             }
             Section(PalmiL10n.tr("bionic.sleep")) {
                 DatePicker(PalmiL10n.tr("bionic.sleepStart"), selection: time("sleep_start_minute"), displayedComponents: .hourAndMinute)
@@ -132,17 +134,28 @@ struct BionicPersonaEditor: View {
                 }
             }
             BionicModelBindingFields(store: store, binding: $binding)
+            BionicRuntimeSettingsFields(persona: $persona, local: $binding)
             Section {
-                Text(PalmiL10n.tr("bionic.disclosure")).font(.footnote).foregroundStyle(.secondary)
+                if instance == nil {
+                    Text(PalmiL10n.tr("bionic.disclosure")).font(.footnote).foregroundStyle(.secondary)
+                }
                 if busy { HStack { ProgressView(); Text(PalmiL10n.tr("bionic.processing")) } }
                 Button(PalmiL10n.tr("bionic.preGenerate")) { pregenerate() }
-                Button(instance == nil ? PalmiL10n.tr("bionic.generate") : PalmiL10n.tr("bionic.save")) { Task { await save() } }
+                Button(instance == nil ? PalmiL10n.tr("bionic.generate") : PalmiL10n.tr("bionic.save")) {
+                    Task { await save() }
+                }
+            }
+            if instance != nil {
+                Section {
+                    Button(PalmiL10n.tr("bionic.deleteRole"), role: .destructive) { deleting = true }
+                }
             }
         }
         .scrollDismissesKeyboard(.interactively)
         .bionicKeyboardDismissOnOutsideTap()
         .disabled(busy)
-        .navigationTitle(PalmiL10n.tr(instance == nil ? "bionic.create" : "bionic.editPersona"))
+        .navigationTitle(PalmiL10n.tr(instance == nil ? "bionic.create" : "bionic.settings"))
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button(PalmiL10n.tr("bionic.cancel")) { dismiss() }.disabled(busy) } }
         // .onChange(of: fingerprint) { _, _ in audit = nil }
         .onChange(of: rolePhoto) { _, value in Task { await beginCrop(value, role: true) } }
@@ -171,6 +184,17 @@ struct BionicPersonaEditor: View {
                 } catch { errorText = BionicStore.errorText(error) }
             }
         }
+        .confirmationDialog(PalmiL10n.tr("bionic.deleteRole"), isPresented: $deleting, titleVisibility: .visible) {
+            Button(PalmiL10n.tr("bionic.delete"), role: .destructive) {
+                guard let instance else { return }
+                busy = true
+                Task {
+                    defer { busy = false }
+                    do { try await store.delete(instance); dismiss() }
+                    catch { errorText = BionicStore.errorText(error) }
+                }
+            }
+        } message: { Text(PalmiL10n.tr("bionic.deleteRoleNotice")) }
         .alert(PalmiL10n.tr("bionic.errorTitle"), isPresented: Binding(get: { errorText != nil }, set: { if !$0 { errorText = nil } })) { Button(PalmiL10n.tr("bionic.ok"), role: .cancel) {} } message: { Text(errorText ?? "") }
     }
     // 核验暂时停用（调试期）。恢复时：取消本函数与上方 audit/accepted 的注释，

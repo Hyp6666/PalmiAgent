@@ -69,7 +69,7 @@ nonisolated enum BionicDisk {
         if c.count == 2 {
             switch c[0] {
             case "personas", "participants", "messages", "summaries": return uuidJSON(c[1])
-            case "assets": return c[1].hasSuffix(".png") && c[1].count == 68 && c[1].dropLast(4).allSatisfy({ $0.isHexDigit && !$0.isUppercase })
+            case "assets": return BionicAttachmentContract.validAssetPath(path)
             case "snapshots": return c[1].count == 25 && c[1].hasSuffix(".json") && c[1].prefix(20).allSatisfy(\.isNumber)
             case "transactions": return c[1].count == 62 && c[1].prefix(20).allSatisfy(\.isNumber) && c[1].dropFirst(20).first == "-" && uuidJSON(String(c[1].dropFirst(21)))
             default: return false
@@ -83,6 +83,7 @@ nonisolated enum BionicDisk {
     }
     static func validateMessage(_ m: BionicObject, role: BionicRole) throws {
         try m.require(["message_id", "character_id", "author_kind", "author_id", "body", "reply_to_message_id", "generated_at", "logical_at", "committed_at", "recorded_timezone", "origin", "batch_id", "outbox_group_id"])
+        try BionicAttachmentContract.validate(m)
         guard BionicCodec.validID(m.text("message_id")), m.text("character_id") == role.characterID,
               ["user", "character"].contains(m.text("author_kind")), m["body"]?.string != nil,
               !m.text("body").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -647,29 +648,40 @@ extension BionicArchiveStore {
 nonisolated extension BionicDisk {
     static func dueEffects(_ role: BionicRole, at now: Date) throws -> ([BionicObject], [BionicWrite]) {
         var due: [(BionicObject, BionicObject, Date, Int)] = []
-        var index = 0
+        var cancellations: [BionicObject] = []
+        var stableIndex = 0
+        let committedIDs = Set(role.state.order.map(\.id))
         for group in role.state.groups {
-            for item in group.records("items") {
-                defer { index += 1 }
-                guard role.state.itemState(item.text("message_id")) == "pending" else { continue }
-                let at = try BionicCodec.date(item.text("planned_at"))
-                if at <= now { due.append((group, item, at, index)) }
+            let pending = group.records("items").filter { role.state.itemState($0.text("message_id")) == "pending" }
+            guard !pending.isEmpty else { continue }
+            if let reason = BionicOutboxPolicy.invalidReason(group, role: role) {
+                cancellations.append(BionicRecords.event("outbox_cancelled", ["message_ids": .strings(pending.map { $0.text("message_id") }), "reason": .string(reason)]))
+                continue
+            }
+            for item in pending {
+                defer { stableIndex += 1 }
+                let planned = try BionicCodec.date(item.text("planned_at"))
+                let generated = try BionicCodec.date(item.text("generated_at"))
+                guard generated <= planned, !committedIDs.contains(item.text("message_id")),
+                      item.optionalText("reply_to_message_id").map({ committedIDs.contains($0) }) ?? true else {
+                    cancellations.append(BionicRecords.event("outbox_cancelled", ["message_ids": .strings([item.text("message_id")]), "reason": .string("stale_recovery")]))
+                    continue
+                }
+                if planned <= now { due.append((group, item, planned, stableIndex)) }
             }
         }
         due.sort { $0.2 == $1.2 ? $0.3 < $1.3 : $0.2 < $1.2 }
-        guard !due.isEmpty else { return ([], []) }
-        var events: [BionicObject] = []; var writes: [BionicWrite] = []; var sequence = role.state.lastMessageSequence
+        var events = cancellations
+        var writes: [BionicWrite] = []
+        var sequence = role.state.lastMessageSequence
         for (group, item, logical, _) in due {
-            // A participant change cancels pending items in its own transaction before reaching this path.
-            guard group.text("target_participant_id") == role.state.participantID else {
-                events.append(BionicRecords.event("outbox_cancelled", ["message_ids": .strings([item.text("message_id")]), "reason": .string("participant_changed")]))
-                continue
-            }
-            let m = BionicRecords.message(role, id: item.text("message_id"), text: item.text("body"), author: "character",
-                reply: item.optionalText("reply_to_message_id"), generated: try BionicCodec.date(item.text("generated_at")), logical: logical,
-                now: now, origin: "proactive", group: group.text("group_id"), zone: group.text("planned_timezone"))
-            let path = "messages/\(m.text("message_id")).json"; sequence += 1
-            writes.append(BionicWrite(path, m)); events.append(BionicRecords.event("message_committed", ["message_ref": .string(path), "message_sequence": .count(sequence)]))
+            let message = BionicRecords.message(role, id: item.text("message_id"), text: item.text("body"), author: "character",
+                reply: item.optionalText("reply_to_message_id"), generated: try BionicCodec.date(item.text("generated_at")),
+                logical: logical, now: now, origin: "proactive", group: group.text("group_id"), zone: group.text("planned_timezone"))
+            let path = "messages/\(message.text("message_id")).json"
+            sequence += 1
+            writes.append(BionicWrite(path, message))
+            events.append(BionicRecords.event("message_committed", ["message_ref": .string(path), "message_sequence": .count(sequence)]))
         }
         return (events, writes)
     }

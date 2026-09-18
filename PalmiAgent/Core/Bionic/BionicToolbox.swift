@@ -13,14 +13,23 @@ enum BionicToolbox {
     private static let boolean: BionicJSON = .object(["type": .string("boolean")])
     private static func choice(_ values: [String]) -> BionicJSON { .object(["type": .string("string"), "enum": .strings(values)]) }
     private static func integer(_ lower: Int, _ upper: Int) -> BionicJSON { .object(["type": .string("integer"), "minimum": .count(lower), "maximum": .count(upper)]) }
-    static var messageSchema: BionicJSON { object(["text": text, "reply_to_message_id": nullableText]) }
+    private static func described(_ schema: BionicJSON, _ description: String) -> BionicJSON {
+        var value = schema.object; value["description"] = .string(description); return .object(value)
+    }
+    private static func shortText(_ maximum: Int) -> BionicJSON {
+        .object(["type": .string("string"), "minLength": .integer(1), "maxLength": .count(maximum)])
+    }
+    static var messageSchema: BionicJSON {
+        object(["text": described(text, "本条可见气泡的正文，按自然段表达。"),
+                "reply_to_message_id": described(nullableText, "默认填null。正常连续接话、回答最新提问都不引用。仅回到更早消息、跨话题定位或消除歧义时填已提供的真实ID；不用为第一条回复例行添加引用。")])
+    }
     static var schemas: [String: BionicJSON] { [
         "recall": object(["query": nullableText, "from_date": nullableText, "through_date": nullableText, "message_ids": array(text), "cursor": nullableText]),
         "speak": object(["messages": array(messageSchema, minimum: 1), "end_turn": boolean]),
         "context_pro_max_plus": object(["summary": text, "memory_changes": array(object([
             "operation": choice(["add", "update", "delete"]), "target_memory_id": nullableText,
             "topic_key": text, "category": choice(["user_fact", "preference_boundary", "promise_open_item", "shared_event"]),
-            "subject_ids": array(text, minimum: 1), "title": text, "content": text,
+            "subject_ids": array(text, minimum: 1), "title": shortText(36), "content": shortText(160),
             "source_message_ids": array(text, minimum: 1), "primary_source_message_id": text
         ]))]),
         "evolve_personality": object(["changes": array(object(["dimension": choice(BionicPersonaCatalog.dimensions), "target_level": integer(1, 5), "source_message_ids": array(text, minimum: 1)]))]),
@@ -29,8 +38,8 @@ enum BionicToolbox {
     ] }
     static let descriptions = [
         "recall": "读取当前角色的真实历史和记忆；可以按关键词、原记录日期、消息ID检索，按游标续读。不会联网。",
-        "speak": "提交所有要展示给用户的话语。messages每项成为一个气泡；end_turn=false允许随后回忆或继续发言。",
-        "context_pro_max_plus": "Context Pro Max Plus：压缩宿主冻结的真实消息，并提出有来源的记忆变更。只能返回summary和memory_changes。",
+        "speak": "发出本轮私聊正文，每项是一条气泡，条数由自然表达决定。通常end_turn=true。紧接当前话题时reply_to_message_id填null；只有跨回较早消息或消除歧义才引用。不要强行复述提问、逐条引用或以追问结尾。",
+        "context_pro_max_plus": "Context Pro Max Plus：用精炼摘要保留话题进展与未完约定；只提取今后仍有用的来源明确的事实。寒暄不入记忆，同主题不重复。顶层只有summary和memory_changes，后者可为空。",
         "evolve_personality": "只对五个性格维度提出小幅变化，附真实来源；没有持续证据时返回空changes。"
     ]
     private static func apiJSON(_ value: BionicJSON) -> JSONValue {
@@ -80,6 +89,10 @@ enum BionicToolbox {
             guard a.count >= s.int("minItems") else { throw BionicFailure("invalidModelOutput", detail: path + ": empty") }
             if let itemSchema = s["items"] { for item in a { try validateValue(item, schema: itemSchema, path: path + "[]") } }
         }
+        if case .string(let string) = value {
+            if let low = s["minLength"]?.int, string.count < low { throw BionicFailure("invalidModelOutput", detail: path + ": text too short") }
+            if let high = s["maxLength"]?.int, string.count > high { throw BionicFailure("invalidModelOutput", detail: path + ": text too long") }
+        }
         if case .integer(let i) = value {
             if let low = s["minimum"]?.int, i < low { throw BionicFailure("invalidModelOutput", detail: path) }
             if let high = s["maximum"]?.int, i > high { throw BionicFailure("invalidModelOutput", detail: path) }
@@ -102,7 +115,7 @@ enum BionicToolbox {
     static func normalizedMemories(_ payload: BionicObject, role: BionicRole, slice: BionicSlice,
                                    memories: [BionicObject], operationID: String, now: Date) throws -> [BionicObject] {
         try validate(payload, name: "context_pro_max_plus")
-        let summaryLimit = min(6000, Int(Double(role.persona.int("output_limit")) * 0.6))
+        let summaryLimit = BionicPromptBuilder.summaryTarget(role.persona.int("output_limit"))
         guard !payload.text("summary").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               ApproximateTokenCounter.estimate(payload.text("summary")) <= summaryLimit else {
             throw BionicFailure("invalidModelOutput", detail: "summary exceeds target token budget or is empty")
@@ -117,7 +130,7 @@ enum BionicToolbox {
             let sources = Array(Set(change.strings("source_message_ids"))).sorted()
             guard !subjects.isEmpty, Set(subjects).isSubset(of: participants), !sources.isEmpty,
                   Set(sources).isSubset(of: slice.ids), sources.contains(change.text("primary_source_message_id")),
-                  (1...80).contains(change.text("title").count), (1...2000).contains(change.text("content").count),
+                  (1...36).contains(change.text("title").count), (1...160).contains(change.text("content").count),
                   !change.text("topic_key").isEmpty else { throw BionicFailure("invalidModelOutput", detail: "Memory title/content/subjects/source") }
             let userSources = sources.filter { fragments[$0]?.text("author_kind") == "user" }
             if change.text("category") == "user_fact", userSources.isEmpty { throw BionicFailure("invalidModelOutput", detail: "User facts require user source") }
@@ -196,7 +209,9 @@ enum BionicToolbox {
             groups.append(["group_id": .string(groupID), "created_at": .string(BionicCodec.instant(now)), "character_id": .string(role.characterID),
                            "target_participant_id": .string(role.state.participantID), "persona_revision_id": .string(role.state.personaID),
                            "generation_id": .string(role.state.generationID), "based_on_message_sequence": .count(role.state.lastMessageSequence),
-                           "planned_timezone": .string(TimeZone.current.identifier), "items": .records(items)])
+                           "planned_timezone": .string(TimeZone.current.identifier), "items": .records(items),
+                           "context_contract": .string(BionicPromptBuilder.contextContract),
+                           "memory_revision_sequence": .count(role.state.memorySequence)])
             previousStart = start; previousEnd = scheduled
         }
         return ["groups": .records(groups), "planning_key": .object(key)]

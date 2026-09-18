@@ -10,6 +10,7 @@ nonisolated struct BionicValidation: Sendable {
 final class BionicModelService {
     private let runtime: any AgentModelRuntime
     let plans: ModelPlanStore
+    var archive: BionicArchiveStore?
     private var occupied = false
     private var admissionEpoch = 0
     private var waiters: [CheckedContinuation<Void, Never>] = []
@@ -34,6 +35,7 @@ final class BionicModelService {
     func sessionOverride(_ binding: BionicObject) -> ModelPlanSessionOverride {
         ModelPlanSessionOverride(planID: binding.optionalText("plan_id").flatMap(UUID.init(uuidString:)),
                                  primaryCandidateID: binding.optionalText("primary_candidate_id").flatMap(UUID.init(uuidString:)),
+                                 multimodalCandidateID: binding.optionalText("multimodal_candidate_id").flatMap(UUID.init(uuidString:)),
                                  lightweightCandidateID: binding.optionalText("lightweight_candidate_id").flatMap(UUID.init(uuidString:)))
     }
     func selection(_ binding: BionicObject, lightweight: Bool) throws -> (AgentModelSelection, String) {
@@ -53,20 +55,76 @@ final class BionicModelService {
     }
     func defaultBinding() -> BionicObject {
         ["installation_id": .null, "plan_id": .text(plans.activePlanSnapshot()?.id.uuidString.lowercased()),
-         "primary_candidate_id": .null, "lightweight_candidate_id": .null,
+         "primary_candidate_id": .null, "multimodal_candidate_id": .null, "lightweight_candidate_id": .null,
          "developer_visible": .bool(true), "notifications_enabled": .bool(false), "contact_resume_allowed": .bool(true)]
     }
     func modelLabel(_ binding: BionicObject, lightweight: Bool = false) throws -> String { try selection(binding, lightweight: lightweight).1 }
-    private func perform(_ input: BionicModelInput, binding: BionicObject, instance: String?, kind: String) async throws -> BionicModelAnswer {
-        try BionicPromptBuilder.checkBudget(input)
-        let (selected, _) = try selection(binding, lightweight: kind == "audit")
+    func requireImageSupport(binding: BionicObject, needed: Bool) async throws {
+        guard needed else { return }
+        let (primary, _) = try selection(binding, lightweight: false)
+        if try await runtime.capabilities(for: primary).supportsVision { return }
+        let override = sessionOverride(binding)
+        guard let plan = plans.selectedPlan(for: override),
+              plans.selectedCandidate(for: .multimodal, in: plan, sessionOverride: override) != nil else {
+            throw BionicFailure("visionMissing")
+        }
+        let resolved = plans.roleOverrides(for: override)
+        guard case .resolved = resolved.override(for: .multimodalModel) else { throw BionicFailure("visionMissing") }
+        let selected = resolved.selection(providerID: resolved.primaryProviderID ?? .customOpenAI,
+                                          role: .multimodalModel, reasoning: .disabled)
+        guard try await runtime.capabilities(for: selected).supportsVision else { throw BionicFailure("visionMissing") }
+    }
+    private func perform(_ input: BionicModelInput, binding: BionicObject, instance: String?, kind: String,
+                         prepared: (@MainActor (BionicModelInput, String) async throws -> Void)? = nil) async throws -> BionicModelAnswer {
+        var (selected, selectedLabel) = try selection(binding, lightweight: kind == "audit")
         let epoch = admissionEpoch
         try await acquire(); defer { release() }
         guard epoch == admissionEpoch else { throw CancellationError() }
         activeInstance = instance; activeKind = kind
-        let capabilities = try await runtime.capabilities(for: selected)
+        var capabilities = try await runtime.capabilities(for: selected)
+        let hasImages = input.messages.contains { !$0.strings("image_assets").isEmpty }
+        if hasImages && !capabilities.supportsVision {
+            let override = sessionOverride(binding)
+            guard let plan = plans.selectedPlan(for: override),
+                  let vision = plans.selectedCandidate(for: .multimodal, in: plan, sessionOverride: override) else { throw BionicFailure("visionMissing") }
+            let resolved = plans.roleOverrides(for: override)
+            guard case .resolved = resolved.override(for: .multimodalModel) else { throw BionicFailure("visionMissing") }
+            selected = resolved.selection(providerID: resolved.primaryProviderID ?? .customOpenAI, role: .multimodalModel, reasoning: .disabled)
+            selectedLabel = vision.modelName
+            capabilities = try await runtime.capabilities(for: selected)
+            guard capabilities.supportsVision else { throw BionicFailure("visionMissing") }
+        }
         if !input.toolNames.isEmpty, !capabilities.supportsToolCalls || !capabilities.supportsRequiredToolChoice { throw BionicFailure("toolsUnsupported") }
-        let request = AgentModelRequest(selection: selected, apiMessages: BionicPromptBuilder.apiMessages(input),
+        // Keep binary image data out of persisted prompts. Resolve only committed image references.
+        var imageURLs: [Int: [String]] = [:]
+        if hasImages {
+            guard let archive, let instance else { throw BionicFailure("invalidImage") }
+            for index in input.messages.indices {
+                for path in input.messages[index].strings("image_assets") {
+                    guard BionicAttachmentContract.validAssetPath(path),
+                          let data = try await archive.asset(instance, path) else { throw BionicFailure("invalidImage") }
+                    let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
+                    if ext == "heic" {
+                        let normalized = try await BionicAttachmentProcessor.shared.prepare(data: data, filename: "image.heic")
+                        imageURLs[index, default: []].append("data:image/png;base64," + normalized.data.base64EncodedString())
+                    } else {
+                        guard let mime = ["png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp", "gif": "image/gif"][ext] else {
+                            throw BionicFailure("invalidImage")
+                        }
+                        imageURLs[index, default: []].append("data:\(mime);base64," + data.base64EncodedString())
+                    }
+                }
+            }
+        }
+        // Refresh after global admission AND image I/O. The recorded prompt is the request actually sent.
+        let input = try BionicPromptBuilder.refreshClock(input, now: .now)
+        try BionicPromptBuilder.checkBudget(input)
+        var api = BionicPromptBuilder.apiMessages(input)
+        for (index, urls) in imageURLs { api[index].imageDataURLs = urls }
+        try await prepared?(input, selectedLabel)
+        try Task.checkCancellation()
+        guard epoch == admissionEpoch else { throw CancellationError() }
+        let request = AgentModelRequest(selection: selected, apiMessages: api,
                                         tools: try BionicToolbox.definitions(input.toolNames), toolIntent: input.toolNames.isEmpty ? .none : .required,
                                         promptCacheKey: instance.map { "palmi-bionic-" + $0 }, maximumOutputTokens: input.outputLimit, parallelToolCalls: false)
         let task = Task { try await self.runtime.complete(request) }; inFlight = task
@@ -116,17 +174,21 @@ final class BionicModelService {
         }
         return BionicModelAnswer(payload: payload, toolName: name, callID: callID, usage: tokenRecord, receivedAt: .now)
     }
-    func nextChatAction(_ input: BionicModelInput, binding: BionicObject, instance: String) async throws -> BionicModelAnswer {
-        try await perform(input, binding: binding, instance: instance, kind: "chat")
+    func nextChatAction(_ input: BionicModelInput, binding: BionicObject, instance: String,
+                          prepared: (@MainActor (BionicModelInput, String) async throws -> Void)? = nil) async throws -> BionicModelAnswer {
+        try await perform(input, binding: binding, instance: instance, kind: "chat", prepared: prepared)
     }
-    func compactContext(_ input: BionicModelInput, binding: BionicObject, instance: String) async throws -> BionicModelAnswer {
-        try await perform(input, binding: binding, instance: instance, kind: "compaction")
+    func compactContext(_ input: BionicModelInput, binding: BionicObject, instance: String,
+                          prepared: (@MainActor (BionicModelInput, String) async throws -> Void)? = nil) async throws -> BionicModelAnswer {
+        try await perform(input, binding: binding, instance: instance, kind: "compaction", prepared: prepared)
     }
-    func evaluatePersonality(_ input: BionicModelInput, binding: BionicObject, instance: String) async throws -> BionicModelAnswer {
-        try await perform(input, binding: binding, instance: instance, kind: "evolution")
+    func evaluatePersonality(_ input: BionicModelInput, binding: BionicObject, instance: String,
+                          prepared: (@MainActor (BionicModelInput, String) async throws -> Void)? = nil) async throws -> BionicModelAnswer {
+        try await perform(input, binding: binding, instance: instance, kind: "evolution", prepared: prepared)
     }
-    func planMessages(_ input: BionicModelInput, binding: BionicObject, instance: String) async throws -> BionicModelAnswer {
-        try await perform(input, binding: binding, instance: instance, kind: "planning")
+    func planMessages(_ input: BionicModelInput, binding: BionicObject, instance: String,
+                          prepared: (@MainActor (BionicModelInput, String) async throws -> Void)? = nil) async throws -> BionicModelAnswer {
+        try await perform(input, binding: binding, instance: instance, kind: "planning", prepared: prepared)
     }
     func validatePersona(_ persona: BionicObject, participant: BionicObject, binding: BionicObject, language: String,
                          existing: BionicObject? = nil, importing: Bool = false) async throws -> BionicValidation {

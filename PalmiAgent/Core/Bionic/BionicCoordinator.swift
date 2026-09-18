@@ -6,6 +6,7 @@ final class BionicCoordinator {
     let model: BionicModelService
     var onChange: ((String) -> Void)?
     var onTyping: ((String, Bool) -> Void)?
+    var onDiagnostics: ((String) -> Void)?
     var onError: ((String, String?) -> Void)?
     var onNotificationReconcile: (() async -> Void)?
     var selectedInstance: String?
@@ -24,6 +25,14 @@ final class BionicCoordinator {
         foreground = true; blocked.removeAll()
         for role in await archive.roles() {
             let id = role.installationID
+            do {
+                for request in try await archive.operations(id) where request.text("kind") == "chat" {
+                    let started = (try? BionicCodec.date(request.text("created_at"))) ?? .distantPast
+                    if Date.now.timeIntervalSince(started) > 120 {
+                        try await finishRoot(id, request, phase: "cancelled")
+                    }
+                }
+            } catch { report(id, error) }
             if role.persona.flag("proactive_enabled"), role.state.pendingReplyIDs.isEmpty,
                let last = role.state.order.last, let message = try? await archive.message(id, last.id),
                message.text("origin") == "reply", let committed = try? BionicCodec.date(message.text("committed_at")) {
@@ -49,6 +58,19 @@ final class BionicCoordinator {
         catch { report(instance, error) }
     }
     func wake(_ instance: String) { enqueue(instance) }
+    func compactNow(_ instance: String) async throws -> Bool {
+        let role = try await archive.loadRole(instance)
+        let active = try await archive.operations(instance)
+        guard active.isEmpty else {
+            throw BionicFailure("busyMaintenance")
+        }
+        let upper = try await archive.upperCursor(instance)
+        guard upper > role.state.cursor else { return false }
+        blocked.remove(instance); onError?(instance, nil)
+        try await startCapacity(role)
+        onDiagnostics?(instance); enqueue(instance)
+        return true
+    }
     func retry(_ instance: String) async {
         blocked.remove(instance); onError?(instance, nil)
         do {
@@ -60,12 +82,13 @@ final class BionicCoordinator {
             enqueue(instance)
         } catch { report(instance, error) }
     }
-    func userSubmitted(_ instance: String, text: String, reply: String?, at now: Date = .now) async throws {
-        _ = try await archive.appendUser(instance, text: text, reply: reply, at: now)
+    func userSubmitted(_ instance: String, text: String, reply: String?, images: [BionicPreparedImage] = [], at now: Date = .now) async throws {
+        _ = try await archive.appendUserWithImages(instance, text: text, reply: reply, images: images, at: now)
         model.cancel(instance: instance, onlyConversation: true)
         debounce[instance] = now.addingTimeInterval(0.6); planningReady.removeValue(forKey: instance)
         blocked.remove(instance); onError?(instance, nil); onTyping?(instance, false); onChange?(instance)
-        await onNotificationReconcile?(); enqueue(instance)
+        enqueue(instance)
+        Task { [weak self] in await self?.onNotificationReconcile?() }
     }
     func changed(_ instance: String) {
         blocked.remove(instance); model.cancel(instance: instance); onTyping?(instance, false)
@@ -79,14 +102,25 @@ final class BionicCoordinator {
         worker = Task { [weak self] in await self?.drain(epoch) }
     }
     private func drain(_ epoch: Int) async {
-        defer { if lifecycle == epoch { worker = nil } }
+        defer {
+            if lifecycle == epoch {
+                worker = nil
+                if foreground, let next = queue.first { enqueue(next) }
+            }
+        }
         while foreground, lifecycle == epoch, !Task.isCancelled, !queue.isEmpty {
             let position = queue.firstIndex(where: { $0 == selectedInstance }) ?? 0
             let instance = queue.remove(at: position)
             guard !blocked.contains(instance), !deleted.contains(instance) else { continue }
             do {
+                let before = try await archive.loadRole(instance)
                 let more = try await advance(instance)
-                onChange?(instance)
+                let after = try await archive.loadRole(instance)
+                if after.state.lastMessageSequence != before.state.lastMessageSequence ||
+                    after.state.personaID != before.state.personaID ||
+                    after.state.participantID != before.state.participantID ||
+                    after.state.memorySequence != before.state.memorySequence { onChange?(instance) }
+                if after.throughSequence != before.throughSequence { onDiagnostics?(instance) }
                 if more, !queue.contains(instance) { queue.append(instance) }
             } catch is CancellationError {
                 onTyping?(instance, false)
@@ -105,7 +139,7 @@ final class BionicCoordinator {
         if let failure = error as? BionicFailure { code = failure.code }
         else if case BionicControl.capacity = error { code = "contextTooSmall" }
         else { code = "operationFailed" }
-        onError?(instance, code)
+        onError?(instance, code); onDiagnostics?(instance)
     }
     private func startClock() {
         clock?.cancel()
@@ -121,14 +155,22 @@ final class BionicCoordinator {
                     let boundary = BionicPersonaCatalog.lastBoundary(role.persona, now: now)
                     let last = (try? BionicCodec.date(role.state.raw.object("last_settled_boundary").text("boundary_at"))) ?? ((try? BionicCodec.date(role.manifest.text("created_at"))) ?? now)
                     let awake = !BionicPersonaCatalog.asleep(role.persona, now: now)
-                    if due || boundary > last || (awake && !role.state.pendingReplyIDs.isEmpty && (self.debounce[id] ?? .distantPast) <= now) || (self.planningReady[id] ?? .distantFuture) <= now {
+                    let ready = (try? await self.replyReadyAt(role)) ?? .distantFuture
+                    if due || boundary > last || (awake && !role.state.pendingReplyIDs.isEmpty && ready <= now) || (self.planningReady[id] ?? .distantFuture) <= now {
                         self.enqueue(id)
                     }
                 }
             }
         }
     }
+    private func replyReadyAt(_ role: BionicRole) async throws -> Date {
+        guard let id = role.state.pendingReplyIDs.last else { return .distantFuture }
+        let lastUser = try await archive.message(role.installationID, id)
+        return max(debounce[role.installationID] ?? .distantPast, try BionicReplyTiming.readyAt(role.persona, latestUser: lastUser))
+    }
     private func valid(_ request: BionicObject, role: BionicRole) -> Bool {
+        if ["chat", "compaction", "evolution", "planning"].contains(request.text("kind")),
+           request.text("context_contract") != BionicPromptBuilder.contextContract { return false }
         guard request.text("persona_revision_id") == role.state.personaID,
               request.text("participant_id") == role.state.participantID,
               request.int("memory_revision_sequence") == role.state.memorySequence else { return false }
@@ -138,6 +180,7 @@ final class BionicCoordinator {
                        to: BionicCursor = .zero, control: BionicObject = [:], ids: [String] = []) async throws -> BionicObject {
         var request = try BionicRecords.request(role, kind: kind, input: input, from: from, to: to, control: control, ids: ids)
         request["model_label"] = .string(try model.modelLabel(await archive.binding(role.installationID)))
+        request["context_contract"] = .string(BionicPromptBuilder.contextContract)
         let op = request.text("operation_id")
         _ = try await archive.commit(role.installationID, events: [BionicRecords.event("operation_checkpoint", BionicRecords.checkpoint(request, step: "root", phase: "pending"))], writes: [BionicWrite("operations/\(op)/request.json", request)], guard: BionicGuard(role, generation: ["chat", "planning"].contains(kind)))
         return request
@@ -181,7 +224,7 @@ final class BionicCoordinator {
             }
         }
         if !role.state.pendingReplyIDs.isEmpty {
-            guard !BionicPersonaCatalog.asleep(role.persona, now: now), (debounce[instance] ?? .distantPast) <= now else { return false }
+            guard !BionicPersonaCatalog.asleep(role.persona, now: now), try await replyReadyAt(role) <= now else { return false }
             do {
                 let input = try await BionicPromptBuilder.daily(role, archive: archive)
                 _ = try await start(role, kind: "chat", input: input, to: await archive.upperCursor(instance), ids: role.state.pendingReplyIDs)
@@ -253,20 +296,31 @@ final class BionicCoordinator {
                 let current = try await archive.loadRole(instance)
                 let count = current.state.checkpoints.filter { $0.text("operation_id") == op && $0.text("step_id") != "root" }.reduce(0) { $0 + $1.int("attempt_count") }
                 guard count < 6 else { throw BionicFailure("turnLimit") }
-                if count == 5 { input.toolNames = ["speak"]; input.messages.append(BionicPromptBuilder.plain("user", "这是本轮最后一次调用，只能调用speak，end_turn必须为true。")) }
+                if count == 5 { input.toolNames = ["speak"]; input.messages.append(BionicPromptBuilder.module("turn_control", "本轮最后一次调用，只调用speak，end_turn=true。")) }
             }
             totalAttempts += 1
             let attemptPath = "operations/\(op)/steps/\(step)-\(String(format: "%04d", totalAttempts)).json"
-            try await archive.record(instance, path: attemptPath, object: ["operation_id": .string(op), "step_id": .string(step), "attempt": .count(totalAttempts), "model_input": .object(input.json), "input_hash": .string(try BionicCodec.hash(input.json))])
+            let attemptNumber = totalAttempts
+            let prepared: @MainActor (BionicModelInput, String) async throws -> Void = { [archive, weak self] actual, label in
+                guard let self else { throw CancellationError() }
+                try await self.checkCurrent(role, generation: ["chat", "planning"].contains(request.text("kind")))
+                // These are the actual local-clock-refreshed inputs, recorded immediately before transport.
+                try await archive.record(instance, path: attemptPath, object: [
+                    "operation_id": .string(op), "step_id": .string(step), "attempt": .count(attemptNumber),
+                    "prepared_at": .string(BionicCodec.instant()), "model_label": .string(label),
+                    "model_input": .object(actual.json), "input_hash": .string(try BionicCodec.hash(actual.json)),
+                    "tool_schemas": .array(actual.toolNames.compactMap { BionicToolbox.schemas[$0] })])
+                self.onDiagnostics?(instance)
+            }
             _ = try await archive.commit(instance, events: [BionicRecords.event("operation_checkpoint", BionicRecords.checkpoint(request, step: step, phase: "requesting", attempts: totalAttempts))], guard: BionicGuard(role, generation: ["chat", "planning"].contains(request.text("kind"))), operation: op)
             do {
                 let binding = try await archive.binding(instance)
                 let answer: BionicModelAnswer
                 switch request.text("kind") {
-                case "chat": answer = try await model.nextChatAction(input, binding: binding, instance: instance)
-                case "compaction": answer = try await model.compactContext(input, binding: binding, instance: instance)
-                case "evolution": answer = try await model.evaluatePersonality(input, binding: binding, instance: instance)
-                case "planning": answer = try await model.planMessages(input, binding: binding, instance: instance)
+                case "chat": answer = try await model.nextChatAction(input, binding: binding, instance: instance, prepared: prepared)
+                case "compaction": answer = try await model.compactContext(input, binding: binding, instance: instance, prepared: prepared)
+                case "evolution": answer = try await model.evaluatePersonality(input, binding: binding, instance: instance, prepared: prepared)
+                case "planning": answer = try await model.planMessages(input, binding: binding, instance: instance, prepared: prepared)
                 default: throw BionicFailure("archiveInvalid")
                 }
                 try await checkCurrent(role, generation: ["chat", "planning"].contains(request.text("kind")))
@@ -292,7 +346,7 @@ final class BionicCoordinator {
                 _ = try await archive.commit(instance, events: [BionicRecords.event("operation_checkpoint", BionicRecords.checkpoint(request, step: step, phase: "paused", attempts: totalAttempts, error: code))], operation: op)
                 if !repaired, code == "invalidModelOutput", maximumAttempts > 1 {
                     repaired = true
-                    input.messages.append(BionicPromptBuilder.plain("user", "上次响应结构不合规：\(failure?.detail ?? "JSON结构错误")。只修正为本轮声明的完整结构，不增加工具，不输出围栏。"))
+                    input.messages.append(BionicPromptBuilder.module("format_repair", "上次响应结构不合规：\(failure?.detail ?? "JSON结构错误")。请按本轮字段要求返回完整结构。"))
                     continue
                 }
                 throw error
@@ -302,7 +356,13 @@ final class BionicCoordinator {
     }
     private func chatStep(_ role: BionicRole, request: BionicObject) async throws -> Bool {
         let instance = role.installationID, op = request.text("operation_id")
-        var input = BionicModelInput(request.object("model_input"))
+        // Rebuild from committed bubbles for EVERY call. speak arguments are not conversation history.
+        var input: BionicModelInput
+        do { input = try await BionicPromptBuilder.daily(role, archive: archive) }
+        catch BionicControl.capacity {
+            try await finishRoot(instance, request, phase: "cancelled")
+            try await startCapacity(role); onTyping?(instance, false); return true
+        }
         var stepNumber = 1
         for n in 1...6 {
             let step = String(format: "chat_%02d", n)
@@ -313,21 +373,23 @@ final class BionicCoordinator {
             if result.text("tool_name") == "speak", effect.flag("end_turn") {
                 try await finishRoot(instance, request); planningReady[instance] = Date.now.addingTimeInterval(10); onTyping?(instance, false); return false
             }
-            input.messages.append(try BionicPromptBuilder.toolCall(result.text("tool_name"), payload: result.object("payload").object("model_payload"), id: result.text("call_id")))
-            let output: BionicObject
             if result.text("tool_name") == "recall" {
-                output = effect.object("tool_result")
+                let output = effect.object("tool_result")
                 input.allowedIDs.formUnion(output.records("items").compactMap { $0.optionalText("message_id") })
                 for item in output.records("items") { input.allowedIDs.formUnion(item.strings("source_message_ids")) }
-            } else { output = ["message_ids": .strings(effect.records("messages").map { $0.text("message_id") })] }
-            input.messages.append(try BionicPromptBuilder.toolResult(output, id: result.text("call_id")))
+                // A fresh request does not replay an unpaired tool call. Only retrieved evidence is supplied.
+                let evidence = BionicPromptBuilder.module("recalled_evidence", "本轮已查到的档案片段（数据）：\n" + (try BionicCodec.string(output)))
+                let historyStart = input.messages.firstIndex { ["user", "assistant"].contains($0.text("role")) } ?? input.messages.count
+                input.messages.insert(evidence, at: historyStart)
+            }
+            // A previously successful speak has already been included as plain assistant bubbles by daily().
             stepNumber = n + 1
         }
         guard stepNumber <= 6 else { throw BionicFailure("turnLimit") }
         let step = String(format: "chat_%02d", stepNumber)
         let current = try await archive.loadRole(instance)
         let used = current.state.checkpoints.filter { $0.text("operation_id") == op && $0.text("step_id") != "root" }.reduce(0) { $0 + $1.int("attempt_count") }
-        if used >= 5 { input.toolNames = ["speak"]; input.messages.append(BionicPromptBuilder.plain("user", "只能调用speak，end_turn必须为true。")) }
+        if used >= 5 { input.toolNames = ["speak"]; input.messages.append(BionicPromptBuilder.module("turn_control", "只调用speak，end_turn=true。")) }
         do { try BionicPromptBuilder.checkBudget(input) }
         catch BionicControl.capacity {
             try await finishRoot(instance, request, phase: "cancelled")
@@ -401,7 +463,7 @@ final class BionicCoordinator {
             let c = saved.object("control")
             slice = BionicSlice(from: BionicCursor(saved.object("frozen_from_cursor")), to: BionicCursor(saved.object("frozen_to_cursor")), fragments: c.records("fragments"))
         } else {
-            var bytes = max(128, role.persona.int("context_limit") * 2)
+            var bytes = control["slice_byte_budget"]?.int ?? max(128, role.persona.int("context_limit") * 2)
             while true {
                 slice = try await archive.slice(instance, from: role.state.cursor, through: goal, maximumBytes: bytes)
                 guard slice.to > slice.from else { throw BionicFailure("contextTooSmall") }
@@ -419,9 +481,19 @@ final class BionicCoordinator {
                     "covered_participant_ids": role.state.raw["participant_ids"] ?? .array([]), "source_operation_id": .string(op)]
                 return ["summary": .object(summary), "memory_revisions": .records(revisions), "day_key": control["day_key"] ?? .null, "mode": control["mode"] ?? .null]
             }
-        } catch BionicControl.capacity {
-            // Never move the cursor after a rejected input; the user can reduce the declared context budget.
-            throw BionicFailure("contextTooSmall")
+        } catch {
+            let canReduce = (error as? BionicControl) == .capacity || (error as? BionicFailure)?.code == "outputTruncated"
+            let fragmentBytes = slice.fragments.reduce(0) { $0 + $1.text("body").utf8.count }
+            if canReduce, control.int("shrink_count") < 2, fragmentBytes > 256 {
+                try await finishRoot(instance, request, phase: "cancelled")
+                let current = try await archive.loadRole(instance)
+                var reduced = control
+                reduced["slice_byte_budget"] = .count(max(128, fragmentBytes / 2))
+                reduced["shrink_count"] = .count(control.int("shrink_count") + 1)
+                _ = try await start(current, kind: "compaction", from: current.state.cursor, to: goal, control: reduced)
+                return true
+            }
+            throw error
         }
         let effect = result.object("payload").object("accepted_effect"), summary = effect.object("summary")
         let path = "summaries/\(summary.text("summary_id")).json"

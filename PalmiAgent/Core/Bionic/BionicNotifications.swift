@@ -7,6 +7,7 @@ final class BionicNotifications {
     let service: NotificationService
     var onRoute: ((String, String) -> Void)?
     var onArrival: ((String) -> Void)?
+    var onDiagnostics: ((String) -> Void)?
     private var reconciling = false
     private var again = false
     private var epoch = 0
@@ -49,6 +50,7 @@ final class BionicNotifications {
             _ = try await archive.commit(instance, events: [BionicRecords.event("notification_observed", ["group_id": .string(group), "installation_id": .string(instance), "system_identifier": .string(id), "observed_at": .string(BionicCodec.instant()), "result": .string(result)])])
             observations[id] = .string(result); binding["notification_observations"] = .object(observations)
             try await archive.saveBinding(instance, binding)
+            onDiagnostics?(instance)
         } catch { return }
     }
     private func received(_ instance: String, group: String, message: String, clicked: Bool) async {
@@ -77,7 +79,9 @@ final class BionicNotifications {
                 for group in role.state.groups {
                     let id = Self.identifier(instance, group.text("group_id"))
                     if delivered.contains(id) { await observed(instance, group: group.text("group_id"), result: "delivered_seen") }
-                    guard authorized, binding.flag("notifications_enabled"), binding.flag("contact_resume_allowed"), role.persona.flag("proactive_enabled"),
+                    guard BionicOutboxPolicy.invalidReason(group, role: role) == nil,
+                          group.text("planned_timezone") == TimeZone.current.identifier,
+                          authorized, binding.flag("notifications_enabled"), binding.flag("contact_resume_allowed"), role.persona.flag("proactive_enabled"),
                           let first = group.records("items").first, role.state.itemState(first.text("message_id")) == "pending",
                           let date = try? BionicCodec.date(first.text("planned_at")), date > now else { continue }
                     candidates.append((role, group, first, date))
@@ -94,7 +98,9 @@ final class BionicNotifications {
                 do {
                     let current = try await archive.loadRole(instance)
                     let local = try await archive.binding(instance)
-                    guard local.flag("notifications_enabled"), local.flag("contact_resume_allowed"), !removed.contains(instance), current.state.itemState(first.text("message_id")) == "pending",
+                    guard BionicOutboxPolicy.invalidReason(group, role: current) == nil,
+                          group.text("planned_timezone") == TimeZone.current.identifier,
+                          local.flag("notifications_enabled"), local.flag("contact_resume_allowed"), !removed.contains(instance), current.state.itemState(first.text("message_id")) == "pending",
                           current.persona.flag("proactive_enabled"), date > Date.now else { continue }
                     try await service.sendLocalNotification(title: current.name, body: first.text("body"), delaySeconds: nil, deliverAt: date,
                         identifier: id, threadIdentifier: "palmi.bionic.\(instance)",
@@ -102,7 +108,7 @@ final class BionicNotifications {
                         deliveryTimeZone: TimeZone(secondsFromGMT: 0))
                     let after = try await archive.loadRole(instance)
                     let currentBinding = try await archive.binding(instance)
-                    if !currentBinding.flag("notifications_enabled") || !currentBinding.flag("contact_resume_allowed") || capturedEpoch != epoch || removed.contains(instance) || after.state.itemState(first.text("message_id")) != "pending" {
+                    if BionicOutboxPolicy.invalidReason(group, role: after) != nil || !currentBinding.flag("notifications_enabled") || !currentBinding.flag("contact_resume_allowed") || capturedEpoch != epoch || removed.contains(instance) || after.state.itemState(first.text("message_id")) != "pending" {
                         service.removePending([id]); continue
                     }
                     await observed(instance, group: groupID, result: "registered")

@@ -1,180 +1,428 @@
 import SwiftUI
 import UIKit
+import QuickLook
 
 struct BionicChatScreen: View {
-    private struct Row: Identifiable { let index: Int; let message: BionicObject; var id: String { message.text("message_id") } }
-    private var rows: [Row] { store.messages.enumerated().map { Row(index: $0.offset, message: $0.element) } }
-    private enum Sheet: String, Identifiable { case search, memory, settings, migration, developer; var id: String { rawValue } }
     @Bindable var store: BionicStore
     let instance: String
-    @State private var sheet: Sheet?
-    @State private var developerVisible = true
-    @State private var errorText: String?
-    @FocusState private var inputFocused: Bool
+    @State private var details = false
+    @State private var preview: BionicAssetPreview?
+    @State private var localError: String?
     private var role: BionicRole? { store.roles.first { $0.installationID == instance } }
-
+    private var rows: [BionicBubbleRowData] {
+        let messages = store.selectedID == instance ? store.messages : []
+        return messages.enumerated().map { index, message in
+            let previous = index > 0 ? messages[index - 1] : nil
+            let separator = BionicTimelineClock.startsGroup(message, after: previous)
+            return BionicBubbleRowData(message: message, showsTime: separator,
+                showsAvatar: separator || previous?.text("author_id") != message.text("author_id"))
+        }
+    }
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 9) {
-                    if store.windowStart > 0 {
-                        Button(PalmiL10n.tr("bionic.loadOlder")) { Task { do { try await store.loadOlder() } catch { errorText = BionicStore.errorText(error) } } }.font(.footnote).padding(8)
-                    }
-                    if store.messages.isEmpty { Text(PalmiL10n.tr("bionic.emptyChat")).font(.callout).foregroundStyle(.secondary).padding(.top, 64) }
-                    ForEach(rows) { row in
-                        let index = row.index, message = row.message
-                        let id = row.id
-                        VStack(spacing: 12) {
-                            if beginsDay(index) { Text(dateLabel(message)).font(.caption2).foregroundStyle(.secondary).padding(.vertical, 6) }
-                            bubble(message, showAvatar: beginsGroup(index))
+        GeometryReader { geometry in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        if store.windowStart > 0 {
+                            Button(PalmiL10n.tr("bionic.loadOlder")) { Task { await perform { try await store.loadOlder() } } }
+                                .font(.footnote).padding(.vertical, 8)
                         }
-                        .id(id)
-                        .onAppear { store.appeared(id) }
+                        ForEach(rows) { row in
+                            VStack(spacing: 8) {
+                                if row.showsTime {
+                                    Text(BionicTimelineClock.label(row.message, locale: PalmiLanguage.current.locale))
+                                        .font(.caption).foregroundStyle(.secondary).padding(.vertical, 8)
+                                        .frame(maxWidth: .infinity)
+                                }
+                                BionicBubbleRow(store: store, instance: instance, value: row,
+                                    maxWidth: min(440, max(120, geometry.size.width - 104)),
+                                    onQuote: { store.quote(row.message) },
+                                    onJump: { id in Task { await perform { try await store.jump(to: id) } } },
+                                    onAsset: openAsset)
+                            }
+                            .id(row.id)
+                            .onAppear { store.appeared(row.id) }
+                        }
+                        if store.windowEnd < store.totalMessages {
+                            Button(PalmiL10n.tr("bionic.loadNewer")) { Task { await perform { try await store.loadNewer() } } }.font(.footnote).padding(8)
+                        }
+                        Color.clear.frame(height: 1).id("bionic-end")
                     }
-                    if store.windowEnd < store.totalMessages {
-                        Button(PalmiL10n.tr("bionic.loadNewer")) { Task { do { try await store.loadNewer() } catch { errorText = BionicStore.errorText(error) } } }.font(.footnote).padding(8)
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                }
+                .scrollDismissesKeyboard(.interactively)
+                .defaultScrollAnchor(.bottom)
+                .onScrollGeometryChange(for: Bool.self) { value in
+                    value.contentOffset.y + value.containerSize.height >= value.contentSize.height - 70
+                } action: { _, bottom in
+                    if store.selectedID == instance, store.windowEnd >= store.totalMessages { store.followingLatest = bottom }
+                }
+                .onChange(of: store.scrollRequest) { _, _ in
+                    guard store.selectedID == instance, let target = store.scrollTarget else { return }
+                    let follow = store.followingLatest
+                    Task { @MainActor in
+                        await Task.yield()
+                        withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(target, anchor: follow ? .bottom : .top) }
                     }
-                    Color.clear.frame(height: 2).id("bionic-bottom")
-                        .onAppear { if store.windowEnd == store.totalMessages { store.followingLatest = true } }
-                        .onDisappear { store.followingLatest = false }
-                }.padding(.horizontal, 14).padding(.vertical, 12)
-            }
-            .scrollDismissesKeyboard(.interactively)
-            .background(Color(uiColor: .systemGroupedBackground))
-            .onChange(of: store.scrollRequest) { _, _ in
-                guard let target = store.scrollTarget else { return }
-                withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(target, anchor: store.followingLatest ? .bottom : .center) }
-            }
-            .overlay(alignment: .bottomTrailing) {
-                if store.newMessagesAvailable || !store.followingLatest {
-                    Button { Task { try? await store.loadLatest() } } label: {
-                        Label(PalmiL10n.tr(store.newMessagesAvailable ? "bionic.newMessages" : "bionic.latestMessages"), systemImage: "arrow.down")
-                            .font(.caption).padding(10).background(.regularMaterial, in: Capsule())
-                    }.padding(14)
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if store.newMessagesAvailable {
+                        Button { Task { await perform { try await store.loadLatest() } } } label: {
+                            Image(systemName: "arrow.down").font(.body.bold()).padding(12).background(.regularMaterial, in: Circle())
+                        }.padding(14).accessibilityLabel(PalmiL10n.tr("bionic.latestMessages"))
+                    }
                 }
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { composer }
+        .background(Color(uiColor: .systemGroupedBackground))
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                if let code = store.errors[instance] {
+                    HStack {
+                        Text(PalmiL10n.tr("bionic.error." + code)).font(.caption).foregroundStyle(.secondary)
+                        Spacer(minLength: 8)
+                        Button(PalmiL10n.tr("bionic.retry")) { Task { await store.coordinator.retry(instance) } }.font(.caption.bold())
+                    }.padding(.horizontal, 20).padding(.top, 6)
+                }
+                BionicComposerView(store: store, instance: instance, draft: store.composer(instance))
+            }
+            .background(Color(uiColor: .systemGroupedBackground).opacity(0.96).ignoresSafeArea(.container, edges: .bottom))
+        }
+        .toolbar(.visible, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 2) {
-                    Text(role?.name ?? PalmiL10n.tr("bionic.role")).font(.headline)
-                    if store.typing.contains(instance) { Text(PalmiL10n.tr("bionic.typing")).font(.caption).foregroundStyle(.secondary) }
+                    Text(role?.name ?? "").font(.headline).lineLimit(1)
+                    if store.typing.contains(instance) { Text(PalmiL10n.tr("bionic.typing")).font(.caption2).foregroundStyle(.secondary) }
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button(PalmiL10n.tr("bionic.search"), systemImage: "magnifyingglass") { sheet = .search }
-                    Button(PalmiL10n.tr("bionic.memory"), systemImage: "brain.head.profile") { sheet = .memory }
-                    Button(PalmiL10n.tr("bionic.settings"), systemImage: "person.crop.circle") { sheet = .settings }
-                    Button(PalmiL10n.tr("bionic.migration"), systemImage: "arrow.up.arrow.down") { sheet = .migration }
-                    if developerVisible { Button(PalmiL10n.tr("bionic.developer"), systemImage: "curlybraces") { sheet = .developer } }
-                } label: { Image(systemName: "ellipsis") }.accessibilityLabel(PalmiL10n.tr("bionic.more"))
+                Button { details = true } label: { Image(systemName: "ellipsis") }
+                    .accessibilityLabel(PalmiL10n.tr("bionic.conversationDetails"))
             }
         }
-        .sheet(item: $sheet, onDismiss: { Task { developerVisible = (try? await store.archive.binding(instance).flag("developer_visible")) ?? true } }) { selected in
-            NavigationStack {
-                switch selected {
-                case .search, .memory:
-                    BionicHistoryScreen(store: store, instance: instance, mode: selected == .search ? .search : .memory) { id in
-                        sheet = nil; Task { do { try await store.jump(to: id) } catch { errorText = BionicStore.errorText(error) } }
-                    }
-                case .settings: BionicSettingsScreen(store: store, instance: instance)
-                case .migration: BionicMigrationScreen(store: store, instance: instance)
-                case .developer: BionicDeveloperScreen(store: store, instance: instance)
+        .navigationDestination(isPresented: $details) {
+            BionicConversationDetailsScreen(store: store, instance: instance) { messageID in
+                details = false
+                Task { @MainActor in
+                    await Task.yield()
+                    await perform { try await store.jump(to: messageID) }
                 }
             }
         }
-        .onAppear { store.chatVisibility(instance, visible: true) }
-        .onDisappear { store.chatVisibility(instance, visible: false) }
-        .task {
+        .task(id: instance) {
             if store.selectedID != instance { await store.open(instance) }
-            developerVisible = (try? await store.archive.binding(instance).flag("developer_visible")) ?? true
+            store.chatVisibility(instance, visible: true)
         }
-        .alert(PalmiL10n.tr("bionic.errorTitle"), isPresented: Binding(get: { errorText != nil }, set: { if !$0 { errorText = nil } })) { Button(PalmiL10n.tr("bionic.ok"), role: .cancel) {} } message: { Text(errorText ?? "") }
+        .onDisappear { store.chatVisibility(instance, visible: false) }
+        .onAppear { store.chatVisibility(instance, visible: true) }
+        .sheet(item: $preview) { BionicAssetPreviewSheet(url: $0.url) }
+        .alert(PalmiL10n.tr("bionic.errorTitle"), isPresented: Binding(get: { localError != nil }, set: { if !$0 { localError = nil } })) {
+            Button(PalmiL10n.tr("bionic.ok"), role: .cancel) {}
+        } message: { Text(localError ?? "") }
     }
-    private var composer: some View {
-        VStack(spacing: 8) {
-            if let code = store.errors[instance] {
-                HStack(alignment: .top) {
-                    Text(PalmiL10n.tr("bionic.error." + code)).font(.footnote).foregroundStyle(.red)
-                    Spacer(); Button(PalmiL10n.tr("bionic.retry")) { Task { await store.coordinator.retry(instance) } }.font(.footnote)
-                }
-            }
-            if let id = store.quotedIDs[instance], let quoted = store.quotedMessages[id] {
-                HStack {
-                    Text(store.authorName(quoted) + ": " + quoted.text("body")).font(.caption).lineLimit(2).foregroundStyle(.secondary)
-                    Spacer(); Button { store.quotedIDs.removeValue(forKey: instance) } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel(PalmiL10n.tr("bionic.cancelQuote"))
-                }
-            }
-            HStack(alignment: .bottom, spacing: 10) {
-                TextField(PalmiL10n.tr("bionic.messagePlaceholder"), text: Binding(get: { store.drafts[instance] ?? "" }, set: { store.drafts[instance] = $0 }), axis: .vertical)
-                    .lineLimit(1...6).padding(10).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18)).focused($inputFocused)
-                Button { Task { await store.send() } } label: { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32)) }
-                    .disabled(store.sending || (store.drafts[instance] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .accessibilityLabel(PalmiL10n.tr("bionic.send"))
+    private func perform(_ action: () async throws -> Void) async {
+        do { try await action() } catch { localError = BionicStore.errorText(error) }
+    }
+    private func openAsset(_ path: String) {
+        Task {
+            do { preview = BionicAssetPreview(url: try await store.archive.previewURL(instance, path: path)) }
+            catch { localError = BionicStore.errorText(error) }
+        }
+    }
+}
+
+struct BionicConversationDetailsScreen: View {
+    @Bindable var store: BionicStore
+    let instance: String
+    let onJump: (String) -> Void
+    @State private var developerVisible = true
+    var body: some View {
+        List {
+            NavigationLink { BionicHistoryScreen(store: store, instance: instance, mode: .search, onJump: onJump) }
+            label: { Label(PalmiL10n.tr("bionic.search"), systemImage: "magnifyingglass") }
+            NavigationLink { BionicHistoryScreen(store: store, instance: instance, mode: .memory, onJump: onJump) }
+            label: { Label(PalmiL10n.tr("bionic.memory"), systemImage: "brain") }
+            NavigationLink { BionicSettingsScreen(store: store, instance: instance) }
+            label: { Label(PalmiL10n.tr("bionic.settings"), systemImage: "person.crop.circle") }
+            NavigationLink { BionicMigrationScreen(store: store, instance: instance) }
+            label: { Label(PalmiL10n.tr("bionic.migration"), systemImage: "arrow.up.arrow.down") }
+            if developerVisible {
+                NavigationLink { BionicDeveloperScreen(store: store, instance: instance) }
+                label: { Label(PalmiL10n.tr("bionic.developer"), systemImage: "slider.horizontal.3") }
             }
         }
-        .padding(.horizontal, 14).padding(.vertical, 10).background(.bar)
+        .navigationTitle(PalmiL10n.tr("bionic.conversationDetails")).navigationBarTitleDisplayMode(.inline)
+        .task {
+            let local = try? await store.archive.binding(instance)
+            developerVisible = local?["developer_visible"]?.bool ?? true
+        }
     }
-    private func bubble(_ m: BionicObject, showAvatar: Bool) -> some View {
-        let mine = m.text("author_kind") == "user" && m.text("author_id") == role?.state.participantID
-        let former = m.text("author_kind") == "user" && !mine
-        return HStack(alignment: .bottom, spacing: 7) {
-            if mine { Spacer(minLength: 36) }
-            if !mine { avatar(m, visible: showAvatar) }
-            VStack(alignment: .leading, spacing: 6) {
-                if former { Text(store.authorName(m)).font(.caption2.weight(.semibold)).foregroundStyle(.secondary) }
-                if let quote = m.optionalText("reply_to_message_id") {
-                    Button {
-                        Task { do { try await store.jump(to: quote) } catch { errorText = BionicStore.errorText(error) } }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Rectangle().fill(Color.accentColor).frame(width: 3)
-                            VStack(alignment: .leading, spacing: 2) {
-                                if let original = store.quotedMessages[quote] {
-                                    Text(store.authorName(original)).font(.caption2.bold())
-                                    Text(original.text("body")).font(.caption).lineLimit(2)
-                                } else { Text(PalmiL10n.tr("bionic.sourceUnavailable")).font(.caption) }
-                            }.foregroundStyle(.secondary)
-                        }.fixedSize(horizontal: false, vertical: true)
-                    }.buttonStyle(.plain)
+}
+
+private struct BionicBubbleRowData: Identifiable {
+    let message: BionicObject
+    let showsTime: Bool
+    let showsAvatar: Bool
+    var id: String { message.text("message_id") }
+}
+
+private struct BionicBubbleRow: View {
+    let store: BionicStore
+    let instance: String
+    let value: BionicBubbleRowData
+    let maxWidth: CGFloat
+    let onQuote: () -> Void
+    let onJump: (String) -> Void
+    let onAsset: (String) -> Void
+    private var message: BionicObject { value.message }
+    private var outgoing: Bool { message.text("author_kind") == "user" }
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            if outgoing { Spacer(minLength: 0) } else { avatar }
+            BionicBubbleWidthLayout(maximumWidth: maxWidth) {
+                VStack(alignment: .leading, spacing: 8) {
+                    if let quotedID = message.optionalText("reply_to_message_id"), let quoted = store.quotedMessages[quotedID] {
+                        Button { onJump(quotedID) } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(store.authorName(quoted)).font(.caption.weight(.semibold))
+                                Text(quoted.text("body")).font(.caption).lineLimit(2)
+                            }
+                            .foregroundStyle(.secondary).padding(.leading, 9)
+                            .overlay(alignment: .leading) { Rectangle().fill(Color.accentColor).frame(width: 3) }
+                        }.buttonStyle(.plain)
+                    }
+                    ForEach(message.records("attachments"), id: \.attachmentIdentity) { attachment in
+                        Button { onAsset(attachment.text("asset")) } label: {
+                            BionicImageTile(archive: store.archive, instance: instance, attachment: attachment,
+                                            width: min(220, maxWidth - 24), height: min(190, maxWidth - 24))
+                        }.buttonStyle(.plain)
+                    }
+                    if message.records("attachments").isEmpty || !["[图片]", "[圖片]", "[Photo]", "[写真]", "[사진]"].contains(message.text("body")) {
+                        BionicLinkedText(text: message.text("body")).font(.body).textSelection(.enabled)
+                    }
                 }
-                Text(verbatim: m.text("body")).font(.body).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                HStack { Spacer(minLength: 0); Text(timeLabel(m)).font(.caption2).foregroundStyle(.secondary) }
+                .padding(.horizontal, 12).padding(.vertical, 10)
+                .background(outgoing ? Color.accentColor.opacity(0.17) : Color(uiColor: .secondarySystemGroupedBackground),
+                            in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 17).stroke(store.highlightID == value.id ? Color.accentColor : .clear, lineWidth: 2))
             }
-            .padding(.horizontal, 12).padding(.vertical, 9)
-            .background(mine ? Color.accentColor.opacity(0.14) : Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 17))
-            .overlay(RoundedRectangle(cornerRadius: 17).stroke(store.highlightID == m.text("message_id") ? Color.accentColor : Color.clear, lineWidth: 2))
+            .layoutPriority(1)
             .contextMenu {
-                Button(PalmiL10n.tr("bionic.copy"), systemImage: "doc.on.doc") { UIPasteboard.general.string = m.text("body") }
-                Button(PalmiL10n.tr("bionic.quote"), systemImage: "arrowshape.turn.up.left") { store.quote(m); inputFocused = true }
+                Button(PalmiL10n.tr("bionic.reply"), systemImage: "arrowshape.turn.up.left", action: onQuote)
+                Button(PalmiL10n.tr("bionic.copy"), systemImage: "doc.on.doc") { UIPasteboard.general.string = message.text("body") }
+                Text(store.displayTime(message))
             }
-            if mine { avatar(m, visible: showAvatar) } else { Spacer(minLength: 36) }
+            if outgoing { avatar } else { Spacer(minLength: 0) }
+        }
+        .frame(maxWidth: .infinity, alignment: outgoing ? .trailing : .leading)
+    }
+    private var avatar: some View {
+        Group {
+            if value.showsAvatar { BionicAvatar(data: store.avatars[instance + ":" + message.text("author_id")], name: store.authorName(message), size: 34) }
+            else { Color.clear.frame(width: 34, height: 34) }
         }
     }
-    private func avatar(_ m: BionicObject, visible: Bool) -> some View {
-        BionicAvatar(data: store.avatars[instance + ":" + m.text("author_id")], name: store.authorName(m))
-            .opacity(visible ? 1 : 0)
+}
+
+private struct BionicBubbleWidthLayout: Layout {
+    let maximumWidth: CGFloat
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let content = subviews.first else { return .zero }
+        let cap = min(maximumWidth, proposal.width ?? maximumWidth)
+        let ideal = content.sizeThatFits(.unspecified)
+        let width = max(1, min(cap, ideal.width))
+        let actual = content.sizeThatFits(ProposedViewSize(width: width, height: nil))
+        return CGSize(width: min(width, actual.width), height: actual.height)
     }
-    private func beginsGroup(_ index: Int) -> Bool {
-        guard index > 0 else { return true }
-        let a = store.messages[index - 1], b = store.messages[index]
-        guard a.text("author_id") == b.text("author_id"), !beginsDay(index), let x = try? BionicCodec.date(a.text("logical_at")), let y = try? BionicCodec.date(b.text("logical_at")) else { return true }
-        return abs(y.timeIntervalSince(x)) > 300
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
     }
-    private func beginsDay(_ index: Int) -> Bool {
-        index == 0 || (try? BionicPersonaCatalog.logicalDate(store.messages[index])) != (try? BionicPersonaCatalog.logicalDate(store.messages[index - 1]))
+}
+
+private struct BionicComposerView: View {
+    let store: BionicStore
+    let instance: String
+    @Bindable var draft: BionicComposerState
+    @FocusState private var focused: Bool
+    @State private var plus = false
+    @State private var camera = false
+    @State private var photos = false
+    var body: some View {
+        VStack(spacing: 0) {
+            if let error = draft.error { Text(error).font(.caption).foregroundStyle(.red).padding(.horizontal, 20).padding(.top, 6) }
+            PalmiComposerSurface(hasAttachments: !draft.images.isEmpty || store.quotedIDs[instance] != nil,
+                                 dismissKeyboard: { focused = false }) {
+                VStack(alignment: .leading, spacing: 8) {
+                    if let quotedID = store.quotedIDs[instance], let quoted = store.quotedMessages[quotedID] {
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(store.authorName(quoted)).font(.caption.weight(.semibold))
+                                Text(quoted.text("body")).font(.caption).lineLimit(2)
+                            }.foregroundStyle(.secondary)
+                            Spacer()
+                            Button { store.quotedIDs.removeValue(forKey: instance) } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                                .accessibilityLabel(PalmiL10n.tr("bionic.cancelReply"))
+                        }.padding(.horizontal, 4)
+                    }
+                    if !draft.images.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 10) {
+                                ForEach(draft.images) { image in
+                                    BionicDraftImageTile(image: image) { draft.images.removeAll { $0.id == image.id } }
+                                }
+                            }.padding(.vertical, 3)
+                        }.frame(height: 66)
+                    }
+                }
+            } editor: {
+                PalmiComposerTextEditor(text: $draft.text, isFocused: $focused, placeholder: PalmiL10n.tr("chat.input.placeholder"))
+            } controls: {
+                HStack(spacing: 10) {
+                    Button { focused = false; plus = true } label: {
+                        Image(systemName: "plus").font(.system(size: 19, weight: .semibold))
+                            .foregroundStyle(Color.primary.opacity(0.85)).frame(width: 40, height: 40)
+                            .contentShape(Circle()).glassEffect(.regular.interactive(), in: .circle)
+                    }
+                    .buttonStyle(.plain).disabled(draft.importing || draft.saving).accessibilityLabel(PalmiL10n.tr("common.add"))
+                    .popover(isPresented: $plus) {
+                        VStack(spacing: 2) {
+                            Button { plus = false; camera = true } label: { attachmentRow("attachment.camera", icon: "camera") }
+                                .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
+                            Button { plus = false; photos = true } label: { attachmentRow("attachment.photos", icon: "photo") }
+                        }.buttonStyle(.plain).padding(.vertical, 6).frame(width: 250).presentationCompactAdaptation(.popover)
+                    }
+                    if draft.importing { ProgressView().controlSize(.small) }
+                    Spacer(minLength: 8)
+                    PalmiComposerSendControl(isLoading: false, canSend: draft.canSend, accessibilityTitle: PalmiL10n.tr("chat.send"),
+                        animation: .spring(response: 0.30, dampingFraction: 1)) { Task { await store.send(instance) } }
+                }.frame(minHeight: 40)
+            }
+        }
+        .sheet(isPresented: $photos) {
+            PalmiPhotoPicker(allowsMultipleSelection: true, maximumSelectionCount: max(1, 4 - draft.images.count)) { imported in
+                photos = false; receive(imported)
+            }
+        }
+        .sheet(isPresented: $camera) {
+            PalmiCameraPicker { item in camera = false; receive(item.map { [$0] } ?? []) }
+        }
     }
-    private func dateLabel(_ m: BionicObject) -> String {
-        guard let d = try? BionicCodec.date(m.text("logical_at")) else { return "" }
-        let f = DateFormatter(); f.locale = PalmiLanguage.current.locale; f.timeZone = TimeZone(identifier: m.text("recorded_timezone")); f.dateStyle = .medium
-        return f.string(from: d)
+    private func attachmentRow(_ key: String, icon: String) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon).font(.system(size: 18, weight: .semibold)).frame(width: 26)
+            Text(PalmiL10n.tr(key)).font(.system(size: 17, weight: .semibold)); Spacer(minLength: 8)
+        }.foregroundStyle(.primary).padding(.horizontal, 16).frame(height: 48).contentShape(Rectangle())
     }
-    private func timeLabel(_ m: BionicObject) -> String {
-        guard let d = try? BionicCodec.date(m.text("logical_at")) else { return "" }
-        let f = DateFormatter(); f.locale = PalmiLanguage.current.locale; f.timeZone = TimeZone(identifier: m.text("recorded_timezone")); f.timeStyle = .short
-        return f.string(from: d)
+    private func receive(_ imported: [WorkspaceImportedAttachment]) {
+        guard !imported.isEmpty else { return }
+        guard draft.images.count + imported.count <= 4 else { draft.error = PalmiL10n.tr("bionic.error.tooManyImages"); return }
+        draft.importing = true; draft.error = nil
+        Task {
+            defer { draft.importing = false }
+            do {
+                var prepared: [BionicPreparedImage] = []
+                for item in imported {
+                    guard let data = item.data else { throw BionicFailure("invalidImage") }
+                    prepared.append(try await BionicAttachmentProcessor.shared.prepare(data: data, filename: item.preferredFilename))
+                }
+                draft.images += prepared
+            } catch { draft.error = BionicStore.errorText(error) }
+        }
+    }
+}
+
+private struct BionicDraftImageTile: View {
+    let image: BionicPreparedImage
+    let onRemove: () -> Void
+    @State private var thumbnail: UIImage?
+    var body: some View {
+        ZStack {
+            Color.secondary.opacity(0.1)
+            if let thumbnail { Image(uiImage: thumbnail).resizable().scaledToFill() }
+            else { ProgressView() }
+        }
+        .frame(width: 60, height: 60).clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(alignment: .topTrailing) {
+            Button(action: onRemove) { Image(systemName: "xmark.circle.fill").foregroundStyle(.white, .black.opacity(0.6)) }
+                .accessibilityLabel(PalmiL10n.tr("bionic.removePhoto"))
+        }
+        .task(id: image.id) {
+            if let bytes = try? await BionicAttachmentProcessor.shared.thumbnail(data: image.data, key: image.record.text("asset")), !Task.isCancelled {
+                thumbnail = UIImage(data: bytes)
+            }
+        }
+    }
+}
+
+nonisolated extension Dictionary where Key == String, Value == BionicJSON {
+    var attachmentIdentity: String { text("attachment_id") }
+}
+
+struct BionicImageTile: View {
+    let archive: BionicArchiveStore
+    let instance: String
+    let attachment: BionicObject
+    let width: CGFloat
+    let height: CGFloat
+    @State private var image: UIImage?
+    @State private var failed = false
+    var body: some View {
+        ZStack {
+            Color.secondary.opacity(0.08)
+            if let image { Image(uiImage: image).resizable().scaledToFill().frame(width: width, height: height) }
+            else if attachment.text("kind") != "image" || failed {
+                VStack(spacing: 6) {
+                    Image(systemName: attachment.text("kind") == "video" ? "play.rectangle" : "doc").font(.title2)
+                    Text(attachment.text("filename")).font(.caption).lineLimit(2)
+                }.padding(8)
+            } else { ProgressView() }
+        }
+        .frame(width: width, height: height).clipShape(RoundedRectangle(cornerRadius: 10))
+        .accessibilityLabel(attachment.text("filename"))
+        .task(id: instance + ":" + attachment.text("asset")) {
+            guard attachment.text("kind") == "image" else { return }
+            do {
+                guard let data = try await archive.asset(instance, attachment.text("asset")) else { throw BionicFailure("sourceMissing") }
+                let thumb = try await BionicAttachmentProcessor.shared.thumbnail(data: data, key: attachment.text("asset"))
+                guard !Task.isCancelled else { return }; image = UIImage(data: thumb)
+            } catch { if !Task.isCancelled { failed = true } }
+        }
+    }
+}
+
+struct BionicLinkedText: View {
+    let text: String
+    private var attributed: AttributedString {
+        var value = AttributedString(text)
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return value }
+        for match in detector.matches(in: text, range: NSRange(text.startIndex..<text.endIndex, in: text)) {
+            guard let url = match.url, ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+                  let range = Range(match.range, in: text),
+                  let lower = AttributedString.Index(range.lowerBound, within: value),
+                  let upper = AttributedString.Index(range.upperBound, within: value) else { continue }
+            value[lower..<upper].link = url
+        }
+        return value
+    }
+    var body: some View { Text(attributed) }
+}
+
+struct BionicAssetPreview: Identifiable { let id = UUID(); let url: URL }
+struct BionicAssetPreviewSheet: UIViewControllerRepresentable {
+    let url: URL
+    func makeCoordinator() -> Coordinator { Coordinator(url: url) }
+    func makeUIViewController(context: Context) -> QLPreviewController {
+        let controller = QLPreviewController(); controller.dataSource = context.coordinator; return controller
+    }
+    func updateUIViewController(_ controller: QLPreviewController, context: Context) {
+        if context.coordinator.url != url { context.coordinator.url = url; controller.reloadData() }
+    }
+    final class Coordinator: NSObject, QLPreviewControllerDataSource {
+        var url: URL
+        init(url: URL) { self.url = url }
+        func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
+        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem { url as NSURL }
     }
 }

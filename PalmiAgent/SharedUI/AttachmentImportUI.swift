@@ -292,7 +292,7 @@ private struct PalmiAttachmentUnavailableSheet: View {
     }
 }
 
-private struct PalmiCameraPicker: UIViewControllerRepresentable {
+struct PalmiCameraPicker: UIViewControllerRepresentable {
     let onFinish: (WorkspaceImportedAttachment?) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -348,8 +348,9 @@ private struct PalmiCameraPicker: UIViewControllerRepresentable {
     }
 }
 
-private struct PalmiPhotoPicker: UIViewControllerRepresentable {
+struct PalmiPhotoPicker: UIViewControllerRepresentable {
     let allowsMultipleSelection: Bool
+    var maximumSelectionCount: Int? = nil
     let onFinish: ([WorkspaceImportedAttachment]) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -359,7 +360,7 @@ private struct PalmiPhotoPicker: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> PHPickerViewController {
         var configuration = PHPickerConfiguration(photoLibrary: .shared())
         configuration.filter = .images
-        configuration.selectionLimit = allowsMultipleSelection ? 0 : 1
+        configuration.selectionLimit = maximumSelectionCount ?? (allowsMultipleSelection ? 0 : 1)
         let controller = PHPickerViewController(configuration: configuration)
         controller.delegate = context.coordinator
         return controller

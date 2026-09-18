@@ -128,7 +128,7 @@ final class BionicMigrationService {
     private func validateAllReferences(_ role: BionicRole, root: URL) throws {
         let paths = try BionicDisk.files(root)
         let known = Set(paths)
-        for path in paths where path.hasSuffix(".json") {
+        for path in paths where path.hasSuffix(".json") && !path.hasPrefix("assets/") {
             let record = try BionicDisk.read(root, path)
             if path.hasPrefix("personas/") {
                 guard record.text("character_id") == role.characterID, path == "personas/\(record.text("persona_revision_id")).json",
@@ -140,6 +140,13 @@ final class BionicMigrationService {
             } else if path.hasPrefix("messages/") {
                 guard path == "messages/\(record.text("message_id")).json" else { throw BionicFailure("archiveInvalid") }
                 try BionicDisk.validateMessage(record, role: role)
+                try BionicAttachmentContract.validate(record)
+                for attachment in record.records("attachments") {
+                    let asset = attachment.text("asset")
+                    guard known.contains(asset), try BionicDisk.fileBytes(root.appendingPathComponent(asset)) == attachment.int("byte_count") else {
+                        throw BionicFailure("sourceMissing")
+                    }
+                }
             } else if path.hasPrefix("memories/") {
                 guard path == "memories/\(record.text("memory_id"))/\(record.text("memory_revision_id")).json" else { throw BionicFailure("archiveInvalid") }
                 try BionicDisk.validateMemory(record, role: role)
@@ -152,7 +159,7 @@ final class BionicMigrationService {
             if let resultID = cp.optionalText("result_id"), !known.contains("operations/\(cp.text("operation_id"))/results/\(resultID).json") { throw BionicFailure("sourceMissing") }
         }
         for asset in paths where asset.hasPrefix("assets/") {
-            guard try BionicDisk.hashFile(root.appendingPathComponent(asset)) == String(asset.dropFirst(7).dropLast(4)) else { throw BionicFailure("archiveInvalid") }
+            guard try BionicDisk.hashFile(root.appendingPathComponent(asset)) == URL(fileURLWithPath: asset).deletingPathExtension().lastPathComponent else { throw BionicFailure("archiveInvalid") }
         }
     }
     func install(_ prepared: PreparedImport, mode: String, name: String, avatar: Data?, binding: BionicObject,
