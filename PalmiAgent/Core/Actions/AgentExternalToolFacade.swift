@@ -14,6 +14,7 @@ enum AgentExternalToolName: String, CaseIterable, Codable, Hashable, Sendable {
     case fetch
     case systemTime = "get_system_time"
     case location = "get_location"
+    case createBionicPersona = "create_bionic_persona"
 
     var localizedTitle: String {
         switch self {
@@ -43,6 +44,8 @@ enum AgentExternalToolName: String, CaseIterable, Codable, Hashable, Sendable {
             ToolActionID.getCurrentDateTime.localizedTitleForUI
         case .location:
             ToolActionID.requestLocation.localizedTitleForUI
+        case .createBionicPersona:
+            PalmiL10n.tr("tool.facade.createBionicPersona")
         }
     }
 }
@@ -75,7 +78,8 @@ enum AgentExternalToolFacadeCatalog {
         .init(name: .webSearch, backingActionIDs: [.searchWeb]),
         .init(name: .fetch, backingActionIDs: [.fetchStaticWebPage]),
         .init(name: .systemTime, backingActionIDs: [.getCurrentDateTime]),
-        .init(name: .location, backingActionIDs: [.requestLocation])
+        .init(name: .location, backingActionIDs: [.requestLocation]),
+        .init(name: .createBionicPersona, backingActionIDs: [.createBionicPersona])
     ]
 
     static func availableFacades(from actions: [ToolAction]) -> [AgentExternalToolFacade] {
@@ -164,6 +168,8 @@ enum AgentExternalToolFacadeCatalog {
             return .readSkill
         case .importSkill:
             return .importSkill
+        case .createBionicPersona:
+            return .createBionicPersona
         default:
             guard let actionID = facade.backingActionIDs.first else {
                 throw AppError.invalidState("工具没有可执行的底层动作：\(facade.modelToolName)")
@@ -203,6 +209,10 @@ enum AgentExternalToolFacadeCatalog {
             if let rawScope = arguments.string("scope"), SkillScope(rawValue: rawScope) == nil {
                 throw AppError.invalidState("import_skill.scope 只支持 global 或 project。")
             }
+        case .createBionicPersona:
+            _ = try arguments.requiredString("nickname")
+            _ = try arguments.requiredString("identity")
+            _ = try arguments.requiredString("birth_date")
         default:
             break
         }

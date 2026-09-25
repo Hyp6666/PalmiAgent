@@ -11,6 +11,7 @@ final class BionicModelService {
     private let runtime: any AgentModelRuntime
     let plans: ModelPlanStore
     var archive: BionicArchiveStore?
+    var canGenerate: @MainActor () -> Bool = { true }
     private var occupied = false
     private var admissionEpoch = 0
     private var waiters: [CheckedContinuation<Void, Never>] = []
@@ -76,9 +77,11 @@ final class BionicModelService {
     }
     private func perform(_ input: BionicModelInput, binding: BionicObject, instance: String?, kind: String,
                          prepared: (@MainActor (BionicModelInput, String) async throws -> Void)? = nil) async throws -> BionicModelAnswer {
+        if kind != "audit", !canGenerate() { throw BionicFailure("purchaseRequired") }
         var (selected, selectedLabel) = try selection(binding, lightweight: kind == "audit")
         let epoch = admissionEpoch
         try await acquire(); defer { release() }
+        if kind != "audit", !canGenerate() { throw BionicFailure("purchaseRequired") }
         guard epoch == admissionEpoch else { throw CancellationError() }
         activeInstance = instance; activeKind = kind
         var capabilities = try await runtime.capabilities(for: selected)

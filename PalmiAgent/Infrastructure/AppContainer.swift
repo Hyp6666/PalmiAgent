@@ -2,9 +2,11 @@ import Foundation
 
 @MainActor
 final class AppContainer {
+    let bionicPurchases = BionicPurchaseStore()
     lazy var bionicStore = BionicStore(modelRuntime: llmAPIClient,
                                       modelPlanStore: modelPlanStore,
-                                      notificationService: notificationService)
+                                      notificationService: notificationService,
+                                      purchases: bionicPurchases)
 
     init() {
         AppDataManagementService.prepareBionicReset = { [weak self] in
@@ -14,6 +16,7 @@ final class AppContainer {
     }
 
     let workspaceManager = WorkspaceManager()
+    let chatUnreadStore = ChatUnreadStore()
     lazy var workspaceStore = WorkspaceStore(workspaceManager: workspaceManager)
     let apiConfigurationStore = APIConfigurationStore()
     let modelPlanStore = ModelPlanStore()
@@ -84,7 +87,8 @@ final class AppContainer {
         alarmService: alarmService,
         ocrService: ocrService,
         modelPlanStore: modelPlanStore,
-        modelRuntime: llmAPIClient
+        modelRuntime: llmAPIClient,
+        bionicStore: bionicStore
     )
 
     let toolExecutionCoordinator = ToolExecutionCoordinator()
@@ -142,17 +146,31 @@ final class AppContainer {
         toolAuthorizationStore: toolAuthorizationStore
     )
 
-    lazy var chatStore = ChatStore(
-        actions: ActionCatalog.all,
-        apiConfigurationStore: apiConfigurationStore,
-        modelPlanStore: modelPlanStore,
-        agentLoop: agentLoop,
-        makeAgentLoop: { [unowned self] in self.makeAgentLoop() },
-        conversationTitleService: conversationTitleService,
-        skillRegistry: skillRegistry,
-        workspaceManager: workspaceManager,
-        workspaceStore: workspaceStore,
-        toolPermissionStore: toolPermissionStore,
-        toolAuthorizationStore: toolAuthorizationStore
-    )
+    lazy var chatStore: ChatStore = {
+        workspaceManager.onChatMessagesSaved = { [weak self] selection, messages in
+            guard let self else { return }
+            if messages.isEmpty {
+                self.chatUnreadStore.remove(selection)
+                return
+            }
+            guard let thread = self.workspaceStore.thread(for: selection),
+                  thread.subagentOrigin == nil else { return }
+            let isChat = self.workspaceStore.chatProjects.contains { $0.id == selection.projectID }
+            self.chatUnreadStore.ingest(messages, selection: selection, isChat: isChat)
+        }
+        return ChatStore(
+            actions: ActionCatalog.all,
+            apiConfigurationStore: apiConfigurationStore,
+            modelPlanStore: modelPlanStore,
+            agentLoop: agentLoop,
+            makeAgentLoop: { [unowned self] in self.makeAgentLoop() },
+            conversationTitleService: conversationTitleService,
+            skillRegistry: skillRegistry,
+            workspaceManager: workspaceManager,
+            workspaceStore: workspaceStore,
+            toolPermissionStore: toolPermissionStore,
+            toolAuthorizationStore: toolAuthorizationStore,
+            unreadStore: chatUnreadStore
+        )
+    }()
 }

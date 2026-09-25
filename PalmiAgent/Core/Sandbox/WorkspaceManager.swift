@@ -13,6 +13,7 @@ struct WorkspaceEntry: Sendable {
 
 @MainActor
 final class WorkspaceManager {
+    var onChatMessagesSaved: ((WorkspaceSelection, [PalmiChatMessage]) -> Void)?
     @TaskLocal static var pinnedSelection: WorkspaceSelection?
     // 项目级作用域：项目工作区与是否有会话无关，空项目也可访问其文件夹。
     @TaskLocal static var pinnedProjectID: UUID?
@@ -657,6 +658,7 @@ final class WorkspaceManager {
 
         let deletingActiveThread = activeSelection?.projectID == projectID && activeSelection?.threadID == threadID
         try fileManager.removeItem(at: directoryURL)
+        onChatMessagesSaved?(WorkspaceSelection(projectID: projectID, threadID: threadID), [])
 
         guard deletingActiveThread else { return }
 
@@ -752,6 +754,7 @@ final class WorkspaceManager {
         let url = threadMessagesURL(for: selection.projectID, threadID: selection.threadID)
         try writeJSON(messages, to: url)
         try touchActiveThread()
+        onChatMessagesSaved?(selection, messages)
     }
 
     func loadChatMessagesForCurrentThread() throws -> [PalmiChatMessage] {

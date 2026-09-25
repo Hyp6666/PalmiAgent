@@ -236,7 +236,7 @@ nonisolated enum BionicDisk {
     static func loadRole(at root: URL, instance: String, fullValidation: Bool = false) throws -> BionicRole {
         let manifest = try read(root, "manifest.json")
         guard manifest.text("format") == BionicRecords.format, BionicCodec.validID(manifest.text("character_id")) else { throw BionicFailure("archiveInvalid") }
-        let paths = try files(root)
+        let paths = try fullValidation ? files(root) : replayFiles(root)
         guard paths.allSatisfy(isProtocolPath) else { throw BionicFailure("archiveInvalid", detail: "Unknown archive path") }
         let transactions = paths.filter { $0.hasPrefix("transactions/") }
         var role = BionicRole(installationID: instance, manifest: manifest, persona: [:], state: .init(), throughSequence: 0)
@@ -273,6 +273,7 @@ nonisolated enum BionicDisk {
 actor BionicArchiveStore {
     nonisolated let root: URL
     private var cache: [String: BionicRole] = [:]
+    var presentationCache: [String: BionicPresentationCache] = [:]
     private var deleted: Set<String> = []
     init(root: URL = BionicDisk.root) { self.root = root }
     nonisolated func roleURL(_ instance: String) -> URL { root.appendingPathComponent("roles/\(instance)", isDirectory: true) }
@@ -297,6 +298,18 @@ actor BionicArchiveStore {
         _ = try loadRole(instance); return try BionicDisk.read(roleURL(instance), path)
     }
     func binding(_ instance: String) throws -> BionicObject { try BionicDisk.read(localURL(instance), "binding.json") }
+    func updateBinding(_ instance: String, changes: BionicObject) throws {
+        var value = try binding(instance)
+        for (key, item) in changes { value[key] = item }
+        try saveBinding(instance, value)
+    }
+    func saveNotificationObservation(_ instance: String, identifier: String, marker: String) throws {
+        var value = try binding(instance)
+        var observations = value.object("notification_observations")
+        observations[identifier] = .string(marker)
+        value["notification_observations"] = .object(observations)
+        try saveBinding(instance, value)
+    }
     func saveBinding(_ instance: String, _ binding: BionicObject) throws {
         guard !deleted.contains(instance) else { throw BionicFailure("roleMissing") }
         try FileManager.default.createDirectory(at: localURL(instance), withIntermediateDirectories: true)
@@ -326,7 +339,9 @@ actor BionicArchiveStore {
         }
         let path = "transactions/\(String(format: "%020d", role.throughSequence))-\(transaction.text("transaction_id")).json"
         try BionicDisk.write(roleURL(instance), path, transaction)
-        cache[instance] = role; return role
+        cache[instance] = role
+        if role.throughSequence.isMultiple(of: 256) { try? saveSnapshot(instance) }
+        return role
     }
     func createRole(persona: BionicObject, participant: BionicObject, assets: [String: Data], binding: BionicObject,
                     auditRequest: BionicObject? = nil, auditResult: BionicObject? = nil) throws -> BionicRole {
@@ -556,10 +571,14 @@ actor BionicArchiveStore {
         catch { try? FileManager.default.removeItem(at: roleURL(instance)); try? FileManager.default.removeItem(at: localURL(instance)); throw error }
     }
     func deleteRole(_ instance: String) throws {
+        presentationCache.removeValue(forKey: instance)
         deleted.insert(instance); cache.removeValue(forKey: instance)
         for url in [roleURL(instance), localURL(instance)] where FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
     }
-    func forgetAll() { deleted.formUnion(cache.keys); cache.removeAll() }
+    func forgetAll() {
+        presentationCache.removeAll()
+        deleted.formUnion(cache.keys); cache.removeAll()
+    }
     nonisolated static let readme = """
     PalmiAgent 仿生角色档案
     JSON 为 UTF-8；时间为 UTC RFC3339（毫秒），生日为 Gregorian YYYY-MM-DD。
@@ -619,6 +638,35 @@ extension BionicArchiveStore {
         events.append(BionicRecords.event("persona_selected", ["persona_ref": .string(path), "previous_persona_revision_id": .string(role.state.personaID), "reason": .string("manual")]))
         return try commit(instance, events: events, writes: writes)
     }
+    func updateReplyTiming(_ instance: String, timing: BionicReplyTiming) throws -> BionicRole {
+        let old = try commitDue(instance, at: .now)
+        guard BionicReplyTiming.resolve(old.persona) != timing else { return old }
+        var persona = old.persona
+        persona["reply_timing"] = .string(timing.rawValue)
+        persona["persona_revision_id"] = .string(BionicCodec.id())
+        persona["recorded_at"] = .string(BionicCodec.instant())
+        try BionicPersonaCatalog.validate(persona, existing: old.persona)
+        let path = "personas/\(persona.text("persona_revision_id")).json"
+        var events = [BionicRecords.event("persona_selected", [
+            "persona_ref": .string(path),
+            "previous_persona_revision_id": .string(old.state.personaID),
+            "reason": .string("reply_timing_changed")
+        ])]
+        if timing == .instant {
+            let ids = old.state.groups.filter(BionicDeliveryPolicy.isReply).flatMap {
+                $0.records("items")
+            }.filter {
+                old.state.itemState($0.text("message_id")) == "pending"
+            }.map { $0.text("message_id") }
+            if !ids.isEmpty {
+                events.append(BionicRecords.event("outbox_cancelled", [
+                    "message_ids": .strings(ids), "reason": .string("reply_timing_changed")
+                ]))
+            }
+        }
+        return try commit(instance, events: events, writes: [BionicWrite(path, persona)],
+                          guard: BionicGuard(old, generation: true))
+    }
     @discardableResult
     func changeMemory(_ instance: String, memoryID: String, title: String, content: String, deleting: Bool) throws -> BionicRole {
         let role = try commitDue(instance, at: .now)
@@ -640,6 +688,7 @@ extension BionicArchiveStore {
         _ = try commit(instance, events: [BionicRecords.event("messages_read", ["participant_id": .string(role.state.participantID), "message_ids": .strings(fresh), "read_at": .string(BionicCodec.instant())])])
     }
     func resetAll() throws {
+        presentationCache.removeAll()
         deleted.formUnion(cache.keys); cache.removeAll()
         if FileManager.default.fileExists(atPath: root.path) { try FileManager.default.removeItem(at: root) }
     }
@@ -649,22 +698,33 @@ nonisolated extension BionicDisk {
     static func dueEffects(_ role: BionicRole, at now: Date) throws -> ([BionicObject], [BionicWrite]) {
         var due: [(BionicObject, BionicObject, Date, Int)] = []
         var cancellations: [BionicObject] = []
+        var cancelledIDs = Set<String>()
         var stableIndex = 0
         let committedIDs = Set(role.state.order.map(\.id))
         for group in role.state.groups {
-            let pending = group.records("items").filter { role.state.itemState($0.text("message_id")) == "pending" }
+            let pending = group.records("items").filter {
+                role.state.itemState($0.text("message_id")) == "pending"
+            }
             guard !pending.isEmpty else { continue }
             if let reason = BionicOutboxPolicy.invalidReason(group, role: role) {
-                cancellations.append(BionicRecords.event("outbox_cancelled", ["message_ids": .strings(pending.map { $0.text("message_id") }), "reason": .string(reason)]))
+                let ids = pending.map { $0.text("message_id") }
+                cancelledIDs.formUnion(ids)
+                cancellations.append(BionicRecords.event("outbox_cancelled", [
+                    "message_ids": .strings(ids), "reason": .string(reason)
+                ]))
                 continue
             }
             for item in pending {
                 defer { stableIndex += 1 }
+                let id = item.text("message_id")
                 let planned = try BionicCodec.date(item.text("planned_at"))
                 let generated = try BionicCodec.date(item.text("generated_at"))
-                guard generated <= planned, !committedIDs.contains(item.text("message_id")),
+                guard generated <= planned, !committedIDs.contains(id),
                       item.optionalText("reply_to_message_id").map({ committedIDs.contains($0) }) ?? true else {
-                    cancellations.append(BionicRecords.event("outbox_cancelled", ["message_ids": .strings([item.text("message_id")]), "reason": .string("stale_recovery")]))
+                    cancelledIDs.insert(id)
+                    cancellations.append(BionicRecords.event("outbox_cancelled", [
+                        "message_ids": .strings([id]), "reason": .string("stale_recovery")
+                    ]))
                     continue
                 }
                 if planned <= now { due.append((group, item, planned, stableIndex)) }
@@ -674,14 +734,45 @@ nonisolated extension BionicDisk {
         var events = cancellations
         var writes: [BionicWrite] = []
         var sequence = role.state.lastMessageSequence
+        var becomingCommitted = Set<String>()
         for (group, item, logical, _) in due {
-            let message = BionicRecords.message(role, id: item.text("message_id"), text: item.text("body"), author: "character",
-                reply: item.optionalText("reply_to_message_id"), generated: try BionicCodec.date(item.text("generated_at")),
-                logical: logical, now: now, origin: "proactive", group: group.text("group_id"), zone: group.text("planned_timezone"))
-            let path = "messages/\(message.text("message_id")).json"
+            let id = item.text("message_id")
+            guard !cancelledIDs.contains(id) else { continue }
+            let message = BionicRecords.message(
+                role, id: id, text: item.text("body"), author: "character",
+                reply: item.optionalText("reply_to_message_id"),
+                generated: try BionicCodec.date(item.text("generated_at")),
+                logical: logical, now: now, origin: BionicDeliveryPolicy.origin(group),
+                batch: group.optionalText("batch_id"), group: group.text("group_id"),
+                zone: group.text("planned_timezone")
+            )
+            let path = "messages/\(id).json"
             sequence += 1
+            becomingCommitted.insert(id)
             writes.append(BionicWrite(path, message))
-            events.append(BionicRecords.event("message_committed", ["message_ref": .string(path), "message_sequence": .count(sequence)]))
+            events.append(BionicRecords.event("message_committed", [
+                "message_ref": .string(path), "message_sequence": .count(sequence)
+            ]))
+        }
+        var completedInputs = Set<String>()
+        let pendingInputs = Set(role.state.pendingReplyIDs)
+        for group in role.state.groups where BionicDeliveryPolicy.isReply(group) && group.flag("reply_end_turn") {
+            guard BionicOutboxPolicy.invalidReason(group, role: role) == nil else { continue }
+            let items = group.records("items")
+            guard !items.isEmpty, items.allSatisfy({ item in
+                let id = item.text("message_id")
+                return !cancelledIDs.contains(id)
+                    && (role.state.itemState(id) == "committed" || becomingCommitted.contains(id))
+            }) else { continue }
+            let ids = group.strings("input_message_ids").filter {
+                pendingInputs.contains($0) && !completedInputs.contains($0)
+            }
+            guard !ids.isEmpty else { continue }
+            completedInputs.formUnion(ids)
+            events.append(BionicRecords.event("reply_completed", [
+                "participant_id": group["target_participant_id"] ?? .null,
+                "message_ids": .strings(ids), "batch_id": group["batch_id"] ?? .null
+            ]))
         }
         return (events, writes)
     }

@@ -67,6 +67,8 @@ private struct WorkspaceFileCarouselPresentation: Identifiable {
 
 struct ChatScreen: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.palmiUnread) private var unreadSnapshot
 
     @Bindable var store: ChatStore
     @Bindable var workspaceStore: WorkspaceStore
@@ -77,6 +79,7 @@ struct ChatScreen: View {
     let onShowFiles: (() -> Void)?
     let shellMode: AppShellMode?
     let onOpenModeSwitcher: (() -> Void)?
+    let onOpenBionic: (() -> Void)?
 
     @FocusState private var isFocused: Bool
     @State private var expandedToolMessageIDs: Set<UUID> = []
@@ -93,6 +96,12 @@ struct ChatScreen: View {
     @State private var attachmentPresentation: PalmiAttachmentImportPresentation?
     @State private var composerSectionHeight: CGFloat = 128
     @State private var isMessageAutoFollowEnabled = true
+    @State private var messageScrollIsInteracting = false
+    @State private var messageScrollWorkID = UUID()
+    @State private var messageListNearBottom = true
+    @State private var screenIsVisible = false
+    @State private var visibleAnswerIDs: Set<UUID> = []
+    @State private var isShowingBionicSuggestion = false
     @State private var pendingLinkAction: LinkOpenRequest?
     @State private var measuredLinkActionPopoverSize: CGSize = .zero
     @State private var measuredContextWheelFrame: CGRect = .zero
@@ -107,6 +116,8 @@ struct ChatScreen: View {
     @AppStorage(ChatModeToolFilter.chatWebToolsEnabledStorageKey) private var areChatWebToolsEnabled = false
     @AppStorage("palmi.chat.tools-enabled") private var areToolsEnabled = true
     @AppStorage("palmi.chat.external-reasoning-enabled") private var isExternalReasoningEnabled = true
+    @AppStorage("palmi.prof.bionic-suggestion.never") private var neverSuggestBionic = false
+    @AppStorage("palmi.prof.bionic-suggestion.last-shown") private var lastBionicSuggestionAt = 0.0
 
     private let bottomAnchorID = "chat-bottom-anchor"
     private let linkActionPopoverWidth: CGFloat = 286
@@ -150,7 +161,8 @@ struct ChatScreen: View {
         onShowWorkspace: (() -> Void)? = nil,
         onShowFiles: (() -> Void)? = nil,
         shellMode: AppShellMode? = nil,
-        onOpenModeSwitcher: (() -> Void)? = nil
+        onOpenModeSwitcher: (() -> Void)? = nil,
+        onOpenBionic: (() -> Void)? = nil
     ) {
         self._store = Bindable(wrappedValue: store)
         self._workspaceStore = Bindable(wrappedValue: workspaceStore)
@@ -160,6 +172,32 @@ struct ChatScreen: View {
         self.onShowFiles = onShowFiles
         self.shellMode = shellMode
         self.onOpenModeSwitcher = onOpenModeSwitcher
+        self.onOpenBionic = onOpenBionic
+    }
+
+    private var otherConversationUnreadCount: Int {
+        max(0, unreadSnapshot.total - store.unreadStore.count(for: workspaceStore.selectedSelection))
+    }
+    private var mayMarkVisibleAnswersRead: Bool {
+        screenIsVisible && scenePhase == .active && unreadSnapshot.readingAllowed
+            && store.pendingApprovalRequest == nil && store.browserPresentation == nil
+            && !isShowingQuickConfiguration && !isShowingBionicSuggestion
+            && previewedWorkspaceFile == nil && previewedAttachmentFiles == nil
+            && linkSharePayload == nil && attachmentPresentation == nil
+    }
+    private func markVisibleAnswersRead() {
+        guard mayMarkVisibleAnswersRead, let selection = workspaceStore.selectedSelection else { return }
+        store.unreadStore.markRead(visibleAnswerIDs, selection: selection)
+    }
+    private func answerVisibility(_ id: UUID, visible: Bool) {
+        if visible { visibleAnswerIDs.insert(id) } else { visibleAnswerIDs.remove(id) }
+        markVisibleAnswersRead()
+    }
+    private var bionicSuggestionRunKey: String {
+        guard !isChatSurface, store.isLoading, onOpenBionic != nil,
+              let selection = workspaceStore.selectedSelection,
+              let header = store.activeTurnHeaderID else { return "" }
+        return selection.projectID.uuidString + ":" + selection.threadID.uuidString + ":" + header.uuidString
     }
 
     private var turns: [ChatTurn] {
@@ -333,6 +371,76 @@ struct ChatScreen: View {
             .title ?? PalmiL10n.tr("common.default")
     }
 
+    private func thinkingLevelTitle(_ effort: String) -> String {
+        switch effort {
+        case "low": return PalmiL10n.tr("chat.thinking.low")
+        case "medium": return PalmiL10n.tr("chat.thinking.medium")
+        case "high": return PalmiL10n.tr("chat.thinking.high")
+        case "xhigh": return PalmiL10n.tr("chat.thinking.xhigh")
+        case "max": return PalmiL10n.tr("chat.thinking.max")
+        default: return PalmiL10n.tr("common.default")
+        }
+    }
+
+    private var selectedThinkingTitle: String {
+        guard isSelectedModelThinkingEnabled else { return PalmiL10n.tr("chat.thinking.off") }
+        guard let option = modelEffortMenuOptions.first(where: { isSelectedModelReasoningOption($0) }),
+              case .effort(let effort, _) = option.action else { return modelEffortTitle }
+        return thinkingLevelTitle(effort.rawValue)
+    }
+
+    @ViewBuilder
+    private var thinkingLevelMenuContent: some View {
+        Button {
+            performQuickSettingsMutation { setModelThinkingEnabled(false) }
+        } label: {
+            HStack {
+                Text(PalmiL10n.tr("chat.thinking.off"))
+                if !isSelectedModelThinkingEnabled { Image(systemName: "checkmark") }
+            }
+        }
+        ForEach(modelEffortMenuOptions) { option in
+            if case .effort(let effort, _) = option.action {
+                Button {
+                    performQuickSettingsMutation {
+                        setModelThinkingEnabled(true)
+                        setSelectedModelEffort(effort.rawValue)
+                    }
+                } label: {
+                    HStack {
+                        Text(thinkingLevelTitle(effort.rawValue))
+                        if isSelectedModelThinkingEnabled && isSelectedModelReasoningOption(option) {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var professionalThinkingMenu: some View {
+        Menu {
+            Section(PalmiL10n.tr("chat.thinking.title")) {
+                thinkingLevelMenuContent
+                    .disabled(store.isLoading || modelSelectionState.primaryCandidate == nil)
+            }
+            Divider()
+            Button { presentQuickConfiguration() } label: {
+                Label(PalmiL10n.tr("chat.thinking.configure"), systemImage: "slider.horizontal.3")
+            }
+        } label: {
+            Label(selectedThinkingTitle, systemImage: "brain")
+                .font(.system(size: 13, weight: .semibold))
+                .padding(.horizontal, 12)
+                .frame(height: composerControlSize)
+                .glassEffect(.regular.interactive(), in: Capsule())
+                .contentShape(Capsule())
+        }
+        .accessibilityLabel(PalmiL10n.tr("chat.thinking.title"))
+        .accessibilityValue(selectedThinkingTitle)
+        .simultaneousGesture(TapGesture().onEnded { scheduleQuickSettingsPreparation() })
+    }
+
     private func makeSelectedModelReasoningOptions(
         isThinkingEnabled: (Bool) -> Bool
     ) -> [ModelReasoningControlOption] {
@@ -418,6 +526,31 @@ struct ChatScreen: View {
         }
         .onAppear {
             cachedModelSelectionState = computedModelSelectionState
+            screenIsVisible = true
+            markVisibleAnswersRead()
+        }
+        .onDisappear { screenIsVisible = false; visibleAnswerIDs.removeAll() }
+        .onChange(of: workspaceStore.selectedSelection) { _, _ in visibleAnswerIDs.removeAll() }
+        .onChange(of: store.unreadStore.revision) { _, _ in markVisibleAnswersRead() }
+        .onChange(of: mayMarkVisibleAnswersRead) { _, allowed in
+            if allowed { markVisibleAnswersRead() }
+        }
+        .onChange(of: store.isLoading) { _, loading in
+            if !loading { isShowingBionicSuggestion = false }
+        }
+        .task(id: bionicSuggestionRunKey) {
+            let key = bionicSuggestionRunKey
+            guard !key.isEmpty, !neverSuggestBionic,
+                  Date.now.timeIntervalSince1970 - lastBionicSuggestionAt >= 7 * 24 * 3600 else { return }
+            do { try await Task.sleep(for: .seconds(20)) } catch { return }
+            guard !Task.isCancelled, key == bionicSuggestionRunKey, store.isLoading,
+                  !isChatSurface, scenePhase == .active, !neverSuggestBionic,
+                  store.pendingApprovalRequest == nil, store.browserPresentation == nil,
+                  !isShowingQuickConfiguration, !isShowingPlusMenu,
+                  previewedWorkspaceFile == nil, previewedAttachmentFiles == nil,
+                  linkSharePayload == nil, attachmentPresentation == nil else { return }
+            lastBionicSuggestionAt = Date.now.timeIntervalSince1970
+            isShowingBionicSuggestion = true
         }
         .task(id: workspaceStore.selectedSelection) {
             store.loadMessagesForActiveThread()
@@ -473,6 +606,27 @@ struct ChatScreen: View {
                 .presentationCornerRadius(38)
                 .presentationBackground(Color(red: 0.948, green: 0.950, blue: 0.958))
         }
+        .sheet(isPresented: $isShowingBionicSuggestion) {
+            VStack(spacing: 24) {
+                Text(PalmiL10n.tr("chat.bionicSuggestion.title"))
+                    .font(.title3.weight(.semibold))
+                Toggle(PalmiL10n.tr("chat.bionicSuggestion.never"), isOn: $neverSuggestBionic)
+                HStack(spacing: 16) {
+                    Button(PalmiL10n.tr("chat.bionicSuggestion.stay")) {
+                        isShowingBionicSuggestion = false
+                    }
+                    .buttonStyle(.bordered)
+                    Button(PalmiL10n.tr("chat.bionicSuggestion.open")) {
+                        isShowingBionicSuggestion = false
+                        onOpenBionic?()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding(24)
+            .presentationDetents([.height(240)])
+            .presentationDragIndicator(.visible)
+        }
         .palmiAttachmentImporter(
             presentation: $attachmentPresentation,
             workspaceStore: workspaceStore,
@@ -525,12 +679,32 @@ struct ChatScreen: View {
                     .padding(.horizontal, 18)
                 }
                 .scrollDismissesKeyboard(.interactively)
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 8)
-                        .onChanged { _ in
-                            isMessageAutoFollowEnabled = false
-                        }
-                )
+                .onScrollPhaseChange { _, phase in
+                    messageScrollIsInteracting = phase == .interacting
+                }
+                .onScrollGeometryChange(for: PalmiChatScrollMetrics.self) {
+                    PalmiChatScrollMetrics($0)
+                } action: { old, next in
+                    messageListNearBottom = next.nearBottom
+                    if messageScrollIsInteracting {
+                        if next.nearBottom { isMessageAutoFollowEnabled = true }
+                        else if next.isUserMovingToOlder(comparedWith: old) { isMessageAutoFollowEnabled = false }
+                    }
+                    if isMessageAutoFollowEnabled,
+                       (abs(old.contentHeight - next.contentHeight) > 0.5
+                        || abs(old.containerHeight - next.containerHeight) > 0.5) {
+                        messageScrollWorkID = UUID()
+                    }
+                }
+                .task(id: messageScrollWorkID) {
+                    let ticket = messageScrollWorkID
+                    let selection = workspaceStore.selectedSelection
+                    await Task.yield()
+                    guard !Task.isCancelled, ticket == messageScrollWorkID,
+                          selection == workspaceStore.selectedSelection,
+                          isMessageAutoFollowEnabled else { return }
+                    proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+                }
                 .onAppear {
                     isMessageAutoFollowEnabled = true
                     scrollToBottom(proxy, animated: false)
@@ -554,6 +728,18 @@ struct ChatScreen: View {
                 // 否则底部留白与实际 composer 高度错位，内容会偶发沉到输入框下面被遮住。
                 .onChange(of: composerSectionHeight) {
                     scrollToBottomIfFollowing(proxy, animated: false)
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if !isMessageAutoFollowEnabled && !messageListNearBottom {
+                        Button { scrollToBottom(proxy) } label: {
+                            Image(systemName: "arrow.down")
+                                .font(.body.bold()).padding(12)
+                                .background(.regularMaterial, in: Circle())
+                        }
+                        .padding(.trailing, 14)
+                        .padding(.bottom, messageBottomClearance)
+                        .accessibilityLabel(PalmiL10n.tr("bionic.latestMessages"))
+                    }
                 }
             }
             .ignoresSafeArea(edges: .top)
@@ -625,6 +811,9 @@ struct ChatScreen: View {
                     turnMessageView(message)
                 }
                 assistantMarkdown(for: finalMessage)
+                    .onScrollVisibilityChange(threshold: 0.15) { visible in
+                        answerVisibility(turn.headerMessage?.id ?? finalMessage.id, visible: visible)
+                    }
                 if store.activeStreamingMessageIDValue != finalMessage.id {
                     finalAnswerCompletionRow(for: turn, finalMessage: finalMessage)
                 }
@@ -2045,30 +2234,31 @@ struct ChatScreen: View {
         }
     }
 
+    @ViewBuilder
     private var quickSettingsHost: some View {
-        Menu {
-            quickSettingsMenuContent
-                .transaction { transaction in
-                    transaction.animation = nil
-                    transaction.disablesAnimations = true
-                }
-        } label: {
-            Text(selectedReasoningTitle)
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                .foregroundStyle(selectedCapabilityAccent)
-                .padding(.horizontal, 16)
-                .frame(height: composerControlSize)
-                .contentShape(Capsule())
-                .glassEffect(.regular.interactive(), in: .capsule)
-        }
-        .buttonStyle(.plain)
-        .menuOrder(.fixed)
-        .accessibilityLabel(isChatSurface ? PalmiL10n.tr("chat.accessibility.chatTools") : PalmiL10n.tr("chat.quickConfig.capability"))
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                scheduleQuickSettingsPreparation()
+        if isChatSurface {
+            Menu {
+                quickSettingsMenuContent
+                    .transaction { transaction in
+                        transaction.animation = nil
+                        transaction.disablesAnimations = true
+                    }
+            } label: {
+                Text(selectedReasoningTitle)
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundStyle(selectedCapabilityAccent)
+                    .padding(.horizontal, 16)
+                    .frame(height: composerControlSize)
+                    .contentShape(Capsule())
+                    .glassEffect(.regular.interactive(), in: .capsule)
             }
-        )
+            .buttonStyle(.plain)
+            .menuOrder(.fixed)
+            .accessibilityLabel(PalmiL10n.tr("chat.accessibility.chatTools"))
+            .simultaneousGesture(TapGesture().onEnded { scheduleQuickSettingsPreparation() })
+        } else {
+            professionalThinkingMenu
+        }
     }
 
     private var topModelMenuHost: some View {
@@ -2159,7 +2349,8 @@ struct ChatScreen: View {
                 topChromeButtonSlot(
                     leadingTopChromeButton,
                     buttonSize: buttonSize,
-                    alignment: .leading
+                    alignment: .leading,
+                    unreadCount: otherConversationUnreadCount
                 )
 
                 Spacer(minLength: 0)
@@ -2182,7 +2373,8 @@ struct ChatScreen: View {
     private func topChromeButtonSlot(
         _ configuration: TopChromeButtonConfiguration?,
         buttonSize: CGFloat,
-        alignment: Alignment
+        alignment: Alignment,
+        unreadCount: Int = 0
     ) -> some View {
         if let configuration {
             TopChromeIconButton(
@@ -2190,6 +2382,9 @@ struct ChatScreen: View {
                 accessibilityLabel: configuration.accessibilityLabel,
                 action: configuration.action
             )
+            .overlay(alignment: .topTrailing) {
+                PalmiUnreadBadge(count: unreadCount).offset(x: 2, y: -2)
+            }
             .frame(width: 64, height: buttonSize, alignment: alignment)
         } else {
             Color.clear
@@ -2693,24 +2888,13 @@ struct ChatScreen: View {
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool = true) {
-        DispatchQueue.main.async {
-            let action = {
-                proxy.scrollTo(bottomAnchorID, anchor: .bottom)
-            }
-
-            if animated {
-                withAnimation(.easeOut(duration: 0.18)) {
-                    action()
-                }
-            } else {
-                action()
-            }
-        }
+        isMessageAutoFollowEnabled = true
+        messageScrollWorkID = UUID()
     }
 
     private func scrollToBottomIfFollowing(_ proxy: ScrollViewProxy, animated: Bool = true) {
         guard isMessageAutoFollowEnabled else { return }
-        scrollToBottom(proxy, animated: animated)
+        messageScrollWorkID = UUID()
     }
 
     private func handleOpenURL(_ url: URL) -> OpenURLAction.Result {
@@ -4312,6 +4496,8 @@ private struct ToolCallCard: View {
                 return "clock"
             case .location:
                 return "location"
+            case .createBionicPersona:
+                return "person.crop.circle.badge.plus"
             }
         }
 

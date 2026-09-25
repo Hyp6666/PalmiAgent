@@ -209,6 +209,14 @@ extension ToolActionID {
                 isIdempotent: false
             )
 
+        case .createBionicPersona:
+            return ToolPolicyMetadata(
+                riskLevel: .r4PersonalDataOrSystemUI, sideEffect: .mutatesPersonalData,
+                parallelPolicy: .sequential, confirmationPolicy: .always,
+                mutatesWorkspace: false, touchesPersonalData: true,
+                isInteractive: false, isCacheable: false, isIdempotent: false
+            )
+
         case .requestAlarmPermission, .requestNotificationPermission, .requestSpeechPermission,
              .openMapsRoute, .openInAppBrowser, .openCamera, .openPhotoLibrary, .scanDocument, .scanLiveText,
              .openMailDraft, .openMessageDraft, .callPhoneNumber, .openFaceTime, .openAppSettings,

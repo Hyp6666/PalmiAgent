@@ -172,16 +172,16 @@ struct BionicPersonaEditor: View {
             ToolbarItem(placement: .topBarLeading) {
                 Button { requestReturn() } label: { Image(systemName: "chevron.left") }
                     .accessibilityLabel(PalmiL10n.tr("common.back")).disabled(busy)
+                    .alert(PalmiL10n.tr("bionic.unsavedChanges"), isPresented: $confirmLeaving) {
+                        Button(PalmiL10n.tr("bionic.saveAndReturn")) { Task { await save() } }
+                        Button(PalmiL10n.tr("bionic.discardAndReturn"), role: .destructive) { dismiss() }
+                        Button(PalmiL10n.tr("bionic.cancel"), role: .cancel) { confirmLeaving = false }
+                    }
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button(PalmiL10n.tr(instance == nil ? "bionic.generate" : "bionic.save")) { Task { await save() } }
                     .disabled(!loaded || busy)
             }
-        }
-        .confirmationDialog(PalmiL10n.tr("bionic.unsavedChanges"), isPresented: $confirmLeaving, titleVisibility: .visible) {
-            Button(PalmiL10n.tr("bionic.saveAndReturn")) { Task { await save() } }
-            Button(PalmiL10n.tr("bionic.discardAndReturn"), role: .destructive) { dismiss() }
-            Button(PalmiL10n.tr("bionic.cancel"), role: .cancel) {}
         }
         // .onChange(of: fingerprint) { _, _ in audit = nil }
         .onChange(of: rolePhoto) { _, value in Task { await beginCrop(value, role: true) } }

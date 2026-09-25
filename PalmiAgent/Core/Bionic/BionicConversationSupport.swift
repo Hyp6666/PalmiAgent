@@ -8,10 +8,89 @@ nonisolated enum BionicReplyTiming: String, CaseIterable, Sendable {
     }
     static func readyAt(_ persona: BionicObject, latestUser: BionicObject) throws -> Date {
         let sent = try BionicCodec.date(latestUser.text("committed_at"))
-        guard resolve(persona) == .natural else { return sent.addingTimeInterval(0.6) }
+        guard resolve(persona) == .natural else { return sent }
         let digest = BionicCodec.sha(Data(latestUser.text("message_id").utf8))
         let seconds = 20 + (UInt64(digest.prefix(8), radix: 16) ?? 0) % 71
-        return sent.addingTimeInterval(Double(seconds))
+        return availableDate(persona, at: sent.addingTimeInterval(Double(seconds)))
+    }
+    static func availableDate(_ persona: BionicObject, at date: Date,
+                              zone: TimeZone = .current) -> Date {
+        guard resolve(persona) == .natural,
+              BionicPersonaCatalog.asleep(persona, now: date, zone: zone) else { return date }
+        let start = BionicPersonaCatalog.lastBoundary(persona, now: date, zone: zone)
+        return BionicPersonaCatalog.sleepEnd(persona, after: start, zone: zone)
+    }
+}
+
+nonisolated enum BionicDeliveryPolicy {
+    static let maximumFutureMessages = 30
+    static let futureHorizon: TimeInterval = 72 * 3600
+    static let minimumContactGap: TimeInterval = 30 * 60
+
+    static func origin(_ group: BionicObject) -> String {
+        group.text("origin") == "reply" ? "reply" : "proactive"
+    }
+    static func isReply(_ group: BionicObject) -> Bool { origin(group) == "reply" }
+    static func inputIDsNeedingGeneration(_ role: BionicRole) -> [String] {
+        let covered = Set(role.state.groups.filter { group in
+            guard isReply(group), group.flag("reply_end_turn"),
+                  BionicOutboxPolicy.invalidReason(group, role: role) == nil else { return false }
+            let items = group.records("items")
+            return !items.isEmpty && items.allSatisfy {
+                ["pending", "committed"].contains(role.state.itemState($0.text("message_id")))
+            }
+        }.flatMap { $0.strings("input_message_ids") })
+        return role.state.pendingReplyIDs.filter { !covered.contains($0) }
+    }
+    static func contactAllowed(_ group: BionicObject, binding: BionicObject) -> Bool {
+        isReply(group) || binding.flag("contact_resume_allowed")
+    }
+    static func alreadyPlanned(_ role: BionicRole) -> Bool {
+        let key = role.state.raw.object("last_planning_key")
+        return key.text("generation_id") == role.state.generationID
+            && key.text("participant_id") == role.state.participantID
+    }
+    static func pendingReplyItems(_ role: BionicRole) -> [BionicObject] {
+        role.state.groups.filter {
+            isReply($0) && BionicOutboxPolicy.invalidReason($0, role: role) == nil
+        }.flatMap { $0.records("items") }.filter {
+            role.state.itemState($0.text("message_id")) == "pending"
+        }.sorted { $0.text("planned_at") < $1.text("planned_at") }
+    }
+    static func planningAnchor(_ role: BionicRole, now: Date) -> Date {
+        pendingReplyItems(role).reduce(now) { anchor, item in
+            max(anchor, (try? BionicCodec.date(item.text("planned_at"))) ?? now)
+        }
+    }
+    static func planningSlots(_ persona: BionicObject, anchor: Date,
+                              zone: TimeZone) -> [(minutes: Int, date: Date)] {
+        let offsets = [2, 5, 10, 20, 30, 50, 60, 90, 120, 180,
+                       240, 300, 360, 480, 600, 720, 900, 1080,
+                       1260, 1440, 1620, 1800, 1980, 2160,
+                       2520, 2880, 3240, 3600, 3960, 4320]
+        return offsets.compactMap { minutes in
+            let date = anchor.addingTimeInterval(Double(minutes) * 60)
+            guard !BionicPersonaCatalog.asleep(persona, now: date, zone: zone) else { return nil }
+            return (minutes, date)
+        }
+    }
+    static func planningCalendar(_ persona: BionicObject, anchor: Date,
+                                 zone: TimeZone) -> BionicObject {
+        let formatter = DateFormatter()
+        formatter.calendar = BionicPersonaCatalog.calendar(zone)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = zone
+        formatter.dateFormat = "yyyy-MM-dd EEEE HH:mm:ss"
+        let slots: [BionicObject] = planningSlots(persona, anchor: anchor, zone: zone).map {
+            ["delay_minutes": .count($0.minutes),
+             "deliver_at": .string(BionicCodec.instant($0.date)),
+             "local_delivery_time": .string(formatter.string(from: $0.date))]
+        }
+        return ["anchor_at": .string(BionicCodec.instant(anchor)),
+                "timezone": .string(zone.identifier),
+                "maximum_messages": .count(maximumFutureMessages),
+                "minimum_contact_gap_minutes": .count(30),
+                "slots": .records(slots)]
     }
 }
 
@@ -264,10 +343,10 @@ nonisolated enum BionicOutboxPolicy {
         guard group.text("context_contract") == BionicPromptBuilder.contextContract,
               group.text("character_id") == role.characterID else { return "stale_recovery" }
         guard group.text("target_participant_id") == role.state.participantID else { return "participant_changed" }
-        guard group.text("persona_revision_id") == role.state.personaID else { return "persona_changed" }
         guard group.text("generation_id") == role.state.generationID else { return "stale_recovery" }
-        guard group.int("memory_revision_sequence") == role.state.memorySequence else { return "memory_changed" }
-        guard role.persona.flag("proactive_enabled") else { return "proactive_disabled" }
+        if !BionicDeliveryPolicy.isReply(group), !role.persona.flag("proactive_enabled") {
+            return "proactive_disabled"
+        }
         return nil
     }
 }

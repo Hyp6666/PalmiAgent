@@ -36,6 +36,7 @@ final class ActionExecutor {
     private let modelPlanStore: ModelPlanStore
     private let modelRuntime: AgentModelRuntime
     private let userDefaults: UserDefaults
+    private let bionicStore: BionicStore?
 
     init(
         workspaceManager: WorkspaceManager,
@@ -62,7 +63,8 @@ final class ActionExecutor {
         ocrService: PPocrv6TinyOCRService,
         modelPlanStore: ModelPlanStore,
         modelRuntime: AgentModelRuntime,
-        userDefaults: UserDefaults = .standard
+        userDefaults: UserDefaults = .standard,
+        bionicStore: BionicStore? = nil
     ) {
         self.workspaceManager = workspaceManager
         self.skillRegistry = skillRegistry
@@ -89,15 +91,25 @@ final class ActionExecutor {
         self.modelPlanStore = modelPlanStore
         self.modelRuntime = modelRuntime
         self.userDefaults = userDefaults
+        self.bionicStore = bionicStore
     }
 
     func execute(
         _ action: ToolAction,
         arguments: ToolArguments,
-        modelOverrides: AgentModelRoleOverrides = .empty
+        modelOverrides: AgentModelRoleOverrides = .empty,
+        executionID: UUID? = nil
     ) async throws -> ToolExecutionOutcome {
         do {
             switch action.id {
+            case .createBionicPersona:
+                guard let bionicStore else {
+                    throw AppError.invalidState(PalmiL10n.tr("bionic.creation.unavailable"))
+                }
+                let result = try await bionicStore.createFromTool(arguments, executionID: executionID ?? UUID())
+                return success(action, PalmiL10n.tr("bionic.creation.created", result.text("nickname")),
+                               details: try BionicCodec.string(result))
+
             case .fileRead:
                 let path = try arguments.requiredString("path")
                 let result = try await rawTextReadService.read(at: path, start: arguments.int("start") ?? 0, count: arguments.int("count") ?? 20_000)

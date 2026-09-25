@@ -36,10 +36,13 @@ enum BionicToolbox {
         ]))]),
         "evolve_personality": object(["changes": array(object(["dimension": choice(BionicPersonaCatalog.dimensions), "target_level": integer(1, 5), "source_message_ids": array(text, minimum: 1)]))]),
         "audit": object(["passed": boolean, "issues": array(object(["field": choice(BionicPersonaCatalog.fingerprintKeys), "rule_code": choice(["P01", "P02", "P03", "P04", "P05", "P06"]), "explanation": text]))]),
-        "planning": object(["groups": array(object(["delay_minutes": integer(2, 1440), "messages": array(messageSchema, minimum: 1, maximum: maximumBubbles)]), maximum: 3)])
+        "planning": object(["groups": array(object([
+            "delay_minutes": integer(2, 4320),
+            "messages": array(messageSchema, minimum: 1, maximum: 30)
+        ]), maximum: 30)])
     ] }
     static let descriptions = [
-        "planning": "宿主维护工序：提出尚未发送的后续消息。默认groups=[]；有必要才提出最多3组，每组默认一条。此工具不会直接发消息，也不进入对话历史。",
+        "planning": "提出尚未发送的后续消息。没有自然动机时groups=[]。只从future_calendar.slots选择delay_minutes，未来72小时总计最多30条，不凑满。相邻组至少相隔30分钟，每组默认一条。针对给定发送时刻的场景写正文；不臆测用户的未来经历。本工具只保存预存稿，不直接发送，也不进入真实对话历史。",
         "recall": "需要确认较早的具体话语或记忆时读取本角色档案；当前上下文已经足够时直接speak。query是关键词，日期使用YYYY-MM-DD，message_ids可精确定位；不使用的字段填null或空数组。继续阅读时沿用查询并传next_cursor。返回空结果就承认记不清，不编造经历。",
         "speak": "默认一条气泡、end_turn=true。必要才分开发，整轮总计最多101条；不凑两条三条。直接接话不引用，reply_to_message_id默认null。",
         "context_pro_max_plus": "Context Pro Max Plus：用紧凑摘要维持未完话题，只提炼以后确实有用的稳定事实、明确偏好、边界和未完约定。寒暄、猜测、待发消息不提炼。summary与memory_changes是唯一两个字段。每条记忆须有真实来源；没有新事实返回空数组。",
@@ -251,51 +254,75 @@ enum BionicToolbox {
     }
     static func bubbleDelay(_ text: String) -> Double { min(2, max(0.6, 0.6 + Double(text.count) / 50)) }
 
-    static func planningEffect(_ payload: BionicObject, role: BionicRole, allowedIDs: Set<String>, key: BionicObject, now: Date) throws -> BionicObject {
+    static func planningEffect(_ payload: BionicObject, role: BionicRole,
+                               allowedIDs: Set<String>, key: BionicObject, now: Date,
+                               anchor: Date? = nil, zone: TimeZone = .current) throws -> BionicObject {
         try validate(payload, name: "planning")
-        let proposals = payload.records("groups").enumerated().sorted {
-            $0.element.int("delay_minutes") == $1.element.int("delay_minutes") ? $0.offset < $1.offset : $0.element.int("delay_minutes") < $1.element.int("delay_minutes")
+        let frozenAnchor = anchor ?? now
+        let proposals = payload.records("groups")
+        guard proposals.reduce(0, { $0 + $1.records("messages").count })
+                <= BionicDeliveryPolicy.maximumFutureMessages else {
+            throw BionicFailure("invalidModelOutput", detail: "planning: at most 30 messages in total")
         }
-        guard proposals.reduce(0, { $0 + $1.element.records("messages").count }) <= maximumBubbles else {
-            throw BionicFailure("invalidModelOutput", detail: "planning: at most 101 messages in total")
-        }
-        var previousStart: Date?; var previousEnd: Date?; var sleepingDays = Set<String>()
-        var groups: [BionicObject] = []; var notes: [BionicObject] = []
-        for (index, proposal) in proposals {
+        let slots = Dictionary(uniqueKeysWithValues:
+            BionicDeliveryPolicy.planningSlots(role.persona, anchor: frozenAnchor, zone: zone)
+                .map { ($0.minutes, $0.date) })
+        var previousStart: Date?
+        var previousEnd: Date?
+        var usedOffsets = Set<Int>()
+        var groups: [BionicObject] = []
+        var notes: [BionicObject] = []
+        for (index, proposal) in proposals.enumerated() {
+            let offset = proposal.int("delay_minutes")
+            guard let start = slots[offset], usedOffsets.insert(offset).inserted else {
+                throw BionicFailure("invalidModelOutput", detail: "Choose a unique delay_minutes from future_calendar.slots")
+            }
+            if let previousStart,
+               start.timeIntervalSince(previousStart) < BionicDeliveryPolicy.minimumContactGap {
+                throw BionicFailure("invalidModelOutput", detail: "groups must be ascending and at least 30 minutes apart")
+            }
+            if let previousEnd, start <= previousEnd {
+                throw BionicFailure("invalidModelOutput", detail: "future message groups must not overlap")
+            }
             let messages = proposal.records("messages")
             try validateMessages(messages, allowedIDs: allowedIDs)
-            let suggested = now.addingTimeInterval(Double(proposal.int("delay_minutes")) * 60)
-            var start = suggested
-            if let previousStart { start = max(start, previousStart.addingTimeInterval(1800)) }
-            if let previousEnd { start = max(start, previousEnd.addingTimeInterval(1)) }
-            var sleepDay: String?
-            if BionicPersonaCatalog.asleep(role.persona, now: start) {
-                let day = BionicPersonaCatalog.civil(BionicPersonaCatalog.lastBoundary(role.persona, now: start))
-                guard !sleepingDays.contains(day) else {
-                    notes.append(["proposal": .count(index), "reason": .string("second group in quiet interval omitted")]); continue
-                }
-                sleepDay = day
-            }
-            let groupID = BionicCodec.id(); var scheduled = start; var items: [BionicObject] = []
+            var scheduled = start
+            var items: [BionicObject] = []
             for (position, message) in messages.enumerated() {
                 if position > 0 { scheduled = scheduled.addingTimeInterval(bubbleDelay(message.text("text"))) }
-                items.append(["message_id": .string(BionicCodec.id()), "body": message["text"] ?? .null,
+                guard scheduled.timeIntervalSince(frozenAnchor) <= BionicDeliveryPolicy.futureHorizon,
+                      !BionicPersonaCatalog.asleep(role.persona, now: scheduled, zone: zone) else {
+                    throw BionicFailure("invalidModelOutput", detail: "group crosses sleep or the 72-hour horizon; choose an earlier slot or fewer bubbles")
+                }
+                items.append([
+                    "message_id": .string(BionicCodec.id()), "body": message["text"] ?? .null,
                     "reply_to_message_id": message["reply_to_message_id"] ?? .null,
-                    "generated_at": .string(BionicCodec.instant(now)), "planned_at": .string(BionicCodec.instant(scheduled))])
+                    "generated_at": .string(BionicCodec.instant(now)),
+                    "planned_at": .string(BionicCodec.instant(scheduled))
+                ])
             }
-            guard scheduled.timeIntervalSince(now) <= 86400 else {
-                notes.append(["proposal": .count(index), "reason": .string("outside 24-hour horizon; omitted")]); continue
+            previousStart = start
+            previousEnd = scheduled
+            guard start > now else {
+                notes.append(["proposal": .count(index), "reason": .string("expired_slot_omitted")])
+                continue
             }
-            if let sleepDay { sleepingDays.insert(sleepDay) }
-            if start != suggested { notes.append(["proposal": .count(index), "reason": .string("host enforced 30-minute spacing"), "planned_at": .string(BionicCodec.instant(start))]) }
-            groups.append(["group_id": .string(groupID), "created_at": .string(BionicCodec.instant(now)), "character_id": .string(role.characterID),
-                "target_participant_id": .string(role.state.participantID), "persona_revision_id": .string(role.state.personaID),
-                "generation_id": .string(role.state.generationID), "based_on_message_sequence": .count(role.state.lastMessageSequence),
-                "planned_timezone": .string(TimeZone.current.identifier), "items": .records(items),
-                "context_contract": .string(BionicPromptBuilder.contextContract), "memory_revision_sequence": .count(role.state.memorySequence)])
-            previousStart = start; previousEnd = scheduled
+            let groupID = BionicCodec.id()
+            groups.append([
+                "group_id": .string(groupID), "origin": .string("proactive"),
+                "created_at": .string(BionicCodec.instant(now)),
+                "character_id": .string(role.characterID),
+                "target_participant_id": .string(role.state.participantID),
+                "persona_revision_id": .string(role.state.personaID),
+                "generation_id": .string(role.state.generationID),
+                "based_on_message_sequence": .count(role.state.lastMessageSequence),
+                "planned_timezone": .string(zone.identifier), "items": .records(items),
+                "context_contract": .string(BionicPromptBuilder.contextContract),
+                "memory_revision_sequence": .count(role.state.memorySequence)
+            ])
         }
-        return ["groups": .records(groups), "planning_key": .object(key), "host_adjustments": .records(notes)]
+        return ["groups": .records(groups), "planning_key": .object(key),
+                "host_adjustments": .records(notes)]
     }
 
 }

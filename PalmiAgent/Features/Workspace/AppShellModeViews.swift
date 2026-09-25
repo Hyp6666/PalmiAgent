@@ -66,6 +66,7 @@ struct AppShellTopFade: View {
 }
 
 struct AppShellTopBar: View {
+    @Environment(\.palmiUnread) private var unreadSnapshot
     let mode: AppShellMode
     let trailingSystemName: String
     let trailingAccessibilityLabel: String
@@ -121,18 +122,27 @@ struct AppShellTopBar: View {
             Button {
                 onSelectMode(.chat)
             } label: {
-                Label(AppShellMode.chat.title, systemImage: AppShellMode.chat.symbolName)
+                HStack {
+                    Label(AppShellMode.chat.title, systemImage: AppShellMode.chat.symbolName)
+                    PalmiUnreadBadge(count: unreadSnapshot.count(for: .chat))
+                }
             }
 
             Button {
                 onSelectMode(.professional)
             } label: {
-                Label(AppShellMode.professional.title, systemImage: AppShellMode.professional.symbolName)
+                HStack {
+                    Label(AppShellMode.professional.title, systemImage: AppShellMode.professional.symbolName)
+                    PalmiUnreadBadge(count: unreadSnapshot.count(for: .professional))
+                }
             }
             Button {
                 onSelectMode(.bionic)
             } label: {
-                Label(AppShellMode.bionic.title, systemImage: AppShellMode.bionic.symbolName)
+                HStack {
+                    Label(AppShellMode.bionic.title, systemImage: AppShellMode.bionic.symbolName)
+                    PalmiUnreadBadge(count: unreadSnapshot.count(for: .bionic))
+                }
             }
         } label: {
             HStack(spacing: 8) {
@@ -156,6 +166,7 @@ struct AppShellTopBar: View {
 }
 
 struct AppShellModePickerScreen: View {
+    @Environment(\.palmiUnread) private var unreadSnapshot
     let currentMode: AppShellMode
     let onSelect: (AppShellMode) -> Void
     let onDismiss: () -> Void
@@ -170,6 +181,7 @@ struct AppShellModePickerScreen: View {
                                 Image(systemName: mode.symbolName).font(.title2).frame(width: 34)
                                 Text(mode.pickerTitle).font(.title3.weight(.semibold))
                                 Spacer()
+                                PalmiUnreadBadge(count: unreadSnapshot.count(for: mode))
                                 if mode == currentMode { Image(systemName: "checkmark.circle.fill") }
                             }
                             .foregroundStyle(.primary).padding(24).frame(maxWidth: .infinity)

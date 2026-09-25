@@ -52,6 +52,24 @@ struct WorkspaceShellScreen: View {
         self._bionicStore = State(initialValue: bionicStore)
     }
 
+    private var readingAllowed: Bool {
+        !isShowingWorkspaceBrowser && !isShowingSettings && !isShowingProjectSkills
+            && !isShowingModePicker && !isShowingOnboarding && !bionicStore.showingPurchase
+    }
+    private var unreadSnapshot: PalmiUnreadSnapshot {
+        let keys = Set((workspaceStore.projects + workspaceStore.chatProjects).flatMap { project in
+            workspaceStore.threads(for: project.id).filter { $0.subagentOrigin == nil }.map {
+                ChatUnreadStore.key(WorkspaceSelection(projectID: project.id, threadID: $0.id))
+            }
+        })
+        return PalmiUnreadSnapshot(
+            professional: chatStore.unreadStore.count(isChat: false, validKeys: keys),
+            chat: chatStore.unreadStore.count(isChat: true, validKeys: keys),
+            bionic: bionicStore.unreadCounts.values.reduce(0, +),
+            readingAllowed: readingAllowed
+        )
+    }
+
     var body: some View {
         Group {
             if shellMode == .bionic {
@@ -66,6 +84,7 @@ struct WorkspaceShellScreen: View {
                 regularBody
             }
         }
+        .environment(\.palmiUnread, unreadSnapshot)
         .environment(\.locale, PalmiLanguage.resolve(selectedOnboardingLanguageID).locale)
         .sheet(
             isPresented: $isShowingWorkspaceBrowser,
@@ -104,6 +123,7 @@ struct WorkspaceShellScreen: View {
                 },
                 onDismiss: { isShowingModePicker = false }
             )
+            .environment(\.palmiUnread, unreadSnapshot)
         }
         .fullScreenCover(isPresented: $isShowingOnboarding) {
             OnboardingFlowScreen(
@@ -120,7 +140,7 @@ struct WorkspaceShellScreen: View {
         }
         .onAppear {
             presentOnboardingIfNeeded()
-            bionicStore.visibleMode(shellMode == .bionic)
+            bionicStore.visibleMode(shellMode == .bionic && readingAllowed)
         }
         .onChange(of: bionicStore.pendingNotificationRouteID) { _, routeID in
             guard routeID != nil else { return }
@@ -142,7 +162,10 @@ struct WorkspaceShellScreen: View {
         }
         .task(id: storedShellMode) {
             synchronizeShellModeSelection()
-            bionicStore.visibleMode(shellMode == .bionic)
+            bionicStore.visibleMode(shellMode == .bionic && readingAllowed)
+        }
+        .onChange(of: readingAllowed) { _, _ in
+            bionicStore.visibleMode(shellMode == .bionic && readingAllowed)
         }
     }
 
@@ -172,6 +195,7 @@ struct WorkspaceShellScreen: View {
     }
 
     private func handleFactoryResetCompleted() {
+        chatStore.unreadStore.reset()
         selectedOnboardingLanguageID = PalmiLanguage.zhHans.rawValue
         hasCompletedOnboarding = false
         isShowingSettings = false
@@ -192,7 +216,7 @@ struct WorkspaceShellScreen: View {
         case .bionic:
             compactPath = []
             chatModePath = []
-            bionicStore.visibleMode(true)
+            bionicStore.visibleMode(readingAllowed)
         case .chat:
             let project = workspaceStore.ensureDefaultChatConversation()
             workspaceStore.activateChatSurface()
@@ -245,7 +269,8 @@ struct WorkspaceShellScreen: View {
                     skillRegistry: skillRegistry,
                     onOpenSkills: { isShowingProjectSkills = true },
                     shellMode: .professional,
-                    onOpenModeSwitcher: { isShowingModePicker = true }
+                    onOpenModeSwitcher: { isShowingModePicker = true },
+                    onOpenBionic: { selectShellMode(.bionic) }
                 )
                 .id(workspaceStore.selectedThreadID)
             }
@@ -305,7 +330,8 @@ struct WorkspaceShellScreen: View {
                         onShowWorkspace: { compactPath = [] },
                         onShowFiles: { isShowingWorkspaceBrowser = true },
                         shellMode: .professional,
-                        onOpenModeSwitcher: { isShowingModePicker = true }
+                        onOpenModeSwitcher: { isShowingModePicker = true },
+                        onOpenBionic: { selectShellMode(.bionic) }
                     )
                     .id(workspaceStore.selectedThreadID)
                 }

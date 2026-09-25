@@ -258,16 +258,25 @@ private struct BionicMemoryListScreen: View {
     let instance: String
     let onJump: (String) -> Void
     @State private var memories: [BionicObject] = []
-    @State private var action: BionicMemorySelection?
     @State private var selected: BionicMemorySelection?
     @State private var error: String?
     private var revision: Int { store.roles.first { $0.installationID == instance }?.state.memorySequence ?? 0 }
     var body: some View {
         List {
             ForEach(memories, id: \.memoryIdentity) { memory in
-                Button { action = BionicMemorySelection(value: memory) } label: {
+                Menu {
+                    Button(PalmiL10n.tr("bionic.jump"), systemImage: "arrow.turn.up.right") {
+                        if let id = memory.optionalText("primary_source_message_id") { onJump(id) }
+                    }.disabled(memory.optionalText("primary_source_message_id") == nil)
+                    Button(PalmiL10n.tr("bionic.memoryDetails"), systemImage: "info.circle") {
+                        selected = BionicMemorySelection(value: memory)
+                    }
+                    Divider()
+                    Button(PalmiL10n.tr("bionic.cancel")) { }
+                } label: {
                     Text(memory.text("title")).foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 7).contentShape(Rectangle())
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 7).contentShape(Rectangle())
                 }.buttonStyle(.plain)
             }
             if memories.isEmpty { Text(PalmiL10n.tr("bionic.noMemories")).foregroundStyle(.secondary) }
@@ -275,16 +284,6 @@ private struct BionicMemoryListScreen: View {
         }
         .navigationTitle(PalmiL10n.tr("bionic.memory")).navigationBarTitleDisplayMode(.inline)
         .task(id: revision) { await reload() }
-        .confirmationDialog(action?.value.text("title") ?? PalmiL10n.tr("bionic.memory"),
-            isPresented: Binding(get: { action != nil }, set: { if !$0 { action = nil } }),
-            titleVisibility: .visible, presenting: action) { item in
-            Button(PalmiL10n.tr("bionic.jump")) {
-                action = nil
-                if let id = item.value.optionalText("primary_source_message_id") { onJump(id) }
-            }.disabled(item.value.optionalText("primary_source_message_id") == nil)
-            Button(PalmiL10n.tr("bionic.memoryDetails")) { action = nil; selected = item }
-            Button(PalmiL10n.tr("bionic.cancel"), role: .cancel) { action = nil }
-        }
         .sheet(item: $selected) { item in
             NavigationStack {
                 BionicMemoryDetail(store: store, instance: instance, memory: item.value,

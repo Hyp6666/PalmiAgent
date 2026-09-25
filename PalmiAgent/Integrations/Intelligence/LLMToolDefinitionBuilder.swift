@@ -101,6 +101,10 @@ enum LLMToolDefinitionBuilder {
             lines = [
                 "[设备] 在任务确实依赖这里、附近或当前位置时获取定位并反向地理编码。"
             ]
+        case .createBionicPersona:
+            lines = [
+                "Create one adult bionic persona after the user requests creation. Use the bionic-persona-creator system skill. This persists a real persona; it does not navigate, start a chat, subscribe, or grant notification permission. nickname, identity and birth_date are required."
+            ]
         }
         return lines.joined(separator: "\n")
     }
@@ -248,6 +252,8 @@ enum LLMToolDefinitionBuilder {
 
     static func toolParametersSchema(for action: ToolAction) -> JSONValue {
         switch action.id {
+        case .createBionicPersona:
+            return BionicPersonaCreation.schema
         case .fileRead:
             return ToolJSONSchema.object(
                 properties: [

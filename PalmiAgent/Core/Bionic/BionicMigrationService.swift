@@ -182,8 +182,10 @@ final class BionicMigrationService {
         if !dueEvents.isEmpty { try appendImportTransaction(root: working, role: &role, events: dueEvents, writes: dueWrites) }
         var events: [BionicObject] = [], writes: [BionicWrite] = []
         let auditOp = audit.request.text("operation_id")
-        writes += [BionicWrite("operations/\(auditOp)/request.json", audit.request), BionicWrite("operations/\(auditOp)/results/\(audit.result.text("result_id")).json", audit.result)]
-        events.append(BionicRecords.event("operation_checkpoint", BionicRecords.checkpoint(audit.request, step: "root", phase: "committed", result: audit.result.text("result_id"), attempts: 1)))
+        writes += [BionicWrite("operations/\(auditOp)/request.json", audit.request),
+                   BionicWrite("operations/\(auditOp)/results/\(audit.result.text("result_id")).json", audit.result)]
+        events.append(BionicRecords.event("operation_checkpoint", BionicRecords.checkpoint(audit.request,
+            step: "root", phase: "committed", result: audit.result.text("result_id"), attempts: 1)))
         var validatedPersona = role.persona
         validatedPersona["persona_revision_id"] = .string(BionicCodec.id())
         validatedPersona["recorded_at"] = .string(BionicCodec.instant())
@@ -204,8 +206,14 @@ final class BionicMigrationService {
         } else {
             events.append(BionicRecords.event("participant_activated", ["participant_id": .string(role.state.participantID), "reason": .string("same_person_import")]))
             if !continueContact {
-                let ids = role.state.groups.flatMap { $0.records("items") }.filter { role.state.itemState($0.text("message_id")) == "pending" }.map { $0.text("message_id") }
-                events.append(BionicRecords.event("outbox_cancelled", ["message_ids": .strings(ids), "reason": .string("proactive_disabled")]))
+                let ids = role.state.groups.filter { !BionicDeliveryPolicy.isReply($0) }
+                    .flatMap { $0.records("items") }
+                    .filter { role.state.itemState($0.text("message_id")) == "pending" }
+                    .map { $0.text("message_id") }
+                if !ids.isEmpty {
+                    events.append(BionicRecords.event("outbox_cancelled", [
+                        "message_ids": .strings(ids), "reason": .string("proactive_disabled")]))
+                }
             }
         }
         for cp in role.state.checkpoints where cp.text("step_id") == "root" && !["committed", "cancelled"].contains(cp.text("phase")) {

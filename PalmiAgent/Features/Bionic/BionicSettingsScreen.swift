@@ -69,21 +69,23 @@ struct BionicMigrationScreen: View {
                     Spacer()
                     if exporting { ProgressView() }
                 }
-            }.disabled(exporting)
+            }
+            .disabled(exporting)
+            .alert(PalmiL10n.tr("bionic.export"), isPresented: $confirmation) {
+                Button(PalmiL10n.tr("bionic.confirmExport")) {
+                    exporting = true
+                    Task {
+                        defer { exporting = false }
+                        do {
+                            let url = try await store.migration.export(instance)
+                            sharedURL = url; share = Share(url: url)
+                        } catch { errorText = BionicStore.errorText(error) }
+                    }
+                }
+                Button(PalmiL10n.tr("bionic.cancel"), role: .cancel) { confirmation = false }
+            } message: { Text(PalmiL10n.tr("bionic.exportPrivacy")) }
         }
         .navigationTitle(PalmiL10n.tr("bionic.migration")).navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog(PalmiL10n.tr("bionic.export"), isPresented: $confirmation, titleVisibility: .visible) {
-            Button(PalmiL10n.tr("bionic.confirmExport")) {
-                exporting = true
-                Task {
-                    defer { exporting = false }
-                    do {
-                        let url = try await store.migration.export(instance)
-                        sharedURL = url; share = Share(url: url)
-                    } catch { errorText = BionicStore.errorText(error) }
-                }
-            }
-        } message: { Text(PalmiL10n.tr("bionic.exportPrivacy")) }
         .sheet(item: $share, onDismiss: {
             if let url = sharedURL { store.migration.finishSharing(url); sharedURL = nil }
         }) { item in BionicShareSheet(url: item.url) }

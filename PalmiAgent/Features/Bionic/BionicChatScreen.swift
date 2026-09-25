@@ -3,6 +3,7 @@ import UIKit
 import QuickLook
 
 struct BionicChatScreen: View {
+    @Environment(\.palmiUnread) private var unreadSnapshot
     @Bindable var store: BionicStore
     let instance: String
     @State private var details = false
@@ -12,6 +13,12 @@ struct BionicChatScreen: View {
     @State private var userScrolling = false
     @State private var nearBottom = true
     @State private var pagingNewer = false
+    @State private var scrollWorkID = UUID()
+    @State private var visibleMessageIDs = Set<String>()
+    @State private var screenVisible = false
+    private var otherConversationUnreadCount: Int {
+        max(0, unreadSnapshot.total - (store.unreadCounts[instance] ?? 0))
+    }
     private var role: BionicRole? { store.roles.first { $0.installationID == instance } }
     private var rows: [BionicBubbleRowData] {
         let messages = store.selectedID == instance ? store.messages : []
@@ -24,78 +31,112 @@ struct BionicChatScreen: View {
     }
     var body: some View {
         GeometryReader { geometry in
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 8) {
-                        if store.windowStart > 0 {
-                            Button(PalmiL10n.tr("bionic.loadOlder")) { Task { await perform { try await store.loadOlder() } } }
-                                .font(.footnote).padding(.vertical, 8)
-                        }
-                        ForEach(rows) { row in
-                            VStack(spacing: 8) {
-                                if row.showsTime {
-                                    Text(BionicTimelineClock.label(row.message, locale: PalmiLanguage.current.locale))
-                                        .font(.caption).foregroundStyle(.secondary).padding(.vertical, 8).frame(maxWidth: .infinity)
+            VStack(spacing: 0) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 8) {
+                            if store.windowStart > 0 {
+                                Button(PalmiL10n.tr("bionic.loadOlder")) {
+                                    Task { await perform { try await store.loadOlder() } }
                                 }
-                                BionicBubbleRow(store: store, instance: instance, value: row,
-                                    maxWidth: min(440, max(120, geometry.size.width - 104)), onQuote: { store.quote(row.message) },
-                                    onJump: { id in Task { await perform { try await store.jump(to: id) } } }, onAsset: openAsset)
-                            }.id(row.id).onAppear { store.appeared(row.id) }
+                                .font(.footnote).padding(.vertical, 8)
+                            }
+                            ForEach(rows) { row in
+                                VStack(spacing: 8) {
+                                    if row.showsTime {
+                                        Text(BionicTimelineClock.label(row.message, locale: PalmiLanguage.current.locale))
+                                            .font(.caption).foregroundStyle(.secondary)
+                                            .padding(.vertical, 8).frame(maxWidth: .infinity)
+                                    }
+                                    BionicBubbleRow(store: store, instance: instance, value: row,
+                                        maxWidth: min(440, max(120, geometry.size.width - 104)),
+                                        onQuote: { store.quote(row.message) },
+                                        onJump: { id in Task { await perform { try await store.jump(to: id) } } },
+                                        onAsset: openAsset)
+                                }
+                                .id(row.id)
+                                .onScrollVisibilityChange(threshold: 0.15) { visible in
+                                    if visible {
+                                        visibleMessageIDs.insert(row.id)
+                                        if screenVisible && unreadSnapshot.readingAllowed {
+                                            store.appeared(row.id)
+                                        }
+                                    } else { visibleMessageIDs.remove(row.id) }
+                                }
+                            }
+                            if pagingNewer { ProgressView().padding(8) }
+                            Color.clear.frame(height: 1).id("bionic-end")
                         }
-                        if pagingNewer { ProgressView().padding(8) }
-                        Color.clear.frame(height: 1).id("bionic-end")
-                    }.padding(.horizontal, 14).padding(.top, 10)
-                }
-                .contentMargins(.bottom, composerHeight + 8, for: .scrollContent)
-                .scrollDismissesKeyboard(.interactively)
-                .defaultScrollAnchor(.bottom)
-                .onScrollPhaseChange { _, phase in
-                    userScrolling = phase == .interacting || phase == .decelerating
-                }
-                .onScrollGeometryChange(for: Bool.self) { value in
-                    value.contentOffset.y + value.containerSize.height >= value.contentSize.height + value.contentInsets.bottom - 70
-                } action: { _, bottom in
-                    nearBottom = bottom
-                    guard userScrolling, store.selectedID == instance else { return }
-                    if store.windowEnd >= store.totalMessages { store.followingLatest = bottom }
-                    else if bottom { loadFollowingPage(proxy) }
-                }
-                .onChange(of: store.scrollRequest) { _, _ in
-                    guard store.selectedID == instance else { return }
-                    let follow = store.followingLatest
-                    let target = follow ? "bionic-end" : store.scrollTarget
-                    guard let target else { return }
-                    Task { @MainActor in
+                        .padding(.horizontal, 14).padding(.top, 10)
+                    }
+                    .contentMargins(.bottom, 8, for: .scrollContent)
+                    .scrollDismissesKeyboard(.interactively)
+                    .defaultScrollAnchor(.bottom)
+                    .onScrollPhaseChange { _, phase in
+                        userScrolling = phase == .interacting
+                    }
+                    .onScrollGeometryChange(for: PalmiChatScrollMetrics.self) {
+                        PalmiChatScrollMetrics($0)
+                    } action: { old, next in
+                        nearBottom = next.nearBottom
+                        guard store.selectedID == instance else { return }
+                        if userScrolling, next.isUserMovingToOlder(comparedWith: old), !next.nearBottom {
+                            store.followingLatest = false
+                        }
+                        if userScrolling, next.nearBottom {
+                            if store.windowEnd >= store.totalMessages { store.followingLatest = true }
+                            else { loadFollowingPage(proxy) }
+                        }
+                        if store.followingLatest,
+                           (abs(old.contentHeight - next.contentHeight) > 0.5
+                            || abs(old.containerHeight - next.containerHeight) > 0.5) {
+                            scrollWorkID = UUID()
+                        }
+                    }
+                    .onChange(of: store.scrollRequest) { _, _ in scrollWorkID = UUID() }
+                    .task(id: scrollWorkID) {
+                        guard store.selectedID == instance else { return }
+                        let ticket = scrollWorkID
+                        let following = store.followingLatest
+                        let target = following ? "bionic-end" : store.scrollTarget
+                        guard let target else { return }
                         await Task.yield()
-                        withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(target, anchor: follow ? .bottom : .top) }
+                        guard !Task.isCancelled, ticket == scrollWorkID,
+                              store.selectedID == instance,
+                              following == store.followingLatest else { return }
+                        proxy.scrollTo(target, anchor: following ? .bottom : .top)
+                    }
+                    .overlay(alignment: .bottomTrailing) {
+                        if !store.followingLatest || store.newMessagesAvailable {
+                            Button {
+                                Task { await perform { try await store.loadLatest(forceScroll: true) } }
+                            } label: {
+                                Image(systemName: "arrow.down").font(.body.bold()).padding(12)
+                                    .background(.regularMaterial, in: Circle())
+                            }
+                            .padding(14)
+                            .accessibilityLabel(PalmiL10n.tr("bionic.latestMessages"))
+                        }
                     }
                 }
-                .onChange(of: composerHeight) { _, _ in followLatest(proxy) }
-                .onChange(of: geometry.size.height) { _, _ in followLatest(proxy) }
-                .overlay(alignment: .bottomTrailing) {
-                    if !store.followingLatest || store.newMessagesAvailable {
-                        Button { Task { await perform { try await store.loadLatest(forceScroll: true) } } } label: {
-                            Image(systemName: "arrow.down").font(.body.bold()).padding(12).background(.regularMaterial, in: Circle())
-                        }
-                        .padding(.trailing, 14).padding(.bottom, composerHeight + 10)
-                        .accessibilityLabel(PalmiL10n.tr("bionic.latestMessages"))
+                .frame(maxHeight: .infinity)
+                VStack(spacing: 0) {
+                    if let code = store.errors[instance] {
+                        HStack {
+                            Text(PalmiL10n.tr("bionic.error." + code)).font(.caption).foregroundStyle(.secondary)
+                            Spacer(minLength: 8)
+                            Button(PalmiL10n.tr("bionic.retry")) {
+                                Task { await store.coordinator.retry(instance) }
+                            }.font(.caption.bold())
+                        }.padding(.horizontal, 20).padding(.top, 6)
                     }
+                    BionicComposerView(store: store, instance: instance, draft: store.composer(instance))
                 }
-                .overlay(alignment: .bottom) {
-                    VStack(spacing: 0) {
-                        if let code = store.errors[instance] {
-                            HStack {
-                                Text(PalmiL10n.tr("bionic.error." + code)).font(.caption).foregroundStyle(.secondary)
-                                Spacer(minLength: 8)
-                                Button(PalmiL10n.tr("bionic.retry")) { Task { await store.coordinator.retry(instance) } }.font(.caption.bold())
-                            }.padding(.horizontal, 20).padding(.top, 6)
-                        }
-                        BionicComposerView(store: store, instance: instance, draft: store.composer(instance))
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                    if height > 0, abs(height - composerHeight) > 0.5 {
+                        composerHeight = height
+                        if store.followingLatest { scrollWorkID = UUID() }
                     }
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
-                        if height > 0, abs(height - composerHeight) > 0.5 { composerHeight = height }
-                    }
-                    // Intentionally no background, bottom mask, material strip or safe-area fill here.
                 }
             }
         }
@@ -104,6 +145,9 @@ struct BionicChatScreen: View {
         .toolbar(.visible, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                PalmiUnreadBadge(count: otherConversationUnreadCount)
+            }
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 2) {
                     Text(role?.name ?? "").font(.headline).lineLimit(1)
@@ -125,16 +169,33 @@ struct BionicChatScreen: View {
             if store.selectedID != instance { await store.open(instance) }
             store.chatVisibility(instance, visible: true)
         }
-        .onDisappear { store.chatVisibility(instance, visible: false) }
-        .onAppear { store.chatVisibility(instance, visible: true) }
+        .onAppear {
+            screenVisible = true
+            store.chatVisibility(instance, visible: true)
+            if unreadSnapshot.readingAllowed {
+                for id in visibleMessageIDs { store.appeared(id) }
+            }
+            scrollWorkID = UUID()
+        }
+        .onDisappear {
+            screenVisible = false
+            store.chatVisibility(instance, visible: false)
+            visibleMessageIDs.removeAll()
+        }
+        .onChange(of: store.isForeground) { _, active in
+            if active && screenVisible && unreadSnapshot.readingAllowed {
+                for id in visibleMessageIDs { store.appeared(id) }
+            }
+        }
+        .onChange(of: unreadSnapshot.readingAllowed) { _, allowed in
+            if allowed && screenVisible {
+                for id in visibleMessageIDs { store.appeared(id) }
+            }
+        }
         .sheet(item: $preview) { BionicAssetPreviewSheet(url: $0.url) }
         .alert(PalmiL10n.tr("bionic.errorTitle"), isPresented: Binding(get: { localError != nil }, set: { if !$0 { localError = nil } })) {
             Button(PalmiL10n.tr("bionic.ok"), role: .cancel) {}
         } message: { Text(localError ?? "") }
-    }
-    private func followLatest(_ proxy: ScrollViewProxy) {
-        guard store.followingLatest, store.selectedID == instance else { return }
-        Task { @MainActor in await Task.yield(); proxy.scrollTo("bionic-end", anchor: .bottom) }
     }
     private func loadFollowingPage(_ proxy: ScrollViewProxy) {
         guard !pagingNewer, store.windowEnd < store.totalMessages else { return }
@@ -165,26 +226,82 @@ struct BionicConversationDetailsScreen: View {
     let instance: String
     let onJump: (String) -> Void
     @State private var developerVisible = true
+    @State private var savingTiming = false
+    @State private var errorText: String?
+    private var timing: BionicReplyTiming {
+        BionicReplyTiming.resolve(store.roles.first { $0.installationID == instance }?.persona ?? [:])
+    }
     var body: some View {
         List {
-            NavigationLink { BionicHistoryScreen(store: store, instance: instance, mode: .search, onJump: onJump) }
-            label: { Label(PalmiL10n.tr("bionic.search"), systemImage: "magnifyingglass") }
-            NavigationLink { BionicHistoryScreen(store: store, instance: instance, mode: .memory, onJump: onJump) }
-            label: { Label(PalmiL10n.tr("bionic.memory"), systemImage: "brain") }
-            NavigationLink { BionicSettingsScreen(store: store, instance: instance) }
-            label: { Label(PalmiL10n.tr("bionic.settings"), systemImage: "person.crop.circle") }
-            NavigationLink { BionicMigrationScreen(store: store, instance: instance) }
-            label: { Label(PalmiL10n.tr("bionic.migration"), systemImage: "arrow.up.arrow.down") }
-            if developerVisible {
-                NavigationLink { BionicDeveloperScreen(store: store, instance: instance) }
-                label: { Label(PalmiL10n.tr("bionic.developer"), systemImage: "slider.horizontal.3") }
+            Section {
+                Picker(PalmiL10n.tr("bionic.details.replyTiming"), selection: Binding(
+                    get: { timing },
+                    set: { selected in
+                        guard !savingTiming, selected != timing else { return }
+                        savingTiming = true
+                        Task { @MainActor in
+                            defer { savingTiming = false }
+                            do { try await store.setReplyTiming(instance, timing: selected) }
+                            catch { errorText = BionicStore.errorText(error) }
+                        }
+                    }
+                )) {
+                    Text(PalmiL10n.tr("bionic.details.instant")).tag(BionicReplyTiming.instant)
+                    Text(PalmiL10n.tr("bionic.details.natural")).tag(BionicReplyTiming.natural)
+                }
+                .pickerStyle(.segmented)
+                .disabled(savingTiming)
+                HStack(spacing: 20) {
+                    NavigationLink {
+                        BionicHistoryScreen(store: store, instance: instance, mode: .search, onJump: onJump)
+                    } label: {
+                        Label(PalmiL10n.tr("bionic.search"), systemImage: "magnifyingglass")
+                            .frame(maxWidth: .infinity)
+                    }
+                    NavigationLink {
+                        BionicHistoryScreen(store: store, instance: instance, mode: .memory, onJump: onJump)
+                    } label: {
+                        Label(PalmiL10n.tr("bionic.memory"), systemImage: "brain")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, 8)
+            }
+            Section {
+                NavigationLink {
+                    BionicSettingsScreen(store: store, instance: instance)
+                } label: {
+                    Label(PalmiL10n.tr("bionic.settings"), systemImage: "person.crop.circle")
+                }
+                NavigationLink {
+                    BionicMigrationScreen(store: store, instance: instance)
+                } label: {
+                    Label(PalmiL10n.tr("bionic.migration"), systemImage: "arrow.up.arrow.down")
+                }
             }
         }
-        .navigationTitle(PalmiL10n.tr("bionic.conversationDetails")).navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(PalmiL10n.tr("bionic.conversationDetails"))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if developerVisible {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        BionicDeveloperScreen(store: store, instance: instance)
+                    } label: { Image(systemName: "slider.horizontal.3") }
+                    .accessibilityLabel(PalmiL10n.tr("bionic.developer"))
+                }
+            }
+        }
         .task {
             let local = try? await store.archive.binding(instance)
             developerVisible = local?["developer_visible"]?.bool ?? true
         }
+        .alert(PalmiL10n.tr("bionic.errorTitle"), isPresented: Binding(
+            get: { errorText != nil }, set: { if !$0 { errorText = nil } }
+        )) {
+            Button(PalmiL10n.tr("bionic.ok"), role: .cancel) {}
+        } message: { Text(errorText ?? "") }
     }
 }
 

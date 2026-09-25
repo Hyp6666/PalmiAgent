@@ -28,10 +28,19 @@ struct BionicRootScreen: View {
         }
         .task { await store.refresh() }
         .confirmationDialog(PalmiL10n.tr("common.add"), isPresented: $adding, titleVisibility: .hidden) {
-            Button(PalmiL10n.tr("bionic.create")) { creating = true }
+            Button(PalmiL10n.tr("bionic.create")) {
+                if store.purchases.canUse { creating = true }
+                else { store.showingPurchase = true }
+            }
             Button(PalmiL10n.tr("bionic.import")) { importing = true }
+            if store.purchases.isEnabled {
+                Button(PalmiL10n.tr("bionic.purchase.title")) { store.showingPurchase = true }
+            }
         }
         .sheet(isPresented: $creating) { NavigationStack { BionicPersonaEditor(store: store, instance: nil) } }
+        .sheet(isPresented: $store.showingPurchase) {
+            BionicPurchaseSheet(purchases: store.purchases)
+        }
         .sheet(item: $prepared) { item in NavigationStack { BionicImportScreen(store: store, prepared: item) } }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.zip]) { result in
             switch result {

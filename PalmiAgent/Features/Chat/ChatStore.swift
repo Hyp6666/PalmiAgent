@@ -200,6 +200,7 @@ final class ChatStore {
     let workspaceStore: WorkspaceStore
     let toolPermissionStore: ToolPermissionStore
     let toolAuthorizationStore: ToolAuthorizationStore
+    let unreadStore: ChatUnreadStore
 
     var messages: [PalmiChatMessage] = []
     var queuedUserGuidance: [QueuedUserGuidance] = []
@@ -329,10 +330,8 @@ final class ChatStore {
         let enabledActions = ActionCatalog.agentExposedActions(
             from: toolPermissionStore.enabledActions(from: actions)
         )
-        return ChatModeToolFilter.actions(
-            for: surface,
-            from: enabledActions
-        )
+        let filtered = ChatModeToolFilter.actions(for: surface, from: enabledActions)
+        return surface == .professional ? filtered : filtered.filter { $0.id != .createBionicPersona }
     }
 
     var canSend: Bool {
@@ -381,7 +380,8 @@ final class ChatStore {
         workspaceManager: WorkspaceManager,
         workspaceStore: WorkspaceStore,
         toolPermissionStore: ToolPermissionStore,
-        toolAuthorizationStore: ToolAuthorizationStore
+        toolAuthorizationStore: ToolAuthorizationStore,
+        unreadStore: ChatUnreadStore? = nil
     ) {
         self.actions = actions
         self.apiConfigurationStore = apiConfigurationStore
@@ -394,6 +394,7 @@ final class ChatStore {
         self.workspaceStore = workspaceStore
         self.toolPermissionStore = toolPermissionStore
         self.toolAuthorizationStore = toolAuthorizationStore
+        self.unreadStore = unreadStore ?? ChatUnreadStore()
         Task { [weak self] in
             await self?.reconcileStaleRunJournals()
         }
@@ -1705,6 +1706,10 @@ final class ChatStore {
             )
             errorMessage = nil
             loadedSelection = selection
+            if workspaceStore.thread(for: selection)?.subagentOrigin == nil {
+                unreadStore.ingest(messages, selection: selection,
+                    isChat: workspaceStore.chatProjects.contains { $0.id == selection.projectID })
+            }
             if !isReturningToRunningSession {
                 closeDanglingSessions(finishedAt: .now)
             }

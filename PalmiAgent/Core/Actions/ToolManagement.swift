@@ -4,6 +4,7 @@ import Observation
 enum ToolManagementSectionID: String, CaseIterable, Identifiable, Codable, Sendable {
     case app
     case nonApp
+    case bionic
 
     var id: String { rawValue }
 
@@ -13,6 +14,8 @@ enum ToolManagementSectionID: String, CaseIterable, Identifiable, Codable, Senda
             return "APP 类"
         case .nonApp:
             return "非 APP 类"
+        case .bionic:
+            return PalmiL10n.tr("tool.section.bionic")
         }
     }
 }
@@ -37,6 +40,7 @@ enum ToolManagementGroupID: String, CaseIterable, Identifiable, Codable, Sendabl
     case skills
     case multimodal
     case webResearch
+    case bionicPersonas
 
     var id: String { rawValue }
 }
@@ -52,7 +56,8 @@ struct ToolManagementGroupDefinition: Identifiable, Hashable, Sendable {
 enum ToolManagementCatalog {
     static let sections: [ToolManagementSectionDefinition] = [
         .init(id: .app, title: "APP 类"),
-        .init(id: .nonApp, title: "非 APP 类")
+        .init(id: .nonApp, title: "非 APP 类"),
+        .init(id: .bionic, title: PalmiL10n.tr("tool.section.bionic"))
     ]
 
     static let groups: [ToolManagementGroupDefinition] = [
@@ -153,6 +158,13 @@ enum ToolManagementCatalog {
             title: "网页研究",
             subtitle: "搜索候选、网页浏览",
             actionIDs: [.detectWebSearchProviders, .searchWeb, .fetchStaticWebPage, .openInAppBrowser]
+        ),
+        .init(
+            id: .bionicPersonas,
+            sectionID: .bionic,
+            title: PalmiL10n.tr("tool.group.bionicPersonas"),
+            subtitle: "",
+            actionIDs: [.createBionicPersona]
         )
     ]
 
@@ -162,7 +174,8 @@ enum ToolManagementCatalog {
         settingsGroup(.workspaceFiles),
         settingsGroup(.skills),
         settingsGroup(.multimodal),
-        settingsGroup(.webResearch, actionIDs: [.searchWeb, .fetchStaticWebPage])
+        settingsGroup(.webResearch, actionIDs: [.searchWeb, .fetchStaticWebPage]),
+        settingsGroup(.bionicPersonas)
     ]
 
     static func groups(in sectionID: ToolManagementSectionID) -> [ToolManagementGroupDefinition] {
@@ -188,6 +201,8 @@ enum ToolManagementCatalog {
             names = [.ocr, .vision]
         case .webResearch:
             names = [.webSearch, .fetch]
+        case .bionicPersonas:
+            names = [.createBionicPersona]
         default:
             names = []
         }

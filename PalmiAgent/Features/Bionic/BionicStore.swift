@@ -20,6 +20,8 @@ final class BionicStore {
     let notifications: BionicNotifications
     let migration: BionicMigrationService
     let history: BionicHistoryIndex
+    let purchases: BionicPurchaseStore
+    var showingPurchase = false
     private(set) var roles: [BionicRole] = []
     var selectedID: String?
     var path: [String] = []
@@ -57,11 +59,18 @@ final class BionicStore {
     @ObservationIgnored private var modeVisible = false
     @ObservationIgnored private var chatVisibleID: String?
     @ObservationIgnored private var bootstrapped = false
+    @ObservationIgnored private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    @ObservationIgnored private var backgroundFinishTask: Task<Void, Never>?
+    @ObservationIgnored private var backgroundEpoch = 0
     var selectedRole: BionicRole? { roles.first { $0.installationID == selectedID } }
 
-    init(modelRuntime: any AgentModelRuntime, modelPlanStore: ModelPlanStore, notificationService: NotificationService) {
+    init(modelRuntime: any AgentModelRuntime, modelPlanStore: ModelPlanStore,
+         notificationService: NotificationService, purchases: BionicPurchaseStore? = nil) {
         let archive = BionicArchiveStore()
         let model = BionicModelService(runtime: modelRuntime, plans: modelPlanStore)
+        let purchaseStore = purchases ?? BionicPurchaseStore()
+        self.purchases = purchaseStore
+        model.canGenerate = { purchaseStore.canUse }
         model.archive = archive
         let coordinator = BionicCoordinator(archive: archive, model: model)
         let sharedHistory = BionicHistoryIndex(archive: archive)
@@ -95,18 +104,62 @@ final class BionicStore {
         let value = BionicComposerState(); composers[instance] = value; return value
     }
     func bootstrap() async {
-        guard !bootstrapped else { return }; bootstrapped = true
-        await refresh(); await activate()
+        guard !bootstrapped else { return }
+        bootstrapped = true
+        await activate()
+    }
+    func sceneBecameInactive() {
+        isForeground = false
+        notifications.setVisible(nil, foreground: false)
+    }
+    private func endBackgroundAllowance() {
+        if backgroundTaskID != .invalid {
+            UIApplication.shared.endBackgroundTask(backgroundTaskID)
+            backgroundTaskID = .invalid
+        }
     }
     func activate() async {
+        backgroundEpoch += 1
+        backgroundFinishTask?.cancel()
+        backgroundFinishTask = nil
+        endBackgroundAllowance()
         isForeground = true
         notifications.setVisible(modeVisible ? chatVisibleID : nil, foreground: modeVisible)
         await refresh(); await coordinator.activate(); await notifications.reconcile()
     }
     func pause() {
-        isForeground = false; notifications.setVisible(nil, foreground: false); coordinator.pause(); typing.removeAll()
+        isForeground = false
+        notifications.setVisible(nil, foreground: false)
+        guard backgroundFinishTask == nil else { return }
+        backgroundEpoch += 1
+        let epoch = backgroundEpoch
         readTask?.cancel(); readTask = nil
-        Task { await flushReads() }
+        backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "PalmiBionicCommit") { [weak self] in
+            guard let self, self.backgroundEpoch == epoch else { return }
+            self.backgroundEpoch += 1
+            self.backgroundFinishTask?.cancel()
+            self.backgroundFinishTask = nil
+            self.coordinator.pause()
+            self.typing.removeAll()
+            self.endBackgroundAllowance()
+        }
+        guard backgroundTaskID != .invalid else {
+            coordinator.pause()
+            typing.removeAll()
+            return
+        }
+        backgroundFinishTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.flushReads()
+            await self.coordinator.finishInBackground()
+            guard !Task.isCancelled, self.backgroundEpoch == epoch, !self.isForeground else { return }
+            await self.notifications.reconcile()
+            guard !Task.isCancelled, self.backgroundEpoch == epoch, !self.isForeground else { return }
+            self.coordinator.pause()
+            self.typing.removeAll()
+            self.backgroundFinishTask = nil
+            self.endBackgroundAllowance()
+        }
     }
     func visibleMode(_ visible: Bool) {
         modeVisible = visible; notifications.setVisible(visible ? chatVisibleID : nil, foreground: isForeground && visible)
@@ -117,6 +170,10 @@ final class BionicStore {
         notifications.setVisible(modeVisible ? chatVisibleID : nil, foreground: isForeground && modeVisible)
     }
     func reset() async throws {
+        backgroundEpoch += 1
+        backgroundFinishTask?.cancel()
+        backgroundFinishTask = nil
+        endBackgroundAllowance()
         invalidationToken += 1; openTicket += 1; windowTicket += 1
         coordinator.stopForReset(); typing.removeAll(); readTask?.cancel(); readTask = nil; pendingReads.removeAll()
         await notifications.removeAll(); try await archive.resetAll(); await history.clear()
@@ -143,24 +200,27 @@ final class BionicStore {
             let visibleChanged = roles.map(presentationKey) != updated.map(presentationKey)
             if visibleChanged { roles = updated }
             diagnosticRevision += 1
+            for role in updated {
+                let id = role.installationID
+                let avatarKey = id + ":" + role.characterID, asset = role.persona.text("avatar_asset")
+                if avatarPaths[avatarKey] != asset {
+                    let data = try? await archive.asset(id, role.persona.optionalText("avatar_asset"))
+                    guard token == invalidationToken else { return }
+                    avatars[avatarKey] = data; avatarPaths[avatarKey] = asset
+                }
+            }
             for role in updated where requested.contains("*") || requested.contains(role.installationID) || statsKeys[role.installationID] == nil {
                 let id = role.installationID
                 let local = try? await archive.binding(id)
                 let readIDs = role.state.raw.object("read_message_ids_by_participant")[role.state.participantID]?.array.compactMap(\.string) ?? []
                 let key = presentationKey(role) + ":" + String(local?.int("unread_after_sequence") ?? 0)
                 if statsKeys[id] != key {
-                    if let stats = try? await history.stats(id, read: Set(readIDs), after: local?.int("unread_after_sequence") ?? 0) {
+                    if let stats = try? await archive.presentationStats(id, read: Set(readIDs), after: local?.int("unread_after_sequence") ?? 0) {
                         guard token == invalidationToken else { return }
                         if unreadCounts[id] != stats.unread { unreadCounts[id] = stats.unread }
                         if lastBodies[id] != stats.latestBody { lastBodies[id] = stats.latestBody }
                         statsKeys[id] = key
                     }
-                }
-                let avatarKey = id + ":" + role.characterID, asset = role.persona.text("avatar_asset")
-                if avatarPaths[avatarKey] != asset {
-                    let data = try? await archive.asset(id, role.persona.optionalText("avatar_asset"))
-                    guard token == invalidationToken else { return }
-                    avatars[avatarKey] = data; avatarPaths[avatarKey] = asset
                 }
             }
             guard token == invalidationToken else { return }
@@ -171,27 +231,45 @@ final class BionicStore {
         } while !refreshRequests.isEmpty
     }
     func open(_ instance: String, target: String? = nil) async {
-        openTicket += 1; let ticket = openTicket
+        openTicket += 1
+        let ticket = openTicket, token = invalidationToken
         do {
-            _ = try await archive.loadRole(instance)
-            guard ticket == openTicket else { return }
-            selectedID = instance; path = [instance]; followingLatest = target == nil; newMessagesAvailable = false
-            messages = []; participants = [:]; quotedMessages = [:]; windowStart = 0; windowEnd = 0; totalMessages = 0
-            await coordinator.open(instance); await refresh()
-            guard ticket == openTicket, selectedID == instance else { return }
-            let people = try await archive.participants(instance)
-            guard ticket == openTicket, selectedID == instance else { return }
-            participants = Dictionary(uniqueKeysWithValues: people.map { ($0.text("participant_id"), $0) })
-            for person in people {
-                let key = instance + ":" + person.text("participant_id"), asset = person.text("avatar_asset")
-                if avatarPaths[key] != asset {
-                    let data = try await archive.asset(instance, person.optionalText("avatar_asset"))
-                    guard ticket == openTicket else { return }
-                    avatars[key] = data; avatarPaths[key] = asset
+            if selectedID == instance, target == nil, !messages.isEmpty {
+                path = [instance]
+                await coordinator.open(instance)
+                await refresh(changed: instance)
+                return
+            }
+            let presentation = try await archive.openingPresentation(instance, target: target)
+            guard ticket == openTicket, token == invalidationToken else { return }
+            windowTicket += 1
+            if let position = roles.firstIndex(where: { $0.installationID == instance }) {
+                roles[position] = presentation.role
+            } else { roles.append(presentation.role) }
+            selectedID = instance
+            participants = Dictionary(uniqueKeysWithValues: presentation.people.map { ($0.text("participant_id"), $0) })
+            for (key, path) in presentation.avatarPaths {
+                avatarPaths[key] = path
+                avatars[key] = presentation.avatars[key]
+            }
+            quotedMessages = presentation.quotes
+            apply(presentation.window)
+            followingLatest = target == nil; newMessagesAvailable = false
+            highlightID = target
+            scrollTarget = target ?? "bionic-end"; scrollRequest = UUID()
+            path = [instance]
+            if let target {
+                Task { [weak self] in
+                    do { try await Task.sleep(for: .seconds(2)) } catch { return }
+                    if self?.selectedID == instance, self?.highlightID == target { self?.highlightID = nil }
                 }
             }
-            if let target { try await jump(to: target) } else { try await loadLatest() }
-        } catch { if ticket == openTicket { globalError = Self.errorText(error) } }
+            await coordinator.open(instance)
+            guard ticket == openTicket, token == invalidationToken else { return }
+            await refresh(changed: instance)
+        } catch {
+            if ticket == openTicket, token == invalidationToken { globalError = Self.errorText(error) }
+        }
     }
     func loadLatest(forceScroll: Bool = false) async throws {
         guard let id = selectedID else { return }
@@ -269,6 +347,7 @@ final class BionicStore {
         if token == invalidationToken { await notifications.reconcile() }
     }
     func send(_ instance: String) async {
+        guard purchases.canUse else { showingPurchase = true; return }
         let draft = composer(instance)
         guard draft.canSend else { return }
         if selectedID == instance { followingLatest = true; newMessagesAvailable = false }
@@ -297,7 +376,11 @@ final class BionicStore {
     func displayTime(_ message: BionicObject) -> String {
         BionicTimelineClock.label(message, locale: PalmiLanguage.current.locale, detailed: true)
     }
-    func create(persona: BionicObject, participant: BionicObject, assets: [String: Data], binding: BionicObject, audit: BionicValidation?) async throws {
+    @discardableResult
+    func create(persona: BionicObject, participant: BionicObject, assets: [String: Data],
+                binding: BionicObject, audit: BionicValidation?,
+                openAfterCreation: Bool = true) async throws -> BionicRole {
+        guard purchases.canUse else { throw BionicFailure("purchaseRequired") }
         try BionicPersonaCatalog.validate(persona)
         if let audit {
             guard audit.receipt.flag("passed"), audit.receipt.text("input_hash") == (try BionicPersonaCatalog.fingerprint(persona)) else { throw BionicFailure("auditRequired") }
@@ -308,7 +391,41 @@ final class BionicStore {
             do { try await notifications.enable(role.installationID, enabled: true) }
             catch { globalError = Self.errorText(error) }
         }
-        await refresh(); await open(role.installationID)
+        await refresh()
+        if openAfterCreation { await open(role.installationID) }
+        return role
+    }
+    func setReplyTiming(_ instance: String, timing: BionicReplyTiming) async throws {
+        _ = try await archive.updateReplyTiming(instance, timing: timing)
+        coordinator.changed(instance)
+        await refresh(changed: instance)
+        await notifications.reconcile()
+    }
+    func createFromTool(_ arguments: ToolArguments, executionID: UUID) async throws -> BionicObject {
+        guard purchases.canUse else { throw BionicFailure("purchaseRequired") }
+        let characterID = executionID.uuidString.lowercased()
+        let draft = try BionicPersonaCreation.make(arguments, characterID: characterID)
+        if let existing = await archive.roles().first(where: { $0.characterID == characterID }) {
+            let samePersona = try BionicPersonaCatalog.fingerprint(existing.persona)
+                == BionicPersonaCatalog.fingerprint(draft.persona)
+            let participant = try await archive.read(existing.installationID,
+                "participants/\(existing.state.participantID).json")
+            guard samePersona, participant.text("display_name") == draft.participant.text("display_name") else {
+                throw BionicFailure("invalidFields", detail: "The same execution cannot create a different persona")
+            }
+            return ["created": .bool(false), "already_created": .bool(true),
+                    "installation_id": .string(existing.installationID),
+                    "character_id": .string(existing.characterID), "nickname": .string(existing.name)]
+        }
+        var binding = model.defaultBinding()
+        binding["notifications_enabled"] = .bool(false)
+        binding["contact_resume_allowed"] = draft.persona["proactive_enabled"] ?? .bool(false)
+        _ = try model.selection(binding, lightweight: false)
+        let role = try await create(persona: draft.persona, participant: draft.participant,
+            assets: [:], binding: binding, audit: nil, openAfterCreation: false)
+        return ["created": .bool(true), "already_created": .bool(false),
+                "installation_id": .string(role.installationID),
+                "character_id": .string(role.characterID), "nickname": .string(role.name)]
     }
     func update(_ instance: String, persona: BionicObject, assets: [String: Data], binding: BionicObject, audit: BionicValidation?) async throws {
         for data in assets.values { _ = try await archive.saveAsset(instance, data) }
@@ -323,15 +440,36 @@ final class BionicStore {
         try BionicPersonaCatalog.validate(value, existing: old.persona)
         _ = try model.selection(binding, lightweight: false)
         let previousBinding = try await archive.binding(instance)
-        var local = previousBinding
-        for key in ["plan_id", "primary_candidate_id", "multimodal_candidate_id", "lightweight_candidate_id", "developer_visible", "notifications_enabled"] {
-            if let item = binding[key] { local[key] = item }
+        var previousComparable = old.persona
+        var nextComparable = value
+        for key in ["persona_revision_id", "recorded_at", "validation_receipt"] {
+            previousComparable.removeValue(forKey: key)
+            nextComparable.removeValue(forKey: key)
         }
-        local["contact_resume_allowed"] = value["proactive_enabled"] ?? .bool(false)
-        _ = try await archive.updatePersona(instance, persona: value, validation: audit)
-        try await archive.saveBinding(instance, local)
-        coordinator.changed(instance); await refresh(changed: instance)
-        if local.flag("notifications_enabled") && !previousBinding.flag("notifications_enabled") {
+        let samePersona = previousComparable == nextComparable
+        previousComparable.removeValue(forKey: "reply_timing")
+        nextComparable.removeValue(forKey: "reply_timing")
+        let onlyTiming = !samePersona && previousComparable == nextComparable
+        if onlyTiming {
+            _ = try await archive.updateReplyTiming(instance, timing: BionicReplyTiming.resolve(value))
+        } else if !samePersona {
+            _ = try await archive.updatePersona(instance, persona: value, validation: audit)
+        }
+        var changes: BionicObject = [:]
+        for key in ["plan_id", "primary_candidate_id", "multimodal_candidate_id", "lightweight_candidate_id",
+                    "developer_visible", "notifications_enabled"] {
+            if let item = binding[key] { changes[key] = item }
+        }
+        if old.persona.flag("proactive_enabled") != value.flag("proactive_enabled") {
+            changes["contact_resume_allowed"] = value["proactive_enabled"] ?? .bool(false)
+        }
+        try await archive.updateBinding(instance, changes: changes)
+        let changedModelBinding = ["plan_id", "primary_candidate_id", "multimodal_candidate_id", "lightweight_candidate_id"].contains {
+            (changes[$0] ?? previousBinding[$0]) != previousBinding[$0]
+        }
+        if !samePersona || changedModelBinding { coordinator.changed(instance) }
+        await refresh(changed: instance)
+        if changes.flag("notifications_enabled") && !previousBinding.flag("notifications_enabled") {
             try await notifications.enable(instance, enabled: true)
         } else { await notifications.reconcile() }
     }

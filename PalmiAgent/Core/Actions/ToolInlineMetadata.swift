@@ -97,6 +97,8 @@ enum ToolCallInlineMetadataBuilder {
             )
         case .systemTime, .location:
             return nil
+        case .createBionicPersona:
+            return textMetadata(arguments.string("nickname"))
         case nil:
             break
         }

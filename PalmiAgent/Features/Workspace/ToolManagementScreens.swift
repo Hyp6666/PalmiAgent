@@ -378,6 +378,8 @@ private extension AgentExternalToolName {
             "clock"
         case .location:
             "location"
+        case .createBionicPersona:
+            "person.crop.circle.badge.plus"
         }
     }
 }
@@ -416,6 +418,8 @@ private struct ToolManagementGroupAppearance {
             .init(symbolName: "viewfinder", tint: .purple)
         case .webResearch:
             .init(symbolName: "globe.americas.fill", tint: .cyan)
+        case .bionicPersonas:
+            .init(symbolName: "person.crop.circle.badge.plus", tint: .purple)
         }
     }
 }

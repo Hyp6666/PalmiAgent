@@ -73,7 +73,8 @@ final class AgentToolExecutor {
             outcome = try await actionExecutor.execute(
                 prepared.action,
                 arguments: prepared.arguments,
-                modelOverrides: modelOverrides
+                modelOverrides: modelOverrides,
+                executionID: stepID
             )
         } catch is CancellationError {
             throw CancellationError()

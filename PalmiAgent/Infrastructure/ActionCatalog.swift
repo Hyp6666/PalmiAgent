@@ -16,7 +16,8 @@ enum ActionCatalog {
         .searchWeb,
         .fetchStaticWebPage,
         .getCurrentDateTime,
-        .requestLocation
+        .requestLocation,
+        .createBionicPersona
     ]
 
     static let all: [ToolAction] = [
@@ -71,7 +72,11 @@ enum ActionCatalog {
         .init(id: .indexWorkspaceToSpotlight, category: .intelligence, title: "索引工作区到 Spotlight", effect: "把文件加入系统搜索", details: "验证系统索引链路。", availability: .live),
         .init(id: .clearSpotlightIndex, category: .intelligence, title: "清空 Spotlight 索引", effect: "删除工作区索引", details: "移除当前工作区建立的 Spotlight 搜索索引。", availability: .live),
         .init(id: .appIntentsDiagnostics, category: .intelligence, title: "检查 App Intents", effect: "显示已编译进来的快捷指令入口", details: "这一版 App Intents 直接放主 app target。", availability: .live),
-        .init(id: .publishHandoffActivity, category: .intelligence, title: "发布继续活动", effect: "把当前状态变成可继续活动", details: "验证 Handoff / NSUserActivity 链路。", availability: .live)
+        .init(id: .publishHandoffActivity, category: .intelligence, title: "发布继续活动", effect: "把当前状态变成可继续活动", details: "验证 Handoff / NSUserActivity 链路。", availability: .live),
+        .init(id: .createBionicPersona, category: .intelligence,
+              title: PalmiL10n.tr("tool.facade.createBionicPersona"),
+              effect: PalmiL10n.tr("tool.bionic.effect"),
+              details: PalmiL10n.tr("tool.bionic.details"), availability: .live)
     ]
 
     static func grouped() -> [(category: ToolCategory, actions: [ToolAction])] {

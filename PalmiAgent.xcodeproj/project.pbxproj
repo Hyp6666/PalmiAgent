@@ -34,6 +34,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				"Resources/Skills/bionic-persona-creator/SKILL.md",
 				"Resources/Skills/skill-creator/SKILL.md",
 			);
 			target = 762415DA2F89627200FBB4F0 /* PalmiAgent */;

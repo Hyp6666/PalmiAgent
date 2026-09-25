@@ -6,7 +6,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     private let center = UNUserNotificationCenter.current()
     var bionicVisibleInstance: String?
     var bionicForeground = false
-    var onBionicNotification: ((String, String, String, Bool) -> Void)?
+    var onBionicNotification: ((String, String, String, Bool) async -> Bool)?
 
     override init() {
         super.init()
@@ -62,12 +62,27 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
 
     func bionicNotificationSettings() async -> BionicObject {
         let settings = await center.notificationSettings()
-        return ["authorization": .string(String(describing: settings.authorizationStatus)),
-                "badge_setting": .string(String(describing: settings.badgeSetting)),
-                "alert_setting": .string(String(describing: settings.alertSetting)),
-                "sound_setting": .string(String(describing: settings.soundSetting)),
-                "lock_screen_setting": .string(String(describing: settings.lockScreenSetting)),
-                "notification_center_setting": .string(String(describing: settings.notificationCenterSetting))]
+        let authorization: String
+        switch settings.authorizationStatus {
+        case .notDetermined: authorization = "notDetermined"
+        case .denied: authorization = "denied"
+        case .authorized: authorization = "authorized"
+        case .provisional: authorization = "provisional"
+        case .ephemeral: authorization = "ephemeral"
+        @unknown default: authorization = "unknown"
+        }
+        func label(_ value: UNNotificationSetting) -> String {
+            switch value {
+            case .enabled: return "enabled"
+            case .disabled: return "disabled"
+            case .notSupported: return "notSupported"
+            @unknown default: return "unknown"
+            }
+        }
+        return ["authorization": .string(authorization), "badge_setting": .string(label(settings.badgeSetting)),
+                "alert_setting": .string(label(settings.alertSetting)), "sound_setting": .string(label(settings.soundSetting)),
+                "lock_screen_setting": .string(label(settings.lockScreenSetting)),
+                "notification_center_setting": .string(label(settings.notificationCenterSetting))]
     }
 
     func authorizationStatus() async -> UNAuthorizationStatus { await center.notificationSettings().authorizationStatus }
@@ -84,9 +99,14 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         let group = info["bionic_group"] as? String ?? ""
         let message = info["bionic_message"] as? String ?? ""
         Task { @MainActor [weak self] in
-            guard identifier.hasPrefix("palmi.bionic."), let self else { completionHandler([]); return }
-            self.onBionicNotification?(instance, group, message, false)
-            completionHandler(self.bionicForeground && self.bionicVisibleInstance == instance ? [] : [.banner, .list, .sound, .badge])
+            guard identifier.hasPrefix("palmi.bionic."), let self else {
+                completionHandler([])
+                return
+            }
+            let valid = await self.onBionicNotification?(instance, group, message, false) ?? false
+            guard valid else { completionHandler([]); return }
+            completionHandler(self.bionicForeground && self.bionicVisibleInstance == instance
+                ? [] : [.banner, .list, .sound, .badge])
         }
     }
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
@@ -98,7 +118,9 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         let message = info["bionic_message"] as? String ?? ""
         let opened = response.actionIdentifier == UNNotificationDefaultActionIdentifier
         Task { @MainActor [weak self] in
-            if identifier.hasPrefix("palmi.bionic."), opened { self?.onBionicNotification?(instance, group, message, true) }
+            if identifier.hasPrefix("palmi.bionic."), opened {
+                _ = await self?.onBionicNotification?(instance, group, message, true)
+            }
             completionHandler()
         }
     }
