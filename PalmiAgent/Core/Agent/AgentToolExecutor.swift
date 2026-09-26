@@ -37,19 +37,21 @@ final class AgentToolExecutor {
         do {
             let arguments = try ToolArguments(jsonString: toolUse.input)
             let resolution = try AgentExternalToolFacadeCatalog.resolve(
-                toolName: toolUse.name,
-                arguments: arguments,
-                actions: actions
+                toolName: toolUse.name, arguments: arguments, actions: actions
             )
             let action = resolution.action
-            let argumentsJSON = actionExecutor.effectiveArgumentsJSON(for: action, arguments: arguments)
-            return .ready(
-                AgentPreparedToolExecution(
-                    action: action,
-                    arguments: arguments,
-                    argumentsJSON: argumentsJSON
-                )
-            )
+            let preparedArguments: ToolArguments
+            let argumentsJSON: String
+            if action.id == .createBionicPersona {
+                preparedArguments = try BionicPersonaCreation.normalizedArguments(arguments)
+                argumentsJSON = preparedArguments.normalizedJSONString()
+            } else {
+                preparedArguments = arguments
+                argumentsJSON = actionExecutor.effectiveArgumentsJSON(for: action, arguments: arguments)
+            }
+            return .ready(AgentPreparedToolExecution(
+                action: action, arguments: preparedArguments, argumentsJSON: argumentsJSON
+            ))
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             return .failure("工具参数解析失败：\(message)")

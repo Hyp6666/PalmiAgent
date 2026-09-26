@@ -65,6 +65,13 @@ struct AppShellTopFade: View {
     }
 }
 
+private struct AppShellModeBoundsKey: PreferenceKey {
+    static var defaultValue: Anchor<CGRect>? { nil }
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = nextValue() ?? value
+    }
+}
+
 struct AppShellTopBar: View {
     @Environment(\.palmiUnread) private var unreadSnapshot
     let mode: AppShellMode
@@ -88,6 +95,23 @@ struct AppShellTopBar: View {
                 }
             }
             .frame(height: 64)
+        }
+        .overlayPreferenceValue(AppShellModeBoundsKey.self) { anchor in
+            GeometryReader { proxy in
+                if let anchor {
+                    let bounds = proxy[anchor]
+                    let count = unreadSnapshot.countOutside(mode)
+                    PalmiUnreadBadge(count: count)
+                        .fixedSize()
+                        .position(x: bounds.maxX - 12, y: bounds.minY + 10)
+                        .transaction { transaction in
+                            transaction.animation = nil
+                            transaction.disablesAnimations = true
+                        }
+                }
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         }
     }
 
@@ -141,13 +165,11 @@ struct AppShellTopBar: View {
             .padding(.horizontal, 18)
             .frame(height: 50)
             .contentShape(Capsule())
-            .overlay(alignment: .topTrailing) {
-                PalmiUnreadBadge(count: externalCount).padding(.top, 2).padding(.trailing, 3)
-            }
         }
         .buttonStyle(.plain)
         .menuOrder(.fixed)
         .glassEffect(.regular.tint(.white.opacity(0.12)).interactive(), in: .capsule)
+        .anchorPreference(key: AppShellModeBoundsKey.self, value: .bounds) { $0 }
         .accessibilityLabel(PalmiL10n.tr("common.mode"))
         .accessibilityValue(externalCount > 0 ? PalmiL10n.tr("chat.unread.count", externalCount) : "")
     }

@@ -103,7 +103,9 @@ enum LLMToolDefinitionBuilder {
             ]
         case .createBionicPersona:
             lines = [
-                "Create one adult bionic persona after the user requests creation. Use the bionic-persona-creator system skill. This persists a real persona; it does not navigate, start a chat, subscribe, or grant notification permission. nickname, identity and birth_date are required."
+                "创建一个真实的成年仿生角色。先读取 bionic-persona-creator 系统技能，与用户整理资料并展示最终方案，结束该轮回复；只有用户随后明确确认该方案，才调用此工具。讨论人设或提出创建意向本身不是最终确认。",
+                "nickname、identity、birth_date 必填。avatar_path 可选；可先用现有 vision 根据用户选定的图片建议 avatar_crop。头像处理失败时不会创建无头像的替代角色。",
+                "本次调用还需用户逐次确认，不接受自动审批或会话级批准替代。此工具只创建，不切模式、不发起聊天、不购买、不领取试用、不申请通知权限。"
             ]
         }
         return lines.joined(separator: "\n")

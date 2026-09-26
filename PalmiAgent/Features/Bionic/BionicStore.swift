@@ -54,7 +54,12 @@ final class BionicStore {
     var windowEnd = 0
     var totalMessages = 0
     var followingLatest = true
-    var newMessagesAvailable = false
+    var hasNewerMessages: Bool { windowEnd < totalMessages }
+    var scrollTargetAtBottom = true
+    @ObservationIgnored private var readProjectionSequences: [String: Int] = [:]
+    @ObservationIgnored private var readTaskID: UUID?
+    @ObservationIgnored private var flushingReads = false
+    @ObservationIgnored private var readFlushWaiters: [CheckedContinuation<Void, Never>] = []
     var scrollTarget: String?
     var scrollRequest = UUID()
     var highlightID: String?
@@ -65,7 +70,7 @@ final class BionicStore {
     @ObservationIgnored private var composers: [String: BionicComposerState] = [:]
     @ObservationIgnored private var avatarPaths: [String: String] = [:]
     @ObservationIgnored private var statsKeys: [String: String] = [:]
-    @ObservationIgnored private var pendingReads: [String: Set<String>] = [:]
+    @ObservationIgnored private var pendingReads: [BionicReadKey: Set<String>] = [:]
     @ObservationIgnored private var readTask: Task<Void, Never>?
     @ObservationIgnored private var refreshing = false
     @ObservationIgnored private var refreshRequests = Set<String>()
@@ -137,6 +142,7 @@ final class BionicStore {
         isForeground = true
         notifications.setVisible(modeVisible ? chatVisibleID : nil, foreground: modeVisible)
         await refresh(); await coordinator.activate(); await notifications.reconcile()
+        scheduleReadFlush(retry: true)
     }
     func pause() {
         isForeground = false
@@ -144,7 +150,7 @@ final class BionicStore {
         guard backgroundFinishTask == nil else { return }
         backgroundEpoch += 1
         let epoch = backgroundEpoch
-        readTask?.cancel(); readTask = nil
+        readTask?.cancel(); readTask = nil; readTaskID = nil
         backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "PalmiBionicCommit") { [weak self] in
             guard let self, self.backgroundEpoch == epoch else { return }
             self.backgroundEpoch += 1
@@ -183,7 +189,8 @@ final class BionicStore {
         backgroundFinishTask = nil
         endBackgroundAllowance()
         invalidationToken += 1; openTicket += 1; windowTicket += 1
-        coordinator.stopForReset(); readTask?.cancel(); readTask = nil; pendingReads.removeAll()
+        coordinator.stopForReset(); readTask?.cancel(); readTask = nil; readTaskID = nil; pendingReads.removeAll()
+        readProjectionSequences.removeAll()
         await notifications.removeAll(); try await archive.resetAll(); await history.clear()
         selectedID = nil; chatVisibleID = nil; path = []; roles = []; messages = []; participants = [:]; avatars = [:]; errors = [:]
         composers.removeAll(); avatarPaths.removeAll(); statsKeys.removeAll(); refreshRequests.removeAll()
@@ -197,6 +204,16 @@ final class BionicStore {
         let read = role.state.raw.object("read_message_ids_by_participant")[role.state.participantID]?.array.count ?? 0
         return [role.installationID, role.state.personaID, role.state.participantID, String(role.state.order.count),
                 String(role.state.memorySequence), String(read)].joined(separator: ":")
+    }
+    private func publishReadProjection(_ projection: BionicReadProjection) {
+        let id = projection.instance
+        guard projection.throughSequence >= (readProjectionSequences[id] ?? -1) else { return }
+        readProjectionSequences[id] = projection.throughSequence
+        if unreadCounts[id] != projection.unread { unreadCounts[id] = projection.unread }
+        if lastBodies[id] != projection.latestBody { lastBodies[id] = projection.latestBody }
+        if selectedID == id {
+            totalMessages = max(totalMessages, projection.totalMessages)
+        }
     }
     func refresh(changed: String? = nil) async {
         refreshRequests.insert(changed ?? "*")
@@ -238,27 +255,26 @@ final class BionicStore {
                     lastActivityTimes[id] = (try? BionicCodec.date(time)) ?? .distantPast
                     activityMessageIDs[id] = lastID
                 }
-                let readIDs = role.state.raw.object("read_message_ids_by_participant")[role.state.participantID]?.array.compactMap(\.string) ?? []
                 let key = presentationKey(role) + ":" + String(local?.int("unread_after_sequence") ?? 0)
                 if statsKeys[id] != key {
-                    if let stats = try? await archive.presentationStats(id, read: Set(readIDs), after: local?.int("unread_after_sequence") ?? 0) {
+                    do {
+                        let projection = try await archive.readProjection(id)
                         guard token == invalidationToken else { return }
-                        if unreadCounts[id] != stats.unread { unreadCounts[id] = stats.unread }
-                        if lastBodies[id] != stats.latestBody { lastBodies[id] = stats.latestBody }
+                        publishReadProjection(projection)
                         statsKeys[id] = key
+                    } catch {
+                        // 保留最后一次有效投影；下次刷新仍重试。
+                        statsKeys.removeValue(forKey: id)
                     }
                 }
             }
             guard token == invalidationToken else { return }
             if let id = selectedID,
-               let role = updated.first(where: { $0.installationID == id }),
-               role.state.order.count != totalMessages {
-                if isForeground && modeVisible && chatVisibleID == id {
-                    if followingLatest { try? await loadLatest() }
-                    else {
-                        newMessagesAvailable = true
-                        totalMessages = role.state.order.count
-                    }
+               let role = updated.first(where: { $0.installationID == id }) {
+                totalMessages = max(totalMessages, role.state.lastMessageSequence)
+                if isForeground && modeVisible && chatVisibleID == id,
+                   followingLatest, windowEnd < totalMessages {
+                    try? await loadLatest()
                 }
             }
         } while !refreshRequests.isEmpty
@@ -270,6 +286,8 @@ final class BionicStore {
         for id in Set(lastActivityTimes.keys).subtracting(validIDs) { lastActivityTimes.removeValue(forKey: id) }
         for id in Set(typingWindowsByInstance.keys).subtracting(validIDs) { typingWindowsByInstance.removeValue(forKey: id) }
         statsKeys = statsKeys.filter { validIDs.contains($0.key) }
+        readProjectionSequences = readProjectionSequences.filter { validIDs.contains($0.key) }
+        pendingReads = pendingReads.filter { validIDs.contains($0.key.instance) }
         activityMessageIDs = activityMessageIDs.filter { validIDs.contains($0.key) }
         chatCanvasAspects = chatCanvasAspects.filter { validIDs.contains($0.key) }
         avatarPaths = avatarPaths.filter { key, _ in
@@ -302,9 +320,14 @@ final class BionicStore {
         let ticket = openTicket, token = invalidationToken
         do {
             if selectedID == instance, target == nil, !messages.isEmpty {
+                followingLatest = true
                 path = [instance]
                 await coordinator.open(instance)
+                guard ticket == openTicket, token == invalidationToken else { return }
                 await refresh(changed: instance)
+                guard ticket == openTicket, token == invalidationToken,
+                      selectedID == instance else { return }
+                try await loadLatest(forceScroll: true)
                 return
             }
             let presentation = try await archive.openingPresentation(instance, target: target)
@@ -320,10 +343,13 @@ final class BionicStore {
                 avatars[key] = presentation.avatars[key]
             }
             quotedMessages = presentation.quotes
+            totalMessages = 0
             apply(presentation.window)
-            followingLatest = target == nil; newMessagesAvailable = false
+            followingLatest = target == nil
             highlightID = target
-            scrollTarget = target ?? "bionic-end"; scrollRequest = UUID()
+            scrollTarget = target ?? "bionic-end"
+            scrollTargetAtBottom = (target == nil)
+            scrollRequest = UUID()
             path = [instance]
             if let target {
                 Task { [weak self] in
@@ -341,83 +367,169 @@ final class BionicStore {
     func loadLatest(forceScroll: Bool = false) async throws {
         guard let id = selectedID else { return }
         if forceScroll { followingLatest = true }
-        windowTicket += 1; let ticket = windowTicket
-        let window = try await archive.messageWindow(id)
-        guard selectedID == id, ticket == windowTicket else { return }
-        if !followingLatest && !forceScroll {
-            newMessagesAvailable = window.total > totalMessages
-            totalMessages = window.total
-            return
+        windowTicket += 1
+        let ticket = windowTicket
+        let token = invalidationToken
+        let page = try await archive.windowPresentation(id)
+        guard selectedID == id, ticket == windowTicket,
+              token == invalidationToken else { return }
+        totalMessages = max(totalMessages, page.window.total)
+        guard followingLatest else { return }
+        let changed = messages != page.window.messages
+        apply(page.window)
+        quotedMessages.merge(page.quotes, uniquingKeysWith: { _, next in next })
+        if changed || forceScroll {
+            scrollTarget = "bionic-end"
+            scrollTargetAtBottom = true
+            scrollRequest = UUID()
         }
-        let changed = messages != window.messages
-        apply(window); followingLatest = true; newMessagesAvailable = false
-        try await loadQuotes()
-        guard selectedID == id, ticket == windowTicket else { return }
-        if changed || forceScroll { scrollTarget = "bionic-end"; scrollRequest = UUID() }
     }
+
     func loadOlder() async throws {
         guard let id = selectedID, windowStart > 0 else { return }
-        windowTicket += 1; let ticket = windowTicket; followingLatest = false
-        let firstID = messages.first?.text("message_id"), begin = max(0, windowStart - 60)
-        let window = try await archive.messageWindow(id, start: begin, count: min(180, windowEnd - begin))
-        guard selectedID == id, ticket == windowTicket else { return }
-        apply(window); try await loadQuotes(); scrollTarget = firstID; scrollRequest = UUID()
-    }
-    func loadNewer() async throws {
-        guard let id = selectedID, windowEnd < totalMessages else { return }
-        windowTicket += 1; let ticket = windowTicket
-        let window = try await archive.messageWindow(id, start: max(windowStart, windowEnd + 60 - 180), count: min(180, windowEnd - windowStart + 60))
-        guard selectedID == id, ticket == windowTicket else { return }; apply(window); try await loadQuotes()
-    }
-    func jump(to messageID: String) async throws {
-        guard let id = selectedID else { return }; windowTicket += 1; let ticket = windowTicket
         followingLatest = false
-        let window = try await archive.messageWindow(id, centerID: messageID)
-        guard window.messages.contains(where: { $0.text("message_id") == messageID }) else { throw BionicFailure("sourceMissing") }
-        guard selectedID == id, ticket == windowTicket else { return }
-        apply(window); followingLatest = false; try await loadQuotes()
-        scrollTarget = messageID; scrollRequest = UUID(); highlightID = messageID
-        Task { [weak self] in
-            try? await Task.sleep(for: .seconds(2))
-            if self?.selectedID == id, self?.highlightID == messageID { self?.highlightID = nil }
+        windowTicket += 1
+        let ticket = windowTicket
+        let token = invalidationToken
+        let firstID = messages.first?.text("message_id")
+        let begin = max(0, windowStart - 60)
+        let count = min(180, windowEnd - begin)
+        let page = try await archive.windowPresentation(id, start: begin, count: count)
+        guard selectedID == id, ticket == windowTicket,
+              token == invalidationToken else { return }
+        apply(page.window)
+        quotedMessages.merge(page.quotes, uniquingKeysWith: { _, next in next })
+        scrollTarget = firstID
+        scrollTargetAtBottom = false
+        scrollRequest = UUID()
+    }
+
+    func loadNewer() async throws {
+        guard let id = selectedID, hasNewerMessages else { return }
+        windowTicket += 1
+        let ticket = windowTicket
+        let token = invalidationToken
+        let anchor = messages.last?.text("message_id")
+        let upper = min(totalMessages, windowEnd + 60)
+        let lower = max(windowStart, upper - 180)
+        let page = try await archive.windowPresentation(
+            id, start: lower, count: max(1, upper - lower)
+        )
+        guard selectedID == id, ticket == windowTicket,
+              token == invalidationToken else { return }
+        apply(page.window)
+        quotedMessages.merge(page.quotes, uniquingKeysWith: { _, next in next })
+        if !followingLatest {
+            scrollTarget = anchor
+            scrollTargetAtBottom = true
+            scrollRequest = UUID()
+        } else {
+            scrollTarget = "bionic-end"
+            scrollTargetAtBottom = true
+            scrollRequest = UUID()
         }
     }
+
+    func jump(to messageID: String) async throws {
+        guard let id = selectedID else { return }
+        followingLatest = false
+        windowTicket += 1
+        let ticket = windowTicket
+        let token = invalidationToken
+        let page = try await archive.windowPresentation(id, centerID: messageID)
+        guard selectedID == id, ticket == windowTicket,
+              token == invalidationToken else { return }
+        guard page.window.messages.contains(where: { $0.text("message_id") == messageID }) else {
+            throw BionicFailure("sourceMissing")
+        }
+        apply(page.window)
+        quotedMessages.merge(page.quotes, uniquingKeysWith: { _, next in next })
+        scrollTarget = messageID
+        scrollTargetAtBottom = false
+        scrollRequest = UUID()
+        highlightID = messageID
+        Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(2)) } catch { return }
+            guard let self, self.invalidationToken == token,
+                  self.selectedID == id, self.highlightID == messageID else { return }
+            self.highlightID = nil
+        }
+    }
+
     private func apply(_ window: BionicWindow) {
         if messages != window.messages { messages = window.messages }
-        windowStart = window.startIndex; windowEnd = window.endIndex; totalMessages = window.total
+        windowStart = window.startIndex
+        windowEnd = window.endIndex
+        totalMessages = max(totalMessages, window.total)
     }
-    private func loadQuotes() async throws {
-        guard let id = selectedID else { return }
-        let missing = Set(messages.compactMap { $0.optionalText("reply_to_message_id") }).filter { quotedMessages[$0] == nil }
-        for quote in missing {
-            let value = try? await archive.message(id, quote)
-            guard selectedID == id else { return }; quotedMessages[quote] = value
+    func appeared(_ messageID: String, instance: String, participantID: String) {
+        guard isForeground, modeVisible, selectedID == instance,
+              chatVisibleID == instance,
+              selectedRole?.state.participantID == participantID,
+              messages.contains(where: {
+                  $0.text("message_id") == messageID && $0.text("author_kind") == "character"
+              }) else { return }
+        let key = BionicReadKey(instance: instance, participantID: participantID)
+        pendingReads[key, default: []].insert(messageID)
+        scheduleReadFlush()
+    }
+
+    private func scheduleReadFlush(retry: Bool = false) {
+        guard readTask == nil, !pendingReads.isEmpty, isForeground else { return }
+        let id = UUID()
+        readTaskID = id
+        readTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: retry ? .seconds(2) : .milliseconds(80)) }
+            catch { return }
+            guard let self, self.readTaskID == id else { return }
+            await self.flushReads()
+            guard self.readTaskID == id else { return }
+            self.readTask = nil
+            self.readTaskID = nil
+            if !self.pendingReads.isEmpty { self.scheduleReadFlush(retry: true) }
         }
     }
-    func appeared(_ messageID: String) {
-        guard isForeground, modeVisible, let id = selectedID, chatVisibleID == id else { return }
-        pendingReads[id, default: []].insert(messageID)
-        guard readTask == nil else { return }
-        readTask = Task { [weak self] in
-            do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
-            await self?.flushReads()
-        }
-    }
+
     private func flushReads() async {
-        readTask = nil; let batch = pendingReads; pendingReads.removeAll()
-        let token = invalidationToken
-        for (id, ids) in batch {
-            guard token == invalidationToken else { return }
-            do { try await archive.markRead(id, ids: Array(ids)); await refresh(changed: id) }
-            catch { continue }
+        while flushingReads {
+            await withCheckedContinuation { readFlushWaiters.append($0) }
         }
-        if token == invalidationToken { await notifications.reconcile() }
+        guard !pendingReads.isEmpty else { return }
+        flushingReads = true
+        defer {
+            flushingReads = false
+            let waiters = readFlushWaiters
+            readFlushWaiters.removeAll()
+            for waiter in waiters { waiter.resume() }
+        }
+        let batch = pendingReads
+        pendingReads.removeAll()
+        let token = invalidationToken
+        var changed = false
+        for (key, ids) in batch {
+            guard token == invalidationToken else { return }
+            do {
+                let didChange = try await archive.markRead(
+                    key.instance, ids: Array(ids), participantID: key.participantID
+                )
+                changed = changed || didChange
+                let projection = try await archive.readProjection(key.instance)
+                guard token == invalidationToken else { return }
+                publishReadProjection(projection)
+            } catch {
+                guard token == invalidationToken else { return }
+                if (error as? BionicFailure)?.code != "roleMissing" {
+                    pendingReads[key, default: []].formUnion(ids)
+                }
+            }
+        }
+        if changed, token == invalidationToken { await notifications.reconcile() }
     }
     func send(_ instance: String) async {
         guard purchases.canUse else { showingPurchase = true; return }
         let draft = composer(instance)
         guard draft.canSend else { return }
-        if selectedID == instance { followingLatest = true; newMessagesAvailable = false }
+        if selectedID == instance { followingLatest = true }
         let text = draft.text, images = draft.images, quote = quotedIDs[instance]
         draft.saving = true; draft.error = nil; defer { draft.saving = false }
         do {
@@ -444,6 +556,27 @@ final class BionicStore {
         BionicTimelineClock.label(message, locale: PalmiLanguage.current.locale, detailed: true)
     }
     @discardableResult
+    func ensureSystemRole() async throws -> BionicRole {
+        if let existing = try await archive.existingSystemRole() { return existing }
+        let token = invalidationToken
+        let draft = try BionicSystemPersona.draft(language: PalmiLanguage.current.rawValue)
+        var binding = model.defaultBinding()
+        binding["plan_id"] = .null
+        binding["primary_candidate_id"] = .null
+        binding["multimodal_candidate_id"] = .null
+        binding["lightweight_candidate_id"] = .null
+        binding["notifications_enabled"] = .bool(false)
+        binding["contact_resume_allowed"] = .bool(false)
+        guard token == invalidationToken else { throw CancellationError() }
+        let role = try await archive.ensureSystemRole(
+            persona: draft.persona, participant: draft.participant,
+            assets: draft.assets, binding: binding
+        )
+        guard token == invalidationToken else { throw CancellationError() }
+        await refresh(changed: role.installationID)
+        return role
+    }
+    @discardableResult
     func create(persona: BionicObject, participant: BionicObject, assets: [String: Data],
                 binding: BionicObject, audit: BionicValidation?,
                 openAfterCreation: Bool = true) async throws -> BionicRole {
@@ -468,28 +601,51 @@ final class BionicStore {
         await refresh(changed: instance)
         await notifications.reconcile()
     }
-    func createFromTool(_ arguments: ToolArguments, executionID: UUID) async throws -> BionicObject {
+    func createFromTool(
+        _ arguments: ToolArguments,
+        executionID: UUID,
+        avatar: Data? = nil
+    ) async throws -> BionicObject {
         guard purchases.canUse else { throw BionicFailure("purchaseRequired") }
+        let token = invalidationToken
         let characterID = executionID.uuidString.lowercased()
         let draft = try BionicPersonaCreation.make(arguments, characterID: characterID)
+        let specification = try BionicAvatarImportSpec.parse(arguments)
+        guard (specification == nil) == (avatar == nil) else { throw BionicFailure("invalidImage") }
+        var persona = draft.persona
+        var assets: [String: Data] = [:]
+        if let avatar {
+            let path = "assets/\(BionicCodec.sha(avatar)).png"
+            persona["avatar_asset"] = .string(path)
+            assets[path] = avatar
+        }
+        try BionicPersonaCatalog.validate(persona)
         if let existing = await archive.roles().first(where: { $0.characterID == characterID }) {
             let samePersona = try BionicPersonaCatalog.fingerprint(existing.persona)
-                == BionicPersonaCatalog.fingerprint(draft.persona)
-            let participant = try await archive.read(existing.installationID,
-                "participants/\(existing.state.participantID).json")
-            guard samePersona, participant.text("display_name") == draft.participant.text("display_name") else {
-                throw BionicFailure("invalidFields", detail: "The same execution cannot create a different persona")
+                == BionicPersonaCatalog.fingerprint(persona)
+            let participant = try await archive.read(
+                existing.installationID, "participants/\(existing.state.participantID).json"
+            )
+            let matchingRuntime = ["reply_timing", "proactive_enabled", "evolution_enabled"].allSatisfy {
+                existing.persona[$0] == persona[$0]
+            }
+            guard samePersona, matchingRuntime,
+                  participant.text("display_name") == draft.participant.text("display_name") else {
+                throw BionicFailure("invalidFields", detail: "The execution already created a different persona")
             }
             return ["created": .bool(false), "already_created": .bool(true),
                     "installation_id": .string(existing.installationID),
                     "character_id": .string(existing.characterID), "nickname": .string(existing.name)]
         }
+        guard token == invalidationToken else { throw CancellationError() }
         var binding = model.defaultBinding()
         binding["notifications_enabled"] = .bool(false)
-        binding["contact_resume_allowed"] = draft.persona["proactive_enabled"] ?? .bool(false)
+        binding["contact_resume_allowed"] = persona["proactive_enabled"] ?? .bool(false)
         _ = try model.selection(binding, lightweight: false)
-        let role = try await create(persona: draft.persona, participant: draft.participant,
-            assets: [:], binding: binding, audit: nil, openAfterCreation: false)
+        let role = try await create(
+            persona: persona, participant: draft.participant,
+            assets: assets, binding: binding, audit: nil, openAfterCreation: false
+        )
         return ["created": .bool(true), "already_created": .bool(false),
                 "installation_id": .string(role.installationID),
                 "character_id": .string(role.characterID), "nickname": .string(role.name)]
@@ -547,8 +703,11 @@ final class BionicStore {
         try await update(instance, persona: persona, assets: [:], binding: binding, audit: nil)
     }
     func delete(_ instance: String) async throws {
+        guard !BionicSystemPersona.isProtected(instance) else {
+            throw BionicFailure("systemRoleProtected")
+        }
         coordinator.remove(instance); await notifications.remove(instance); try await archive.deleteRole(instance); await history.clear(instance)
-        composers.removeValue(forKey: instance); errors.removeValue(forKey: instance); statsKeys.removeValue(forKey: instance); pendingReads.removeValue(forKey: instance)
+        composers.removeValue(forKey: instance); errors.removeValue(forKey: instance); statsKeys.removeValue(forKey: instance); pendingReads = pendingReads.filter { $0.key.instance != instance }
         typingWindowsByInstance.removeValue(forKey: instance)
         if selectedID == instance { openTicket += 1; windowTicket += 1; selectedID = nil; path = []; messages = []; quotedMessages = [:] }
         await refresh()

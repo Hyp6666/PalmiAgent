@@ -155,7 +155,7 @@ struct BionicPersonaEditor: View {
                 if busy { HStack { ProgressView(); Text(PalmiL10n.tr("bionic.processing")) } }
                 Button(PalmiL10n.tr("bionic.preGenerate")) { pregenerate() }
             }
-            if instance != nil {
+            if let instance, !BionicSystemPersona.isProtected(instance) {
                 Section {
                     Button(PalmiL10n.tr("bionic.deleteRole"), role: .destructive) { deleting = true }
                 }

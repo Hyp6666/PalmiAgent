@@ -203,7 +203,8 @@ final class AgentLoop {
 
     func resolveApprovalRequest(_ id: UUID, resolution: ToolApprovalResolution) {
         let request = pendingApprovalRequests.removeValue(forKey: id)
-        if case .approvedForSession = resolution, let request {
+        if case .approvedForSession = resolution, let request,
+           request.toolActionID != .createBionicPersona {
             toolAuthorizationStore.approve(actionID: request.toolActionID, in: request.sessionID)
         }
 
@@ -1868,6 +1869,30 @@ final class AgentLoop {
             systemPermissions: toolAuthorizationStore.systemPermissionRequirements(for: prepared.action.id),
             argumentsJSON: prepared.argumentsJSON
         )
+
+        if prepared.action.id == .createBionicPersona {
+            appendEventLog(
+                .toolApprovalRequested,
+                summary: PalmiL10n.tr("bionic.creation.confirmTitle"),
+                payloadJSON: prepared.argumentsJSON
+            )
+            pendingApprovalRequests[request.id] = request
+            emit(.approvalRequested(request))
+            let approved: Bool
+            do {
+                approved = try await approvalWaiter.wait(id: request.id)
+            } catch {
+                pendingApprovalRequests.removeValue(forKey: request.id)
+                throw error
+            }
+            pendingApprovalRequests.removeValue(forKey: request.id)
+            recordApprovalResolution(
+                request: request, policy: policy, approved: approved,
+                summary: PalmiL10n.tr(approved
+                    ? "bionic.creation.confirmed" : "bionic.creation.notConfirmed")
+            )
+            return approved
+        }
 
         if toolAuthorizationStore.mode != .autoReview,
            toolAuthorizationStore.isApproved(actionID: prepared.action.id, in: session.id) {

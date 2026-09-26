@@ -166,6 +166,7 @@ final class BionicNotifications {
             let otherPending = allPending.count - existing.count
             let available = max(0, Self.totalPendingBudget - otherPending)
             var unread = 0
+            var projectionsComplete = true
             var candidates: [Candidate] = []
             for snapshot in await archive.roles() where !removed.contains(snapshot.installationID) {
                 guard generation == epoch, !Task.isCancelled else { return }
@@ -174,10 +175,9 @@ final class BionicNotifications {
                     let role = try await archive.commitDue(instance, at: now)
                     if role.state.lastMessageSequence != snapshot.state.lastMessageSequence { onArrival?(instance) }
                     let binding = try await archive.binding(instance)
-                    let read = Set(role.state.raw.object("read_message_ids_by_participant")[role.state.participantID]?.array.compactMap(\.string) ?? [])
-                    unread += try await archive.presentationStats(
-                        instance, read: read, after: binding.int("unread_after_sequence")
-                    ).unread
+                    let projection = try await archive.readProjection(instance)
+                    let read = projection.readIDs
+                    unread += projection.unread
                     if binding.flag("chat_muted") {
                         let prefix = "palmi.bionic.\(instance)."
                         service.removeDelivered(Array(delivered.filter { $0.hasPrefix(prefix) }))
@@ -221,9 +221,15 @@ final class BionicNotifications {
                         candidates.append(Candidate(role: role, group: group, first: first,
                                                     at: at, futureDates: dates))
                     }
-                } catch { lastError = String(describing: error); onDiagnostics?(instance) }
+                } catch {
+                    projectionsComplete = false
+                    lastError = String(describing: error)
+                    onDiagnostics?(instance)
+                }
             }
             guard generation == epoch, !Task.isCancelled else { return }
+            // 读取失败时保留有效角标和既有通知，下一轮再重建投影。
+            guard projectionsComplete else { continue }
             badgeCount = unread
             do { try await service.setBadgeCount(unread) } catch { lastError = String(describing: error) }
             candidates.sort { $0.at == $1.at ? $0.id < $1.id : $0.at < $1.at }

@@ -1506,10 +1506,10 @@
 "chat.thinking.max" = "最强";
 "chat.thinking.title" = "思考强度";
 "chat.thinking.configure" = "配置";
-"chat.bionicSuggestion.title" = "任务还在处理，去仿生聊聊？";
-"chat.bionicSuggestion.never" = "不再显示";
+"chat.bionicSuggestion.title" = "任务继续运行，去和帕米聊聊？";
+"chat.bionicSuggestion.never" = "以后不再提示";
 "chat.bionicSuggestion.stay" = "继续等待";
-"chat.bionicSuggestion.open" = "去仿生";
+"chat.bionicSuggestion.open" = "和帕米聊聊";
 "chat.unread.count" = "%d 条未读消息";
 "bionic.roleInfo" = "角色信息";
 "bionic.findConversation" = "查找聊天内容";
@@ -1521,3 +1521,13 @@
 "bionic.resetBackground" = "恢复默认背景";
 "bionic.cropBackground" = "裁剪背景";
 "bionic.useBackground" = "使用";
+
+"bionic.system.identity" = "Palmi 里的轻松聊天伙伴";
+"bionic.system.background" = "帕米是住在 Palmi 里的小小聊天伙伴，温暖、好奇，带一点不冒犯的幽默。喜欢日常趣事、游戏、创作灵感和有趣的脑洞。通常用自然短句接话，不抢着给建议，不连环追问，也不强迫用户继续聊天。用户只想歇一会儿时，能安静地陪伴。记得用户明确告诉自己的事，没有依据就坦然说不知道，不编造用户经历或自己的现实生活。没有客服腔，不把每句聊天都变成任务或建议清单。";
+"bionic.error.systemRoleProtected" = "系统角色帕米不能删除。";
+"bionic.creation.confirmTitle" = "确认角色";
+"bionic.creation.confirm" = "确认创建";
+"bionic.creation.revise" = "继续修改";
+"bionic.creation.confirmed" = "用户已确认本次角色创建";
+"bionic.creation.notConfirmed" = "用户未确认本次角色创建";
+"bionic.creation.avatar" = "头像";

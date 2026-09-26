@@ -65,6 +65,60 @@ extension BionicArchiveStore {
     }
 }
 
+nonisolated struct BionicWindowPresentation: Sendable {
+    let window: BionicWindow
+    let quotes: [String: BionicObject]
+}
+
+nonisolated struct BionicReadProjection: Sendable {
+    let instance: String
+    let participantID: String
+    let throughSequence: Int
+    let totalMessages: Int
+    let unread: Int
+    let latestBody: String
+    let readIDs: Set<String>
+}
+
+nonisolated struct BionicReadKey: Hashable, Sendable {
+    let instance: String
+    let participantID: String
+}
+
+extension BionicArchiveStore {
+    func windowPresentation(
+        _ instance: String,
+        centerID: String? = nil,
+        start: Int? = nil,
+        count: Int = 60
+    ) throws -> BionicWindowPresentation {
+        let window = try messageWindow(instance, centerID: centerID, start: start, count: count)
+        var quotes: [String: BionicObject] = [:]
+        for id in Set(window.messages.compactMap { $0.optionalText("reply_to_message_id") }) {
+            quotes[id] = try message(instance, id)
+        }
+        return BionicWindowPresentation(window: window, quotes: quotes)
+    }
+
+    func readProjection(_ instance: String) throws -> BionicReadProjection {
+        let role = try loadRole(instance)
+        let local = try binding(instance)
+        let read = Set(role.state.raw.object("read_message_ids_by_participant")[role.state.participantID]?.array.compactMap(\.string) ?? [])
+        let stats = try presentationStats(
+            instance, read: read, after: local.int("unread_after_sequence")
+        )
+        return BionicReadProjection(
+            instance: instance,
+            participantID: role.state.participantID,
+            throughSequence: role.throughSequence,
+            totalMessages: role.state.lastMessageSequence,
+            unread: stats.unread,
+            latestBody: stats.latestBody,
+            readIDs: read
+        )
+    }
+}
+
 nonisolated extension BionicDisk {
     static func replayFiles(_ root: URL) throws -> [String] {
         let fm = FileManager.default

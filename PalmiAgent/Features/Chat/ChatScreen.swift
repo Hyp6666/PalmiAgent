@@ -103,7 +103,8 @@ struct ChatScreen: View {
     @State private var messageScrollWorkID = UUID()
     @State private var messageListNearBottom = true
     @State private var screenIsVisible = false
-    @State private var visibleAnswerIDs: Set<UUID> = []
+    @State private var readableMessageViewport = CGRect.zero
+    @State private var messageGeometryReady = false
     @State private var isShowingBionicSuggestion = false
     @State private var pendingLinkAction: LinkOpenRequest?
     @State private var measuredLinkActionPopoverSize: CGSize = .zero
@@ -120,7 +121,6 @@ struct ChatScreen: View {
     @AppStorage("palmi.chat.tools-enabled") private var areToolsEnabled = true
     @AppStorage("palmi.chat.external-reasoning-enabled") private var isExternalReasoningEnabled = true
     @AppStorage("palmi.prof.bionic-suggestion.never") private var neverSuggestBionic = false
-    @AppStorage("palmi.prof.bionic-suggestion.last-shown") private var lastBionicSuggestionAt = 0.0
 
     private let bottomAnchorID = "chat-bottom-anchor"
     private let linkActionPopoverWidth: CGFloat = 286
@@ -187,20 +187,30 @@ struct ChatScreen: View {
             && !isShowingQuickConfiguration && !isShowingBionicSuggestion
             && previewedWorkspaceFile == nil && previewedAttachmentFiles == nil
             && linkSharePayload == nil && attachmentPresentation == nil
+            && !isShowingPlusMenu && !isShowingContextInfo && pendingLinkAction == nil
+            && !isShowingModeInfo
     }
-    private func markVisibleAnswersRead() {
-        guard mayMarkVisibleAnswersRead, let selection = workspaceStore.selectedSelection else { return }
-        store.unreadStore.markRead(visibleAnswerIDs, selection: selection)
+    @State private var openBionicAfterSuggestion = false
+
+    private struct BionicSuggestionPresentationKey: Equatable {
+        let ticket: BionicSuggestionTicket?
+        let eligible: Bool
     }
-    private func answerVisibility(_ id: UUID, visible: Bool) {
-        if visible { visibleAnswerIDs.insert(id) } else { visibleAnswerIDs.remove(id) }
-        markVisibleAnswersRead()
+
+    private var canPresentBionicSuggestion: Bool {
+        shellMode == .professional && screenIsVisible && scenePhase == .active
+            && store.isLoading && onOpenBionic != nil && !neverSuggestBionic
+            && unreadSnapshot.readingAllowed
+            && store.pendingApprovalRequest == nil && store.browserPresentation == nil
+            && !isShowingQuickConfiguration && !isShowingPlusMenu
+            && !isShowingContextInfo && !isShowingModeInfo && !isShowingBionicSuggestion
+            && previewedWorkspaceFile == nil && previewedAttachmentFiles == nil
+            && linkSharePayload == nil && attachmentPresentation == nil
+            && pendingLinkAction == nil
     }
-    private var bionicSuggestionRunKey: String {
-        guard !isChatSurface, store.isLoading, onOpenBionic != nil,
-              let selection = workspaceStore.selectedSelection,
-              let header = store.activeTurnHeaderID else { return "" }
-        return selection.projectID.uuidString + ":" + selection.threadID.uuidString + ":" + header.uuidString
+
+    private var bionicSuggestionPresentationKey: BionicSuggestionPresentationKey {
+        .init(ticket: store.bionicSuggestionTicket, eligible: canPresentBionicSuggestion)
     }
 
     private var turns: [ChatTurn] {
@@ -533,30 +543,25 @@ struct ChatScreen: View {
         .onAppear {
             cachedModelSelectionState = computedModelSelectionState
             screenIsVisible = true
-            markVisibleAnswersRead()
             contextRefreshID = UUID()
         }
-        .onDisappear { screenIsVisible = false; visibleAnswerIDs.removeAll() }
-        .onChange(of: workspaceStore.selectedSelection) { _, _ in visibleAnswerIDs.removeAll() }
-        .onChange(of: store.unreadStore.revision) { _, _ in markVisibleAnswersRead() }
-        .onChange(of: mayMarkVisibleAnswersRead) { _, allowed in
-            if allowed { markVisibleAnswersRead() }
-        }
+        .onDisappear { screenIsVisible = false }
         .onChange(of: store.isLoading) { _, loading in
             if !loading { isShowingBionicSuggestion = false }
         }
-        .task(id: bionicSuggestionRunKey) {
-            let key = bionicSuggestionRunKey
-            guard !key.isEmpty, !neverSuggestBionic,
-                  Date.now.timeIntervalSince1970 - lastBionicSuggestionAt >= 7 * 24 * 3600 else { return }
-            do { try await Task.sleep(for: .seconds(20)) } catch { return }
-            guard !Task.isCancelled, key == bionicSuggestionRunKey, store.isLoading,
-                  !isChatSurface, scenePhase == .active, !neverSuggestBionic,
-                  store.pendingApprovalRequest == nil, store.browserPresentation == nil,
-                  !isShowingQuickConfiguration, !isShowingPlusMenu,
-                  previewedWorkspaceFile == nil, previewedAttachmentFiles == nil,
-                  linkSharePayload == nil, attachmentPresentation == nil else { return }
-            lastBionicSuggestionAt = Date.now.timeIntervalSince1970
+        .task(id: bionicSuggestionPresentationKey) {
+            let captured = bionicSuggestionPresentationKey
+            guard captured.eligible, let ticket = captured.ticket else { return }
+            let remaining = ticket.deadline.timeIntervalSinceNow
+            if remaining > 0 {
+                do { try await Task.sleep(for: .seconds(remaining)) }
+                catch { return }
+            } else {
+                await Task.yield()
+            }
+            guard !Task.isCancelled, canPresentBionicSuggestion,
+                  store.bionicSuggestionTicket?.runID == ticket.runID,
+                  store.claimBionicSuggestion(ticket.runID) else { return }
             isShowingBionicSuggestion = true
         }
         .task(id: workspaceStore.selectedSelection) {
@@ -631,19 +636,24 @@ struct ChatScreen: View {
                 .presentationCornerRadius(38)
                 .presentationBackground(Color(red: 0.948, green: 0.950, blue: 0.958))
         }
-        .sheet(isPresented: $isShowingBionicSuggestion) {
+        .sheet(isPresented: $isShowingBionicSuggestion, onDismiss: {
+            guard openBionicAfterSuggestion else { return }
+            openBionicAfterSuggestion = false
+            onOpenBionic?()
+        }) {
             VStack(spacing: 24) {
                 Text(PalmiL10n.tr("chat.bionicSuggestion.title"))
                     .font(.title3.weight(.semibold))
                 Toggle(PalmiL10n.tr("chat.bionicSuggestion.never"), isOn: $neverSuggestBionic)
                 HStack(spacing: 16) {
                     Button(PalmiL10n.tr("chat.bionicSuggestion.stay")) {
+                        openBionicAfterSuggestion = false
                         isShowingBionicSuggestion = false
                     }
                     .buttonStyle(.bordered)
                     Button(PalmiL10n.tr("chat.bionicSuggestion.open")) {
+                        openBionicAfterSuggestion = true
                         isShowingBionicSuggestion = false
-                        onOpenBionic?()
                     }
                     .buttonStyle(.borderedProminent)
                 }
@@ -704,22 +714,34 @@ struct ChatScreen: View {
                     .padding(.horizontal, 18)
                     .background { PalmiChatScrollTopGuard().frame(width: 0, height: 0) }
                 }
+                .onGeometryChange(for: CGRect.self) { proxy in
+                    let frame = proxy.frame(in: .global)
+                    let top = geometry.safeAreaInsets.top + 90
+                    let bottom = messageBottomClearance
+                    return CGRect(
+                        x: frame.minX, y: frame.minY + top,
+                        width: frame.width,
+                        height: max(0, frame.height - top - bottom)
+                    )
+                } action: { rect in
+                    if readableMessageViewport != rect { readableMessageViewport = rect }
+                }
                 .scrollDismissesKeyboard(.interactively)
                 .onScrollPhaseChange { _, phase in
-                    messageScrollIsInteracting = phase == .interacting
+                    messageScrollIsInteracting = phase == .interacting || phase == .decelerating
                 }
                 .onScrollGeometryChange(for: PalmiChatScrollMetrics.self) {
                     PalmiChatScrollMetrics($0)
                 } action: { old, next in
+                    messageGeometryReady = true
                     if messageListNearBottom != next.nearBottom {
                         messageListNearBottom = next.nearBottom
                     }
-                    if messageScrollIsInteracting {
-                        if next.nearBottom {
-                            if !isMessageAutoFollowEnabled { isMessageAutoFollowEnabled = true }
-                        } else if next.isUserMovingToOlder(comparedWith: old) {
-                            if isMessageAutoFollowEnabled { isMessageAutoFollowEnabled = false }
-                        }
+                    if next.nearBottom {
+                        if !isMessageAutoFollowEnabled { isMessageAutoFollowEnabled = true }
+                    } else if messageScrollIsInteracting,
+                              next.isUserMovingToOlder(comparedWith: old) {
+                        if isMessageAutoFollowEnabled { isMessageAutoFollowEnabled = false }
                     }
                     if isMessageAutoFollowEnabled,
                        (abs(old.contentHeight - next.contentHeight) > 0.5
@@ -761,8 +783,11 @@ struct ChatScreen: View {
                     scrollToBottomIfFollowing(proxy, animated: false)
                 }
                 .overlay(alignment: .bottomTrailing) {
-                    if !isMessageAutoFollowEnabled && !messageListNearBottom {
-                        Button { scrollToBottom(proxy) } label: {
+                    if messageGeometryReady && !messageListNearBottom {
+                        Button {
+                            isMessageAutoFollowEnabled = true
+                            messageScrollWorkID = UUID()
+                        } label: {
                             Image(systemName: "arrow.down")
                                 .font(.body.bold()).padding(12)
                                 .background(.regularMaterial, in: Circle())
@@ -841,9 +866,20 @@ struct ChatScreen: View {
                 ForEach(finalThoughtMessages) { message in
                     turnMessageView(message)
                 }
+                let selection = workspaceStore.selectedSelection
+                let answerID = turn.headerMessage?.id ?? finalMessage.id
+                let completed = turn.headerMessage != nil
+                    ? turn.headerMessage?.sessionHeader?.finishedAt != nil
+                    : store.activeStreamingMessageIDValue != finalMessage.id
                 assistantMarkdown(for: finalMessage)
-                    .onScrollVisibilityChange(threshold: 0.15) { visible in
-                        answerVisibility(turn.headerMessage?.id ?? finalMessage.id, visible: visible)
+                    .palmiMessageVisibility(
+                        in: readableMessageViewport,
+                        enabled: mayMarkVisibleAnswersRead && completed,
+                        revision: store.unreadStore.revision
+                    ) { visible in
+                        guard visible, let selection,
+                              workspaceStore.selectedSelection == selection else { return }
+                        store.unreadStore.markRead(Set([answerID]), selection: selection)
                     }
                 if store.activeStreamingMessageIDValue != finalMessage.id {
                     finalAnswerCompletionRow(for: turn, finalMessage: finalMessage)

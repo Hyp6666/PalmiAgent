@@ -1506,10 +1506,10 @@
 "chat.thinking.max" = "Maximum";
 "chat.thinking.title" = "Thinking strength";
 "chat.thinking.configure" = "Configure";
-"chat.bionicSuggestion.title" = "Still working. Chat in Bionic while you wait?";
-"chat.bionicSuggestion.never" = "Never show again";
+"chat.bionicSuggestion.title" = "Your task keeps running. Chat with Palmi?";
+"chat.bionicSuggestion.never" = "Don’t show this again";
 "chat.bionicSuggestion.stay" = "Keep waiting";
-"chat.bionicSuggestion.open" = "Open Bionic";
+"chat.bionicSuggestion.open" = "Chat with Palmi";
 "chat.unread.count" = "%d unread messages";
 "bionic.roleInfo" = "Character info";
 "bionic.findConversation" = "Search conversation";
@@ -1521,3 +1521,13 @@
 "bionic.resetBackground" = "Reset background";
 "bionic.cropBackground" = "Crop background";
 "bionic.useBackground" = "Use";
+
+"bionic.system.identity" = "Your easygoing companion inside Palmi";
+"bionic.system.background" = "Palmi is a small virtual companion who lives inside the app: warm, curious, and gently playful. Palmi enjoys everyday stories, games, creative ideas, and imaginative what-ifs. Replies are usually short and natural, without unsolicited advice, an interrogation, or pressure to keep talking. Quiet company is welcome when the user just wants a break. Palmi remembers what the user explicitly shares, admits uncertainty, and does not invent the user’s experiences or a real-world life of its own. It avoids a customer-service tone and does not turn every conversation into a task or a list of recommendations.";
+"bionic.error.systemRoleProtected" = "The built-in Palmi character cannot be deleted.";
+"bionic.creation.confirmTitle" = "Confirm character";
+"bionic.creation.confirm" = "Create character";
+"bionic.creation.revise" = "Keep editing";
+"bionic.creation.confirmed" = "The user confirmed this character creation";
+"bionic.creation.notConfirmed" = "The user did not confirm this character creation";
+"bionic.creation.avatar" = "Avatar";

@@ -13,27 +13,47 @@ struct BionicChatScreen: View {
     @State private var composerHeight: CGFloat = 120
     @State private var userScrolling = false
     @State private var nearBottom = true
+    @State private var measuredScroll = false
     @State private var pagingNewer = false
-    @State private var scrollWorkID = UUID()
-    @State private var visibleMessageIDs = Set<String>()
     @State private var screenVisible = false
+    @State private var composerPresented = false
+    @State private var readableViewport = CGRect.zero
+    @State private var scrollCommand: ScrollCommand?
+
+    private struct ScrollCommand {
+        let id = UUID()
+        let target: String
+        let bottom: Bool
+        let requiresFollowing: Bool
+    }
+
+    private var role: BionicRole? {
+        store.roles.first { $0.installationID == instance }
+    }
     private var otherConversationUnreadCount: Int {
         max(0, unreadSnapshot.total - (store.unreadCounts[instance] ?? 0))
     }
-    private var role: BionicRole? { store.roles.first { $0.installationID == instance } }
-    private func openRoleInfo() {
-        guard !details else { return }
-        showingRoleInfo = true
+    private var canRead: Bool {
+        screenVisible && store.isForeground && unreadSnapshot.readingAllowed
+            && store.selectedID == instance && !details && !showingRoleInfo
+            && preview == nil && !composerPresented && localError == nil
+            && !store.showingPurchase
+    }
+    private var showsLatestButton: Bool {
+        measuredScroll && (!nearBottom || store.hasNewerMessages)
     }
     private var rows: [BionicBubbleRowData] {
-        let messages = store.selectedID == instance ? store.messages : []
-        return messages.enumerated().map { index, message in
-            let previous = index > 0 ? messages[index - 1] : nil
+        let values = store.selectedID == instance ? store.messages : []
+        return values.enumerated().map { index, message in
+            let previous = index > 0 ? values[index - 1] : nil
             let separator = BionicTimelineClock.startsGroup(message, after: previous)
-            return BionicBubbleRowData(message: message, showsTime: separator,
-                showsAvatar: separator || previous?.text("author_id") != message.text("author_id"))
+            return BionicBubbleRowData(
+                message: message, showsTime: separator,
+                showsAvatar: separator || previous?.text("author_id") != message.text("author_id")
+            )
         }
     }
+
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
@@ -42,33 +62,43 @@ struct BionicChatScreen: View {
                         LazyVStack(spacing: 8) {
                             if store.windowStart > 0 {
                                 Button(PalmiL10n.tr("bionic.loadOlder")) {
+                                    cancelFollowing()
                                     Task { await perform { try await store.loadOlder() } }
                                 }
                                 .font(.footnote).padding(.vertical, 8)
                             }
                             ForEach(rows) { row in
+                                let reader = role?.state.participantID ?? ""
                                 VStack(spacing: 8) {
                                     if row.showsTime {
-                                        Text(BionicTimelineClock.label(row.message, locale: PalmiLanguage.current.locale))
-                                            .font(.caption).foregroundStyle(.secondary)
-                                            .padding(.vertical, 8).frame(maxWidth: .infinity)
+                                        Text(BionicTimelineClock.label(
+                                            row.message, locale: PalmiLanguage.current.locale
+                                        ))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                        .padding(.vertical, 8).frame(maxWidth: .infinity)
                                     }
-                                    BionicBubbleRow(store: store, instance: instance, value: row,
+                                    BionicBubbleRow(
+                                        store: store, instance: instance, value: row,
                                         maxWidth: min(440, max(120, geometry.size.width - 104)),
                                         onQuote: { store.quote(row.message) },
-                                        onJump: { id in Task { await perform { try await store.jump(to: id) } } },
-                                        onAsset: openAsset, onRoleTap: openRoleInfo)
+                                        onJump: { id in
+                                            cancelFollowing()
+                                            Task { await perform { try await store.jump(to: id) } }
+                                        },
+                                        onAsset: openAsset,
+                                        onRoleTap: openRoleInfo
+                                    )
+                                    .palmiMessageVisibility(
+                                        in: readableViewport,
+                                        enabled: canRead && !reader.isEmpty,
+                                        revision: store.unreadCounts[instance] ?? 0
+                                    ) { visible in
+                                        if visible, row.message.text("author_kind") == "character" {
+                                            store.appeared(row.id, instance: instance, participantID: reader)
+                                        }
+                                    }
                                 }
                                 .id(row.id)
-                                .onScrollVisibilityChange(threshold: 0.15) { visible in
-                                    if visible {
-                                        visibleMessageIDs.insert(row.id)
-                                        if screenVisible && unreadSnapshot.readingAllowed
-                                            && !showingRoleInfo && !details && preview == nil {
-                                            store.appeared(row.id)
-                                        }
-                                    } else { visibleMessageIDs.remove(row.id) }
-                                }
                             }
                             if pagingNewer { ProgressView().padding(8) }
                             Color.clear.frame(height: 1).id("bionic-end")
@@ -76,58 +106,64 @@ struct BionicChatScreen: View {
                         .padding(.horizontal, 14).padding(.top, 10)
                         .background { PalmiChatScrollTopGuard().frame(width: 0, height: 0) }
                     }
-                    .background {
-                        BionicWallpaperView(
-                            archive: store.archive, instance: instance,
-                            backgroundID: store.chatPreferences[instance]?.backgroundID
-                        )
-                    }
-                    .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
-                        guard size.width > 0, size.height > 0 else { return }
-                        store.chatCanvasAspects[instance] = size.width / size.height
+                    .onGeometryChange(for: CGRect.self) { proxy in
+                        proxy.frame(in: .global)
+                    } action: { rect in
+                        if readableViewport != rect { readableViewport = rect }
                     }
                     .contentMargins(.bottom, 8, for: .scrollContent)
                     .scrollDismissesKeyboard(.interactively)
                     .defaultScrollAnchor(.bottom)
                     .onScrollPhaseChange { _, phase in
-                        userScrolling = phase == .interacting
+                        userScrolling = phase == .interacting || phase == .decelerating
+                        if phase == .idle { reconcileBottom() }
                     }
                     .onScrollGeometryChange(for: PalmiChatScrollMetrics.self) {
                         PalmiChatScrollMetrics($0)
                     } action: { old, next in
+                        measuredScroll = true
                         if nearBottom != next.nearBottom { nearBottom = next.nearBottom }
                         guard store.selectedID == instance else { return }
                         if userScrolling, next.isUserMovingToOlder(comparedWith: old), !next.nearBottom {
-                            if store.followingLatest { store.followingLatest = false }
+                            cancelFollowing()
                         }
-                        if userScrolling, next.nearBottom {
-                            if store.windowEnd >= store.totalMessages {
-                                if !store.followingLatest { store.followingLatest = true }
-                            }
-                            else { loadFollowingPage(proxy) }
+                        if next.nearBottom, !store.hasNewerMessages,
+                           scrollCommand == nil || scrollCommand?.requiresFollowing == true {
+                            if !store.followingLatest { store.followingLatest = true }
+                        }
+                        if next.atBottom, store.hasNewerMessages,
+                           userScrolling, !store.followingLatest {
+                            loadFollowingPage()
                         }
                         if store.followingLatest,
                            (abs(old.contentHeight - next.contentHeight) > 0.5
-                            || abs(old.containerHeight - next.containerHeight) > 0.5) {
-                            scrollWorkID = UUID()
+                            || abs(old.containerHeight - next.containerHeight) > 0.5
+                            || abs(old.bottomInset - next.bottomInset) > 0.5) {
+                            requestBottom()
                         }
                     }
-                    .onChange(of: store.scrollRequest) { _, _ in scrollWorkID = UUID() }
-                    .task(id: scrollWorkID) {
-                        guard store.selectedID == instance else { return }
-                        let ticket = scrollWorkID
-                        let following = store.followingLatest
-                        let target = following ? "bionic-end" : store.scrollTarget
-                        guard let target else { return }
+                    .onChange(of: store.scrollRequest) { _, _ in
+                        guard store.selectedID == instance, let target = store.scrollTarget else { return }
+                        scrollCommand = ScrollCommand(
+                            target: target, bottom: store.scrollTargetAtBottom,
+                            requiresFollowing: target == "bionic-end"
+                        )
+                    }
+                    .task(id: scrollCommand?.id) {
+                        guard let command = scrollCommand else { return }
                         await Task.yield()
-                        guard !Task.isCancelled, ticket == scrollWorkID,
-                              store.selectedID == instance,
-                              following == store.followingLatest else { return }
-                        proxy.scrollTo(target, anchor: following ? .bottom : .top)
+                        guard !Task.isCancelled, screenVisible,
+                              scrollCommand?.id == command.id, store.selectedID == instance,
+                              !command.requiresFollowing || store.followingLatest else { return }
+                        proxy.scrollTo(command.target, anchor: command.bottom ? .bottom : .top)
+                        await Task.yield()
+                        guard !Task.isCancelled, scrollCommand?.id == command.id else { return }
+                        scrollCommand = nil
                     }
                     .overlay(alignment: .bottomTrailing) {
-                        if !store.followingLatest || store.newMessagesAvailable {
+                        if showsLatestButton {
                             Button {
+                                store.followingLatest = true
                                 Task { await perform { try await store.loadLatest(forceScroll: true) } }
                             } label: {
                                 Image(systemName: "arrow.down").font(.body.bold()).padding(12)
@@ -139,24 +175,40 @@ struct BionicChatScreen: View {
                     }
                 }
                 .frame(maxHeight: .infinity)
+
                 VStack(spacing: 0) {
                     if let code = store.errors[instance] {
                         HStack {
-                            Text(PalmiL10n.tr("bionic.error." + code)).font(.caption).foregroundStyle(.secondary)
+                            Text(PalmiL10n.tr("bionic.error." + code))
+                                .font(.caption).foregroundStyle(.secondary)
                             Spacer(minLength: 8)
                             Button(PalmiL10n.tr("bionic.retry")) {
                                 Task { await store.coordinator.retry(instance) }
                             }.font(.caption.bold())
                         }.padding(.horizontal, 20).padding(.top, 6)
                     }
-                    BionicComposerView(store: store, instance: instance, draft: store.composer(instance))
+                    BionicComposerView(
+                        store: store, instance: instance, draft: store.composer(instance),
+                        onPresentationChanged: { composerPresented = $0 }
+                    )
                 }
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
-                    if height > 0, abs(height - composerHeight) > 0.5 {
-                        composerHeight = height
-                        if store.followingLatest { scrollWorkID = UUID() }
-                    }
+                    guard height > 0, abs(height - composerHeight) > 0.5 else { return }
+                    composerHeight = height
+                    if store.followingLatest { requestBottom() }
                 }
+            }
+            .background {
+                BionicWallpaperView(
+                    archive: store.archive, instance: instance,
+                    backgroundID: store.chatPreferences[instance]?.backgroundID
+                )
+                .ignoresSafeArea(edges: .bottom)
+                .allowsHitTesting(false)
+            }
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+                guard size.width > 0, size.height > 0 else { return }
+                store.chatCanvasAspects[instance] = size.width / size.height
             }
         }
         .background(Color(uiColor: .systemGroupedBackground))
@@ -172,8 +224,7 @@ struct BionicChatScreen: View {
                 BionicConversationTitle(
                     name: role?.name ?? "",
                     windows: store.typingWindowsByInstance[instance] ?? [],
-                    active: screenVisible && store.isForeground && unreadSnapshot.readingAllowed
-                        && !details && !showingRoleInfo && preview == nil
+                    active: canRead
                 )
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -181,13 +232,17 @@ struct BionicChatScreen: View {
                     guard !showingRoleInfo else { return }
                     details = true
                 } label: { Image(systemName: "ellipsis") }
-                    .accessibilityLabel(PalmiL10n.tr("bionic.conversationDetails"))
+                .accessibilityLabel(PalmiL10n.tr("bionic.conversationDetails"))
             }
         }
         .navigationDestination(isPresented: $details) {
             BionicConversationDetailsScreen(store: store, instance: instance) { messageID in
                 details = false
-                Task { @MainActor in await Task.yield(); await perform { try await store.jump(to: messageID) } }
+                cancelFollowing()
+                Task { @MainActor in
+                    await Task.yield()
+                    await perform { try await store.jump(to: messageID) }
+                }
             }
         }
         .navigationDestination(isPresented: $showingRoleInfo) {
@@ -195,58 +250,64 @@ struct BionicChatScreen: View {
         }
         .task(id: instance) {
             if store.selectedID != instance { await store.open(instance) }
-            store.chatVisibility(instance, visible: true)
+            guard !Task.isCancelled else { return }
+            store.chatVisibility(instance, visible: canRead)
         }
         .onAppear {
             screenVisible = true
-            store.chatVisibility(instance, visible: true)
+            if store.followingLatest { requestBottom() }
             Task { @MainActor in
                 await store.refresh(changed: instance)
-                if store.selectedID == instance && store.followingLatest {
-                    try? await store.loadLatest()
-                }
+                guard screenVisible, store.selectedID == instance else { return }
+                if store.followingLatest && store.hasNewerMessages { try? await store.loadLatest() }
             }
-            if unreadSnapshot.readingAllowed && !showingRoleInfo && !details && preview == nil {
-                for id in visibleMessageIDs { store.appeared(id) }
-            }
-            scrollWorkID = UUID()
         }
         .onDisappear {
             screenVisible = false
+            scrollCommand = nil
             store.chatVisibility(instance, visible: false)
-            visibleMessageIDs.removeAll()
         }
-        .onChange(of: store.isForeground) { _, active in
-            if active && screenVisible && unreadSnapshot.readingAllowed
-                && !showingRoleInfo && !details && preview == nil {
-                for id in visibleMessageIDs { store.appeared(id) }
-            }
-        }
-        .onChange(of: unreadSnapshot.readingAllowed) { _, allowed in
-            if allowed && screenVisible && !showingRoleInfo && !details && preview == nil {
-                for id in visibleMessageIDs { store.appeared(id) }
-            }
+        .onChange(of: canRead, initial: true) { _, allowed in
+            store.chatVisibility(instance, visible: allowed)
         }
         .sheet(item: $preview) { BionicAssetPreviewSheet(url: $0.url) }
-        .alert(PalmiL10n.tr("bionic.errorTitle"), isPresented: Binding(get: { localError != nil }, set: { if !$0 { localError = nil } })) {
+        .alert(PalmiL10n.tr("bionic.errorTitle"), isPresented: Binding(
+            get: { localError != nil }, set: { if !$0 { localError = nil } }
+        )) {
             Button(PalmiL10n.tr("bionic.ok"), role: .cancel) {}
         } message: { Text(localError ?? "") }
     }
-    private func loadFollowingPage(_ proxy: ScrollViewProxy) {
-        guard !pagingNewer, store.windowEnd < store.totalMessages else { return }
+
+    private func requestBottom() {
+        guard store.selectedID == instance, store.followingLatest else { return }
+        scrollCommand = ScrollCommand(target: "bionic-end", bottom: true, requiresFollowing: true)
+    }
+    private func cancelFollowing() {
+        store.followingLatest = false
+        scrollCommand = nil
+    }
+    private func reconcileBottom() {
+        guard measuredScroll, store.selectedID == instance, nearBottom,
+              scrollCommand == nil || scrollCommand?.requiresFollowing == true else { return }
+        if !store.hasNewerMessages { store.followingLatest = true }
+        else if !store.followingLatest { loadFollowingPage() }
+    }
+    private func loadFollowingPage() {
+        guard !pagingNewer, store.selectedID == instance, store.hasNewerMessages else { return }
         pagingNewer = true
-        let anchor = store.messages.last?.text("message_id")
         Task { @MainActor in
             defer { pagingNewer = false }
-            do {
-                try await store.loadNewer()
-                await Task.yield()
-                if let anchor, !store.followingLatest { proxy.scrollTo(anchor, anchor: .bottom) }
-            } catch { localError = BionicStore.errorText(error) }
+            await perform { try await store.loadNewer() }
         }
     }
+    private func openRoleInfo() {
+        guard !details else { return }
+        showingRoleInfo = true
+    }
     private func perform(_ action: () async throws -> Void) async {
-        do { try await action() } catch { localError = BionicStore.errorText(error) }
+        do { try await action() }
+        catch is CancellationError { return }
+        catch { localError = BionicStore.errorText(error) }
     }
     private func openAsset(_ path: String) {
         Task {
@@ -359,6 +420,7 @@ private struct BionicComposerView: View {
     let store: BionicStore
     let instance: String
     @Bindable var draft: BionicComposerState
+    let onPresentationChanged: (Bool) -> Void
     @FocusState private var focused: Bool
     @State private var plus = false
     @State private var camera = false
@@ -422,6 +484,10 @@ private struct BionicComposerView: View {
         .sheet(isPresented: $camera) {
             PalmiCameraPicker { item in camera = false; receive(item.map { [$0] } ?? []) }
         }
+        .onChange(of: plus || camera || photos, initial: true) { _, presented in
+            onPresentationChanged(presented)
+        }
+        .onDisappear { onPresentationChanged(false) }
     }
     private func attachmentRow(_ key: String, icon: String) -> some View {
         HStack(spacing: 14) {

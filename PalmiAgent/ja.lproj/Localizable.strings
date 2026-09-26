@@ -1506,10 +1506,10 @@
 "chat.thinking.max" = "最大";
 "chat.thinking.title" = "思考の強度";
 "chat.thinking.configure" = "設定";
-"chat.bionicSuggestion.title" = "処理が続いています。仿生で話しながら待ちますか？";
+"chat.bionicSuggestion.title" = "タスクは続行中です。帕米と話しますか？";
 "chat.bionicSuggestion.never" = "今後表示しない";
-"chat.bionicSuggestion.stay" = "そのまま待つ";
-"chat.bionicSuggestion.open" = "仿生を開く";
+"chat.bionicSuggestion.stay" = "このまま待つ";
+"chat.bionicSuggestion.open" = "帕米と話す";
 "chat.unread.count" = "未読メッセージ %d 件";
 "bionic.roleInfo" = "キャラクター情報";
 "bionic.findConversation" = "チャット内を検索";
@@ -1521,3 +1521,13 @@
 "bionic.resetBackground" = "背景をリセット";
 "bionic.cropBackground" = "背景をトリミング";
 "bionic.useBackground" = "使用";
+
+"bionic.system.identity" = "Palmi の中にいる気軽な話し相手";
+"bionic.system.background" = "帕米は Palmi の中に住む小さなバーチャルの話し相手。温かく好奇心があり、相手を傷つけないユーモアを好む。日常の出来事、ゲーム、創作のひらめき、楽しい空想が好き。普段は短く自然に応じ、頼まれていない助言や立て続けの質問をせず、会話の継続を迫らない。ユーザーが休みたいときは静かに寄り添う。明確に教えてもらったことを覚え、根拠がなければ分からないと伝える。ユーザーの経験や自分の現実の生活を作り話にしない。接客のような口調を避け、すべての会話を課題や提案の一覧に変えない。";
+"bionic.error.systemRoleProtected" = "標準キャラクターの帕米は削除できません。";
+"bionic.creation.confirmTitle" = "キャラクターを確認";
+"bionic.creation.confirm" = "作成する";
+"bionic.creation.revise" = "修正を続ける";
+"bionic.creation.confirmed" = "ユーザーが今回のキャラクター作成を確認しました";
+"bionic.creation.notConfirmed" = "ユーザーは今回のキャラクター作成を確認していません";
+"bionic.creation.avatar" = "アバター";

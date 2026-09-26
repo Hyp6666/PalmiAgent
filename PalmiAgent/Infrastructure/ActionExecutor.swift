@@ -106,9 +106,32 @@ final class ActionExecutor {
                 guard let bionicStore else {
                     throw AppError.invalidState(PalmiL10n.tr("bionic.creation.unavailable"))
                 }
-                let result = try await bionicStore.createFromTool(arguments, executionID: executionID ?? UUID())
-                return success(action, PalmiL10n.tr("bionic.creation.created", result.text("nickname")),
-                               details: try BionicCodec.string(result))
+                let id = executionID ?? UUID()
+                _ = try BionicPersonaCreation.make(
+                    arguments, characterID: id.uuidString.lowercased()
+                )
+                var avatar: Data?
+                if let specification = try BionicAvatarImportSpec.parse(arguments) {
+                    let root = try workspaceManager.ensureWorkspace()
+                        .standardizedFileURL.resolvingSymlinksInPath()
+                    let url = try workspaceManager.url(for: specification.path)
+                        .standardizedFileURL.resolvingSymlinksInPath()
+                    guard url.pathComponents.count > root.pathComponents.count,
+                          url.pathComponents.starts(with: root.pathComponents) else {
+                        throw BionicFailure("invalidImage")
+                    }
+                    avatar = try await BionicAvatarImporter.shared.prepare(
+                        url: url, crop: specification.crop
+                    )
+                }
+                try Task.checkCancellation()
+                let result = try await bionicStore.createFromTool(
+                    arguments, executionID: id, avatar: avatar
+                )
+                return success(
+                    action, PalmiL10n.tr("bionic.creation.created", result.text("nickname")),
+                    details: try BionicCodec.string(result)
+                )
 
             case .fileRead:
                 let path = try arguments.requiredString("path")

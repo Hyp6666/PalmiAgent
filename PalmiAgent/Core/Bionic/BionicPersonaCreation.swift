@@ -22,8 +22,43 @@ enum BionicPersonaCreation {
             "sleep_end_minute": ToolJSONSchema.integer(description: "当地时间距零点的分钟数，0到1439；必须区别于入睡时间"),
             "reply_timing": ToolJSONSchema.string(description: "默认instant", enumValues: ["instant", "natural"]),
             "proactive_enabled": ToolJSONSchema.bool(description: "是否允许主动联系，默认false"),
-            "evolution_enabled": ToolJSONSchema.bool(description: "是否启用既有人格演化，默认false")
+            "evolution_enabled": ToolJSONSchema.bool(description: "是否启用既有人格演化，默认false"),
+            "avatar_path": ToolJSONSchema.string(
+                description: "可选。用户选定的工作区图片相对路径，不能是URL、绝对路径或虚构文件。头像未提供时省略本字段。"
+            ),
+            "avatar_crop": ToolJSONSchema.object(properties: [
+                "center_x": ToolJSONSchema.number(description: "转正图片中的水平中心，0到1，左到右"),
+                "center_y": ToolJSONSchema.number(description: "转正图片中的垂直中心，0到1，上到下"),
+                "size": ToolJSONSchema.number(description: "正方形边长占转正图片短边的比例，大于0且不超过1")
+            ], required: ["center_x", "center_y", "size"])
         ], required: ["nickname", "identity", "birth_date"])
+    }
+
+    static func normalizedArguments(_ arguments: ToolArguments) throws -> ToolArguments {
+        let draft = try make(arguments, characterID: BionicCodec.id())
+        var fields: BionicObject = [:]
+        for key in ["nickname", "identity", "birth_date", "background", "native_language",
+                    "gender_kind", "baseline_traits", "sleep_start_minute", "sleep_end_minute",
+                    "reply_timing", "proactive_enabled", "evolution_enabled"] {
+            guard let value = draft.persona[key] else {
+                throw BionicFailure("invalidFields", detail: key)
+            }
+            fields[key] = value
+        }
+        fields["participant_name"] = .string(draft.participant.text("display_name"))
+        if let value = draft.persona.optionalText("mbti") { fields["mbti"] = .string(value) }
+        if let value = draft.persona.optionalText("gender_text") { fields["gender_text"] = .string(value) }
+        if let avatar = try BionicAvatarImportSpec.parse(arguments) {
+            fields["avatar_path"] = .string(avatar.path)
+            if let crop = avatar.crop {
+                fields["avatar_crop"] = .object([
+                    "center_x": .number(crop.centerX),
+                    "center_y": .number(crop.centerY),
+                    "size": .number(crop.size)
+                ])
+            }
+        }
+        return try ToolArguments(jsonString: BionicCodec.string(fields))
     }
 
     static func make(_ arguments: ToolArguments, characterID: String,
@@ -34,10 +69,11 @@ enum BionicPersonaCreation {
         let allowed = Set(["nickname", "identity", "birth_date", "background", "native_language",
                            "participant_name", "gender_kind", "gender_text", "mbti", "baseline_traits",
                            "sleep_start_minute", "sleep_end_minute", "reply_timing", "proactive_enabled",
-                           "evolution_enabled"])
+                           "evolution_enabled", "avatar_path", "avatar_crop"])
         guard Set(input.keys).isSubset(of: allowed), BionicCodec.validID(characterID) else {
             throw BionicFailure("invalidFields")
         }
+        _ = try BionicAvatarImportSpec.parse(arguments)
         func string(_ key: String) throws -> String? {
             guard let value = input[key] else { return nil }
             guard case .string(let text) = value else { throw BionicFailure("invalidFields", detail: key) }

@@ -42,6 +42,7 @@ struct WorkspaceShellScreen: View {
     @State private var isShowingModePicker = false
     @State private var isShowingOnboarding = false
     @State private var chatModePath: [ChatModeRoute] = []
+    @State private var openingPalmi = false
 
     init(workspaceStore: WorkspaceStore, manualLabStore: ManualLabStore,
          skillRegistry: SkillRegistry, chatStore: ChatStore, bionicStore: BionicStore) {
@@ -163,11 +164,38 @@ struct WorkspaceShellScreen: View {
         .onChange(of: readingAllowed) { _, _ in
             bionicStore.visibleMode(shellMode == .bionic && readingAllowed)
         }
+        .task(id: hasCompletedOnboarding) {
+            guard hasCompletedOnboarding else { return }
+            do { _ = try await bionicStore.ensureSystemRole() }
+            catch is CancellationError { return }
+            catch { bionicStore.globalError = BionicStore.errorText(error) }
+        }
     }
 
     private var shellMode: AppShellMode {
         get { AppShellMode(rawValue: storedShellMode) ?? .professional }
         nonmutating set { storedShellMode = newValue.rawValue }
+    }
+
+    private func openPalmiConversation() {
+        guard !openingPalmi else { return }
+        openingPalmi = true
+        Task { @MainActor in
+            defer { openingPalmi = false }
+            do {
+                let role = try await bionicStore.ensureSystemRole()
+                bionicStore.globalError = nil
+                await bionicStore.open(role.installationID)
+                guard bionicStore.selectedID == role.installationID,
+                      bionicStore.globalError == nil else {
+                    chatStore.errorMessage = bionicStore.globalError
+                        ?? PalmiL10n.tr("bionic.error.operationFailed")
+                    return
+                }
+                selectShellMode(.bionic)
+            } catch is CancellationError { return }
+            catch { chatStore.errorMessage = BionicStore.errorText(error) }
+        }
     }
 
     private func selectShellMode(_ newMode: AppShellMode) {
@@ -266,7 +294,7 @@ struct WorkspaceShellScreen: View {
                     onOpenSkills: { isShowingProjectSkills = true },
                     shellMode: .professional,
                     onOpenModeSwitcher: { isShowingModePicker = true },
-                    onOpenBionic: { selectShellMode(.bionic) }
+                    onOpenBionic: openPalmiConversation
                 )
                 .id(workspaceStore.selectedThreadID)
             }
@@ -327,7 +355,7 @@ struct WorkspaceShellScreen: View {
                         onShowFiles: { isShowingWorkspaceBrowser = true },
                         shellMode: .professional,
                         onOpenModeSwitcher: { isShowingModePicker = true },
-                        onOpenBionic: { selectShellMode(.bionic) }
+                        onOpenBionic: openPalmiConversation
                     )
                     .id(workspaceStore.selectedThreadID)
                 }

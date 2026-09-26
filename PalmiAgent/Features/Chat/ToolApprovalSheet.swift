@@ -6,18 +6,35 @@ struct ToolApprovalSheet: View {
     let onApproveForSession: () -> Void
     let onReject: () -> Void
 
+    private var isPersonaCreation: Bool { request.toolActionID == .createBionicPersona }
+    @State private var persona: BionicObject?
+    @State private var participant: BionicObject?
+    @State private var avatarFilename: String?
+    @State private var creationError: String?
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    header
-                    metadataGrid
-                    argumentsBlock
+                    if isPersonaCreation {
+                        if let persona, let participant {
+                            personaConfirmation(persona, participant: participant)
+                        } else if let creationError {
+                            Text(creationError).foregroundStyle(.red)
+                        } else {
+                            ProgressView()
+                        }
+                    } else {
+                        header
+                        metadataGrid
+                        argumentsBlock
+                    }
                 }
                 .padding(20)
             }
             .scrollBounceBehavior(.basedOnSize)
-            .navigationTitle(PalmiL10n.tr("tool.approval.title"))
+            .navigationTitle(PalmiL10n.tr(isPersonaCreation
+                ? "bionic.creation.confirmTitle" : "tool.approval.title"))
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) {
                 actionBar
@@ -25,6 +42,85 @@ struct ToolApprovalSheet: View {
         }
         .presentationDetents([.medium, .large])
         .interactiveDismissDisabled(true)
+        .task(id: request.id) {
+            guard isPersonaCreation else { return }
+            persona = nil
+            participant = nil
+            avatarFilename = nil
+            creationError = nil
+            do {
+                let arguments = try ToolArguments(jsonString: request.argumentsJSON)
+                let draft = try BionicPersonaCreation.make(
+                    arguments, characterID: request.id.uuidString.lowercased()
+                )
+                let avatar = try BionicAvatarImportSpec.parse(arguments)
+                persona = draft.persona
+                participant = draft.participant
+                avatarFilename = avatar.map { ($0.path as NSString).lastPathComponent }
+            } catch {
+                creationError = BionicStore.errorText(error)
+            }
+        }
+    }
+
+    private func personaConfirmation(
+        _ persona: BionicObject, participant: BionicObject
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(persona.text("nickname")).font(.title2.weight(.semibold))
+            Text(persona.text("identity")).font(.body)
+            if !persona.text("background").isEmpty {
+                Text(persona.text("background")).font(.body)
+            }
+            Divider()
+            LabeledContent(PalmiL10n.tr("bionic.birthDate"), value: persona.text("birth_date"))
+            LabeledContent(
+                PalmiL10n.tr("bionic.nativeLanguage"),
+                value: BionicPersonaCatalog.languageNames[persona.text("native_language")]
+                    ?? persona.text("native_language")
+            )
+            LabeledContent(
+                PalmiL10n.tr("bionic.myName"), value: participant.text("display_name")
+            )
+            LabeledContent(
+                PalmiL10n.tr("bionic.gender"), value: creationGender(persona)
+            )
+            LabeledContent("MBTI", value: persona.optionalText("mbti") ?? PalmiL10n.tr("bionic.unset"))
+            ForEach(BionicPersonaCatalog.dimensions, id: \.self) { dimension in
+                LabeledContent(
+                    PalmiL10n.tr("bionic.trait." + dimension),
+                    value: PalmiL10n.tr("bionic.trait.\(dimension).\(persona.object("baseline_traits").int(dimension))")
+                )
+            }
+            LabeledContent(PalmiL10n.tr("bionic.sleepStart"), value: creationTime(persona.int("sleep_start_minute")))
+            LabeledContent(PalmiL10n.tr("bionic.sleepEnd"), value: creationTime(persona.int("sleep_end_minute")))
+            LabeledContent(
+                PalmiL10n.tr("bionic.replyTiming"),
+                value: PalmiL10n.tr(BionicReplyTiming.resolve(persona) == .instant
+                    ? "bionic.replyTiming.instant" : "bionic.replyTiming.natural")
+            )
+            LabeledContent(PalmiL10n.tr("bionic.proactive"), value: creationSwitch(persona.flag("proactive_enabled")))
+            LabeledContent(PalmiL10n.tr("bionic.evolution"), value: creationSwitch(persona.flag("evolution_enabled")))
+            LabeledContent(
+                PalmiL10n.tr("bionic.creation.avatar"),
+                value: avatarFilename ?? PalmiL10n.tr("common.none")
+            )
+        }
+    }
+
+    private func creationTime(_ minute: Int) -> String {
+        String(format: "%02d:%02d", minute / 60, minute % 60)
+    }
+    private func creationSwitch(_ enabled: Bool) -> String {
+        PalmiL10n.tr(enabled ? "common.on" : "common.off")
+    }
+    private func creationGender(_ persona: BionicObject) -> String {
+        switch persona.text("gender_kind") {
+        case "male": PalmiL10n.tr("bionic.male")
+        case "female": PalmiL10n.tr("bionic.female")
+        case "custom": persona.text("gender_text")
+        default: PalmiL10n.tr("bionic.genderNone")
+        }
     }
 
     private var header: some View {
@@ -88,27 +184,32 @@ struct ToolApprovalSheet: View {
 
     private var actionBar: some View {
         VStack(spacing: 10) {
-            Button(action: onApproveForSession) {
-                Text(PalmiL10n.tr("tool.approval.approveForSession"))
-                    .frame(maxWidth: .infinity)
+            if !isPersonaCreation {
+                Button(action: onApproveForSession) {
+                    Text(PalmiL10n.tr("tool.approval.approveForSession"))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
 
             HStack(spacing: 12) {
                 Button(role: .cancel, action: onReject) {
-                    Text(PalmiL10n.tr("tool.approval.reject"))
+                    Text(PalmiL10n.tr(isPersonaCreation
+                        ? "bionic.creation.revise" : "tool.approval.reject"))
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
 
                 Button(action: onApprove) {
-                    Text(PalmiL10n.tr("tool.approval.approve"))
+                    Text(PalmiL10n.tr(isPersonaCreation
+                        ? "bionic.creation.confirm" : "tool.approval.approve"))
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
+                .disabled(isPersonaCreation && (persona == nil || participant == nil || creationError != nil))
             }
         }
         .padding(.horizontal, 20)

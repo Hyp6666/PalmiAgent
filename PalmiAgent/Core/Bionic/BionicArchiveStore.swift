@@ -344,9 +344,16 @@ actor BionicArchiveStore {
         return role
     }
     func createRole(persona: BionicObject, participant: BionicObject, assets: [String: Data], binding: BionicObject,
-                    auditRequest: BionicObject? = nil, auditResult: BionicObject? = nil) throws -> BionicRole {
-        let instance = BionicCodec.id(); let staging = root.appendingPathComponent("staging/\(instance)", isDirectory: true)
+                    auditRequest: BionicObject? = nil, auditResult: BionicObject? = nil,
+                    installationID: String? = nil) throws -> BionicRole {
+        let instance = installationID ?? BionicCodec.id()
+        guard BionicCodec.validID(instance) else { throw BionicFailure("invalidFields") }
         let fm = FileManager.default
+        guard !fm.fileExists(atPath: roleURL(instance).path) else {
+            throw BionicFailure("invalidFields")
+        }
+        deleted.remove(instance)
+        let staging = root.appendingPathComponent("staging/\(instance)", isDirectory: true)
         try fm.createDirectory(at: staging, withIntermediateDirectories: true)
         do {
             let manifest: BionicObject = ["format": .string(BionicRecords.format), "character_id": persona["character_id"] ?? .null, "created_at": .string(BionicCodec.instant())]
@@ -571,6 +578,9 @@ actor BionicArchiveStore {
         catch { try? FileManager.default.removeItem(at: roleURL(instance)); try? FileManager.default.removeItem(at: localURL(instance)); throw error }
     }
     func deleteRole(_ instance: String) throws {
+        guard !BionicSystemPersona.isProtected(instance) else {
+            throw BionicFailure("systemRoleProtected")
+        }
         presentationCache.removeValue(forKey: instance)
         deleted.insert(instance); cache.removeValue(forKey: instance)
         for url in [roleURL(instance), localURL(instance)] where FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
@@ -679,13 +689,28 @@ extension BionicArchiveStore {
         let path = "memories/\(memoryID)/\(revision.text("memory_revision_id")).json"
         return try commit(instance, events: Self.invalidationEvents(role, reason: "memory_changed") + [BionicRecords.event("memory_revision_confirmed", ["memory_ref": .string(path), "reason": .string(deleting ? "user_delete" : "user_edit")])], writes: [BionicWrite(path, revision)])
     }
-    func markRead(_ instance: String, ids: [String]) throws {
+    @discardableResult
+    func markRead(
+        _ instance: String,
+        ids: [String],
+        participantID: String? = nil
+    ) throws -> Bool {
         let role = try loadRole(instance)
+        let reader = participantID ?? role.state.participantID
+        guard reader == role.state.participantID else { return false }
         let known = Set(role.state.order.map(\.id))
-        let read = Set(role.state.raw.object("read_message_ids_by_participant")[role.state.participantID]?.array.compactMap(\.string) ?? [])
-        let fresh = ids.filter { known.contains($0) && !read.contains($0) }
-        guard !fresh.isEmpty else { return }
-        _ = try commit(instance, events: [BionicRecords.event("messages_read", ["participant_id": .string(role.state.participantID), "message_ids": .strings(fresh), "read_at": .string(BionicCodec.instant())])])
+        let read = Set(role.state.raw.object("read_message_ids_by_participant")[reader]?.array.compactMap(\.string) ?? [])
+        let candidates = Set(ids).intersection(known).subtracting(read)
+        let fresh = try candidates.sorted().filter { id in
+            try message(instance, id).text("author_kind") == "character"
+        }
+        guard !fresh.isEmpty else { return false }
+        _ = try commit(instance, events: [BionicRecords.event("messages_read", [
+            "participant_id": .string(reader),
+            "message_ids": .strings(fresh),
+            "read_at": .string(BionicCodec.instant())
+        ])])
+        return true
     }
     func resetAll() throws {
         presentationCache.removeAll()

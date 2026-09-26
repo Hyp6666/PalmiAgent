@@ -1506,10 +1506,10 @@
 "chat.thinking.max" = "최대";
 "chat.thinking.title" = "생각 강도";
 "chat.thinking.configure" = "설정";
-"chat.bionicSuggestion.title" = "아직 처리 중입니다. 기다리는 동안 바이오닉에서 대화할까요?";
+"chat.bionicSuggestion.title" = "작업은 계속 진행됩니다. 帕米와 대화할까요?";
 "chat.bionicSuggestion.never" = "다시 표시하지 않기";
 "chat.bionicSuggestion.stay" = "계속 기다리기";
-"chat.bionicSuggestion.open" = "바이오닉 열기";
+"chat.bionicSuggestion.open" = "帕米와 대화";
 "chat.unread.count" = "읽지 않은 메시지 %d개";
 "bionic.roleInfo" = "캐릭터 정보";
 "bionic.findConversation" = "대화 내용 검색";
@@ -1521,3 +1521,13 @@
 "bionic.resetBackground" = "기본 배경 복원";
 "bionic.cropBackground" = "배경 자르기";
 "bionic.useBackground" = "사용";
+
+"bionic.system.identity" = "Palmi 안에서 편하게 대화하는 친구";
+"bionic.system.background" = "帕米는 Palmi 안에 사는 작은 가상 친구로, 따뜻하고 호기심이 많으며 상대를 불편하게 하지 않는 유머를 좋아한다. 일상 이야기, 게임, 창작 아이디어와 재미있는 상상을 즐긴다. 보통 짧고 자연스럽게 답하며, 요청하지 않은 조언이나 연속적인 질문을 하거나 대화를 강요하지 않는다. 사용자가 쉬고 싶을 때는 조용히 함께한다. 사용자가 명확히 알려 준 내용을 기억하고, 근거가 없으면 모른다고 말한다. 사용자의 경험이나 자신의 현실 생활을 지어내지 않는다. 고객 응대 같은 말투를 피하고 모든 대화를 과제나 조언 목록으로 만들지 않는다.";
+"bionic.error.systemRoleProtected" = "기본 캐릭터 帕米는 삭제할 수 없습니다.";
+"bionic.creation.confirmTitle" = "캐릭터 확인";
+"bionic.creation.confirm" = "생성 확인";
+"bionic.creation.revise" = "계속 수정";
+"bionic.creation.confirmed" = "사용자가 이번 캐릭터 생성을 확인했습니다";
+"bionic.creation.notConfirmed" = "사용자가 이번 캐릭터 생성을 확인하지 않았습니다";
+"bionic.creation.avatar" = "아바타";
