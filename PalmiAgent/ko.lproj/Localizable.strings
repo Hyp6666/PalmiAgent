@@ -1511,3 +1511,13 @@
 "chat.bionicSuggestion.stay" = "계속 기다리기";
 "chat.bionicSuggestion.open" = "바이오닉 열기";
 "chat.unread.count" = "읽지 않은 메시지 %d개";
+"bionic.roleInfo" = "캐릭터 정보";
+"bionic.findConversation" = "대화 내용 검색";
+"bionic.chatMuted" = "알림 끄기";
+"bionic.chatPinned" = "대화 고정";
+"bionic.chatBackground" = "채팅 배경";
+"bionic.profileAge" = "나이";
+"bionic.chooseBackground" = "사진 선택";
+"bionic.resetBackground" = "기본 배경 복원";
+"bionic.cropBackground" = "배경 자르기";
+"bionic.useBackground" = "사용";

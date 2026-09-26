@@ -1511,3 +1511,13 @@
 "chat.bionicSuggestion.stay" = "继续等待";
 "chat.bionicSuggestion.open" = "去仿生";
 "chat.unread.count" = "%d 条未读消息";
+"bionic.roleInfo" = "角色信息";
+"bionic.findConversation" = "查找聊天内容";
+"bionic.chatMuted" = "消息免打扰";
+"bionic.chatPinned" = "置顶聊天";
+"bionic.chatBackground" = "聊天背景";
+"bionic.profileAge" = "年龄";
+"bionic.chooseBackground" = "选择照片";
+"bionic.resetBackground" = "恢复默认背景";
+"bionic.cropBackground" = "裁剪背景";
+"bionic.useBackground" = "使用";

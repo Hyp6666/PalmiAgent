@@ -98,7 +98,10 @@ final class BionicNotifications {
                 onRoute?(instance, message)
             }
             await reconcile()
-            return true
+            if clicked { return true }
+            let currentBinding = try await archive.binding(instance)
+            return currentBinding.flag("notifications_enabled")
+                && !currentBinding.flag("chat_muted")
         } catch {
             lastError = String(describing: error)
             onDiagnostics?(instance)
@@ -159,6 +162,7 @@ final class BionicNotifications {
             let allPending = Set(await service.pendingIdentifiers())
             let existing = Set(allPending.filter { $0.hasPrefix("palmi.bionic.") })
             let delivered = Set(await service.deliveredIdentifiers().filter { $0.hasPrefix("palmi.bionic.") })
+            var keepDueRequests = Set<String>()
             let otherPending = allPending.count - existing.count
             let available = max(0, Self.totalPendingBudget - otherPending)
             var unread = 0
@@ -171,8 +175,13 @@ final class BionicNotifications {
                     if role.state.lastMessageSequence != snapshot.state.lastMessageSequence { onArrival?(instance) }
                     let binding = try await archive.binding(instance)
                     let read = Set(role.state.raw.object("read_message_ids_by_participant")[role.state.participantID]?.array.compactMap(\.string) ?? [])
-                    unread += try await history.stats(instance, read: read,
-                                                      after: binding.int("unread_after_sequence")).unread
+                    unread += try await archive.presentationStats(
+                        instance, read: read, after: binding.int("unread_after_sequence")
+                    ).unread
+                    if binding.flag("chat_muted") {
+                        let prefix = "palmi.bionic.\(instance)."
+                        service.removeDelivered(Array(delivered.filter { $0.hasPrefix(prefix) }))
+                    }
                     for group in role.state.groups {
                         let id = Self.identifier(instance, group.text("group_id"))
                         let items = group.records("items").sorted { $0.text("planned_at") < $1.text("planned_at") }
@@ -183,7 +192,21 @@ final class BionicNotifications {
                                     || role.state.itemState(item.text("message_id")) == "cancelled"
                             }) { service.removeDelivered([id]) }
                         }
+                        if existing.contains(id), !delivered.contains(id),
+                           authorized, binding.flag("notifications_enabled"),
+                           !binding.flag("chat_muted"),
+                           BionicDeliveryPolicy.contactAllowed(group, binding: binding),
+                           BionicOutboxPolicy.invalidReason(group, role: role) == nil,
+                           group.text("planned_timezone") == TimeZone.current.identifier,
+                           let first = items.first,
+                           !read.contains(first.text("message_id")),
+                           role.state.itemState(first.text("message_id")) != "cancelled",
+                           let date = try? BionicCodec.date(first.text("planned_at")),
+                           date <= now, now.timeIntervalSince(date) < 5 {
+                            keepDueRequests.insert(id)
+                        }
                         guard authorized, binding.flag("notifications_enabled"),
+                              !binding.flag("chat_muted"),
                               BionicOutboxPolicy.invalidReason(group, role: role) == nil,
                               group.text("planned_timezone") == TimeZone.current.identifier,
                               BionicDeliveryPolicy.contactAllowed(group, binding: binding),
@@ -204,9 +227,9 @@ final class BionicNotifications {
             badgeCount = unread
             do { try await service.setBadgeCount(unread) } catch { lastError = String(describing: error) }
             candidates.sort { $0.at == $1.at ? $0.id < $1.id : $0.at < $1.at }
-            let chosen = Array(candidates.prefix(available))
+            let chosen = Array(candidates.prefix(max(0, available - keepDueRequests.count)))
             omittedGroupCount = max(0, candidates.count - chosen.count)
-            let desired = Set(chosen.map(\.id))
+            let desired = Set(chosen.map(\.id)).union(keepDueRequests)
             service.removePending(Array(existing.subtracting(desired)))
             scheduledFingerprints = scheduledFingerprints.filter { desired.contains($0.key) }
             let chosenDates = chosen.flatMap(\.futureDates)
@@ -228,6 +251,7 @@ final class BionicNotifications {
                           BionicOutboxPolicy.invalidReason(candidate.group, role: current) == nil,
                           BionicDeliveryPolicy.contactAllowed(candidate.group, binding: binding),
                           binding.flag("notifications_enabled"),
+                          !binding.flag("chat_muted"),
                           current.state.itemState(candidate.first.text("message_id")) == "pending",
                           candidate.at > Date.now else { continue }
                     try await service.sendLocalNotification(title: current.name, body: candidate.first.text("body"), delaySeconds: nil,
@@ -240,6 +264,7 @@ final class BionicNotifications {
                     guard generation == epoch, !removed.contains(instance),
                           BionicOutboxPolicy.invalidReason(candidate.group, role: after) == nil,
                           local.flag("notifications_enabled"),
+                          !local.flag("chat_muted"),
                           BionicDeliveryPolicy.contactAllowed(candidate.group, binding: local) else {
                         service.removePending([id])
                         again = true

@@ -7,6 +7,7 @@ struct BionicChatScreen: View {
     @Bindable var store: BionicStore
     let instance: String
     @State private var details = false
+    @State private var showingRoleInfo = false
     @State private var preview: BionicAssetPreview?
     @State private var localError: String?
     @State private var composerHeight: CGFloat = 120
@@ -20,6 +21,10 @@ struct BionicChatScreen: View {
         max(0, unreadSnapshot.total - (store.unreadCounts[instance] ?? 0))
     }
     private var role: BionicRole? { store.roles.first { $0.installationID == instance } }
+    private func openRoleInfo() {
+        guard !details else { return }
+        showingRoleInfo = true
+    }
     private var rows: [BionicBubbleRowData] {
         let messages = store.selectedID == instance ? store.messages : []
         return messages.enumerated().map { index, message in
@@ -52,13 +57,14 @@ struct BionicChatScreen: View {
                                         maxWidth: min(440, max(120, geometry.size.width - 104)),
                                         onQuote: { store.quote(row.message) },
                                         onJump: { id in Task { await perform { try await store.jump(to: id) } } },
-                                        onAsset: openAsset)
+                                        onAsset: openAsset, onRoleTap: openRoleInfo)
                                 }
                                 .id(row.id)
                                 .onScrollVisibilityChange(threshold: 0.15) { visible in
                                     if visible {
                                         visibleMessageIDs.insert(row.id)
-                                        if screenVisible && unreadSnapshot.readingAllowed {
+                                        if screenVisible && unreadSnapshot.readingAllowed
+                                            && !showingRoleInfo && !details && preview == nil {
                                             store.appeared(row.id)
                                         }
                                     } else { visibleMessageIDs.remove(row.id) }
@@ -68,6 +74,17 @@ struct BionicChatScreen: View {
                             Color.clear.frame(height: 1).id("bionic-end")
                         }
                         .padding(.horizontal, 14).padding(.top, 10)
+                        .background { PalmiChatScrollTopGuard().frame(width: 0, height: 0) }
+                    }
+                    .background {
+                        BionicWallpaperView(
+                            archive: store.archive, instance: instance,
+                            backgroundID: store.chatPreferences[instance]?.backgroundID
+                        )
+                    }
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+                        guard size.width > 0, size.height > 0 else { return }
+                        store.chatCanvasAspects[instance] = size.width / size.height
                     }
                     .contentMargins(.bottom, 8, for: .scrollContent)
                     .scrollDismissesKeyboard(.interactively)
@@ -78,13 +95,15 @@ struct BionicChatScreen: View {
                     .onScrollGeometryChange(for: PalmiChatScrollMetrics.self) {
                         PalmiChatScrollMetrics($0)
                     } action: { old, next in
-                        nearBottom = next.nearBottom
+                        if nearBottom != next.nearBottom { nearBottom = next.nearBottom }
                         guard store.selectedID == instance else { return }
                         if userScrolling, next.isUserMovingToOlder(comparedWith: old), !next.nearBottom {
-                            store.followingLatest = false
+                            if store.followingLatest { store.followingLatest = false }
                         }
                         if userScrolling, next.nearBottom {
-                            if store.windowEnd >= store.totalMessages { store.followingLatest = true }
+                            if store.windowEnd >= store.totalMessages {
+                                if !store.followingLatest { store.followingLatest = true }
+                            }
                             else { loadFollowingPage(proxy) }
                         }
                         if store.followingLatest,
@@ -141,21 +160,27 @@ struct BionicChatScreen: View {
             }
         }
         .background(Color(uiColor: .systemGroupedBackground))
+        .background {
+            PalmiNativeBackIndicator(count: otherConversationUnreadCount)
+                .frame(width: 0, height: 0)
+        }
         .palmiKeyboardDismissOnOutsideTap(excludingBottom: composerHeight)
         .toolbar(.visible, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                PalmiUnreadBadge(count: otherConversationUnreadCount)
-            }
             ToolbarItem(placement: .principal) {
-                VStack(spacing: 2) {
-                    Text(role?.name ?? "").font(.headline).lineLimit(1)
-                    if store.typing.contains(instance) { Text(PalmiL10n.tr("bionic.typing")).font(.caption2).foregroundStyle(.secondary) }
-                }
+                BionicConversationTitle(
+                    name: role?.name ?? "",
+                    windows: store.typingWindowsByInstance[instance] ?? [],
+                    active: screenVisible && store.isForeground && unreadSnapshot.readingAllowed
+                        && !details && !showingRoleInfo && preview == nil
+                )
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button { details = true } label: { Image(systemName: "ellipsis") }
+                Button {
+                    guard !showingRoleInfo else { return }
+                    details = true
+                } label: { Image(systemName: "ellipsis") }
                     .accessibilityLabel(PalmiL10n.tr("bionic.conversationDetails"))
             }
         }
@@ -165,6 +190,9 @@ struct BionicChatScreen: View {
                 Task { @MainActor in await Task.yield(); await perform { try await store.jump(to: messageID) } }
             }
         }
+        .navigationDestination(isPresented: $showingRoleInfo) {
+            BionicRoleInfoScreen(store: store, instance: instance)
+        }
         .task(id: instance) {
             if store.selectedID != instance { await store.open(instance) }
             store.chatVisibility(instance, visible: true)
@@ -172,7 +200,13 @@ struct BionicChatScreen: View {
         .onAppear {
             screenVisible = true
             store.chatVisibility(instance, visible: true)
-            if unreadSnapshot.readingAllowed {
+            Task { @MainActor in
+                await store.refresh(changed: instance)
+                if store.selectedID == instance && store.followingLatest {
+                    try? await store.loadLatest()
+                }
+            }
+            if unreadSnapshot.readingAllowed && !showingRoleInfo && !details && preview == nil {
                 for id in visibleMessageIDs { store.appeared(id) }
             }
             scrollWorkID = UUID()
@@ -183,12 +217,13 @@ struct BionicChatScreen: View {
             visibleMessageIDs.removeAll()
         }
         .onChange(of: store.isForeground) { _, active in
-            if active && screenVisible && unreadSnapshot.readingAllowed {
+            if active && screenVisible && unreadSnapshot.readingAllowed
+                && !showingRoleInfo && !details && preview == nil {
                 for id in visibleMessageIDs { store.appeared(id) }
             }
         }
         .onChange(of: unreadSnapshot.readingAllowed) { _, allowed in
-            if allowed && screenVisible {
+            if allowed && screenVisible && !showingRoleInfo && !details && preview == nil {
                 for id in visibleMessageIDs { store.appeared(id) }
             }
         }
@@ -221,90 +256,6 @@ struct BionicChatScreen: View {
     }
 }
 
-struct BionicConversationDetailsScreen: View {
-    @Bindable var store: BionicStore
-    let instance: String
-    let onJump: (String) -> Void
-    @State private var developerVisible = true
-    @State private var savingTiming = false
-    @State private var errorText: String?
-    private var timing: BionicReplyTiming {
-        BionicReplyTiming.resolve(store.roles.first { $0.installationID == instance }?.persona ?? [:])
-    }
-    var body: some View {
-        List {
-            Section {
-                Picker(PalmiL10n.tr("bionic.details.replyTiming"), selection: Binding(
-                    get: { timing },
-                    set: { selected in
-                        guard !savingTiming, selected != timing else { return }
-                        savingTiming = true
-                        Task { @MainActor in
-                            defer { savingTiming = false }
-                            do { try await store.setReplyTiming(instance, timing: selected) }
-                            catch { errorText = BionicStore.errorText(error) }
-                        }
-                    }
-                )) {
-                    Text(PalmiL10n.tr("bionic.details.instant")).tag(BionicReplyTiming.instant)
-                    Text(PalmiL10n.tr("bionic.details.natural")).tag(BionicReplyTiming.natural)
-                }
-                .pickerStyle(.segmented)
-                .disabled(savingTiming)
-                HStack(spacing: 20) {
-                    NavigationLink {
-                        BionicHistoryScreen(store: store, instance: instance, mode: .search, onJump: onJump)
-                    } label: {
-                        Label(PalmiL10n.tr("bionic.search"), systemImage: "magnifyingglass")
-                            .frame(maxWidth: .infinity)
-                    }
-                    NavigationLink {
-                        BionicHistoryScreen(store: store, instance: instance, mode: .memory, onJump: onJump)
-                    } label: {
-                        Label(PalmiL10n.tr("bionic.memory"), systemImage: "brain")
-                            .frame(maxWidth: .infinity)
-                    }
-                }
-                .buttonStyle(.plain)
-                .padding(.vertical, 8)
-            }
-            Section {
-                NavigationLink {
-                    BionicSettingsScreen(store: store, instance: instance)
-                } label: {
-                    Label(PalmiL10n.tr("bionic.settings"), systemImage: "person.crop.circle")
-                }
-                NavigationLink {
-                    BionicMigrationScreen(store: store, instance: instance)
-                } label: {
-                    Label(PalmiL10n.tr("bionic.migration"), systemImage: "arrow.up.arrow.down")
-                }
-            }
-        }
-        .navigationTitle(PalmiL10n.tr("bionic.conversationDetails"))
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if developerVisible {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        BionicDeveloperScreen(store: store, instance: instance)
-                    } label: { Image(systemName: "slider.horizontal.3") }
-                    .accessibilityLabel(PalmiL10n.tr("bionic.developer"))
-                }
-            }
-        }
-        .task {
-            let local = try? await store.archive.binding(instance)
-            developerVisible = local?["developer_visible"]?.bool ?? true
-        }
-        .alert(PalmiL10n.tr("bionic.errorTitle"), isPresented: Binding(
-            get: { errorText != nil }, set: { if !$0 { errorText = nil } }
-        )) {
-            Button(PalmiL10n.tr("bionic.ok"), role: .cancel) {}
-        } message: { Text(errorText ?? "") }
-    }
-}
-
 private struct BionicBubbleRowData: Identifiable {
     let message: BionicObject
     let showsTime: Bool
@@ -320,6 +271,7 @@ private struct BionicBubbleRow: View {
     let onQuote: () -> Void
     let onJump: (String) -> Void
     let onAsset: (String) -> Void
+    let onRoleTap: () -> Void
     private var message: BionicObject { value.message }
     private var outgoing: Bool { message.text("author_kind") == "user" }
     var body: some View {
@@ -350,6 +302,8 @@ private struct BionicBubbleRow: View {
                 .padding(.horizontal, 12).padding(.vertical, 10)
                 .background(outgoing ? Color.accentColor.opacity(0.17) : Color(uiColor: .secondarySystemGroupedBackground),
                             in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+                .background(Color(uiColor: .secondarySystemGroupedBackground),
+                            in: RoundedRectangle(cornerRadius: 17, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 17).stroke(store.highlightID == value.id ? Color.accentColor : .clear, lineWidth: 2))
             }
             .layoutPriority(1)
@@ -364,8 +318,24 @@ private struct BionicBubbleRow: View {
     }
     private var avatar: some View {
         Group {
-            if value.showsAvatar { BionicAvatar(data: store.avatars[instance + ":" + message.text("author_id")], name: store.authorName(message), size: 34) }
-            else { Color.clear.frame(width: 34, height: 34) }
+            if value.showsAvatar {
+                if outgoing {
+                    BionicAvatar(data: store.avatars[instance + ":" + message.text("author_id")],
+                                 name: store.authorName(message), size: 34)
+                } else {
+                    Button(action: onRoleTap) {
+                        BionicAvatar(data: store.avatars[instance + ":" + message.text("author_id")],
+                                     name: store.authorName(message), size: 34)
+                            .padding(5)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .frame(width: 34, height: 34)
+                    .accessibilityLabel(PalmiL10n.tr("bionic.roleInfo"))
+                }
+            } else {
+                Color.clear.frame(width: 34, height: 34)
+            }
         }
     }
 }

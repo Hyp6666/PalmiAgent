@@ -5,7 +5,6 @@ final class BionicCoordinator {
     let archive: BionicArchiveStore
     let model: BionicModelService
     var onChange: ((String) -> Void)?
-    var onTyping: ((String, Bool) -> Void)?
     var onDiagnostics: ((String) -> Void)?
     var onError: ((String, String?) -> Void)?
     var onNotificationReconcile: (() async -> Void)?
@@ -23,7 +22,6 @@ final class BionicCoordinator {
         foreground = false; finishingInBackground = false; lifecycle += 1
         clock?.cancel(); clock = nil; worker?.cancel(); worker = nil
         model.cancelAll(); queue.removeAll()
-        if let selectedInstance { onTyping?(selectedInstance, false) }
     }
 
     init(archive: BionicArchiveStore, model: BionicModelService) { self.archive = archive; self.model = model }
@@ -90,7 +88,6 @@ final class BionicCoordinator {
     }
     func remove(_ instance: String) {
         deleted.insert(instance); blocked.remove(instance); queue.removeAll { $0 == instance }; model.cancel(instance: instance)
-        onTyping?(instance, false)
     }
     func open(_ instance: String) async {
         selectedInstance = instance; blocked.remove(instance); onError?(instance, nil)
@@ -139,13 +136,12 @@ final class BionicCoordinator {
         planningReady.removeValue(forKey: instance)
         blocked.remove(instance)
         onError?(instance, nil)
-        onTyping?(instance, false)
         onChange?(instance)
         enqueue(instance)
         await onNotificationReconcile?()
     }
     func changed(_ instance: String) {
-        blocked.remove(instance); model.cancel(instance: instance); onTyping?(instance, false)
+        blocked.remove(instance); model.cancel(instance: instance)
         planningReady.removeValue(forKey: instance); onError?(instance, nil); onChange?(instance); enqueue(instance)
     }
     private func enqueue(_ instance: String) {
@@ -173,14 +169,14 @@ final class BionicCoordinator {
                 if after.state.lastMessageSequence != before.state.lastMessageSequence ||
                     after.state.personaID != before.state.personaID ||
                     after.state.participantID != before.state.participantID ||
-                    after.state.memorySequence != before.state.memorySequence { onChange?(instance) }
+                    after.state.memorySequence != before.state.memorySequence ||
+                    after.state.raw["outbox_groups"] != before.state.raw["outbox_groups"] ||
+                    after.state.raw["outbox_item_states"] != before.state.raw["outbox_item_states"] { onChange?(instance) }
                 if after.throughSequence != before.throughSequence { onDiagnostics?(instance) }
                 if more, !queue.contains(instance) { queue.append(instance) }
             } catch is CancellationError {
-                onTyping?(instance, false)
                 if foreground, lifecycle == epoch { if !queue.contains(instance) { queue.append(instance) } }
             } catch BionicControl.stale {
-                onTyping?(instance, false)
                 if foreground, !queue.contains(instance) { queue.append(instance) }
             } catch {
                 let priorities = ["chat", "compaction", "evolution", "planning"]
@@ -192,14 +188,14 @@ final class BionicCoordinator {
                 }
                 let waiting = (try? await archive.loadRole(instance))?.state.pendingReplyIDs.isEmpty == false
                 if waiting { report(instance, error) }
-                else { blocked.insert(instance); onTyping?(instance, false); onDiagnostics?(instance) }
+                else { blocked.insert(instance); onDiagnostics?(instance) }
             }
             await Task.yield()
         }
         if foreground, lifecycle == epoch { await onNotificationReconcile?() }
     }
     private func report(_ instance: String, _ error: Error) {
-        blocked.insert(instance); onTyping?(instance, false)
+        blocked.insert(instance)
         let code: String
         if let failure = error as? BionicFailure { code = failure.code }
         else if case BionicControl.capacity = error { code = "contextTooSmall" }
@@ -550,7 +546,7 @@ final class BionicCoordinator {
         do { input = try await BionicPromptBuilder.daily(role, archive: archive) }
         catch BionicControl.capacity {
             try await finishRoot(instance, request, phase: "cancelled")
-            try await startCapacity(role); onTyping?(instance, false); return true
+            try await startCapacity(role); return true
         }
         var stepNumber = 1
         var delivered = request.object("control").int("prior_bubble_count")
@@ -568,7 +564,7 @@ final class BionicCoordinator {
                 delivered += effect.records("messages").count
                 if effect.flag("end_turn") {
                     try await finishRoot(instance, request)
-                    planningReady[instance] = .now; onTyping?(instance, false); return true
+                    planningReady[instance] = .now; return true
                 }
             }
             if result.text("tool_name") == "recall" {
@@ -593,7 +589,7 @@ final class BionicCoordinator {
                 "participant_id": request["participant_id"] ?? .null,
                 "message_ids": request["input_message_ids"] ?? .array([]), "batch_id": .null])]
             try await finishRoot(instance, request, events: events)
-            onTyping?(instance, false); return false
+            return false
         }
         guard stepNumber <= 6 else { throw BionicFailure("turnLimit") }
         let step = String(format: "chat_%02d", stepNumber)
@@ -612,10 +608,9 @@ final class BionicCoordinator {
         do { try BionicPromptBuilder.checkBudget(input) }
         catch BionicControl.capacity {
             try await finishRoot(instance, request, phase: "cancelled")
-            try await startCapacity(try await archive.loadRole(instance)); onTyping?(instance, false); return true
+            try await startCapacity(try await archive.loadRole(instance)); return true
         }
         let stepRequest = try await frozenStep(current, root: request, step: step, proposed: input)
-        onTyping?(instance, true)
         let result = try await resultForStep(current, request: stepRequest, maximumAttempts: min(2, max(1, 6 - used))) { answer, actual in
             if answer.toolName == "recall" {
                 let available = try actual.contextLimit - actual.outputLimit - BionicPromptBuilder.estimatedTokens(actual) - 1024
@@ -637,7 +632,7 @@ final class BionicCoordinator {
         if result.text("tool_name") == "speak" {
             try await deliverBatch(current, root: request, stepRequest: stepRequest, result: result)
             if effect.flag("end_turn") {
-                onTyping?(instance, false); planningReady[instance] = .now; return true
+                planningReady[instance] = .now; return true
             }
         } else {
             let checkpoint = try await archive.checkpoint(instance, operation: op, step: step)
@@ -670,22 +665,32 @@ final class BionicCoordinator {
             }
             let user = try await archive.message(instance, userID)
             let now = Date.now
-            var at = max(max(now, received), try BionicReplyTiming.readyAt(role.persona, latestUser: user))
-            at = BionicReplyTiming.availableDate(role.persona, at: at)
+            let instant = BionicReplyTiming.resolve(role.persona) == .instant
+            let ready = try BionicReplyTiming.readyAt(role.persona, latestUser: user)
+            var previousEnd = max(now, received)
             for prior in BionicDeliveryPolicy.pendingReplyItems(role) {
-                at = max(at, (try BionicCodec.date(prior.text("planned_at"))).addingTimeInterval(0.6))
+                previousEnd = max(previousEnd, try BionicCodec.date(prior.text("planned_at")))
             }
             var items: [BionicObject] = []
             for (index, bubble) in messages.enumerated() {
-                if index > 0 { at = at.addingTimeInterval(BionicToolbox.bubbleDelay(bubble.text("text"))) }
+                let duration = BionicTypingPolicy.duration(
+                    for: bubble.text("text"), instant: instant
+                )
+                let typingCanStart = index == 0
+                    ? previousEnd : previousEnd.addingTimeInterval(0.35)
+                var at = max(ready, typingCanStart.addingTimeInterval(duration))
                 at = BionicReplyTiming.availableDate(role.persona, at: at)
+                at = BionicTypingPolicy.notificationAligned(at)
+                let startsAt = max(typingCanStart, at.addingTimeInterval(-duration))
                 items.append([
                     "message_id": bubble["message_id"] ?? .null,
                     "body": bubble["text"] ?? .null,
                     "reply_to_message_id": bubble["reply_to_message_id"] ?? .null,
                     "generated_at": .string(BionicCodec.instant(received)),
-                    "planned_at": .string(BionicCodec.instant(at))
+                    "planned_at": .string(BionicCodec.instant(at)),
+                    "typing_started_at": .string(BionicCodec.instant(startsAt))
                 ])
+                previousEnd = at
             }
             let group: BionicObject = [
                 "group_id": .string(groupID), "batch_id": .string(groupID), "origin": .string("reply"),
@@ -870,7 +875,9 @@ final class BionicCoordinator {
             _ = try await archive.commit(instance, events: events, operation: operationID)
             // Child result contains actual error and response evidence. Do not publish a chat error or block the role.
         }
-        planningReady.removeValue(forKey: instance); onDiagnostics?(instance)
+        planningReady.removeValue(forKey: instance)
+        onChange?(instance)
+        onDiagnostics?(instance)
         return true
     }
 }

@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct PalmiUnreadSnapshot {
+struct PalmiUnreadSnapshot: Equatable {
     var professional = 0
     var chat = 0
     var bionic = 0
@@ -12,6 +12,9 @@ struct PalmiUnreadSnapshot {
         case .chat: chat
         case .bionic: bionic
         }
+    }
+    func countOutside(_ mode: AppShellMode) -> Int {
+        max(0, total - count(for: mode))
     }
 }
 private struct PalmiUnreadEnvironmentKey: EnvironmentKey {

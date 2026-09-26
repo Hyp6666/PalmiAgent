@@ -1511,3 +1511,13 @@
 "chat.bionicSuggestion.stay" = "Keep waiting";
 "chat.bionicSuggestion.open" = "Open Bionic";
 "chat.unread.count" = "%d unread messages";
+"bionic.roleInfo" = "Character info";
+"bionic.findConversation" = "Search conversation";
+"bionic.chatMuted" = "Mute notifications";
+"bionic.chatPinned" = "Pin conversation";
+"bionic.chatBackground" = "Chat background";
+"bionic.profileAge" = "Age";
+"bionic.chooseBackground" = "Choose photo";
+"bionic.resetBackground" = "Reset background";
+"bionic.cropBackground" = "Crop background";
+"bionic.useBackground" = "Use";

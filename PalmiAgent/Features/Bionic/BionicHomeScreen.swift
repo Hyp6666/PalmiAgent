@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 struct BionicRootScreen: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.palmiUnread) private var parentUnread
     @Bindable var store: BionicStore
     let onOpenSettings: () -> Void
     let onSelectMode: (AppShellMode) -> Void
@@ -13,6 +14,12 @@ struct BionicRootScreen: View {
     @State private var preparing = false
     @State private var prepared: BionicMigrationService.PreparedImport?
     @State private var errorText: String?
+    private var localUnread: PalmiUnreadSnapshot {
+        var value = parentUnread
+        value.readingAllowed = value.readingAllowed && !creating && !importing && !adding
+            && !preparing && prepared == nil && !store.showingPurchase
+        return value
+    }
     var body: some View {
         Group {
             if sizeClass == .compact {
@@ -26,6 +33,7 @@ struct BionicRootScreen: View {
                 }
             }
         }
+        .environment(\.palmiUnread, localUnread)
         .task { await store.refresh() }
         .confirmationDialog(PalmiL10n.tr("common.add"), isPresented: $adding, titleVisibility: .hidden) {
             Button(PalmiL10n.tr("bionic.create")) {
@@ -60,7 +68,8 @@ struct BionicRootScreen: View {
         message: { Text(errorText ?? store.globalError ?? "") }
     }
     private var home: some View {
-        ZStack {
+        let displayedRoles = store.orderedRoles
+        return ZStack {
             Color(uiColor: .systemGroupedBackground).ignoresSafeArea()
             if store.roles.isEmpty {
                 VStack(spacing: 12) {
@@ -72,12 +81,22 @@ struct BionicRootScreen: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(store.roles, id: \.installationID) { role in
+                        ForEach(displayedRoles, id: \.installationID) { role in
                             Button { Task { await store.open(role.installationID) } } label: {
                                 HStack(alignment: .center, spacing: 12) {
                                     BionicAvatar(data: store.avatars[role.installationID + ":" + role.characterID], name: role.name, size: 52)
                                     VStack(alignment: .leading, spacing: 5) {
-                                        Text(role.name).font(.headline).foregroundStyle(.primary)
+                                        HStack(spacing: 6) {
+                                            Text(role.name).font(.headline).foregroundStyle(.primary)
+                                            if store.chatPreferences[role.installationID]?.pinned == true {
+                                                Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.secondary)
+                                                    .accessibilityLabel(PalmiL10n.tr("bionic.chatPinned"))
+                                            }
+                                            if store.chatPreferences[role.installationID]?.muted == true {
+                                                Image(systemName: "bell.slash.fill").font(.caption2).foregroundStyle(.secondary)
+                                                    .accessibilityLabel(PalmiL10n.tr("bionic.chatMuted"))
+                                            }
+                                        }
                                         Text(store.lastBodies[role.installationID].flatMap { $0.isEmpty ? nil : $0 } ?? role.persona.text("identity"))
                                             .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                                     }
@@ -89,7 +108,7 @@ struct BionicRootScreen: View {
                                 }
                                 .padding(.horizontal, 20).padding(.vertical, 14).contentShape(Rectangle())
                             }.buttonStyle(.plain)
-                            if role.installationID != store.roles.last?.installationID { Divider().padding(.leading, 84) }
+                            if role.installationID != displayedRoles.last?.installationID { Divider().padding(.leading, 84) }
                         }
                     }
                     .padding(.top, 4)

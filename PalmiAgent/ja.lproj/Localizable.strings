@@ -1511,3 +1511,13 @@
 "chat.bionicSuggestion.stay" = "そのまま待つ";
 "chat.bionicSuggestion.open" = "仿生を開く";
 "chat.unread.count" = "未読メッセージ %d 件";
+"bionic.roleInfo" = "キャラクター情報";
+"bionic.findConversation" = "チャット内を検索";
+"bionic.chatMuted" = "通知をミュート";
+"bionic.chatPinned" = "チャットを固定";
+"bionic.chatBackground" = "チャットの背景";
+"bionic.profileAge" = "年齢";
+"bionic.chooseBackground" = "写真を選択";
+"bionic.resetBackground" = "背景をリセット";
+"bionic.cropBackground" = "背景をトリミング";
+"bionic.useBackground" = "使用";

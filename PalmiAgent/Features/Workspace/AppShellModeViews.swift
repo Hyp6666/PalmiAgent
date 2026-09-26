@@ -118,50 +118,38 @@ struct AppShellTopBar: View {
     }
 
     private var modeMenu: some View {
-        Menu {
-            Button {
-                onSelectMode(.chat)
-            } label: {
-                HStack {
-                    Label(AppShellMode.chat.title, systemImage: AppShellMode.chat.symbolName)
-                    PalmiUnreadBadge(count: unreadSnapshot.count(for: .chat))
-                }
-            }
-
-            Button {
-                onSelectMode(.professional)
-            } label: {
-                HStack {
-                    Label(AppShellMode.professional.title, systemImage: AppShellMode.professional.symbolName)
-                    PalmiUnreadBadge(count: unreadSnapshot.count(for: .professional))
-                }
-            }
-            Button {
-                onSelectMode(.bionic)
-            } label: {
-                HStack {
-                    Label(AppShellMode.bionic.title, systemImage: AppShellMode.bionic.symbolName)
-                    PalmiUnreadBadge(count: unreadSnapshot.count(for: .bionic))
+        let externalCount = unreadSnapshot.countOutside(mode)
+        return Menu {
+            ForEach([AppShellMode.chat, .professional, .bionic], id: \.rawValue) { target in
+                let count = unreadSnapshot.count(for: target)
+                let value = count > 99 ? "99+" : String(count)
+                let title = count > 0 ? target.title + " (" + value + ")" : target.title
+                Button {
+                    onSelectMode(target)
+                } label: {
+                    Label(title, systemImage: target.symbolName)
                 }
             }
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: mode.symbolName)
-                    .font(.subheadline.weight(.semibold))
-                Text(mode.title)
-                    .font(.headline.weight(.semibold))
+                Image(systemName: mode.symbolName).font(.subheadline.weight(.semibold))
+                Text(mode.title).font(.headline.weight(.semibold))
                 Image(systemName: "chevron.down")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
+                    .font(.caption.weight(.bold)).foregroundStyle(.secondary)
             }
             .foregroundStyle(.primary)
             .padding(.horizontal, 18)
             .frame(height: 50)
             .contentShape(Capsule())
+            .overlay(alignment: .topTrailing) {
+                PalmiUnreadBadge(count: externalCount).padding(.top, 2).padding(.trailing, 3)
+            }
         }
         .buttonStyle(.plain)
+        .menuOrder(.fixed)
         .glassEffect(.regular.tint(.white.opacity(0.12)).interactive(), in: .capsule)
         .accessibilityLabel(PalmiL10n.tr("common.mode"))
+        .accessibilityValue(externalCount > 0 ? PalmiL10n.tr("chat.unread.count", externalCount) : "")
     }
 }
 

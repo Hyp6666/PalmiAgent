@@ -31,7 +31,23 @@ final class BionicStore {
     var avatars: [String: Data] = [:]
     var lastBodies: [String: String] = [:]
     var unreadCounts: [String: Int] = [:]
-    var typing: Set<String> = []
+    private(set) var typingWindowsByInstance: [String: [BionicTypingWindow]] = [:]
+    private(set) var chatPreferences: [String: BionicChatPreferences] = [:]
+    private(set) var lastActivityTimes: [String: Date] = [:]
+    @ObservationIgnored var chatCanvasAspects: [String: CGFloat] = [:]
+    @ObservationIgnored private var activityMessageIDs: [String: String] = [:]
+
+    var orderedRoles: [BionicRole] {
+        roles.sorted { left, right in
+            let lp = chatPreferences[left.installationID]?.pinned ?? false
+            let rp = chatPreferences[right.installationID]?.pinned ?? false
+            if lp != rp { return lp }
+            let lt = lastActivityTimes[left.installationID] ?? .distantPast
+            let rt = lastActivityTimes[right.installationID] ?? .distantPast
+            if lt != rt { return lt > rt }
+            return left.installationID < right.installationID
+        }
+    }
     var errors: [String: String] = [:]
     var globalError: String?
     var windowStart = 0
@@ -80,11 +96,6 @@ final class BionicStore {
         migration = BionicMigrationService(archive: archive, model: model)
         coordinator.onChange = { [weak self] id in Task { await self?.refresh(changed: id) } }
         coordinator.onDiagnostics = { [weak self] _ in self?.diagnosticRevision += 1 }
-        coordinator.onTyping = { [weak self] id, active in
-            guard let self else { return }
-            if active { if !self.typing.contains(id) { self.typing.insert(id) } }
-            else { self.typing.remove(id) }
-        }
         coordinator.onError = { [weak self] id, code in self?.errors[id] = code; self?.diagnosticRevision += 1 }
         coordinator.onNotificationReconcile = { [weak notifications] in await notifications?.reconcile() }
         notifications.onRoute = { [weak self] id, message in
@@ -140,12 +151,10 @@ final class BionicStore {
             self.backgroundFinishTask?.cancel()
             self.backgroundFinishTask = nil
             self.coordinator.pause()
-            self.typing.removeAll()
             self.endBackgroundAllowance()
         }
         guard backgroundTaskID != .invalid else {
             coordinator.pause()
-            typing.removeAll()
             return
         }
         backgroundFinishTask = Task { @MainActor [weak self] in
@@ -156,7 +165,6 @@ final class BionicStore {
             await self.notifications.reconcile()
             guard !Task.isCancelled, self.backgroundEpoch == epoch, !self.isForeground else { return }
             self.coordinator.pause()
-            self.typing.removeAll()
             self.backgroundFinishTask = nil
             self.endBackgroundAllowance()
         }
@@ -175,11 +183,13 @@ final class BionicStore {
         backgroundFinishTask = nil
         endBackgroundAllowance()
         invalidationToken += 1; openTicket += 1; windowTicket += 1
-        coordinator.stopForReset(); typing.removeAll(); readTask?.cancel(); readTask = nil; pendingReads.removeAll()
+        coordinator.stopForReset(); readTask?.cancel(); readTask = nil; pendingReads.removeAll()
         await notifications.removeAll(); try await archive.resetAll(); await history.clear()
         selectedID = nil; chatVisibleID = nil; path = []; roles = []; messages = []; participants = [:]; avatars = [:]; errors = [:]
         composers.removeAll(); avatarPaths.removeAll(); statsKeys.removeAll(); refreshRequests.removeAll()
         quotedIDs = [:]; quotedMessages = [:]; lastBodies = [:]; unreadCounts = [:]; globalError = nil
+        typingWindowsByInstance = [:]; chatPreferences = [:]; lastActivityTimes = [:]
+        activityMessageIDs.removeAll(); chatCanvasAspects.removeAll()
         diagnosticRevision += 1
         if isForeground { await coordinator.activate() }
     }
@@ -197,6 +207,7 @@ final class BionicStore {
             let requested = refreshRequests; refreshRequests.removeAll()
             let updated = await archive.roles()
             guard token == invalidationToken else { return }
+            prunePresentation(validIDs: Set(updated.map(\.installationID)))
             let visibleChanged = roles.map(presentationKey) != updated.map(presentationKey)
             if visibleChanged { roles = updated }
             diagnosticRevision += 1
@@ -211,7 +222,22 @@ final class BionicStore {
             }
             for role in updated where requested.contains("*") || requested.contains(role.installationID) || statsKeys[role.installationID] == nil {
                 let id = role.installationID
+                let nextWindows = (try? await archive.typingWindows(id)) ?? []
+                guard token == invalidationToken else { return }
+                if typingWindowsByInstance[id] != nextWindows {
+                    typingWindowsByInstance[id] = nextWindows
+                }
                 let local = try? await archive.binding(id)
+                let preferences = BionicChatPreferences(local ?? [:])
+                if chatPreferences[id] != preferences { chatPreferences[id] = preferences }
+                let lastID = role.state.order.last?.id ?? ""
+                if activityMessageIDs[id] != lastID {
+                    let last: BionicObject? = lastID.isEmpty ? nil : (try? await archive.message(id, lastID))
+                    guard token == invalidationToken else { return }
+                    let time = last?.text("logical_at") ?? role.manifest.text("created_at")
+                    lastActivityTimes[id] = (try? BionicCodec.date(time)) ?? .distantPast
+                    activityMessageIDs[id] = lastID
+                }
                 let readIDs = role.state.raw.object("read_message_ids_by_participant")[role.state.participantID]?.array.compactMap(\.string) ?? []
                 let key = presentationKey(role) + ":" + String(local?.int("unread_after_sequence") ?? 0)
                 if statsKeys[id] != key {
@@ -224,11 +250,52 @@ final class BionicStore {
                 }
             }
             guard token == invalidationToken else { return }
-            if let id = selectedID, let role = updated.first(where: { $0.installationID == id }), role.state.order.count != totalMessages {
-                if followingLatest { try? await loadLatest() }
-                else { newMessagesAvailable = true; totalMessages = role.state.order.count }
+            if let id = selectedID,
+               let role = updated.first(where: { $0.installationID == id }),
+               role.state.order.count != totalMessages {
+                if isForeground && modeVisible && chatVisibleID == id {
+                    if followingLatest { try? await loadLatest() }
+                    else {
+                        newMessagesAvailable = true
+                        totalMessages = role.state.order.count
+                    }
+                }
             }
         } while !refreshRequests.isEmpty
+    }
+    private func prunePresentation(validIDs: Set<String>) {
+        for id in Set(unreadCounts.keys).subtracting(validIDs) { unreadCounts.removeValue(forKey: id) }
+        for id in Set(lastBodies.keys).subtracting(validIDs) { lastBodies.removeValue(forKey: id) }
+        for id in Set(chatPreferences.keys).subtracting(validIDs) { chatPreferences.removeValue(forKey: id) }
+        for id in Set(lastActivityTimes.keys).subtracting(validIDs) { lastActivityTimes.removeValue(forKey: id) }
+        for id in Set(typingWindowsByInstance.keys).subtracting(validIDs) { typingWindowsByInstance.removeValue(forKey: id) }
+        statsKeys = statsKeys.filter { validIDs.contains($0.key) }
+        activityMessageIDs = activityMessageIDs.filter { validIDs.contains($0.key) }
+        chatCanvasAspects = chatCanvasAspects.filter { validIDs.contains($0.key) }
+        avatarPaths = avatarPaths.filter { key, _ in
+            validIDs.contains(String(key.prefix(while: { $0 != ":" })))
+        }
+        for key in Array(avatars.keys) where !validIDs.contains(String(key.prefix(while: { $0 != ":" }))) {
+            avatars.removeValue(forKey: key)
+        }
+    }
+
+    func setChatMuted(_ instance: String, _ muted: Bool) async throws {
+        try await archive.updateBinding(instance, changes: ["chat_muted": .bool(muted)])
+        let local = try await archive.binding(instance)
+        chatPreferences[instance] = BionicChatPreferences(local)
+        await notifications.reconcile()
+    }
+
+    func setChatPinned(_ instance: String, _ pinned: Bool) async throws {
+        try await archive.updateBinding(instance, changes: ["chat_pinned": .bool(pinned)])
+        let local = try await archive.binding(instance)
+        chatPreferences[instance] = BionicChatPreferences(local)
+    }
+
+    func saveChatBackground(_ instance: String, data: Data?) async throws {
+        let value = try await archive.setChatBackground(instance, data: data)
+        chatPreferences[instance] = value
     }
     func open(_ instance: String, target: String? = nil) async {
         openTicket += 1
@@ -482,6 +549,7 @@ final class BionicStore {
     func delete(_ instance: String) async throws {
         coordinator.remove(instance); await notifications.remove(instance); try await archive.deleteRole(instance); await history.clear(instance)
         composers.removeValue(forKey: instance); errors.removeValue(forKey: instance); statsKeys.removeValue(forKey: instance); pendingReads.removeValue(forKey: instance)
+        typingWindowsByInstance.removeValue(forKey: instance)
         if selectedID == instance { openTicket += 1; windowTicket += 1; selectedID = nil; path = []; messages = []; quotedMessages = [:] }
         await refresh()
     }

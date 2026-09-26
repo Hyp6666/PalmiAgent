@@ -151,10 +151,6 @@ struct WorkspaceShellScreen: View {
                 presentOnboardingIfNeeded()
             }
         }
-        .task(id: workspaceStore.selectedSelection) {
-            guard shellMode != .bionic else { return }
-            chatStore.loadMessagesForActiveThread()
-        }
         .task(id: workspaceStore.selectedProjectID) {
             guard shellMode != .bionic else { return }
             do { try skillRegistry.reloadProjectSkills(for: workspaceStore.selectedProjectID) }

@@ -87,6 +87,9 @@ struct ChatScreen: View {
     @State private var pendingAutoCollapseTurnID: UUID?
     @State private var copiedAnswerMessageIDs: Set<UUID> = []
     @State private var isShowingContextInfo = false
+    @State private var displayedContextSnapshot: ContextCompositionSnapshot?
+    @State private var contextRefreshID = UUID()
+    @State private var contextSnapshotSelection: WorkspaceSelection?
     @State private var previewedWorkspaceFile: WorkspacePreviewFile?
     @State private var previewedAttachmentFiles: WorkspaceFileCarouselPresentation?
     @State private var isShowingPlusMenu = false
@@ -517,6 +520,9 @@ struct ChatScreen: View {
         .overlay(alignment: .top) {
             topChromeBar()
                 .frame(height: 90)
+                .background {
+                    Color.clear.contentShape(Rectangle()).onTapGesture { }
+                }
         }
         .overlay {
             contextInspectorOverlayAnchor
@@ -528,6 +534,7 @@ struct ChatScreen: View {
             cachedModelSelectionState = computedModelSelectionState
             screenIsVisible = true
             markVisibleAnswersRead()
+            contextRefreshID = UUID()
         }
         .onDisappear { screenIsVisible = false; visibleAnswerIDs.removeAll() }
         .onChange(of: workspaceStore.selectedSelection) { _, _ in visibleAnswerIDs.removeAll() }
@@ -555,6 +562,24 @@ struct ChatScreen: View {
         .task(id: workspaceStore.selectedSelection) {
             store.loadMessagesForActiveThread()
         }
+        .task(id: contextRefreshID) {
+            let selection = workspaceStore.selectedSelection
+            if contextSnapshotSelection != selection { displayedContextSnapshot = nil }
+            do { try await Task.sleep(for: .milliseconds(160)) }
+            catch { return }
+            guard !Task.isCancelled, screenIsVisible, shellMode == .professional,
+                  workspaceStore.selectedSelection == selection else { return }
+            displayedContextSnapshot = store.contextCompositionSnapshot
+            contextSnapshotSelection = selection
+        }
+        .onChange(of: workspaceStore.selectedSelection) { _, _ in contextRefreshID = UUID() }
+        .onChange(of: store.messages.count) { _, _ in contextRefreshID = UUID() }
+        .onChange(of: store.isLoading) { _, _ in contextRefreshID = UUID() }
+        .onChange(of: store.isCompactingContext) { _, _ in contextRefreshID = UUID() }
+        .onChange(of: modelReasoningRevision) { _, _ in contextRefreshID = UUID() }
+        .onChange(of: areToolsEnabled) { _, _ in contextRefreshID = UUID() }
+        .onChange(of: isExternalReasoningEnabled) { _, _ in contextRefreshID = UUID() }
+        .onChange(of: professionalReasoningTierRaw) { _, _ in contextRefreshID = UUID() }
         .onPreferenceChange(ChatComposerSectionHeightPreferenceKey.self) { height in
             guard height > 0, abs(composerSectionHeight - height) > 0.5 else { return }
             composerSectionHeight = height
@@ -677,6 +702,7 @@ struct ChatScreen: View {
                             .id(bottomAnchorID)
                     }
                     .padding(.horizontal, 18)
+                    .background { PalmiChatScrollTopGuard().frame(width: 0, height: 0) }
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .onScrollPhaseChange { _, phase in
@@ -685,10 +711,15 @@ struct ChatScreen: View {
                 .onScrollGeometryChange(for: PalmiChatScrollMetrics.self) {
                     PalmiChatScrollMetrics($0)
                 } action: { old, next in
-                    messageListNearBottom = next.nearBottom
+                    if messageListNearBottom != next.nearBottom {
+                        messageListNearBottom = next.nearBottom
+                    }
                     if messageScrollIsInteracting {
-                        if next.nearBottom { isMessageAutoFollowEnabled = true }
-                        else if next.isUserMovingToOlder(comparedWith: old) { isMessageAutoFollowEnabled = false }
+                        if next.nearBottom {
+                            if !isMessageAutoFollowEnabled { isMessageAutoFollowEnabled = true }
+                        } else if next.isUserMovingToOlder(comparedWith: old) {
+                            if isMessageAutoFollowEnabled { isMessageAutoFollowEnabled = false }
+                        }
                     }
                     if isMessageAutoFollowEnabled,
                        (abs(old.contentHeight - next.contentHeight) > 0.5
@@ -706,7 +737,7 @@ struct ChatScreen: View {
                     proxy.scrollTo(bottomAnchorID, anchor: .bottom)
                 }
                 .onAppear {
-                    isMessageAutoFollowEnabled = true
+                    if !isMessageAutoFollowEnabled { isMessageAutoFollowEnabled = true }
                     scrollToBottom(proxy, animated: false)
                 }
                 .onChange(of: store.messages.count) {
@@ -1273,7 +1304,7 @@ struct ChatScreen: View {
     @ViewBuilder
     private var contextInspectorOverlayAnchor: some View {
         GeometryReader { proxy in
-            if isShowingContextInfo {
+            if isShowingContextInfo, let snapshot = displayedContextSnapshot {
                 let origin = contextInspectorOverlayOrigin(in: proxy.size)
 
                 ZStack(alignment: .topLeading) {
@@ -1284,7 +1315,7 @@ struct ChatScreen: View {
                         }
 
                     ContextInspectorModal(
-                        snapshot: store.contextCompositionSnapshot,
+                        snapshot: snapshot,
                         isCompacting: store.isCompactingContext,
                         isTurnRunning: store.isLoading,
                         onCompact: { store.compactContextNow() },
@@ -2308,10 +2339,13 @@ struct ChatScreen: View {
         Button {
             toggleContextInfo()
         } label: {
-            ContextUsageWheel(
-                progress: store.contextCompositionSnapshot.usedRatio,
-                showsGlassSurface: false
-            )
+            Group {
+                if let snapshot = displayedContextSnapshot {
+                    ContextUsageWheel(progress: snapshot.usedRatio, showsGlassSurface: false)
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+            }
             .frame(width: composerControlSize, height: composerControlSize)
             .contentShape(Circle())
             .background {
@@ -2380,11 +2414,9 @@ struct ChatScreen: View {
             TopChromeIconButton(
                 systemImage: configuration.systemImage,
                 accessibilityLabel: configuration.accessibilityLabel,
+                unreadCount: unreadCount,
                 action: configuration.action
             )
-            .overlay(alignment: .topTrailing) {
-                PalmiUnreadBadge(count: unreadCount).offset(x: 2, y: -2)
-            }
             .frame(width: 64, height: buttonSize, alignment: alignment)
         } else {
             Color.clear
@@ -2836,6 +2868,10 @@ struct ChatScreen: View {
 
     private func toggleContextInfo() {
         if isFocused { isFocused = false }
+        if !isShowingContextInfo {
+            displayedContextSnapshot = store.contextCompositionSnapshot
+            contextSnapshotSelection = workspaceStore.selectedSelection
+        }
         withAnimation(floatingBubbleAnimation) {
             isShowingContextInfo.toggle()
         }
@@ -4793,11 +4829,21 @@ private struct LinkActionPopoverSizeReader: View {
 private struct TopChromeIconButton: View {
     let systemImage: String
     let accessibilityLabel: String
+    var unreadCount: Int = 0
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemImage)
+            Group {
+                if unreadCount > 0 {
+                    Text(unreadCount > 99 ? "99+" : String(unreadCount))
+                        .font(.system(size: 20, weight: .semibold, design: .rounded))
+                        .monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+                        .foregroundStyle(Color.accentColor)
+                } else {
+                    Image(systemName: systemImage)
+                }
+            }
                 .font(.system(size: 19, weight: .semibold))
                 .foregroundStyle(Color.black.opacity(0.88))
                 .frame(width: 52, height: 52)
@@ -4811,6 +4857,7 @@ private struct TopChromeIconButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(unreadCount > 0 ? PalmiL10n.tr("chat.unread.count", unreadCount) : "")
         .contentShape(Circle())
     }
 }

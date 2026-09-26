@@ -167,7 +167,12 @@ final class ChatStore {
         var modelRequestID = UUID()
         var draftContent = ""
         var draftReasoning = ""
+        var draftByteCount = 0
+        var lastFlushedDraftByteCount = 0
         var lastDraftFlushNanoseconds: UInt64 = 0
+        var lastProgressSnapshot: AgentRunProgressSnapshot?
+        var backgroundMessages: [PalmiChatMessage]?
+        var backgroundProjectionDirty = false
         var journalError: Error?
         var persistenceBarrierContinuations: [UUID: CheckedContinuation<Void, Never>] = [:]
         var ownedSubagentThreadIDs: Set<UUID> = []
@@ -225,6 +230,7 @@ final class ChatStore {
     private let continuedProcessingCoordinator = AgentContinuedProcessingCoordinator()
     private var agentEventTask: Task<Void, Never>?
     private var loadedSelection: WorkspaceSelection?
+    @ObservationIgnored private var loadedProjectionSucceeded = false
     private var composerStatesBySelection: [WorkspaceSelection: SessionComposerState] = [:]
     private var pendingApprovalRequestsBySelection: [WorkspaceSelection: AgentApprovalRequest] = [:]
     private var activeSessionViewStatesBySelection: [WorkspaceSelection: ActiveSessionViewState] = [:]
@@ -271,6 +277,8 @@ final class ChatStore {
         persistMessages()
         persistAgentSession()
         for (selection, run) in activeRuns {
+            do { try flushBackgroundProjection(for: selection) }
+            catch { errorMessage = error.localizedDescription }
             persistAgentSession(run.loop, for: selection)
             heartbeatRunLedger(for: selection)
         }
@@ -411,7 +419,7 @@ final class ChatStore {
             return
         }
 
-        if loadedSelection != turnSelection {
+        if loadedSelection != turnSelection || !loadedProjectionSucceeded {
             loadMessagesForActiveThread()
         }
 
@@ -1672,6 +1680,10 @@ final class ChatStore {
     }
 
     func loadMessagesForActiveThread() {
+        if let selection = workspaceStore.selectedSelection,
+           selection == loadedSelection, loadedProjectionSucceeded {
+            return
+        }
         saveVisibleComposerState()
         saveVisibleActiveSessionViewState()
         if loadedSelection != nil {
@@ -1680,6 +1692,7 @@ final class ChatStore {
 
         guard let selection = workspaceStore.selectedSelection else {
             loadedSelection = nil
+            loadedProjectionSucceeded = false
             messages = []
             queuedUserGuidance = []
             pendingAttachments = []
@@ -1699,6 +1712,7 @@ final class ChatStore {
         let isReturningToRunningSession = activeRuns[selection] != nil
 
         do {
+            try flushBackgroundProjection(for: selection)
             messages = normalizeMessages(
                 try workspaceManager.withSelection(selection) {
                     try workspaceManager.loadChatMessagesForCurrentThread()
@@ -1706,6 +1720,9 @@ final class ChatStore {
             )
             errorMessage = nil
             loadedSelection = selection
+            loadedProjectionSucceeded = true
+            activeRuns[selection]?.backgroundMessages = nil
+            activeRuns[selection]?.backgroundProjectionDirty = false
             if workspaceStore.thread(for: selection)?.subagentOrigin == nil {
                 unreadStore.ingest(messages, selection: selection,
                     isChat: workspaceStore.chatProjects.contains { $0.id == selection.projectID })
@@ -1717,6 +1734,7 @@ final class ChatStore {
             messages = []
             errorMessage = error.localizedDescription
             loadedSelection = selection
+            loadedProjectionSucceeded = false
         }
 
         if activeRuns[selection] == nil {
@@ -1865,6 +1883,7 @@ final class ChatStore {
         errorMessage: String?
     ) {
         do {
+            try flushBackgroundProjection(for: selection)
             try workspaceManager.withSelection(selection) {
                 var storedMessages = normalizeMessages(
                     try workspaceManager.loadChatMessagesForCurrentThread()
@@ -1902,6 +1921,8 @@ final class ChatStore {
                     normalizeMessages(storedMessages)
                 )
             }
+            activeRuns[selection]?.backgroundMessages = nil
+            activeRuns[selection]?.backgroundProjectionDirty = false
         } catch {
             self.errorMessage = error.localizedDescription
         }
@@ -2525,38 +2546,43 @@ final class ChatStore {
     }
 
     private func handleBackgroundAgentEvent(_ event: AgentEvent, selection: WorkspaceSelection) {
-        guard shouldApplyAgentMessageEventInBackground(event) else { return }
-
+        guard shouldApplyAgentMessageEventInBackground(event),
+              let run = activeRuns[selection] else { return }
         do {
-            var storedMessages = [PalmiChatMessage]()
-            var viewState = activeSessionViewStatesBySelection[selection] ?? ActiveSessionViewState()
-            var composerState = composerStatesBySelection[selection] ?? SessionComposerState()
-            try workspaceManager.withSelection(selection) {
-                storedMessages = normalizeMessages(try workspaceManager.loadChatMessagesForCurrentThread())
-                if activeSessionViewStatesBySelection[selection] == nil {
-                    viewState = inferredActiveSessionViewState(from: storedMessages)
-                }
-
-                let result = applyingAgentMessageEvent(
-                    event,
-                    to: storedMessages,
-                    viewState: viewState,
-                    composerState: composerState,
-                    persistTransientEvents: false
-                )
-                storedMessages = result.messages
-                viewState = result.viewState
-                composerState = result.composerState
-
-                if result.needsPersistence {
-                    try workspaceManager.saveChatMessagesForCurrentThread(normalizeMessages(storedMessages))
+            let base: [PalmiChatMessage]
+            if let cached = run.backgroundMessages {
+                base = cached
+            } else {
+                base = try workspaceManager.withSelection(selection) {
+                    normalizeMessages(try workspaceManager.loadChatMessagesForCurrentThread())
                 }
             }
-            activeSessionViewStatesBySelection[selection] = viewState
-            storeComposerState(composerState, for: selection)
+            let viewState = activeSessionViewStatesBySelection[selection]
+                ?? inferredActiveSessionViewState(from: base)
+            let composerState = composerStatesBySelection[selection] ?? SessionComposerState()
+            let result = applyingAgentMessageEvent(
+                event, to: base, viewState: viewState,
+                composerState: composerState, persistTransientEvents: false
+            )
+            run.backgroundMessages = result.messages
+            run.backgroundProjectionDirty = true
+            activeSessionViewStatesBySelection[selection] = result.viewState
+            storeComposerState(result.composerState, for: selection)
+            if result.needsPersistence { try flushBackgroundProjection(for: selection) }
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func flushBackgroundProjection(for selection: WorkspaceSelection) throws {
+        guard let run = activeRuns[selection], run.backgroundProjectionDirty,
+              let cached = run.backgroundMessages else { return }
+        let normalized = normalizeMessages(cached)
+        try workspaceManager.withSelection(selection) {
+            try workspaceManager.saveChatMessagesForCurrentThread(normalized)
+        }
+        run.backgroundMessages = normalized
+        run.backgroundProjectionDirty = false
     }
 
     private func applyingAgentMessageEvent(
@@ -3991,6 +4017,9 @@ final class ChatStore {
             try await flushJournalDraft(for: run)
             run.draftContent = ""
             run.draftReasoning = ""
+            run.draftByteCount = 0
+            run.lastFlushedDraftByteCount = 0
+            run.lastDraftFlushNanoseconds = DispatchTime.now().uptimeNanoseconds
             run.modelRequestID = UUID()
             _ = try await runJournalStore.append(
                 runID: run.runID,
@@ -4004,9 +4033,11 @@ final class ChatStore {
             )
         case let .streamingDelta(text):
             run.draftContent += text
+            run.draftByteCount += text.utf8.count
             try await flushJournalDraftIfNeeded(for: run)
         case let .reasoningDelta(text):
             run.draftReasoning += text
+            run.draftByteCount += text.utf8.count
             try await flushJournalDraftIfNeeded(for: run)
         case .toolStarted, .internalToolStarted:
             break
@@ -4043,6 +4074,7 @@ final class ChatStore {
         for run: ActiveRun,
         phase: AgentRunProgressPhase
     ) {
+        guard run.continuedProcessingIdentifier != nil else { return }
         let taskState = run.loop.currentSessionSnapshot().taskStateSnapshot?.currentState
         let childRecords = records(for: Array(run.ownedSubagentThreadIDs))
         let taskTotal = taskState?.totalCount ?? 0
@@ -4053,6 +4085,8 @@ final class ChatStore {
             completedUnitCount: Int64((taskState?.completedCount ?? 0) + childRecords.filter(\.status.isTerminal).count),
             totalUnitCount: hasMeasurableUnits ? Int64(taskTotal + childTotal + 1) : nil
         )
+        guard run.lastProgressSnapshot != snapshot else { return }
+        run.lastProgressSnapshot = snapshot
         continuedProcessingCoordinator.update(
             identifier: run.continuedProcessingIdentifier,
             snapshot: snapshot
@@ -4061,8 +4095,10 @@ final class ChatStore {
 
     private func flushJournalDraftIfNeeded(for run: ActiveRun) async throws {
         let now = DispatchTime.now().uptimeNanoseconds
-        let bytes = run.draftContent.utf8.count + run.draftReasoning.utf8.count
-        guard bytes >= 4_096 || now - run.lastDraftFlushNanoseconds >= 750_000_000 else { return }
+        let unsaved = max(0, run.draftByteCount - run.lastFlushedDraftByteCount)
+        guard unsaved > 0 else { return }
+        let elapsed = now >= run.lastDraftFlushNanoseconds ? now - run.lastDraftFlushNanoseconds : 0
+        guard elapsed >= 750_000_000 || (unsaved >= 4_096 && elapsed >= 100_000_000) else { return }
         try await flushJournalDraft(for: run, nowNanoseconds: now)
     }
 
@@ -4070,16 +4106,24 @@ final class ChatStore {
         for run: ActiveRun,
         nowNanoseconds: UInt64 = DispatchTime.now().uptimeNanoseconds
     ) async throws {
-        guard !run.draftContent.isEmpty || !run.draftReasoning.isEmpty else { return }
+        guard run.draftByteCount > run.lastFlushedDraftByteCount else { return }
+        let content = run.draftContent
+        let reasoning = run.draftReasoning
+        let bytes = run.draftByteCount
+        let requestID = run.modelRequestID
+        guard !content.isEmpty || !reasoning.isEmpty else { return }
         _ = try await runJournalStore.append(
             runID: run.runID,
             payload: .streamDraft(
-                requestID: run.modelRequestID,
-                content: run.draftContent,
-                reasoning: run.draftReasoning.isEmpty ? nil : run.draftReasoning
+                requestID: requestID,
+                content: content,
+                reasoning: reasoning.isEmpty ? nil : reasoning
             )
         )
-        run.lastDraftFlushNanoseconds = nowNanoseconds
+        if run.modelRequestID == requestID {
+            run.lastFlushedDraftByteCount = max(run.lastFlushedDraftByteCount, bytes)
+            run.lastDraftFlushNanoseconds = max(run.lastDraftFlushNanoseconds, nowNanoseconds)
+        }
     }
 
     private func recordTerminalCheckpoint(
@@ -4087,6 +4131,7 @@ final class ChatStore {
         payload: AgentRunJournalPayload
     ) async -> String? {
         do {
+            try flushBackgroundProjection(for: run.selection)
             try await flushJournalDraft(for: run)
             _ = try await runJournalStore.append(runID: run.runID, payload: payload)
             return nil
