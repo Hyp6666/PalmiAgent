@@ -63,6 +63,7 @@ enum AppDataManagementService {
         workspaceStore: WorkspaceStore,
         afterResettingPreferences: (() -> Void)? = nil
     ) throws {
+        try ChatGPTAccountStore.shared.signOut()
         try workspaceStore.workspaceManager.deleteAllWorkspaceData()
         try clearCaches()
         resetUserPreferences()

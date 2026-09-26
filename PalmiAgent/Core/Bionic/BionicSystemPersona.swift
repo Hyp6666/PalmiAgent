@@ -9,33 +9,22 @@ nonisolated enum BionicSystemPersona {
         instance == installationID
     }
 
+    @MainActor static func avatarData() throws -> Data {
+        guard let image = UIImage(named: "PalmiCharacterAvatar"), let data = image.pngData() else {
+            throw BionicFailure("invalidImage")
+        }
+        return data
+    }
+
     @MainActor
     static func draft(language: String, now: Date = .now) throws -> (
         persona: BionicObject, participant: BionicObject, assets: [String: Data]
     ) {
-        guard let image = UIImage(named: "PalmiProcessingSprite"),
-              image.size.width > 0, image.size.height > 0 else {
-            throw BionicFailure("invalidImage")
-        }
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = true
-        let avatar = UIGraphicsImageRenderer(
-            size: CGSize(width: 256, height: 256), format: format
-        ).image { _ in
-            UIColor.white.setFill()
-            UIRectFill(CGRect(x: 0, y: 0, width: 256, height: 256))
-            let scale = min(208 / image.size.width, 208 / image.size.height)
-            let width = image.size.width * scale
-            let height = image.size.height * scale
-            image.draw(in: CGRect(x: (256 - width) / 2, y: (256 - height) / 2,
-                                  width: width, height: height))
-        }
-        guard let data = avatar.pngData() else { throw BionicFailure("invalidImage") }
+        let data = try avatarData()
         let asset = "assets/\(BionicCodec.sha(data)).png"
         var persona = BionicPersonaCatalog.draft(language: language, now: now)
         persona["character_id"] = .string(characterID)
-        persona["nickname"] = .string("帕米")
+        persona["nickname"] = .string("Palmi")
         persona["avatar_asset"] = .string(asset)
         persona["identity"] = .string(PalmiL10n.tr("bionic.system.identity"))
         persona["background"] = .string(PalmiL10n.tr("bionic.system.background"))
@@ -52,13 +41,8 @@ nonisolated enum BionicSystemPersona {
         persona["proactive_enabled"] = .bool(false)
         persona["evolution_enabled"] = .bool(false)
         try BionicPersonaCatalog.validate(persona)
-        let participant: BionicObject = [
-            "participant_id": .string(BionicCodec.id()),
-            "display_name": .string(PalmiL10n.tr("bionic.creation.defaultParticipant")),
-            "avatar_asset": .null,
-            "created_at": .string(BionicCodec.instant(now))
-        ]
-        return (persona, participant, [asset: data])
+        let profile = BionicUserProfileStore.shared.participantSnapshot(id: BionicCodec.id())
+        return (persona, profile.participant, [asset: data].merging(profile.assets) { _, new in new })
     }
 }
 

@@ -11,6 +11,7 @@ enum BionicInspectorLabel {
         return f.string(from: date)
     }
     static func kind(_ value: String) -> String {
+        if value == "diary" { return PalmiL10n.tr("bionic.diary.title") }
         let map = ["chat": "reply", "planning": "planning", "compaction": "compaction", "evolution": "evolution", "audit": "audit", "export": "export", "import": "import"]
         return map[value].map(text) ?? value
     }
@@ -28,6 +29,11 @@ enum BionicInspectorLabel {
               "notDetermined": "notRequested", "enabled": "enabled", "disabled": "disabled", "notSupported": "notSupported"][value] ?? "unknown")
     }
     static func module(_ value: BionicObject) -> String {
+        let additions = ["diary": "bionic.diary.title", "diary_rules": "bionic.diary.rules",
+                         "diary_source": "bionic.diary.source", "diary_compaction": "bionic.diary.compaction",
+                         "current_user_profile": "profile.title", "generated_image": "bionic.inspect.generatedImage",
+                         "available_images": "bionic.inspect.availableImages"]
+        if let key = additions[value.text("module")] { return PalmiL10n.tr(key) }
         let map = ["instructions": "rules", "persona": "persona", "memory": "memories", "summary": "summary",
                    "clock": "clock", "message_index": "messageIndex", "recalled_evidence": "recalled",
                    "turn_control": "turnControl", "format_repair": "repair", "planning": "planning",

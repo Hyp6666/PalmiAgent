@@ -287,7 +287,7 @@ nonisolated enum BionicRecords {
     }
     static func checkpoint(_ request: BionicObject, step: String, phase: String, result: String? = nil,
                            attempts: Int = 0, bubble: Int = 0, error: String? = nil) -> BionicObject {
-        ["operation_id": .string(request.text("operation_id")), "step_id": .string(step), "phase": .string(phase),
+        var value: BionicObject = ["operation_id": .string(request.text("operation_id")), "step_id": .string(step), "phase": .string(phase),
          "result_id": .text(result), "attempt_count": .count(attempts), "next_bubble_index": .count(bubble),
          "frozen_from_cursor": request["frozen_from_cursor"] ?? BionicCursor.zero.json,
          "frozen_to_cursor": request["frozen_to_cursor"] ?? BionicCursor.zero.json,
@@ -295,6 +295,11 @@ nonisolated enum BionicRecords {
          "participant_id": request["participant_id"] ?? .string(""),
          "persona_revision_id": request["persona_revision_id"] ?? .string(""),
          "memory_revision_sequence": request["memory_revision_sequence"] ?? .integer(0), "last_error_code": .text(error)]
+        if request.text("kind") == "diary" {
+            value["diary_day"] = request.object("control")["diary_day"] ?? .null
+            value["diary_timezone"] = request.object("control")["diary_timezone"] ?? .null
+        }
+        return value
     }
     static func request(_ role: BionicRole, kind: String, input: BionicModelInput?,
                         from: BionicCursor = .zero, to: BionicCursor = .zero, control: BionicObject = [:],

@@ -31,6 +31,7 @@ final class BionicStore {
     var avatars: [String: Data] = [:]
     var lastBodies: [String: String] = [:]
     var unreadCounts: [String: Int] = [:]
+    private(set) var unreadSequencesByInstance: [String: [String: Int]] = [:]
     private(set) var typingWindowsByInstance: [String: [BionicTypingWindow]] = [:]
     private(set) var chatPreferences: [String: BionicChatPreferences] = [:]
     private(set) var lastActivityTimes: [String: Date] = [:]
@@ -86,14 +87,17 @@ final class BionicStore {
     var selectedRole: BionicRole? { roles.first { $0.installationID == selectedID } }
 
     init(modelRuntime: any AgentModelRuntime, modelPlanStore: ModelPlanStore,
-         notificationService: NotificationService, purchases: BionicPurchaseStore? = nil) {
+         notificationService: NotificationService, purchases: BionicPurchaseStore? = nil,
+         imageGeneration: PalmiImageGenerationService? = nil) {
         let archive = BionicArchiveStore()
         let model = BionicModelService(runtime: modelRuntime, plans: modelPlanStore)
+        model.imageGeneration = imageGeneration
         let purchaseStore = purchases ?? BionicPurchaseStore()
         self.purchases = purchaseStore
         model.canGenerate = { purchaseStore.canUse }
         model.archive = archive
         let coordinator = BionicCoordinator(archive: archive, model: model)
+        coordinator.imageGeneration = imageGeneration
         let sharedHistory = BionicHistoryIndex(archive: archive)
         let notifications = BionicNotifications(archive: archive, service: notificationService, history: sharedHistory)
         self.archive = archive; self.model = model; self.coordinator = coordinator; self.notifications = notifications
@@ -191,7 +195,9 @@ final class BionicStore {
         invalidationToken += 1; openTicket += 1; windowTicket += 1
         coordinator.stopForReset(); readTask?.cancel(); readTask = nil; readTaskID = nil; pendingReads.removeAll()
         readProjectionSequences.removeAll()
+        unreadSequencesByInstance.removeAll()
         await notifications.removeAll(); try await archive.resetAll(); await history.clear()
+        try BionicUserProfileStore.shared.reset()
         selectedID = nil; chatVisibleID = nil; path = []; roles = []; messages = []; participants = [:]; avatars = [:]; errors = [:]
         composers.removeAll(); avatarPaths.removeAll(); statsKeys.removeAll(); refreshRequests.removeAll()
         quotedIDs = [:]; quotedMessages = [:]; lastBodies = [:]; unreadCounts = [:]; globalError = nil
@@ -210,6 +216,9 @@ final class BionicStore {
         guard projection.throughSequence >= (readProjectionSequences[id] ?? -1) else { return }
         readProjectionSequences[id] = projection.throughSequence
         if unreadCounts[id] != projection.unread { unreadCounts[id] = projection.unread }
+        if unreadSequencesByInstance[id] != projection.unreadSequences {
+            unreadSequencesByInstance[id] = projection.unreadSequences
+        }
         if lastBodies[id] != projection.latestBody { lastBodies[id] = projection.latestBody }
         if selectedID == id {
             totalMessages = max(totalMessages, projection.totalMessages)
@@ -280,6 +289,7 @@ final class BionicStore {
         } while !refreshRequests.isEmpty
     }
     private func prunePresentation(validIDs: Set<String>) {
+        unreadSequencesByInstance = unreadSequencesByInstance.filter { validIDs.contains($0.key) }
         for id in Set(unreadCounts.keys).subtracting(validIDs) { unreadCounts.removeValue(forKey: id) }
         for id in Set(lastBodies.keys).subtracting(validIDs) { lastBodies.removeValue(forKey: id) }
         for id in Set(chatPreferences.keys).subtracting(validIDs) { chatPreferences.removeValue(forKey: id) }
@@ -550,18 +560,38 @@ final class BionicStore {
     }
     func authorName(_ message: BionicObject) -> String {
         if message.text("author_kind") == "character" { return selectedRole?.name ?? PalmiL10n.tr("bionic.role") }
-        return participants[message.text("author_id")]?.text("display_name") ?? PalmiL10n.tr("bionic.previousParticipant")
+        let author = message.text("author_id")
+        if author == selectedRole?.state.participantID { return BionicUserProfileStore.shared.displayName }
+        return participants[author]?.text("display_name") ?? PalmiL10n.tr("bionic.previousParticipant")
     }
     func displayTime(_ message: BionicObject) -> String {
         BionicTimelineClock.label(message, locale: PalmiLanguage.current.locale, detailed: true)
     }
     @discardableResult
     func ensureSystemRole() async throws -> BionicRole {
-        if let existing = try await archive.existingSystemRole() { return existing }
+        if let existing = try await archive.existingSystemRole() {
+            let local = try await archive.binding(existing.installationID)
+            if local.int("system_appearance_revision") < 2 {
+                let data = try BionicSystemPersona.avatarData()
+                let asset = try await archive.saveAsset(existing.installationID, data)
+                var persona = existing.persona
+                persona["nickname"] = .string("Palmi")
+                persona["avatar_asset"] = .string(asset)
+                persona["persona_revision_id"] = .string(BionicCodec.id())
+                persona["recorded_at"] = .string(BionicCodec.instant())
+                persona["validation_receipt"] = .null
+                _ = try await archive.updatePersona(existing.installationID, persona: persona)
+                try await archive.updateBinding(existing.installationID, changes: ["system_appearance_revision": .count(2)])
+            }
+            let updated = try await archive.loadRole(existing.installationID)
+            await refresh(changed: existing.installationID)
+            return updated
+        }
         let token = invalidationToken
         let draft = try BionicSystemPersona.draft(language: PalmiLanguage.current.rawValue)
         var binding = model.defaultBinding()
         binding["plan_id"] = .null
+        binding["system_appearance_revision"] = .count(2)
         binding["primary_candidate_id"] = .null
         binding["multimodal_candidate_id"] = .null
         binding["lightweight_candidate_id"] = .null
@@ -586,7 +616,9 @@ final class BionicStore {
             guard audit.receipt.flag("passed"), audit.receipt.text("input_hash") == (try BionicPersonaCatalog.fingerprint(persona)) else { throw BionicFailure("auditRequired") }
         }
         var value = persona; value["validation_receipt"] = audit.map { .object($0.receipt) } ?? .null
-        let role = try await archive.createRole(persona: value, participant: participant, assets: assets, binding: binding, auditRequest: audit?.request, auditResult: audit?.result)
+        let profile = BionicUserProfileStore.shared.participantSnapshot(id: participant.text("participant_id"))
+        let creationAssets = assets.merging(profile.assets) { _, new in new }
+        let role = try await archive.createRole(persona: value, participant: profile.participant, assets: creationAssets, binding: binding, auditRequest: audit?.request, auditResult: audit?.result)
         if binding.flag("notifications_enabled") {
             do { try await notifications.enable(role.installationID, enabled: true) }
             catch { globalError = Self.errorText(error) }
@@ -623,14 +655,10 @@ final class BionicStore {
         if let existing = await archive.roles().first(where: { $0.characterID == characterID }) {
             let samePersona = try BionicPersonaCatalog.fingerprint(existing.persona)
                 == BionicPersonaCatalog.fingerprint(persona)
-            let participant = try await archive.read(
-                existing.installationID, "participants/\(existing.state.participantID).json"
-            )
             let matchingRuntime = ["reply_timing", "proactive_enabled", "evolution_enabled"].allSatisfy {
                 existing.persona[$0] == persona[$0]
             }
-            guard samePersona, matchingRuntime,
-                  participant.text("display_name") == draft.participant.text("display_name") else {
+            guard samePersona, matchingRuntime else {
                 throw BionicFailure("invalidFields", detail: "The execution already created a different persona")
             }
             return ["created": .bool(false), "already_created": .bool(true),

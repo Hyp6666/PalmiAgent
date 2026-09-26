@@ -119,6 +119,10 @@ struct ToolPolicyMetadata: Codable, Hashable, Sendable {
 extension ToolActionID {
     var policyMetadata: ToolPolicyMetadata {
         switch self {
+        case .generateImage:
+            return ToolPolicyMetadata(riskLevel: .r3WorkspaceMutationOrSandbox, sideEffect: .mutatesWorkspace,
+                parallelPolicy: .sequential, confirmationPolicy: .firstUse, mutatesWorkspace: true,
+                touchesPersonalData: false, isInteractive: false, isCacheable: false, isIdempotent: false)
         case .getCurrentDateTime:
             return ToolPolicyMetadata(
                 riskLevel: .r2LocalRead,

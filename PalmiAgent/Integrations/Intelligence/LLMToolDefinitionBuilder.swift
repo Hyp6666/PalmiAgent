@@ -46,6 +46,8 @@ enum LLMToolDefinitionBuilder {
     ) -> String {
         var lines: [String]
         switch facade.name {
+        case .generateImage:
+            lines = ["[图片] 根据用户的画面要求生成一张图片，保存到当前项目 generated/images。只传 prompt。成功后在回复中使用工具返回的 ![image](path)，可在图片前后写正文。不得输出 base64、凭据、绝对路径或伪造图片地址。同一回合生成失败不循环重试、不自动换模型。"]
         case .read:
             lines = [
                 "[工作区] 原样读取单个文本文件。参数只有 path、start、count；返回解码后的原始文字和 next_start。它不解析 PDF、Office、iWork 或归档文件，这些文件先使用 break_down。"
@@ -116,6 +118,8 @@ enum LLMToolDefinitionBuilder {
         primaryAction: ToolAction
     ) -> JSONValue {
         switch facade.name {
+        case .generateImage:
+            return imageGenerationSchema
         case .read:
             return ToolJSONSchema.object(properties: [
                 "path": ToolJSONSchema.string(description: "必填。工作区中的文本文件相对路径。"),
@@ -190,7 +194,14 @@ enum LLMToolDefinitionBuilder {
         WebSearchProviderSettings.enabledProviderIDs().map(\.rawValue)
     }
 
+    private static var imageGenerationSchema: JSONValue {
+        ToolJSONSchema.object(properties: ["prompt": ToolJSONSchema.string(description: "完整画面要求，1到6000字")], required: ["prompt"])
+    }
+
     private static func toolDescription(for action: ToolAction) -> String {
+        if action.id == .generateImage, let facade = AgentExternalToolFacadeCatalog.facade(backing: action.id) {
+            return facadeDescription(for: facade, backingActions: [action])
+        }
         var lines = [
             "[\(action.category.title)] \(action.title)：\(action.effect)",
             action.details
@@ -254,6 +265,7 @@ enum LLMToolDefinitionBuilder {
 
     static func toolParametersSchema(for action: ToolAction) -> JSONValue {
         switch action.id {
+        case .generateImage: return imageGenerationSchema
         case .createBionicPersona:
             return BionicPersonaCreation.schema
         case .fileRead:

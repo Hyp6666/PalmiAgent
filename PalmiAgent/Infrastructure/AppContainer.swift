@@ -6,12 +6,19 @@ final class AppContainer {
     lazy var bionicStore = BionicStore(modelRuntime: llmAPIClient,
                                       modelPlanStore: modelPlanStore,
                                       notificationService: notificationService,
-                                      purchases: bionicPurchases)
+                                      purchases: bionicPurchases, imageGeneration: imageGenerationService)
+    lazy var imageGenerationService = PalmiImageGenerationService(plans: modelPlanStore, permissions: toolPermissionStore)
 
     init() {
+        let introducedKey = "palmi.image-generation.tool-introduced"
+        if !UserDefaults.standard.bool(forKey: introducedKey) {
+            toolPermissionStore.setEnabled(false, for: ToolManagementGroupID.imageGeneration)
+            UserDefaults.standard.set(true, forKey: introducedKey)
+        }
         AppDataManagementService.prepareBionicReset = { [weak self] in
             guard let self else { return }
             try await self.bionicStore.reset()
+            try await self.imageGenerationService.reset()
         }
     }
 
@@ -88,7 +95,7 @@ final class AppContainer {
         ocrService: ocrService,
         modelPlanStore: modelPlanStore,
         modelRuntime: llmAPIClient,
-        bionicStore: bionicStore
+        bionicStore: bionicStore, imageGeneration: imageGenerationService
     )
 
     let toolExecutionCoordinator = ToolExecutionCoordinator()

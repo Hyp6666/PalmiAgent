@@ -32,7 +32,13 @@ enum BionicResponseDecoder {
         switch name {
         case "speak":
             if value["end_turn"] == nil { value["end_turn"] = .bool(true) }
-            if case .array(let list)? = value["messages"] { value["messages"] = .array(messages(list)) }
+            if case .array(let list)? = value["messages"] {
+                value["messages"] = .array(messages(list).map { item in
+                    guard case .object(var message) = item else { return item }
+                    if message["image_ids"] == nil { message["image_ids"] = .array([]) }
+                    return .object(message)
+                })
+            }
         case "recall":
             for key in ["query", "from_date", "through_date", "cursor"] {
                 if value[key] == nil || value[key] == .string("") { value[key] = .null }

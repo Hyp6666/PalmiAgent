@@ -37,6 +37,7 @@ final class ActionExecutor {
     private let modelRuntime: AgentModelRuntime
     private let userDefaults: UserDefaults
     private let bionicStore: BionicStore?
+    private let imageGeneration: PalmiImageGenerationService?
 
     init(
         workspaceManager: WorkspaceManager,
@@ -64,7 +65,8 @@ final class ActionExecutor {
         modelPlanStore: ModelPlanStore,
         modelRuntime: AgentModelRuntime,
         userDefaults: UserDefaults = .standard,
-        bionicStore: BionicStore? = nil
+        bionicStore: BionicStore? = nil,
+        imageGeneration: PalmiImageGenerationService? = nil
     ) {
         self.workspaceManager = workspaceManager
         self.skillRegistry = skillRegistry
@@ -92,6 +94,7 @@ final class ActionExecutor {
         self.modelRuntime = modelRuntime
         self.userDefaults = userDefaults
         self.bionicStore = bionicStore
+        self.imageGeneration = imageGeneration
     }
 
     func execute(
@@ -102,6 +105,22 @@ final class ActionExecutor {
     ) async throws -> ToolExecutionOutcome {
         do {
             switch action.id {
+            case .generateImage:
+                guard let imageGeneration else { throw BionicFailure("imageConfigurationMissing") }
+                let prompt = try arguments.requiredString("prompt")
+                let selection = try workspaceManager.currentSelection()
+                let history = try workspaceManager.withSelection(selection) { try workspaceManager.loadChatMessagesForCurrentThread() }
+                guard let user = history.last(where: { $0.role == .user && $0.kind == .normal }) else { throw BionicFailure("sourceMissing") }
+                let scope = "workspace:" + ChatUnreadStore.key(selection) + ":" + user.id.uuidString
+                let picture = try await imageGeneration.generate(prompt: prompt, scope: scope)
+                try Task.checkCancellation()
+                let path = "generated/images/" + picture.filename
+                _ = try workspaceManager.withSelection(selection) { try workspaceManager.writeData(picture.data, to: path) }
+                let output: BionicObject = ["path": .string(path), "mime_type": .string("image/png"),
+                    "width": .count(picture.width), "height": .count(picture.height),
+                    "markdown": .string("![image](" + path + ")")]
+                return success(action, PalmiL10n.tr("image.generated"), details: try BionicCodec.string(output),
+                    inlineMetadata: ToolCallInlineMetadataBuilder.workspaceMetadata(path: path))
             case .createBionicPersona:
                 guard let bionicStore else {
                     throw AppError.invalidState(PalmiL10n.tr("bionic.creation.unavailable"))

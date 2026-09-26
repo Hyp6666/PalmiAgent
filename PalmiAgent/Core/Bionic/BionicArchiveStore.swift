@@ -274,6 +274,7 @@ actor BionicArchiveStore {
     nonisolated let root: URL
     private var cache: [String: BionicRole] = [:]
     var presentationCache: [String: BionicPresentationCache] = [:]
+    var diaryProjectionCache: [String: BionicDiaryProjectionCache] = [:]
     private var deleted: Set<String> = []
     init(root: URL = BionicDisk.root) { self.root = root }
     nonisolated func roleURL(_ instance: String) -> URL { root.appendingPathComponent("roles/\(instance)", isDirectory: true) }
@@ -582,10 +583,12 @@ actor BionicArchiveStore {
             throw BionicFailure("systemRoleProtected")
         }
         presentationCache.removeValue(forKey: instance)
+        diaryProjectionCache.removeValue(forKey: instance)
         deleted.insert(instance); cache.removeValue(forKey: instance)
         for url in [roleURL(instance), localURL(instance)] where FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
     }
     func forgetAll() {
+        diaryProjectionCache.removeAll()
         presentationCache.removeAll()
         deleted.formUnion(cache.keys); cache.removeAll()
     }
@@ -713,6 +716,7 @@ extension BionicArchiveStore {
         return true
     }
     func resetAll() throws {
+        diaryProjectionCache.removeAll()
         presentationCache.removeAll()
         deleted.formUnion(cache.keys); cache.removeAll()
         if FileManager.default.fileExists(atPath: root.path) { try FileManager.default.removeItem(at: root) }
@@ -763,7 +767,7 @@ nonisolated extension BionicDisk {
         for (group, item, logical, _) in due {
             let id = item.text("message_id")
             guard !cancelledIDs.contains(id) else { continue }
-            let message = BionicRecords.message(
+            var message = BionicRecords.message(
                 role, id: id, text: item.text("body"), author: "character",
                 reply: item.optionalText("reply_to_message_id"),
                 generated: try BionicCodec.date(item.text("generated_at")),
@@ -771,6 +775,8 @@ nonisolated extension BionicDisk {
                 batch: group.optionalText("batch_id"), group: group.text("group_id"),
                 zone: group.text("planned_timezone")
             )
+            if let attachments = item["attachments"] { message["attachments"] = attachments }
+            try BionicAttachmentContract.validate(message)
             let path = "messages/\(id).json"
             sequence += 1
             becomingCommitted.insert(id)

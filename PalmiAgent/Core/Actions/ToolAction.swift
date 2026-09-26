@@ -73,6 +73,7 @@ enum ToolActionID: String, CaseIterable, Codable, Hashable, Sendable {
     case appIntentsDiagnostics
     case publishHandoffActivity
     case createBionicPersona
+    case generateImage
 
     var modelToolName: String {
         AgentExternalToolFacadeCatalog.canonicalToolName(for: self)

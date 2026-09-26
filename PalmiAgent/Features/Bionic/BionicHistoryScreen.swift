@@ -40,7 +40,7 @@ private struct BionicSearchScreen: View {
                     Button { onJump(result.id) } label: {
                         VStack(alignment: .leading, spacing: 5) {
                             HStack {
-                                Text(result.authorKind == "character" ? (store.selectedRole?.name ?? "") : (store.participants[result.authorID]?.text("display_name") ?? PalmiL10n.tr("bionic.previousParticipant")))
+                                Text(authorName(result))
                                     .font(.caption.weight(.semibold))
                                 Spacer()
                                 Text(result.day).font(.caption).foregroundStyle(.secondary)
@@ -66,6 +66,12 @@ private struct BionicSearchScreen: View {
             do { try await Task.sleep(for: .milliseconds(220)); try Task.checkCancellation(); await search(reset: true) }
             catch { return }
         }
+    }
+    private func authorName(_ result: BionicHistoryEntry) -> String {
+        let role = store.roles.first { $0.installationID == instance }
+        if result.authorKind == "character" { return role?.name ?? "" }
+        if result.authorID == role?.state.participantID { return BionicUserProfileStore.shared.displayName }
+        return store.participants[result.authorID]?.text("display_name") ?? PalmiL10n.tr("bionic.previousParticipant")
     }
     private func search(reset: Bool) async {
         let captured = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -231,7 +237,11 @@ private struct BionicResourcesScreen: View {
         }
         .sheet(item: $preview) { item in
             NavigationStack {
-                BionicAssetPreviewSheet(url: item.url)
+                BionicQuickLookContent(url: item.url)
+                    .toolbar { ToolbarItem(placement: .topBarLeading) {
+                        Button { preview = nil } label: { Image(systemName: "xmark") }
+                            .accessibilityLabel(PalmiL10n.tr("bionic.close"))
+                    } }
                     .toolbar { ToolbarItem(placement: .confirmationAction) {
                         Button(PalmiL10n.tr("bionic.showInChat")) { preview = nil; onJump(item.messageID) }
                     } }

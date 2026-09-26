@@ -10,7 +10,6 @@ enum BionicPersonaCreation {
             "background": ToolJSONSchema.string(description: "背景，最多2000字；未给出时为空"),
             "native_language": ToolJSONSchema.string(description: "角色固定语言，默认应用语言，创建后不可直接改",
                 enumValues: ["zh-Hans", "zh-Hant", "en", "ja", "ko"]),
-            "participant_name": ToolJSONSchema.string(description: "当前用户希望角色如何称呼自己，默认当前语言的‘我’"),
             "gender_kind": ToolJSONSchema.string(description: "性别表达；默认none", enumValues: ["none", "male", "female", "custom"]),
             "gender_text": ToolJSONSchema.string(description: "仅gender_kind=custom时使用，1到20字"),
             "mbti": ToolJSONSchema.string(description: "可选的16型MBTI，留空则不设置"),
@@ -45,7 +44,6 @@ enum BionicPersonaCreation {
             }
             fields[key] = value
         }
-        fields["participant_name"] = .string(draft.participant.text("display_name"))
         if let value = draft.persona.optionalText("mbti") { fields["mbti"] = .string(value) }
         if let value = draft.persona.optionalText("gender_text") { fields["gender_text"] = .string(value) }
         if let avatar = try BionicAvatarImportSpec.parse(arguments) {
@@ -117,8 +115,7 @@ enum BionicPersonaCreation {
             persona["current_traits"] = value
         }
         try BionicPersonaCatalog.validate(persona)
-        let name = try string("participant_name") ?? PalmiL10n.tr("bionic.creation.defaultParticipant")
-        guard (1...40).contains(name.count) else { throw BionicFailure("invalidFields", detail: "participant_name") }
+        let name = BionicUserProfileStore.shared.displayName
         let participant: BionicObject = [
             "participant_id": .string(BionicCodec.id()), "display_name": .string(name),
             "avatar_asset": .null, "created_at": .string(BionicCodec.instant(now))

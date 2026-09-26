@@ -687,6 +687,7 @@ struct APIConfigurationProfileRecord: Codable, Identifiable, Sendable {
 }
 
 struct APIResolvedConfiguration: Sendable {
+    var chatGPTOAuthAccountID: String? = nil
     let provider: APIProviderDefinition
     let profileID: UUID
     let profileName: String

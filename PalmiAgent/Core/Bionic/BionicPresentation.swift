@@ -78,6 +78,7 @@ nonisolated struct BionicReadProjection: Sendable {
     let unread: Int
     let latestBody: String
     let readIDs: Set<String>
+    let unreadSequences: [String: Int]
 }
 
 nonisolated struct BionicReadKey: Hashable, Sendable {
@@ -114,8 +115,26 @@ extension BionicArchiveStore {
             totalMessages: role.state.lastMessageSequence,
             unread: stats.unread,
             latestBody: stats.latestBody,
-            readIDs: read
+            readIDs: read,
+            unreadSequences: try unreadCharacterSequences(instance, read: read, after: local.int("unread_after_sequence"))
         )
+    }
+
+    func unreadCharacterSequences(_ instance: String, read: Set<String>, after: Int) throws -> [String: Int] {
+        let role = try loadRole(instance)
+        var cache = presentationCache[instance] ?? BionicPresentationCache()
+        var values: [String: Int] = [:]
+        for ref in role.state.order where ref.sequence > after && !read.contains(ref.id) {
+            let character: Bool
+            if let known = cache.isCharacter[ref.id] { character = known }
+            else {
+                character = try readMessageForPresentation(instance, ref.id).text("author_kind") == "character"
+                cache.isCharacter[ref.id] = character
+            }
+            if character { values[ref.id] = ref.sequence }
+        }
+        presentationCache[instance] = cache
+        return values
     }
 }
 

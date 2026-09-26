@@ -148,13 +148,17 @@ extension SkillSource {
 
 extension ToolManagementSectionID {
     var localizedTitle: String {
-        PalmiL10n.tr("tool.section.\(rawValue).title")
+        if self == .bionic { return PalmiL10n.tr("tool.section.bionic") }
+        if self == .imageGeneration { return PalmiL10n.tr("image.generation") }
+        return PalmiL10n.tr("tool.section.\(rawValue).title")
     }
 }
 
 extension ToolManagementGroupID {
     var localizedTitle: String {
-        PalmiL10n.tr("tool.group.\(rawValue).title")
+        if self == .bionicPersonas { return PalmiL10n.tr("tool.group.bionicPersonas") }
+        if self == .imageGeneration { return PalmiL10n.tr("image.generation") }
+        return PalmiL10n.tr("tool.group.\(rawValue).title")
     }
 
     var localizedSubtitle: String {
@@ -164,11 +168,13 @@ extension ToolManagementGroupID {
 
 extension ToolAction {
     var localizedTitleForUI: String {
-        PalmiL10n.tr("tool.action.\(id.rawValue).title")
+        if id == .generateImage { return PalmiL10n.tr("image.generate") }
+        return PalmiL10n.tr("tool.action.\(id.rawValue).title")
     }
 
     var localizedEffectForUI: String {
-        PalmiL10n.tr("tool.action.\(id.rawValue).effect")
+        if id == .generateImage { return PalmiL10n.tr("image.generated") }
+        return PalmiL10n.tr("tool.action.\(id.rawValue).effect")
     }
 }
 

@@ -43,6 +43,7 @@ struct WorkspaceShellScreen: View {
     @State private var isShowingOnboarding = false
     @State private var chatModePath: [ChatModeRoute] = []
     @State private var openingPalmi = false
+    @State private var nativeModeMenuPresented = false
 
     init(workspaceStore: WorkspaceStore, manualLabStore: ManualLabStore,
          skillRegistry: SkillRegistry, chatStore: ChatStore, bionicStore: BionicStore) {
@@ -55,7 +56,7 @@ struct WorkspaceShellScreen: View {
 
     private var readingAllowed: Bool {
         !isShowingWorkspaceBrowser && !isShowingSettings && !isShowingProjectSkills
-            && !isShowingModePicker && !isShowingOnboarding && !bionicStore.showingPurchase
+            && !isShowingModePicker && !isShowingOnboarding && !bionicStore.showingPurchase && !nativeModeMenuPresented
     }
     private var unreadSnapshot: PalmiUnreadSnapshot {
         let keys = Set((workspaceStore.projects + workspaceStore.chatProjects).flatMap { project in
@@ -86,6 +87,7 @@ struct WorkspaceShellScreen: View {
             }
         }
         .environment(\.palmiUnread, unreadSnapshot)
+        .environment(\.palmiModeMenuPresentationChanged, { nativeModeMenuPresented = $0 })
         .environment(\.locale, PalmiLanguage.resolve(selectedOnboardingLanguageID).locale)
         .sheet(
             isPresented: $isShowingWorkspaceBrowser,
@@ -1906,6 +1908,10 @@ private struct AppSettingsScreen: View {
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    NavigationLink { BionicUserProfileScreen() }
+                    label: { Label(PalmiL10n.tr("profile.title"), systemImage: "person.crop.circle") }
+                }
                 ForEach(AppSettingsCatalog.sections) { section in
                     Section(section.title) {
                         ForEach(section.rows) { row in
@@ -1913,6 +1919,10 @@ private struct AppSettingsScreen: View {
                                 destination(for: row.id)
                             } label: {
                                 Label(row.title, systemImage: row.systemImageName)
+                            }
+                            if row.id == .searchConfiguration {
+                                NavigationLink { ImageGenerationConfigurationScreen(plans: store.modelPlanStore) }
+                                label: { Label(PalmiL10n.tr("image.configuration"), systemImage: "photo.badge.plus") }
                             }
                         }
                     }
@@ -2557,6 +2567,7 @@ private struct ModelConfigurationManagerScreen: View {
     @Bindable var store: ManualLabStore
     @State private var presentedPlan: ModelPlanPresentation?
     @State private var isAddingModel = false
+    @State private var showingChatGPT = false
     @State private var pendingDeletion: ModelPlanSnapshot?
     @State private var renamingPlanID: UUID?
     @State private var renameDraft = ""
@@ -2621,6 +2632,7 @@ private struct ModelConfigurationManagerScreen: View {
 
                     Divider()
 
+                    Button("ChatGPT OAuth", systemImage: "person.crop.circle.badge.checkmark") { showingChatGPT = true }
                     Button(PalmiL10n.tr("common.cancel"), role: .cancel) {}
                 } label: {
                     Image(systemName: "plus")
@@ -2639,6 +2651,7 @@ private struct ModelConfigurationManagerScreen: View {
                 attachToSlot: false
             )
         }
+        .navigationDestination(isPresented: $showingChatGPT) { ChatGPTOAuthScreen(planStore: planStore) }
         .sheet(item: $presentedPlan) { presentation in
             NavigationStack {
                 ModelPlanEditorScreen(
@@ -3137,6 +3150,23 @@ private struct ModelSlotCandidateListScreen: View {
     }
 
     private func validate(_ candidate: ModelCandidateSnapshot) {
+        if let expected = candidate.connection.chatGPTAccount {
+            validatingID = candidate.id
+            Task { @MainActor in
+                defer { validatingID = nil }
+                do {
+                    let auth = ChatGPTAccountStore.shared
+                    guard auth.account?.accountID == expected.accountID else { throw ChatGPTConnectionError("signIn") }
+                    _ = try await auth.accessToken(accountID: expected.accountID)
+                    let list = try await auth.refreshCatalog()
+                    guard list.contains(where: { $0.id == candidate.modelName }) else { throw ChatGPTConnectionError("catalog") }
+                    try planStore.updateCandidateValidation(candidate.id, planID: planID,
+                        validation: ModelCandidateValidationResult(capabilities: candidate.capabilities,
+                            message: PalmiL10n.tr("chatgpt.accountVerified")))
+                } catch { errorMessage = error.localizedDescription }
+            }
+            return
+        }
         validatingID = candidate.id
         let draft = ModelCandidateDraft(
             slot: slot,
@@ -3181,9 +3211,10 @@ private struct ModelLibraryScreen: View {
                     description: Text(PalmiL10n.tr("model.library.emptyDescription"))
                 )
             } else {
-                ForEach(planStore.libraryModels) { candidate in
-                    libraryRow(candidate)
-                }
+                let manual = planStore.libraryModels.filter { !$0.isChatGPTOAuth }
+                let oauth = planStore.libraryModels.filter(\.isChatGPTOAuth)
+                if !manual.isEmpty { Section { ForEach(manual) { libraryRow($0) } } }
+                if !oauth.isEmpty { Section("ChatGPT OAuth") { ForEach(oauth) { libraryRow($0) } } }
             }
         }
         .navigationTitle(PalmiL10n.tr("model.library.globalTitle"))
@@ -3237,12 +3268,14 @@ private struct ModelLibraryScreen: View {
     private func libraryRow(_ candidate: ModelCandidateSnapshot) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(candidate.title)
-                    .font(.body.weight(.semibold))
+                HStack {
+                    if candidate.isImageGenerationOnly { Image(systemName: "photo") }
+                    Text(candidate.title).font(.body.weight(.semibold))
+                }
                 Text(candidate.modelName)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(candidate.connection.inputAddress)
+                Text(candidate.subtitle)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -3250,7 +3283,7 @@ private struct ModelLibraryScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Menu {
-                if let planID {
+                if let planID, !candidate.isImageGenerationOnly {
                     ForEach(ModelPlanSlot.allCases) { slot in
                         Button {
                             do {
@@ -3328,6 +3361,10 @@ private struct ModelCandidateEditorSheet: View {
     var body: some View {
         Form {
             Section(PalmiL10n.tr("model.connection.title")) {
+                if let account = candidate.connection.chatGPTAccount {
+                    LabeledContent("ChatGPT OAuth", value: account.email.isEmpty ? account.accountID : account.email)
+                    LabeledContent(PalmiL10n.tr("model.connection.protocol.title"), value: "Responses")
+                } else {
                 TextField(PalmiL10n.tr("model.connection.address"), text: $inputAddress)
                     .keyboardType(.URL)
                     .textInputAutocapitalization(.never)
@@ -3338,12 +3375,14 @@ private struct ModelCandidateEditorSheet: View {
                     selection: wireProtocolPreference,
                     action: { isShowingProtocolSettings = true }
                 )
+                }
             }
 
             Section(PalmiL10n.tr("model.model.title")) {
                 TextField(PalmiL10n.tr("model.field.requestModelName"), text: $modelName)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .disabled(candidate.isChatGPTOAuth)
                 TextField(PalmiL10n.tr("model.field.displayName"), text: $displayName)
             }
 
@@ -3387,6 +3426,22 @@ private struct ModelCandidateEditorSheet: View {
     }
 
     private func validate() {
+        if let expected = candidate.connection.chatGPTAccount {
+            isValidating = true
+            Task { @MainActor in
+                defer { isValidating = false }
+                do {
+                    let auth = ChatGPTAccountStore.shared
+                    guard auth.account?.accountID == expected.accountID else { throw ChatGPTConnectionError("signIn") }
+                    _ = try await auth.accessToken(accountID: expected.accountID)
+                    let list = try await auth.refreshCatalog()
+                    guard candidate.isImageGenerationOnly || list.contains(where: { $0.id == candidate.modelName }) else { throw ChatGPTConnectionError("catalog") }
+                    validation = ModelCandidateValidationResult(capabilities: candidate.capabilities,
+                        message: PalmiL10n.tr("chatgpt.accountVerified"))
+                } catch { errorMessage = error.localizedDescription }
+            }
+            return
+        }
         isValidating = true
         let draft = ModelCandidateDraft(
             slot: candidate.capabilities.supportsVision ? .multimodal : .primary,
@@ -3405,6 +3460,10 @@ private struct ModelCandidateEditorSheet: View {
 
     private func save() {
         do {
+            if candidate.isChatGPTOAuth {
+                try planStore.renameChatGPTModel(candidate.id, displayName: displayName)
+                dismiss(); return
+            }
             try planStore.updateCandidateConfiguration(
                 candidate.id,
                 planID: candidate.id,

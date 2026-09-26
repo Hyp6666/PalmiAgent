@@ -65,13 +65,6 @@ struct AppShellTopFade: View {
     }
 }
 
-private struct AppShellModeBoundsKey: PreferenceKey {
-    static var defaultValue: Anchor<CGRect>? { nil }
-    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
-        value = nextValue() ?? value
-    }
-}
-
 struct AppShellTopBar: View {
     @Environment(\.palmiUnread) private var unreadSnapshot
     let mode: AppShellMode
@@ -95,23 +88,6 @@ struct AppShellTopBar: View {
                 }
             }
             .frame(height: 64)
-        }
-        .overlayPreferenceValue(AppShellModeBoundsKey.self) { anchor in
-            GeometryReader { proxy in
-                if let anchor {
-                    let bounds = proxy[anchor]
-                    let count = unreadSnapshot.countOutside(mode)
-                    PalmiUnreadBadge(count: count)
-                        .fixedSize()
-                        .position(x: bounds.maxX - 12, y: bounds.minY + 10)
-                        .transaction { transaction in
-                            transaction.animation = nil
-                            transaction.disablesAnimations = true
-                        }
-                }
-            }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
         }
     }
 
@@ -142,36 +118,9 @@ struct AppShellTopBar: View {
     }
 
     private var modeMenu: some View {
-        let externalCount = unreadSnapshot.countOutside(mode)
-        return Menu {
-            ForEach([AppShellMode.chat, .professional, .bionic], id: \.rawValue) { target in
-                let count = unreadSnapshot.count(for: target)
-                let value = count > 99 ? "99+" : String(count)
-                let title = count > 0 ? target.title + " (" + value + ")" : target.title
-                Button {
-                    onSelectMode(target)
-                } label: {
-                    Label(title, systemImage: target.symbolName)
-                }
-            }
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: mode.symbolName).font(.subheadline.weight(.semibold))
-                Text(mode.title).font(.headline.weight(.semibold))
-                Image(systemName: "chevron.down")
-                    .font(.caption.weight(.bold)).foregroundStyle(.secondary)
-            }
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 18)
+        PalmiNativeModeMenu(mode: mode, unread: unreadSnapshot, onSelect: onSelectMode)
+            .fixedSize(horizontal: true, vertical: false)
             .frame(height: 50)
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .menuOrder(.fixed)
-        .glassEffect(.regular.tint(.white.opacity(0.12)).interactive(), in: .capsule)
-        .anchorPreference(key: AppShellModeBoundsKey.self, value: .bounds) { $0 }
-        .accessibilityLabel(PalmiL10n.tr("common.mode"))
-        .accessibilityValue(externalCount > 0 ? PalmiL10n.tr("chat.unread.count", externalCount) : "")
     }
 }
 

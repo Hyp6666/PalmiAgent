@@ -15,9 +15,11 @@ enum AgentExternalToolName: String, CaseIterable, Codable, Hashable, Sendable {
     case systemTime = "get_system_time"
     case location = "get_location"
     case createBionicPersona = "create_bionic_persona"
+    case generateImage = "generate_image"
 
     var localizedTitle: String {
         switch self {
+        case .generateImage: PalmiL10n.tr("image.generate")
         case .read:
             PalmiL10n.tr("tool.facade.read")
         case .breakDown:
@@ -79,7 +81,8 @@ enum AgentExternalToolFacadeCatalog {
         .init(name: .fetch, backingActionIDs: [.fetchStaticWebPage]),
         .init(name: .systemTime, backingActionIDs: [.getCurrentDateTime]),
         .init(name: .location, backingActionIDs: [.requestLocation]),
-        .init(name: .createBionicPersona, backingActionIDs: [.createBionicPersona])
+        .init(name: .createBionicPersona, backingActionIDs: [.createBionicPersona]),
+        .init(name: .generateImage, backingActionIDs: [.generateImage])
     ]
 
     static func availableFacades(from actions: [ToolAction]) -> [AgentExternalToolFacade] {
@@ -184,6 +187,11 @@ enum AgentExternalToolFacadeCatalog {
         actionID: ToolActionID
     ) throws {
         switch facadeName {
+        case .generateImage:
+            let prompt = try arguments.requiredString("prompt")
+            guard (1...6000).contains(prompt.trimmingCharacters(in: .whitespacesAndNewlines).count),
+                  let object = try JSONSerialization.jsonObject(with: Data(arguments.normalizedJSONString().utf8)) as? [String: Any],
+                  Set(object.keys) == Set(["prompt"]) else { throw BionicFailure("invalidFields") }
         case .breakDown:
             _ = try arguments.requiredString("path")
             let items = arguments.stringArray("items") ?? []

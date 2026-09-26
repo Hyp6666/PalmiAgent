@@ -92,7 +92,7 @@ final class LLMAPIClient: AgentModelRuntime {
             promptCacheKey: request.promptCacheKey
         )
         let endpoints = context.configuration.endpointResolution
-        let initialProtocol = wireProtocolContractStore.protocolForRequest(
+        let initialProtocol: LLMWireProtocol = context.configuration.chatGPTOAuthAccountID != nil ? .responses : wireProtocolContractStore.protocolForRequest(
             profileID: context.configuration.profileID,
             modelID: context.runtimeProfile.model.id,
             endpoints: endpoints
@@ -120,7 +120,7 @@ final class LLMAPIClient: AgentModelRuntime {
             promptCacheKey: request.promptCacheKey
         )
         let endpoints = context.configuration.endpointResolution
-        let initialProtocol = wireProtocolContractStore.protocolForRequest(
+        let initialProtocol: LLMWireProtocol = context.configuration.chatGPTOAuthAccountID != nil ? .responses : wireProtocolContractStore.protocolForRequest(
             profileID: context.configuration.profileID,
             modelID: context.runtimeProfile.model.id,
             endpoints: endpoints
@@ -358,18 +358,36 @@ final class LLMAPIClient: AgentModelRuntime {
         )
     }
 
+    private func withAuthorizedResponses<T>(
+        _ raw: URLRequest, configuration: APIResolvedConfiguration,
+        operation: (URLRequest, URLSession) async throws -> T
+    ) async throws -> T {
+        guard let id = configuration.chatGPTOAuthAccountID else { return try await operation(raw, session) }
+        let auth = ChatGPTAccountStore.shared
+        let first = try await auth.prepareResponses(raw, accountID: id)
+        do { return try await operation(first, auth.responseSession) }
+        catch let error as LLMHTTPTransportError {
+            guard case .http(let status, _, _) = error, status == 401 else { throw error }
+            _ = try await auth.accessToken(accountID: id, forceRefresh: true)
+            let second = try await auth.prepareResponses(raw, accountID: id)
+            return try await operation(second, auth.responseSession)
+        }
+    }
+
     private func completeViaResponses(
         _ context: UnifiedRequestContext
     ) async throws -> AgentModelResponse {
         // Use one stream-native Responses path for every connection, then aggregate it when
         // a background caller does not need UI deltas.
         let request = try makeResponsesURLRequest(context: context, stream: true)
-        let result = try await OpenAIResponsesTransport.performStreaming(
+        let result = try await withAuthorizedResponses(request, configuration: context.configuration) { request, transportSession in
+            try await OpenAIResponsesTransport.performStreaming(
             request,
-            using: session,
+            using: transportSession,
             onDelta: { _ in },
             onReasoningDelta: { _ in }
-        )
+            )
+        }
         rememberRejectedReasoningControl(
             result.optionalControlFallbackIntent,
             configuration: context.configuration,
@@ -404,12 +422,14 @@ final class LLMAPIClient: AgentModelRuntime {
                 onReasoningDelta(text)
             }
         }
-        let result = try await OpenAIResponsesTransport.performStreaming(
+        let result = try await withAuthorizedResponses(request, configuration: context.configuration) { request, transportSession in
+            try await OpenAIResponsesTransport.performStreaming(
             request,
-            using: session,
+            using: transportSession,
             onDelta: streamingOnDelta,
             onReasoningDelta: streamingOnReasoning
-        )
+            )
+        }
         rememberRejectedReasoningControl(
             result.optionalControlFallbackIntent,
             configuration: context.configuration,
@@ -634,6 +654,7 @@ final class LLMAPIClient: AgentModelRuntime {
         configuration: APIResolvedConfiguration,
         modelID: String
     ) -> LLMWireProtocol? {
+        guard configuration.chatGPTOAuthAccountID == nil else { return nil }
         let endpoints = configuration.endpointResolution
         if let transportError = error as? LLMHTTPTransportError,
            case .http(let statusCode, _, _) = transportError {
@@ -2480,7 +2501,7 @@ extension LLMAPIClient {
         let context = try await unifiedRequestContext(selection: request.selection, messages: messages, tools: tools,
                                                        toolChoice: choice, promptCacheKey: request.promptCacheKey)
         let endpoints = context.configuration.endpointResolution
-        var wire = wireProtocolContractStore.protocolForRequest(profileID: context.configuration.profileID, modelID: context.runtimeProfile.model.id, endpoints: endpoints)
+        var wire: LLMWireProtocol = context.configuration.chatGPTOAuthAccountID != nil ? .responses : wireProtocolContractStore.protocolForRequest(profileID: context.configuration.profileID, modelID: context.runtimeProfile.model.id, endpoints: endpoints)
         var attempted: Set<LLMWireProtocol> = []
         while attempted.insert(wire).inserted {
             do {
@@ -2539,7 +2560,13 @@ extension LLMAPIClient {
         }
         request.httpBody = try BionicCodec.encode(.object(payload))
         let response: LLMHTTPResponse
-        do { response = try await LLMHTTPTransport.perform(request, using: session) }
+        do {
+            if wire == .responses {
+                response = try await withAuthorizedResponses(request, configuration: context.configuration) { request, transportSession in
+                    try await LLMHTTPTransport.perform(request, using: transportSession)
+                }
+            } else { response = try await LLMHTTPTransport.perform(request, using: session) }
+        }
         catch let error as LLMHTTPTransportError {
             guard wire == .chatCompletions, case .http(let status, let data, _) = error, [400, 422].contains(status) else { throw error }
             let text = String(decoding: data, as: UTF8.self).lowercased()

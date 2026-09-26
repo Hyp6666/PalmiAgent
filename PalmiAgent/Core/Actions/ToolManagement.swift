@@ -5,6 +5,7 @@ enum ToolManagementSectionID: String, CaseIterable, Identifiable, Codable, Senda
     case app
     case nonApp
     case bionic
+    case imageGeneration
 
     var id: String { rawValue }
 
@@ -16,6 +17,8 @@ enum ToolManagementSectionID: String, CaseIterable, Identifiable, Codable, Senda
             return "非 APP 类"
         case .bionic:
             return PalmiL10n.tr("tool.section.bionic")
+        case .imageGeneration:
+            return PalmiL10n.tr("image.generation")
         }
     }
 }
@@ -41,6 +44,7 @@ enum ToolManagementGroupID: String, CaseIterable, Identifiable, Codable, Sendabl
     case multimodal
     case webResearch
     case bionicPersonas
+    case imageGeneration
 
     var id: String { rawValue }
 }
@@ -57,7 +61,8 @@ enum ToolManagementCatalog {
     static let sections: [ToolManagementSectionDefinition] = [
         .init(id: .app, title: "APP 类"),
         .init(id: .nonApp, title: "非 APP 类"),
-        .init(id: .bionic, title: PalmiL10n.tr("tool.section.bionic"))
+        .init(id: .bionic, title: PalmiL10n.tr("tool.section.bionic")),
+        .init(id: .imageGeneration, title: PalmiL10n.tr("image.generation"))
     ]
 
     static let groups: [ToolManagementGroupDefinition] = [
@@ -165,7 +170,8 @@ enum ToolManagementCatalog {
             title: PalmiL10n.tr("tool.group.bionicPersonas"),
             subtitle: "",
             actionIDs: [.createBionicPersona]
-        )
+        ),
+        .init(id: .imageGeneration, sectionID: .imageGeneration, title: "图片生成", subtitle: "", actionIDs: [.generateImage])
     ]
 
     static let settingsGroups: [ToolManagementGroupDefinition] = [
@@ -175,7 +181,8 @@ enum ToolManagementCatalog {
         settingsGroup(.skills),
         settingsGroup(.multimodal),
         settingsGroup(.webResearch, actionIDs: [.searchWeb, .fetchStaticWebPage]),
-        settingsGroup(.bionicPersonas)
+        settingsGroup(.bionicPersonas),
+        settingsGroup(.imageGeneration)
     ]
 
     static func groups(in sectionID: ToolManagementSectionID) -> [ToolManagementGroupDefinition] {
@@ -203,6 +210,8 @@ enum ToolManagementCatalog {
             names = [.webSearch, .fetch]
         case .bionicPersonas:
             names = [.createBionicPersona]
+        case .imageGeneration:
+            names = [.generateImage]
         default:
             names = []
         }

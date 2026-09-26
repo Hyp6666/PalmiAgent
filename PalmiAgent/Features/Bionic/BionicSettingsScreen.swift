@@ -100,17 +100,11 @@ struct BionicImportScreen: View {
     @Bindable var store: BionicStore
     let prepared: BionicMigrationService.PreparedImport
     @State private var mode = "same_person"
-    @State private var name = ""
-    @State private var avatar: Data?
-    @State private var photo: PhotosPickerItem?
-    @State private var crop: CropInput?
     @State private var continueContact = false
     @State private var binding: BionicObject = [:]
     @State private var busy = false
     @State private var installed = false
     @State private var errorText: String?
-    @FocusState private var nameFocused: Bool
-    private struct CropInput: Identifiable { let id = UUID(); let image: UIImage }
     var body: some View {
         Form {
             Section(PalmiL10n.tr("bionic.profile")) {
@@ -126,9 +120,6 @@ struct BionicImportScreen: View {
                     Text(PalmiL10n.tr("bionic.newPerson")).tag("new_person")
                 }
                 if mode == "new_person" {
-                    TextField(PalmiL10n.tr("bionic.myName"), text: $name)
-                        .focused($nameFocused).bionicInputField()
-                    HStack { BionicAvatar(data: avatar, name: name, size: 44); PhotosPicker(selection: $photo, matching: .images) { Text(PalmiL10n.tr("bionic.chooseAvatar")) } }
                     Text(PalmiL10n.tr("bionic.newPersonNotice")).font(.footnote).foregroundStyle(.secondary)
                 }
                 Toggle(PalmiL10n.tr("bionic.resumeContact"), isOn: $continueContact)
@@ -141,7 +132,9 @@ struct BionicImportScreen: View {
                     Task {
                         defer { busy = false }
                         do {
-                            let role = try await store.migration.install(prepared, mode: mode, name: name, avatar: avatar, binding: binding, continueContact: continueContact, language: PalmiLanguage.current.rawValue)
+                            let role = try await store.migration.install(prepared, mode: mode,
+                                name: BionicUserProfileStore.shared.displayName, avatar: BionicUserProfileStore.shared.avatarPNG,
+                                binding: binding, continueContact: continueContact, language: PalmiLanguage.current.rawValue)
                             installed = true; await store.refresh(); await store.open(role.installationID); dismiss()
                         } catch { errorText = BionicStore.errorText(error) }
                     }
@@ -156,18 +149,6 @@ struct BionicImportScreen: View {
         .onAppear { if binding.isEmpty { binding = store.model.defaultBinding() } }
         .onDisappear { if !installed && !busy { store.migration.discard(prepared) } }
         .interactiveDismissDisabled(busy)
-        .onChange(of: photo) { _, item in
-            Task {
-                do {
-                    guard let raw = try await item?.loadTransferable(type: Data.self),
-                          let image = UIImage(data: raw), image.size.width > 0, image.size.height > 0 else { return }
-                    crop = CropInput(image: image)
-                } catch { errorText = BionicStore.errorText(error) }
-            }
-        }
-        .sheet(item: $crop) { input in
-            NavigationStack { BionicAvatarCropView(image: input.image) { data in avatar = data } }
-        }
         .alert(PalmiL10n.tr("bionic.errorTitle"), isPresented: Binding(get: { errorText != nil }, set: { if !$0 { errorText = nil } })) { Button(PalmiL10n.tr("bionic.ok"), role: .cancel) {} } message: { Text(errorText ?? "") }
     }
 }

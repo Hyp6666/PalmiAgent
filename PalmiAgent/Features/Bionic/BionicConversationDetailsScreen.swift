@@ -51,6 +51,8 @@ struct BionicConversationDetailsScreen: View {
                 } label: {
                     Label(PalmiL10n.tr("bionic.memory"), systemImage: "brain")
                 }
+                NavigationLink { BionicDiaryScreen(store: store, instance: instance) }
+                label: { Label(PalmiL10n.tr("bionic.diary.title"), systemImage: "book.closed") }
             }
 
             Section {

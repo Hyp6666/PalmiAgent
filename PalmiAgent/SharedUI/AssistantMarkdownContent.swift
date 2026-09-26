@@ -59,6 +59,7 @@ struct CodeBlockContent: Equatable, Sendable {
 enum MarkdownContentBlock: Equatable, Sendable {
     case markdown(String)
     case code(CodeBlockContent)
+    case image(PalmiMarkdownImageReference)
 
     var codeBlock: CodeBlockContent? {
         guard case .code(let block) = self else { return nil }
@@ -136,7 +137,13 @@ enum MarkdownContentBlockParser {
         guard markdown.rangeOfCharacter(from: .whitespacesAndNewlines.inverted) != nil else {
             return
         }
-        blocks.append(.markdown(markdown))
+        for piece in PalmiMarkdownImageParser.split(markdown) {
+            switch piece {
+            case .text(let text):
+                if text.rangeOfCharacter(from: .whitespacesAndNewlines.inverted) != nil { blocks.append(.markdown(text)) }
+            case .image(let reference): blocks.append(.image(reference))
+            }
+        }
     }
 
     private static func openingFence(in line: String) -> Fence? {
@@ -390,6 +397,8 @@ struct AssistantMarkdownContentView: View {
 
         case .code(let codeBlock):
             CodeBlockCard(block: codeBlock)
+        case .image(let reference):
+            PalmiMarkdownImageView(reference: reference).frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

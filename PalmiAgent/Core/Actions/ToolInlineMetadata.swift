@@ -95,7 +95,7 @@ enum ToolCallInlineMetadataBuilder {
                 targets: Array(targets.prefix(1)),
                 trailingCount: max(0, targets.count - 1)
             )
-        case .systemTime, .location:
+        case .systemTime, .location, .generateImage:
             return nil
         case .createBionicPersona:
             return textMetadata(arguments.string("nickname"))

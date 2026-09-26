@@ -11,6 +11,7 @@ final class BionicModelService {
     private let runtime: any AgentModelRuntime
     let plans: ModelPlanStore
     var archive: BionicArchiveStore?
+    var imageGeneration: PalmiImageGenerationService?
     var canGenerate: @MainActor () -> Bool = { true }
     private var occupied = false
     private var admissionEpoch = 0
@@ -145,6 +146,10 @@ final class BionicModelService {
         try Task.checkCancellation()
         guard !task.isCancelled else { throw CancellationError() }
         return try BionicResponseDecoder.decode(response, input: input, kind: kind)
+    }
+    func writeDiary(_ input: BionicModelInput, binding: BionicObject, instance: String,
+                    prepared: (@MainActor (BionicModelInput, String) async throws -> Void)? = nil) async throws -> BionicModelAnswer {
+        try await perform(input, binding: binding, instance: instance, kind: "diary", prepared: prepared)
     }
     func nextChatAction(_ input: BionicModelInput, binding: BionicObject, instance: String,
                           prepared: (@MainActor (BionicModelInput, String) async throws -> Void)? = nil) async throws -> BionicModelAnswer {

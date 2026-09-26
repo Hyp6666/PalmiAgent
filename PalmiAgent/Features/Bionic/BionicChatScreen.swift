@@ -19,6 +19,11 @@ struct BionicChatScreen: View {
     @State private var composerPresented = false
     @State private var readableViewport = CGRect.zero
     @State private var scrollCommand: ScrollCommand?
+    @State private var entrySequence: Int?
+    @State private var actuallyVisibleIDs = Set<String>()
+    @State private var seenDuringVisit = Set<String>()
+    @State private var contentFits = true
+    @State private var scrollFrame = CGRect.zero
 
     private struct ScrollCommand {
         let id = UUID()
@@ -39,8 +44,19 @@ struct BionicChatScreen: View {
             && preview == nil && !composerPresented && localError == nil
             && !store.showingPurchase
     }
+    private var newestVisibleSequence: Int {
+        role?.state.order.filter { actuallyVisibleIDs.contains($0.id) }.map(\.sequence).max() ?? 0
+    }
+    private var newUnreadCount: Int {
+        guard let entrySequence else { return 0 }
+        let floor = max(entrySequence, newestVisibleSequence)
+        return (store.unreadSequencesByInstance[instance] ?? [:]).filter {
+            $0.value > floor && !seenDuringVisit.contains($0.key)
+        }.count
+    }
     private var showsLatestButton: Bool {
-        measuredScroll && (!nearBottom || store.hasNewerMessages)
+        canRead && measuredScroll && (!contentFits || store.hasNewerMessages)
+            && !store.followingLatest && (!nearBottom || store.hasNewerMessages) && newUnreadCount > 0
     }
     private var rows: [BionicBubbleRowData] {
         let values = store.selectedID == instance ? store.messages : []
@@ -56,7 +72,7 @@ struct BionicChatScreen: View {
 
     var body: some View {
         GeometryReader { geometry in
-            VStack(spacing: 0) {
+            ZStack(alignment: .bottom) {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 8) {
@@ -93,7 +109,10 @@ struct BionicChatScreen: View {
                                         enabled: canRead && !reader.isEmpty,
                                         revision: store.unreadCounts[instance] ?? 0
                                     ) { visible in
-                                        if visible, row.message.text("author_kind") == "character" {
+                                        if visible { actuallyVisibleIDs.insert(row.id) }
+                                        else { actuallyVisibleIDs.remove(row.id) }
+                                        if visible && canRead && row.message.text("author_kind") == "character" {
+                                            seenDuringVisit.insert(row.id)
                                             store.appeared(row.id, instance: instance, participantID: reader)
                                         }
                                     }
@@ -101,7 +120,7 @@ struct BionicChatScreen: View {
                                 .id(row.id)
                             }
                             if pagingNewer { ProgressView().padding(8) }
-                            Color.clear.frame(height: 1).id("bionic-end")
+                            Color.clear.frame(height: composerHeight + 12).id("bionic-end")
                         }
                         .padding(.horizontal, 14).padding(.top, 10)
                         .background { PalmiChatScrollTopGuard().frame(width: 0, height: 0) }
@@ -109,11 +128,14 @@ struct BionicChatScreen: View {
                     .onGeometryChange(for: CGRect.self) { proxy in
                         proxy.frame(in: .global)
                     } action: { rect in
-                        if readableViewport != rect { readableViewport = rect }
+                        scrollFrame = rect
+                        let unobscured = CGRect(x: rect.minX, y: rect.minY, width: rect.width,
+                                                height: max(0, rect.height - composerHeight - 8))
+                        if readableViewport != unobscured { readableViewport = unobscured }
                     }
-                    .contentMargins(.bottom, 8, for: .scrollContent)
                     .scrollDismissesKeyboard(.interactively)
-                    .defaultScrollAnchor(.bottom)
+                    .defaultScrollAnchor(.bottom, for: .initialOffset)
+                    .defaultScrollAnchor(.top, for: .alignment)
                     .onScrollPhaseChange { _, phase in
                         userScrolling = phase == .interacting || phase == .decelerating
                         if phase == .idle { reconcileBottom() }
@@ -121,13 +143,15 @@ struct BionicChatScreen: View {
                     .onScrollGeometryChange(for: PalmiChatScrollMetrics.self) {
                         PalmiChatScrollMetrics($0)
                     } action: { old, next in
+                        let firstMeasurement = !measuredScroll
                         measuredScroll = true
+                        contentFits = next.contentHeight <= next.containerHeight + 1
                         if nearBottom != next.nearBottom { nearBottom = next.nearBottom }
                         guard store.selectedID == instance else { return }
                         if userScrolling, next.isUserMovingToOlder(comparedWith: old), !next.nearBottom {
                             cancelFollowing()
                         }
-                        if next.nearBottom, !store.hasNewerMessages,
+                        if next.atBottom, !store.hasNewerMessages,
                            scrollCommand == nil || scrollCommand?.requiresFollowing == true {
                             if !store.followingLatest { store.followingLatest = true }
                         }
@@ -141,6 +165,7 @@ struct BionicChatScreen: View {
                             || abs(old.bottomInset - next.bottomInset) > 0.5) {
                             requestBottom()
                         }
+                        if firstMeasurement && !contentFits && store.followingLatest { requestBottom() }
                     }
                     .onChange(of: store.scrollRequest) { _, _ in
                         guard store.selectedID == instance, let target = store.scrollTarget else { return }
@@ -151,6 +176,10 @@ struct BionicChatScreen: View {
                     }
                     .task(id: scrollCommand?.id) {
                         guard let command = scrollCommand else { return }
+                        if command.requiresFollowing && contentFits && !store.hasNewerMessages {
+                            scrollCommand = nil
+                            return
+                        }
                         await Task.yield()
                         guard !Task.isCancelled, screenVisible,
                               scrollCommand?.id == command.id, store.selectedID == instance,
@@ -169,12 +198,14 @@ struct BionicChatScreen: View {
                                 Image(systemName: "arrow.down").font(.body.bold()).padding(12)
                                     .background(.regularMaterial, in: Circle())
                             }
-                            .padding(14)
+                            .padding(.horizontal, 14).padding(.bottom, composerHeight + 14)
                             .accessibilityLabel(PalmiL10n.tr("bionic.latestMessages"))
                         }
                     }
                 }
                 .frame(maxHeight: .infinity)
+
+                bottomFrost
 
                 VStack(spacing: 0) {
                     if let code = store.errors[instance] {
@@ -195,6 +226,8 @@ struct BionicChatScreen: View {
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
                     guard height > 0, abs(height - composerHeight) > 0.5 else { return }
                     composerHeight = height
+                    readableViewport = CGRect(x: scrollFrame.minX, y: scrollFrame.minY, width: scrollFrame.width,
+                                              height: max(0, scrollFrame.height - height - 8))
                     if store.followingLatest { requestBottom() }
                 }
             }
@@ -251,6 +284,7 @@ struct BionicChatScreen: View {
         .task(id: instance) {
             if store.selectedID != instance { await store.open(instance) }
             guard !Task.isCancelled else { return }
+            if entrySequence == nil, store.selectedID == instance { entrySequence = store.totalMessages }
             store.chatVisibility(instance, visible: canRead)
         }
         .onAppear {
@@ -279,8 +313,26 @@ struct BionicChatScreen: View {
     }
 
     private func requestBottom() {
-        guard store.selectedID == instance, store.followingLatest else { return }
+        guard store.selectedID == instance, store.followingLatest, measuredScroll,
+              !contentFits || store.hasNewerMessages else { return }
         scrollCommand = ScrollCommand(target: "bionic-end", bottom: true, requiresFollowing: true)
+    }
+    private var bottomFrost: some View {
+        Rectangle()
+            .fill(.regularMaterial)
+            .frame(height: composerHeight + 56)
+            .mask {
+                LinearGradient(stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .white.opacity(0.30), location: 0.18),
+                    .init(color: .white.opacity(0.80), location: 0.43),
+                    .init(color: .white, location: 0.72),
+                    .init(color: .white, location: 1)
+                ], startPoint: .top, endPoint: .bottom)
+            }
+            .ignoresSafeArea(edges: .bottom)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
     private func cancelFollowing() {
         store.followingLatest = false
@@ -335,42 +387,85 @@ private struct BionicBubbleRow: View {
     let onRoleTap: () -> Void
     private var message: BionicObject { value.message }
     private var outgoing: Bool { message.text("author_kind") == "user" }
+    private var hasVisibleBody: Bool {
+        let body = message.text("body").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return false }
+        return message.records("attachments").isEmpty
+            || !["[图片]", "[圖片]", "[Photo]", "[写真]", "[사진]"].contains(body)
+    }
+
+    private func attachmentSize(_ attachment: BionicObject) -> CGSize {
+        let width = min(240, maxWidth)
+        let sourceWidth = attachment.int("width")
+        let sourceHeight = attachment.int("height")
+        guard sourceWidth > 0, sourceHeight > 0 else {
+            return CGSize(width: width, height: min(190, width))
+        }
+        let ratio = CGFloat(sourceHeight) / CGFloat(sourceWidth)
+        let height = min(320, max(64, width * ratio))
+        return CGSize(width: min(width, height / ratio), height: height)
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             if outgoing { Spacer(minLength: 0) } else { avatar }
-            BionicBubbleWidthLayout(maximumWidth: maxWidth) {
-                VStack(alignment: .leading, spacing: 8) {
-                    if let quotedID = message.optionalText("reply_to_message_id"), let quoted = store.quotedMessages[quotedID] {
-                        Button { onJump(quotedID) } label: {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(store.authorName(quoted)).font(.caption.weight(.semibold))
-                                Text(quoted.text("body")).font(.caption).lineLimit(2)
-                            }
-                            .foregroundStyle(.secondary).padding(.leading, 9)
-                            .overlay(alignment: .leading) { Rectangle().fill(Color.accentColor).frame(width: 3) }
-                        }.buttonStyle(.plain)
+            VStack(alignment: outgoing ? .trailing : .leading, spacing: 8) {
+                if let quotedID = message.optionalText("reply_to_message_id"),
+                   let quoted = store.quotedMessages[quotedID] {
+                    Button { onJump(quotedID) } label: {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(store.authorName(quoted)).font(.caption.weight(.semibold))
+                            Text(quoted.text("body")).font(.caption).lineLimit(2)
+                        }
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 9)
+                        .overlay(alignment: .leading) {
+                            Rectangle().fill(Color.accentColor).frame(width: 3)
+                        }
+                        .padding(10)
+                        .background(Color(uiColor: .secondarySystemGroupedBackground),
+                                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
-                    ForEach(message.records("attachments"), id: \.attachmentIdentity) { attachment in
-                        Button { onAsset(attachment.text("asset")) } label: {
-                            BionicImageTile(archive: store.archive, instance: instance, attachment: attachment,
-                                            width: min(220, maxWidth - 24), height: min(190, maxWidth - 24))
-                        }.buttonStyle(.plain)
+                    .buttonStyle(.plain)
+                }
+                ForEach(message.records("attachments"), id: \.attachmentIdentity) { attachment in
+                    let size = attachmentSize(attachment)
+                    Button { onAsset(attachment.text("asset")) } label: {
+                        BionicImageTile(archive: store.archive, instance: instance,
+                                        attachment: attachment,
+                                        width: size.width, height: size.height)
                     }
-                    if message.records("attachments").isEmpty || !["[图片]", "[圖片]", "[Photo]", "[写真]", "[사진]"].contains(message.text("body")) {
-                        BionicLinkedText(text: message.text("body")).font(.body).textSelection(.enabled)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(attachment.text("filename"))
+                }
+                if hasVisibleBody {
+                    BionicBubbleWidthLayout(maximumWidth: maxWidth) {
+                        BionicLinkedText(text: message.text("body"))
+                            .font(.body).textSelection(.enabled)
+                            .padding(.horizontal, 12).padding(.vertical, 10)
+                            .background(
+                                outgoing ? Color.accentColor.opacity(0.17)
+                                    : Color(uiColor: .secondarySystemGroupedBackground),
+                                in: RoundedRectangle(cornerRadius: 17, style: .continuous)
+                            )
+                            .background(Color(uiColor: .secondarySystemGroupedBackground),
+                                        in: RoundedRectangle(cornerRadius: 17, style: .continuous))
                     }
                 }
-                .padding(.horizontal, 12).padding(.vertical, 10)
-                .background(outgoing ? Color.accentColor.opacity(0.17) : Color(uiColor: .secondarySystemGroupedBackground),
-                            in: RoundedRectangle(cornerRadius: 17, style: .continuous))
-                .background(Color(uiColor: .secondarySystemGroupedBackground),
-                            in: RoundedRectangle(cornerRadius: 17, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 17).stroke(store.highlightID == value.id ? Color.accentColor : .clear, lineWidth: 2))
             }
+            .frame(maxWidth: maxWidth, alignment: outgoing ? .trailing : .leading)
             .layoutPriority(1)
+            .overlay {
+                RoundedRectangle(cornerRadius: 17, style: .continuous)
+                    .stroke(store.highlightID == value.id ? Color.accentColor : .clear, lineWidth: 2)
+                    .allowsHitTesting(false)
+            }
             .contextMenu {
                 Button(PalmiL10n.tr("bionic.reply"), systemImage: "arrowshape.turn.up.left", action: onQuote)
-                Button(PalmiL10n.tr("bionic.copy"), systemImage: "doc.on.doc") { UIPasteboard.general.string = message.text("body") }
+                Button(PalmiL10n.tr("bionic.copy"), systemImage: "doc.on.doc") {
+                    UIPasteboard.general.string = message.text("body")
+                }
+                .disabled(!hasVisibleBody)
                 Text(store.displayTime(message))
             }
             if outgoing { avatar } else { Spacer(minLength: 0) }
@@ -381,7 +476,9 @@ private struct BionicBubbleRow: View {
         Group {
             if value.showsAvatar {
                 if outgoing {
-                    BionicAvatar(data: store.avatars[instance + ":" + message.text("author_id")],
+                    let currentUser = message.text("author_id") == store.selectedRole?.state.participantID
+                    BionicAvatar(data: currentUser ? BionicUserProfileStore.shared.avatarPNG
+                                 : store.avatars[instance + ":" + message.text("author_id")],
                                  name: store.authorName(message), size: 34)
                 } else {
                     Button(action: onRoleTap) {
@@ -590,7 +687,7 @@ struct BionicLinkedText: View {
 }
 
 struct BionicAssetPreview: Identifiable { let id = UUID(); let url: URL }
-struct BionicAssetPreviewSheet: UIViewControllerRepresentable {
+struct BionicQuickLookContent: UIViewControllerRepresentable {
     let url: URL
     func makeCoordinator() -> Coordinator { Coordinator(url: url) }
     func makeUIViewController(context: Context) -> QLPreviewController {
@@ -604,5 +701,25 @@ struct BionicAssetPreviewSheet: UIViewControllerRepresentable {
         init(url: URL) { self.url = url }
         func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
         func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem { url as NSURL }
+    }
+}
+
+struct BionicAssetPreviewSheet: View {
+    let url: URL
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        NavigationStack {
+            BionicQuickLookContent(url: url)
+                .ignoresSafeArea(edges: .bottom)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button { dismiss() } label: { Image(systemName: "xmark") }
+                            .accessibilityLabel(PalmiL10n.tr("bionic.close"))
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        ShareLink(item: url) { Image(systemName: "square.and.arrow.up") }
+                    }
+                }
+        }
     }
 }

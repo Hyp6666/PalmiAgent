@@ -107,7 +107,8 @@ private struct ToolManagementSectionBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(section.id.localizedTitle)
+            Text(section.id == .bionic ? PalmiL10n.tr("tool.section.bionic")
+                 : section.id == .imageGeneration ? PalmiL10n.tr("image.generation") : section.id.localizedTitle)
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 4)
@@ -148,7 +149,8 @@ private struct ToolManagementGroupCard: View {
                     iconBadge
 
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(group.localizedSettingsTitle)
+                        Text(group.id == .bionicPersonas ? PalmiL10n.tr("tool.group.bionicPersonas")
+                             : group.id == .imageGeneration ? PalmiL10n.tr("image.generation") : group.localizedSettingsTitle)
                             .font(.body.weight(.semibold))
                             .foregroundStyle(.primary)
 
@@ -380,6 +382,8 @@ private extension AgentExternalToolName {
             "location"
         case .createBionicPersona:
             "person.crop.circle.badge.plus"
+        case .generateImage:
+            "photo.badge.plus"
         }
     }
 }
@@ -390,6 +394,8 @@ private struct ToolManagementGroupAppearance {
 
     static func forGroup(_ groupID: ToolManagementGroupID) -> ToolManagementGroupAppearance {
         switch groupID {
+        case .imageGeneration:
+            .init(symbolName: "photo.badge.plus", tint: .blue)
         case .calendar:
             .init(symbolName: "calendar", tint: .red)
         case .reminders:

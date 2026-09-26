@@ -106,6 +106,8 @@ struct ChatScreen: View {
     @State private var readableMessageViewport = CGRect.zero
     @State private var messageGeometryReady = false
     @State private var isShowingBionicSuggestion = false
+    @State private var markdownImageRoot: URL?
+    @State private var showingMarkdownImage = false
     @State private var pendingLinkAction: LinkOpenRequest?
     @State private var measuredLinkActionPopoverSize: CGSize = .zero
     @State private var measuredContextWheelFrame: CGRect = .zero
@@ -188,7 +190,7 @@ struct ChatScreen: View {
             && previewedWorkspaceFile == nil && previewedAttachmentFiles == nil
             && linkSharePayload == nil && attachmentPresentation == nil
             && !isShowingPlusMenu && !isShowingContextInfo && pendingLinkAction == nil
-            && !isShowingModeInfo
+            && !isShowingModeInfo && !showingMarkdownImage
     }
     @State private var openBionicAfterSuggestion = false
 
@@ -206,7 +208,7 @@ struct ChatScreen: View {
             && !isShowingContextInfo && !isShowingModeInfo && !isShowingBionicSuggestion
             && previewedWorkspaceFile == nil && previewedAttachmentFiles == nil
             && linkSharePayload == nil && attachmentPresentation == nil
-            && pendingLinkAction == nil
+            && pendingLinkAction == nil && !showingMarkdownImage
     }
 
     private var bionicSuggestionPresentationKey: BionicSuggestionPresentationKey {
@@ -565,8 +567,14 @@ struct ChatScreen: View {
             isShowingBionicSuggestion = true
         }
         .task(id: workspaceStore.selectedSelection) {
+            markdownImageRoot = nil
+            if let selection = workspaceStore.selectedSelection {
+                markdownImageRoot = try? store.workspaceManager.withSelection(selection) { try store.workspaceManager.ensureWorkspace() }
+            }
             store.loadMessagesForActiveThread()
         }
+        .environment(\.palmiImageRoot, markdownImageRoot)
+        .environment(\.palmiImagePreviewChanged, { showingMarkdownImage = $0 })
         .task(id: contextRefreshID) {
             let selection = workspaceStore.selectedSelection
             if contextSnapshotSelection != selection { displayedContextSnapshot = nil }
@@ -4570,6 +4578,8 @@ private struct ToolCallCard: View {
                 return "location"
             case .createBionicPersona:
                 return "person.crop.circle.badge.plus"
+            case .generateImage:
+                return "photo.badge.plus"
             }
         }
 

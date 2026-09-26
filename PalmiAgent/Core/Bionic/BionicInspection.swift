@@ -10,10 +10,12 @@ extension BionicArchiveStore {
         let role = try loadRole(instance)
         let binding = try self.binding(instance)
         let keys = ["plan_id", "primary_candidate_id", "multimodal_candidate_id", "lightweight_candidate_id", "developer_visible",
-                    "notifications_enabled", "contact_resume_allowed", "unread_after_sequence", "notification_observations"]
+                    "notifications_enabled", "contact_resume_allowed", "unread_after_sequence", "notification_observations",
+                    "diary_start_day", "diary_retry_after", "diary_last_error"]
         var local: BionicObject = [:]
         for key in keys { if let value = binding[key] { local[key] = value } }
         return ["installation_id": .string(instance), "through_sequence": .count(role.throughSequence),
+            "diaries": .records(try diaryEntries(instance).map(\.object)),
             "manifest": .object(role.manifest), "persona": .object(role.persona), "runtime_state": .object(role.state.raw),
             "local_binding_without_credentials": .object(local), "participants": .records(try participants(instance)),
             "selected_summary": try summary(instance).map(BionicJSON.object) ?? .null,

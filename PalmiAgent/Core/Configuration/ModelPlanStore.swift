@@ -1,5 +1,61 @@
 import Foundation
 import Observation
+extension ModelPlanStore {
+    func importChatGPTModels(_ models: [ChatGPTCatalogModel], account: ChatGPTAccountReference) throws {
+        let previous = archive, now = Date.now
+        do {
+            let connectionID: UUID
+            if let index = archive.connections.firstIndex(where: { $0.chatGPTAccount?.accountID == account.accountID }) {
+                connectionID = archive.connections[index].id
+                archive.connections[index].chatGPTAccount = account
+                archive.connections[index].updatedAt = now
+            } else {
+                connectionID = UUID()
+                var value = ModelAPIConnectionRecord(
+                    id: connectionID, displayName: "ChatGPT OAuth",
+                    inputAddress: "https://chatgpt.com/backend-api/codex",
+                    chatCompletionsURLString: "https://chatgpt.com/backend-api/codex/responses",
+                    responsesURLString: "https://chatgpt.com/backend-api/codex/responses",
+                    messagesURLString: nil,
+                    modelsURLString: "https://chatgpt.com/backend-api/codex/models",
+                    wireProtocolPreference: .responses, createdAt: now, updatedAt: now
+                )
+                value.chatGPTAccount = account
+                archive.connections.append(value)
+            }
+            for model in models {
+                if let index = archive.models.firstIndex(where: { $0.connectionID == connectionID && $0.modelName == model.id }) {
+                    archive.models[index].remoteDisplayName = model.title
+                    archive.models[index].imageGenerationOnly = model.imageOnly
+                    archive.models[index].capabilities = .init(supportsText: !model.imageOnly, supportsVision: model.vision)
+                    archive.models[index].updatedAt = now
+                } else {
+                    var value = GlobalModelRecord(
+                        id: UUID(), connectionID: connectionID, displayName: model.id,
+                        remoteDisplayName: model.title, modelName: model.id, canonicalID: nil, ownedBy: "openai",
+                        capabilities: .init(supportsText: !model.imageOnly, supportsVision: model.vision),
+                        validationStatus: .unvalidated, validationMessage: "", validatedAt: nil,
+                        createdAt: now, updatedAt: now
+                    )
+                    value.imageGenerationOnly = model.imageOnly
+                    archive.models.append(value)
+                }
+            }
+            try persistArchive(); refreshSnapshots()
+        } catch { archive = previous; throw error }
+    }
+    func renameChatGPTModel(_ id: UUID, displayName: String) throws {
+        guard let index = archive.models.firstIndex(where: { $0.id == id }),
+              archive.connections.contains(where: { $0.id == archive.models[index].connectionID && $0.chatGPTAccount != nil }) else {
+            throw ChatGPTConnectionError("request")
+        }
+        let previous = archive
+        archive.models[index].displayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        archive.models[index].updatedAt = .now
+        do { try persistArchive(); refreshSnapshots() }
+        catch { archive = previous; throw error }
+    }
+}
 
 enum ModelPlanSlot: String, CaseIterable, Codable, Identifiable, Sendable {
     case primary
@@ -104,6 +160,7 @@ struct ModelCandidateCapabilities: Codable, Equatable, Sendable {
 }
 
 struct ModelAPIConnectionRecord: Identifiable, Codable, Equatable, Sendable {
+    var chatGPTAccount: ChatGPTAccountReference? = nil
     let id: UUID
     var displayName: String
     var inputAddress: String
@@ -140,6 +197,7 @@ struct ModelAPIConnectionRecord: Identifiable, Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
+        case chatGPTAccount
         case id
         case displayName
         case inputAddress
@@ -154,6 +212,7 @@ struct ModelAPIConnectionRecord: Identifiable, Codable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        chatGPTAccount = try container.decodeIfPresent(ChatGPTAccountReference.self, forKey: .chatGPTAccount)
         id = try container.decode(UUID.self, forKey: .id)
         displayName = try container.decode(String.self, forKey: .displayName)
         inputAddress = try container.decode(String.self, forKey: .inputAddress)
@@ -171,6 +230,7 @@ struct ModelAPIConnectionRecord: Identifiable, Codable, Equatable, Sendable {
 }
 
 struct GlobalModelRecord: Identifiable, Codable, Equatable, Sendable {
+    var imageGenerationOnly: Bool? = nil
     let id: UUID
     var connectionID: UUID
     var displayName: String
@@ -302,15 +362,23 @@ struct ModelCandidateSnapshot: Identifiable, Equatable, Sendable {
     var validationStatus: ModelCandidateValidationStatus { record.validationStatus }
     var validationMessage: String { record.validationMessage }
     var validatedAt: Date? { record.validatedAt }
-    var subtitle: String { connection.inputAddress }
+    var isChatGPTOAuth: Bool { connection.chatGPTAccount != nil }
+    var isImageGenerationOnly: Bool { record.imageGenerationOnly == true }
+    var subtitle: String {
+        if let account = connection.chatGPTAccount {
+            return "ChatGPT OAuth · " + (account.email.isEmpty ? account.accountID : account.email)
+        }
+        return connection.inputAddress
+    }
 
     func isValid(for slot: ModelPlanSlot) -> Bool {
         isConfigured(for: slot)
     }
 
     func isConfigured(for _: ModelPlanSlot) -> Bool {
-        !modelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !connection.chatCompletionsURLString.isEmpty
+        guard !isImageGenerationOnly else { return false }
+        return !modelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !connection.chatCompletionsURLString.isEmpty
     }
 }
 
@@ -329,19 +397,19 @@ struct ModelPlanSnapshot: Identifiable, Equatable, Sendable {
             order[id] = index
         }
         return candidates
-            .filter { order[$0.id] != nil }
+            .filter { order[$0.id] != nil && !$0.isImageGenerationOnly }
             .sorted { (order[$0.id] ?? 0) < (order[$1.id] ?? 0) }
     }
 
     func selectedCandidate(for slot: ModelPlanSlot) -> ModelCandidateSnapshot? {
         guard let selectedID = record.selectedCandidateID(for: slot),
               record.slotCandidateIDs.contains(selectedID, in: slot) else { return nil }
-        return candidates.first { $0.id == selectedID }
+        return candidates.first { $0.id == selectedID && !$0.isImageGenerationOnly }
     }
 
     func libraryCandidates(excluding slot: ModelPlanSlot? = nil) -> [ModelCandidateSnapshot] {
         let excluded = slot.map { Set(record.candidateIDs(for: $0)) } ?? []
-        return candidates.filter { !excluded.contains($0.id) }
+        return candidates.filter { !excluded.contains($0.id) && !$0.isImageGenerationOnly }
     }
 
     var isUsable: Bool {
@@ -431,7 +499,7 @@ final class ModelPlanStore {
     ) -> ModelCandidateSnapshot? {
         if sessionOverride?.isCandidateCleared(for: slot) == true { return nil }
         if let modelID = sessionOverride?.candidateID(for: slot) {
-            return plan.candidates.first { $0.id == modelID }
+            return plan.candidates.first { $0.id == modelID && !$0.isImageGenerationOnly }
         }
         return plan.selectedCandidate(for: slot)
     }
@@ -622,6 +690,7 @@ final class ModelPlanStore {
         guard let modelIndex = archive.models.firstIndex(where: { $0.id == candidateID }) else {
             throw AppError.invalidState(PalmiL10n.tr("model.error.libraryModelMissing"))
         }
+        guard archive.models[modelIndex].imageGenerationOnly != true else { throw ChatGPTConnectionError("request") }
         guard let index = archive.plans.firstIndex(where: { $0.id == planID }) else {
             throw AppError.invalidState(PalmiL10n.tr("model.error.planMissing"))
         }
@@ -647,7 +716,7 @@ final class ModelPlanStore {
             throw AppError.invalidState(PalmiL10n.tr("model.error.candidateMissing"))
         }
         archive.models[index].capabilities = archive.models[index].capabilities.merging(validation.capabilities)
-        archive.models[index].validationStatus = .valid
+        archive.models[index].validationStatus = archive.models[index].imageGenerationOnly == true ? .unvalidated : .valid
         archive.models[index].validationMessage = validation.message
         archive.models[index].validatedAt = .now
         archive.models[index].updatedAt = .now
@@ -712,6 +781,10 @@ final class ModelPlanStore {
         }
         let existingConnection = archive.connections
             .first(where: { $0.id == archive.models[modelIndex].connectionID })
+        if existingConnection?.chatGPTAccount != nil {
+            try renameChatGPTModel(candidateID, displayName: displayName)
+            return
+        }
         let connectionID = try upsertConnection(
             inputAddress: baseURLString,
             apiKey: apiKey,
@@ -733,6 +806,7 @@ final class ModelPlanStore {
               let modelIndex = archive.models.firstIndex(where: { $0.id == candidateID }) else {
             throw AppError.invalidState(PalmiL10n.tr("model.error.candidateMissing"))
         }
+        guard archive.models[modelIndex].imageGenerationOnly != true else { throw ChatGPTConnectionError("request") }
         guard archive.plans[index].slotCandidateIDs.contains(candidateID, in: slot) else {
             throw AppError.invalidState(PalmiL10n.tr("model.error.addToSlotFirst", slot.title))
         }
@@ -784,6 +858,7 @@ final class ModelPlanStore {
         guard let connectionID = archive.models.first(where: { $0.id == candidateID })?.connectionID else {
             return ""
         }
+        guard archive.connections.first(where: { $0.id == connectionID })?.chatGPTAccount == nil else { return "" }
         do {
             return try secretStore.readSecret(account: apiKeyAccount(connectionID: connectionID)) ?? ""
         } catch {
@@ -812,6 +887,7 @@ final class ModelPlanStore {
         )
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         if let existing = try archive.connections.first(where: { connection in
+            guard connection.chatGPTAccount == nil else { return false }
             guard connection.inputAddress == resolution.inputURL.absoluteString else {
                 return false
             }
@@ -920,6 +996,7 @@ final class ModelPlanStore {
         for candidate: ModelCandidateSnapshot,
         slot: ModelPlanSlot
     ) -> AgentModelConfigurationOverride? {
+        guard !candidate.isImageGenerationOnly else { return nil }
         guard let endpoints = try? OpenAICompatibleEndpointResolver.resolve(
             candidate.connection.inputAddress,
             preference: candidate.connection.wireProtocolPreference
@@ -930,7 +1007,7 @@ final class ModelPlanStore {
         let accessMode = provider.accessMode(withID: .standardAPI) ?? provider.preferredAccessMode
         let model = apiModelDefinition(for: candidate, slot: slot)
         let key = apiKey(for: candidate.id)
-        let configuration = APIResolvedConfiguration(
+        var configuration = APIResolvedConfiguration(
             provider: provider,
             profileID: candidate.connection.id,
             profileName: candidate.connection.displayName,
@@ -949,6 +1026,7 @@ final class ModelPlanStore {
             apiKey: key.isEmpty ? nil : key,
             selectedServer: nil
         )
+        configuration.chatGPTOAuthAccountID = candidate.connection.chatGPTAccount?.accountID
         var effectiveCapabilities = candidate.capabilities
         if slot == .multimodal {
             effectiveCapabilities.supportsVision = true
@@ -1142,12 +1220,13 @@ final class ModelPlanStore {
         libraryModels = archive.models.compactMap { model in
             guard let connection = connectionByID[model.connectionID] else { return nil }
             let key: String?
-            do {
+            if connection.chatGPTAccount != nil { key = nil }
+            else { do {
                 key = try secretStore.readSecret(account: apiKeyAccount(connectionID: connection.id))
             } catch {
                 feedbackMessage = Self.errorMessage(for: error)
                 key = nil
-            }
+            } }
             return ModelCandidateSnapshot(
                 record: model,
                 connection: connection,

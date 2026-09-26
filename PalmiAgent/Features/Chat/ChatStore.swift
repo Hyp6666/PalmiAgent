@@ -368,7 +368,9 @@ final class ChatStore {
         let enabledActions = ActionCatalog.agentExposedActions(
             from: toolPermissionStore.enabledActions(from: actions)
         )
-        let filtered = ChatModeToolFilter.actions(for: surface, from: enabledActions)
+        var filtered = ChatModeToolFilter.actions(for: surface, from: enabledActions)
+        if surface == .chat, let image = enabledActions.first(where: { $0.id == .generateImage }),
+           !filtered.contains(where: { $0.id == .generateImage }) { filtered.append(image) }
         return surface == .professional ? filtered : filtered.filter { $0.id != .createBionicPersona }
     }
 

@@ -25,12 +25,13 @@ private struct PalmiMessageVisibilityModifier: ViewModifier {
                       viewport.width > 0, viewport.height > 0 else { return false }
                 let intersection = frame.intersection(viewport)
                 guard !intersection.isNull, !intersection.isEmpty else { return false }
-                let requiredHeight = min(24, min(frame.height * 0.5, viewport.height * 0.5))
+                let requiredHeight = min(frame.height, viewport.height) * 0.5
                 let requiredWidth = min(16, frame.width * 0.5)
                 return intersection.height >= requiredHeight
                     && intersection.width >= requiredWidth
             } action: { visible in
                 if geometricallyVisible != visible { geometricallyVisible = visible }
+                if !visible { onVisibility(false) }
             }
             .task(id: key) {
                 let captured = key
@@ -38,7 +39,7 @@ private struct PalmiMessageVisibilityModifier: ViewModifier {
                     onVisibility(false)
                     return
                 }
-                do { try await Task.sleep(for: .milliseconds(150)) }
+                do { try await Task.sleep(for: .milliseconds(250)) }
                 catch { return }
                 guard !Task.isCancelled, key == captured else { return }
                 onVisibility(true)

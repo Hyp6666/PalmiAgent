@@ -30,15 +30,13 @@ struct BionicPersonaEditor: View {
     @State private var deleting = false
     @State private var errorText: String?
     @State private var rolePhoto: PhotosPickerItem?
-    @State private var userPhoto: PhotosPickerItem?
     @State private var roleAvatar: Data?
-    @State private var userAvatar: Data?
     @State private var crop: CropRequest?
     @State private var promptPreview: PromptPreview?
     @FocusState private var focusedField: BionicEditField?
 
-    private enum BionicEditField: Hashable { case nickname, genderCustom, identity, background, myName }
-    private struct CropRequest: Identifiable { let id = UUID(); let image: UIImage; let role: Bool }
+    private enum BionicEditField: Hashable { case nickname, genderCustom, identity, background }
+    private struct CropRequest: Identifiable { let id = UUID(); let image: UIImage }
     private struct PromptPreview: Identifiable { let id = UUID(); let text: String }
 
     init(store: BionicStore, instance: String?) {
@@ -47,7 +45,8 @@ struct BionicPersonaEditor: View {
         _persona = State(initialValue: old ?? BionicPersonaCatalog.draft(language: PalmiLanguage.current.rawValue))
         _original = State(initialValue: old)
         _binding = State(initialValue: store.model.defaultBinding())
-        _participant = State(initialValue: ["participant_id": .string(BionicCodec.id()), "display_name": .string(""), "avatar_asset": .null, "created_at": .string(BionicCodec.instant())])
+        let snapshot = BionicUserProfileStore.shared.participantSnapshot(id: BionicCodec.id())
+        _participant = State(initialValue: snapshot.participant)
     }
     // private var fingerprint: String { (try? BionicPersonaCatalog.fingerprint(persona)) ?? "" }
     // private var accepted: Bool { audit?.receipt.flag("passed") == true && audit?.receipt.text("input_hash") == fingerprint }
@@ -139,13 +138,6 @@ struct BionicPersonaEditor: View {
                 Toggle(PalmiL10n.tr("bionic.evolution"), isOn: toggle("evolution_enabled"))
                 Toggle(PalmiL10n.tr("bionic.proactive"), isOn: toggle("proactive_enabled"))
             }
-            if instance == nil {
-                Section(PalmiL10n.tr("bionic.myProfile")) {
-                    HStack { BionicAvatar(data: userAvatar, name: participant.text("display_name"), size: 44); PhotosPicker(selection: $userPhoto, matching: .images) { Text(PalmiL10n.tr("bionic.chooseAvatar")) } }
-                    TextField(PalmiL10n.tr("bionic.myName"), text: Binding(get: { participant.text("display_name") }, set: { participant["display_name"] = .string($0) }))
-                        .focused($focusedField, equals: .myName).bionicInputField()
-                }
-            }
             BionicModelBindingFields(store: store, binding: $binding)
             BionicRuntimeSettingsFields(persona: $persona, local: $binding)
             Section {
@@ -184,10 +176,9 @@ struct BionicPersonaEditor: View {
             }
         }
         // .onChange(of: fingerprint) { _, _ in audit = nil }
-        .onChange(of: rolePhoto) { _, value in Task { await beginCrop(value, role: true) } }
-        .onChange(of: userPhoto) { _, value in Task { await beginCrop(value, role: false) } }
+        .onChange(of: rolePhoto) { _, value in Task { await beginCrop(value) } }
         .sheet(item: $crop) { request in
-            NavigationStack { BionicAvatarCropView(image: request.image) { data in applyAvatar(data, role: request.role) } }
+            NavigationStack { BionicAvatarCropView(image: request.image) { data in applyAvatar(data) } }
         }
         .sheet(item: $promptPreview) { preview in
             NavigationStack {
@@ -260,19 +251,18 @@ struct BionicPersonaEditor: View {
             dismiss()
         } catch { errorText = BionicStore.errorText(error) }
     }
-    private func beginCrop(_ value: PhotosPickerItem?, role: Bool) async {
+    private func beginCrop(_ value: PhotosPickerItem?) async {
         guard let value else { return }
         do {
             guard let raw = try await value.loadTransferable(type: Data.self),
                   let image = UIImage(data: raw), image.size.width > 0, image.size.height > 0 else { throw BionicFailure("invalidImage") }
-            crop = CropRequest(image: image, role: role)
+            crop = CropRequest(image: image)
         } catch { errorText = BionicStore.errorText(error) }
     }
-    private func applyAvatar(_ data: Data, role: Bool) {
+    private func applyAvatar(_ data: Data) {
         let path = "assets/\(BionicCodec.sha(data)).png"
         assets[path] = data
-        if role { roleAvatar = data; persona["avatar_asset"] = .string(path) }
-        else { userAvatar = data; participant["avatar_asset"] = .string(path) }
+        roleAvatar = data; persona["avatar_asset"] = .string(path)
     }
 }
 

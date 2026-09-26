@@ -25,9 +25,19 @@ enum BionicToolbox {
                 "reply_to_message_id": .object(["type": .strings(["string", "null"]),
                     "description": .string("通常填写null。接着上一句话回答、寒暄、回答最近的问题都不引用。仅在重新回应较早的具体消息、跨话题定位、消除歧义时填宿主提供的真实ID；不要习惯性引用最后一条消息。")])])
     }
+    static var spokenMessageSchema: BionicJSON {
+        var value = messageSchema.object
+        var properties = value.object("properties")
+        properties["image_ids"] = array(text, maximum: 1)
+        value["properties"] = .object(properties)
+        value["required"] = .strings(properties.keys.sorted())
+        return .object(value)
+    }
     static var schemas: [String: BionicJSON] { [
+        "write_diary": object(["text": shortText(2400)]),
+        "generate_image": object(["prompt": shortText(6000)]),
         "recall": object(["query": nullableText, "from_date": nullableText, "through_date": nullableText, "message_ids": array(text), "cursor": nullableText]),
-        "speak": object(["messages": array(messageSchema, minimum: 1, maximum: maximumBubbles), "end_turn": boolean]),
+        "speak": object(["messages": array(spokenMessageSchema, minimum: 1, maximum: maximumBubbles), "end_turn": boolean]),
         "context_pro_max_plus": object(["summary": text, "memory_changes": array(object([
             "operation": choice(["add", "update", "delete"]), "target_memory_id": nullableText,
             "topic_key": text, "category": choice(["user_fact", "preference_boundary", "promise_open_item", "shared_event"]),
@@ -42,9 +52,11 @@ enum BionicToolbox {
         ]), maximum: 30)])
     ] }
     static let descriptions = [
+        "write_diary": "记录指定日期的一篇角色私人日记，第一人称，中文约400字。只写角色自己的虚构生活与有来源的聊天感受，不虚构用户经历，不发送聊天消息。",
+        "generate_image": "仅在对方明确要图或本轮同意发图时生成一张。prompt描述成品画面，结合角色人设和当前话题，不伪造对方真实经历或外貌。只调用一次。成功后用speak.image_ids引用宿主返回的image_id；失败继续文字交流，不反复调用。工具只准备图，不等于已发送。",
         "planning": "提出尚未发送的后续消息。没有自然动机时groups=[]。只从future_calendar.slots选择delay_minutes，未来72小时总计最多30条，不凑满。相邻组至少相隔30分钟，每组默认一条。针对给定发送时刻的场景写正文；不臆测用户的未来经历。本工具只保存预存稿，不直接发送，也不进入真实对话历史。",
         "recall": "需要确认较早的具体话语或记忆时读取本角色档案；当前上下文已经足够时直接speak。query是关键词，日期使用YYYY-MM-DD，message_ids可精确定位；不使用的字段填null或空数组。继续阅读时沿用查询并传next_cursor。返回空结果就承认记不清，不编造经历。",
-        "speak": "默认一条气泡、end_turn=true。必要才分开发，整轮总计最多101条；不凑两条三条。直接接话不引用，reply_to_message_id默认null。",
+        "speak": "默认一条消息、end_turn=true。每项text为正文，image_ids为空或本轮生成结果的一个ID；纯图text可空，不能填写URL、路径、base64、自造ID或再次引用已用图片。必要才分开发，整轮最多101条。直接接话不引用，reply_to_message_id默认null。",
         "context_pro_max_plus": "Context Pro Max Plus：用紧凑摘要维持未完话题，只提炼以后确实有用的稳定事实、明确偏好、边界和未完约定。寒暄、猜测、待发消息不提炼。summary与memory_changes是唯一两个字段。每条记忆须有真实来源；没有新事实返回空数组。",
         "evolve_personality": "只对五个性格维度提出小幅变化，附真实来源；没有持续证据时返回空changes。"
     ]
@@ -130,19 +142,30 @@ enum BionicToolbox {
         }
     }
 
-    static func speakEffect(_ payload: BionicObject, allowedIDs: Set<String>, lastCall: Bool, remaining: Int = maximumBubbles) throws -> BionicObject {
-        try validate(payload, name: "speak")
-        try validateMessages(payload.records("messages"), allowedIDs: allowedIDs)
-        guard payload.records("messages").count <= remaining else {
-            throw BionicFailure("invalidModelOutput", detail: "messages: only \(remaining) bubbles remain in this turn")
+    static func speakEffect(_ payload: BionicObject, allowedIDs: Set<String>, lastCall: Bool,
+                            remaining: Int = maximumBubbles, images: [String: BionicObject] = [:]) throws -> BionicObject {
+        let normalized = BionicResponseDecoder.canonical(payload, name: "speak")
+        try validate(normalized, name: "speak")
+        let rows = normalized.records("messages")
+        guard !rows.isEmpty, rows.count <= remaining, !lastCall || normalized.flag("end_turn") else { throw BionicFailure("invalidModelOutput") }
+        var used = Set<String>()
+        let messages = try rows.map { row -> BionicObject in
+            var value = row
+            let attachments = try row.strings("image_ids").map { id -> BionicObject in
+                guard used.insert(id).inserted, let attachment = images[id] else { throw BionicFailure("invalidModelOutput", detail: "unavailable image_id") }
+                return attachment
+            }
+            let text = row.text("text").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty || !attachments.isEmpty else { throw BionicFailure("invalidModelOutput") }
+            if let reply = row.optionalText("reply_to_message_id"), !allowedIDs.contains(reply) { throw BionicFailure("invalidModelOutput") }
+            value.removeValue(forKey: "image_ids")
+            value["message_id"] = .string(BionicCodec.id())
+            value["text"] = .string(text.isEmpty ? "[Photo]" : text)
+            if !attachments.isEmpty { value["attachments"] = .records(attachments) }
+            return value
         }
-        guard !lastCall || payload.flag("end_turn") else {
-            throw BionicFailure("invalidModelOutput", detail: "end_turn must be true on the last action")
-        }
-        let end = payload.flag("end_turn") || payload.records("messages").count == remaining
-        return ["batch_id": .string(BionicCodec.id()), "messages": .records(payload.records("messages").map { item in
-            var value = item; value["message_id"] = .string(BionicCodec.id()); return value
-        }), "end_turn": .bool(end)]
+        return ["batch_id": .string(BionicCodec.id()), "messages": .records(messages),
+                "end_turn": .bool(normalized.flag("end_turn") || rows.count == remaining)]
     }
 
     static func normalizedMemories(_ payload: BionicObject, role: BionicRole, slice: BionicSlice,

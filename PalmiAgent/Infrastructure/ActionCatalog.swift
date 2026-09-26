@@ -2,6 +2,7 @@ import Foundation
 
 enum ActionCatalog {
     static let agentExposedActionIDs: [ToolActionID] = [
+        .generateImage,
         .fileRead,
         .breakDownFile,
         .fileWrite,
@@ -21,6 +22,8 @@ enum ActionCatalog {
     ]
 
     static let all: [ToolAction] = [
+        .init(id: .generateImage, category: .multimodal, title: "生成图片", effect: "生成图片并保存到当前项目",
+              details: "使用生图配置中的 ChatGPT OAuth 模型，返回可在 Markdown 中引用的项目相对路径。", availability: .live),
         .init(id: .fileRead, category: .workspace, title: "读取文本", effect: "原样读取工作区中的单个文本文件", details: "按 start/count 读取可解码文本，保留原始内容，不做摘要、搜索、格式化或复杂文档解析。PDF、Office、iWork、RAR、7z 等二进制文件使用 break_down。", availability: .live),
         .init(id: .breakDownFile, category: .workspace, title: "拆解复杂文件", effect: "将复杂文件拆成可读取的文本 part 和可按需提取的原始资产", details: "支持 PDF、现代及旧版 Word/PowerPoint/Excel、Pages、Numbers、Keynote、RAR 和 7z。默认只生成索引与文本，不调用 OCR、vision 或模型，不修改源文件。", availability: .live),
         .init(id: .fileWrite, category: .workspace, title: "写入文件", effect: "创建或覆盖写入工作区内的文本文件", details: "由模型提供文件路径和内容，支持 .md、.py、.txt、.json 等所有文本格式。父目录会自动创建。", availability: .live),

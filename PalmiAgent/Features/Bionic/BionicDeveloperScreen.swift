@@ -143,7 +143,8 @@ private struct BionicContextPreviewScreen: View {
     var body: some View {
         BionicInspectorPage(title: BionicInspectorLabel.text("inputPreview"), revision: store.diagnosticRevision, load: {
             let role = try await store.archive.loadRole(instance)
-            let input = try await BionicPromptBuilder.daily(role, archive: store.archive, enforceBudget: false)
+            let input = try await BionicPromptBuilder.daily(role, archive: store.archive, enforceBudget: false,
+                imageGenerationEnabled: store.model.imageGeneration?.isEnabled == true)
             return ["model_input": .object(input.json), "estimated_tokens": .count(try BionicPromptBuilder.estimatedTokens(input))]
         }) { data in
             BionicInputSections(input: BionicModelInput(data.object("model_input")), estimated: data.int("estimated_tokens"))
