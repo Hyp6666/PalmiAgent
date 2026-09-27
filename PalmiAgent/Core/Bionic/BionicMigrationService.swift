@@ -132,7 +132,7 @@ final class BionicMigrationService {
             let record = try BionicDisk.read(root, path)
             if path.hasPrefix("personas/") {
                 guard record.text("character_id") == role.characterID, path == "personas/\(record.text("persona_revision_id")).json",
-                      record.text("native_language") == role.persona.text("native_language") else { throw BionicFailure("archiveInvalid") }
+                      BionicSystemPersona.acceptsLanguageChange(from: record, to: role.persona) else { throw BionicFailure("archiveInvalid") }
                 if let asset = record.optionalText("avatar_asset"), !known.contains(asset) { throw BionicFailure("sourceMissing") }
             } else if path.hasPrefix("participants/") {
                 guard path == "participants/\(record.text("participant_id")).json", BionicCodec.validID(record.text("participant_id")), !record.text("display_name").isEmpty else { throw BionicFailure("archiveInvalid") }

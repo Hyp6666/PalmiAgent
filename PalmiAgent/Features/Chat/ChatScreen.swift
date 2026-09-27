@@ -108,6 +108,7 @@ struct ChatScreen: View {
     @State private var isShowingBionicSuggestion = false
     @State private var markdownImageRoot: URL?
     @State private var showingMarkdownImage = false
+    @State private var initialUnreadTarget: UUID?
     @State private var pendingLinkAction: LinkOpenRequest?
     @State private var measuredLinkActionPopoverSize: CGSize = .zero
     @State private var measuredContextWheelFrame: CGRect = .zero
@@ -216,7 +217,7 @@ struct ChatScreen: View {
     }
 
     private var turns: [ChatTurn] {
-        ChatTurn.build(from: store.messages)
+        store.hasLoadedDisplayedConversation ? ChatTurn.build(from: store.messages) : []
     }
 
     private var showsContextWheel: Bool {
@@ -388,11 +389,11 @@ struct ChatScreen: View {
 
     private func thinkingLevelTitle(_ effort: String) -> String {
         switch effort {
-        case "low": return PalmiL10n.tr("chat.thinking.low")
-        case "medium": return PalmiL10n.tr("chat.thinking.medium")
-        case "high": return PalmiL10n.tr("chat.thinking.high")
-        case "xhigh": return PalmiL10n.tr("chat.thinking.xhigh")
-        case "max": return PalmiL10n.tr("chat.thinking.max")
+        case "low": return PalmiL10n.tr("model.reasoning.strength.low")
+        case "medium": return PalmiL10n.tr("model.reasoning.strength.medium")
+        case "high": return PalmiL10n.tr("model.reasoning.strength.high")
+        case "xhigh": return PalmiL10n.tr("model.reasoning.strength.xhigh")
+        case "max": return PalmiL10n.tr("model.reasoning.strength.maximum")
         default: return PalmiL10n.tr("common.default")
         }
     }
@@ -567,11 +568,21 @@ struct ChatScreen: View {
             isShowingBionicSuggestion = true
         }
         .task(id: workspaceStore.selectedSelection) {
+            initialUnreadTarget = nil
             markdownImageRoot = nil
             if let selection = workspaceStore.selectedSelection {
                 markdownImageRoot = try? store.workspaceManager.withSelection(selection) { try store.workspaceManager.ensureWorkspace() }
             }
+            if let selection = workspaceStore.selectedSelection {
+                // 运行中的会话已有内存投影，保持其同步切换顺序。
+                if !store.isRunning(selection: selection) {
+                    await store.workspaceManager.prepareConversation(selection)
+                }
+                guard !Task.isCancelled, workspaceStore.selectedSelection == selection else { return }
+            }
             store.loadMessagesForActiveThread()
+            initialUnreadTarget = store.unreadStore.firstUnreadID(in: store.messages, selection: workspaceStore.selectedSelection)
+            isMessageAutoFollowEnabled = initialUnreadTarget == nil
         }
         .environment(\.palmiImageRoot, markdownImageRoot)
         .environment(\.palmiImagePreviewChanged, { showingMarkdownImage = $0 })
@@ -699,7 +710,7 @@ struct ChatScreen: View {
             // safeAreaInsets.top 即为被忽略的状态栏高度，用于下方顶部让位 spacer。
             GeometryReader { geometry in
                 ScrollView(.vertical, showsIndicators: true) {
-                    VStack(alignment: .leading, spacing: 26) {
+                    LazyVStack(alignment: .leading, spacing: 26) {
                         // 顶部让位：与底部 messageBottomClearance 对称的清空高度。
                         // 让最早的消息滚到顶时停在顶部 chrome（状态栏 + topChromeReservedHeight）
                         // 下方，而不是被 3 个按钮 / 顶部蒙版永久遮挡。
@@ -756,6 +767,16 @@ struct ChatScreen: View {
                         || abs(old.containerHeight - next.containerHeight) > 0.5) {
                         messageScrollWorkID = UUID()
                     }
+                }
+                .task(id: initialUnreadTarget) {
+                    guard let target = initialUnreadTarget else { return }
+                    await Task.yield()
+                    guard !Task.isCancelled else { return }
+                    // 先让懒加载列表实现对应轮次，再定位到这一轮的回答。
+                    proxy.scrollTo(target, anchor: .top)
+                    await Task.yield()
+                    guard !Task.isCancelled else { return }
+                    proxy.scrollTo("unread-" + target.uuidString, anchor: .top)
                 }
                 .task(id: messageScrollWorkID) {
                     let ticket = messageScrollWorkID
@@ -882,13 +903,14 @@ struct ChatScreen: View {
                 assistantMarkdown(for: finalMessage)
                     .palmiMessageVisibility(
                         in: readableMessageViewport,
-                        enabled: mayMarkVisibleAnswersRead && completed,
-                        revision: store.unreadStore.revision
+                        enabled: mayMarkVisibleAnswersRead && completed
+                            && store.unreadStore.contains(answerID, selection: selection)
                     ) { visible in
                         guard visible, let selection,
                               workspaceStore.selectedSelection == selection else { return }
                         store.unreadStore.markRead(Set([answerID]), selection: selection)
                     }
+                    .id("unread-" + answerID.uuidString)
                 if store.activeStreamingMessageIDValue != finalMessage.id {
                     finalAnswerCompletionRow(for: turn, finalMessage: finalMessage)
                 }
@@ -918,7 +940,14 @@ struct ChatScreen: View {
         } else {
             switch message.kind {
             case .normal:
+                let selection = workspaceStore.selectedSelection
                 assistantMarkdown(for: message)
+                    .id("unread-" + message.id.uuidString)
+                    .palmiMessageVisibility(in: readableMessageViewport,
+                        enabled: mayMarkVisibleAnswersRead && store.unreadStore.contains(message.id, selection: selection)) { visible in
+                        guard visible, let selection, workspaceStore.selectedSelection == selection else { return }
+                        store.unreadStore.markRead([message.id], selection: selection)
+                    }
             case .toolCall:
                 if let toolCall = message.toolCall {
                     ToolCallCard(
@@ -3254,9 +3283,9 @@ struct ChatScreen: View {
     @ViewBuilder
     private func assistantBody(for content: String) -> some View {
         if shouldUseNativeSelectableText(for: content) {
-            AssistantPlainTextBlock(text: content)
+            AssistantPlainTextBlock(text: content).equatable()
         } else {
-            AssistantMarkdownBlock(markdown: renderableMarkdown(from: content))
+            AssistantMarkdownBlock(markdown: renderableMarkdown(from: content)).equatable()
         }
     }
 
@@ -3392,7 +3421,7 @@ private struct ChatCanvasBackground: View {
     }
 }
 
-private struct AssistantMarkdownBlock: View {
+private struct AssistantMarkdownBlock: View, Equatable {
     let markdown: String
 
     var body: some View {
@@ -3401,7 +3430,7 @@ private struct AssistantMarkdownBlock: View {
     }
 }
 
-private struct AssistantPlainTextBlock: View {
+private struct AssistantPlainTextBlock: View, Equatable {
     let text: String
 
     var body: some View {
@@ -4407,7 +4436,7 @@ private struct ToolCallCard: View {
             if shouldRenderToolDetailsAsMarkdown(content) {
                 AssistantMarkdownBlock(markdown: content)
             } else {
-                AssistantPlainTextBlock(text: content)
+                AssistantPlainTextBlock(text: content).equatable()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -4880,16 +4909,7 @@ private struct TopChromeIconButton: View {
 
     var body: some View {
         Button(action: action) {
-            Group {
-                if unreadCount > 0 {
-                    Text(unreadCount > 99 ? "99+" : String(unreadCount))
-                        .font(.system(size: 20, weight: .semibold, design: .rounded))
-                        .monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
-                        .foregroundStyle(Color.accentColor)
-                } else {
-                    Image(systemName: systemImage)
-                }
-            }
+            Image(systemName: systemImage)
                 .font(.system(size: 19, weight: .semibold))
                 .foregroundStyle(Color.black.opacity(0.88))
                 .frame(width: 52, height: 52)
@@ -4902,6 +4922,9 @@ private struct TopChromeIconButton: View {
                 )
         }
         .buttonStyle(.plain)
+        .overlay(alignment: .topTrailing) {
+            PalmiUnreadBadge(count: unreadCount).offset(x: 2, y: -2)
+        }
         .accessibilityLabel(accessibilityLabel)
         .accessibilityValue(unreadCount > 0 ? PalmiL10n.tr("chat.unread.count", unreadCount) : "")
         .contentShape(Circle())

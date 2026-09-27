@@ -118,9 +118,31 @@ struct AppShellTopBar: View {
     }
 
     private var modeMenu: some View {
-        PalmiNativeModeMenu(mode: mode, unread: unreadSnapshot, onSelect: onSelectMode)
-            .fixedSize(horizontal: true, vertical: false)
+        Menu {
+            ForEach([AppShellMode.chat, .professional, .bionic], id: \.rawValue) { target in
+                let count = unreadSnapshot.count(for: target)
+                let suffix = count > 0 ? " (" + (count > 99 ? "99+" : String(count)) + ")" : ""
+                Button { onSelectMode(target) } label: {
+                    Label(target.title + suffix, systemImage: target.symbolName)
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: mode.symbolName).font(.subheadline.weight(.semibold))
+                Text(mode.title).font(.headline.weight(.semibold))
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 18)
             .frame(height: 50)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .menuOrder(.fixed)
+        .glassEffect(.regular.tint(.white.opacity(0.12)).interactive(), in: .capsule)
+        .overlay(alignment: .topTrailing) {
+            PalmiUnreadBadge(count: unreadSnapshot.countOutside(mode)).offset(x: 4, y: -4)
+        }
+        .accessibilityLabel(PalmiL10n.tr("common.mode"))
     }
 }
 

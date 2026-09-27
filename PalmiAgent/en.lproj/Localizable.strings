@@ -1502,8 +1502,8 @@
 "chat.thinking.low" = "Low";
 "chat.thinking.medium" = "Medium";
 "chat.thinking.high" = "High";
-"chat.thinking.xhigh" = "Very high";
-"chat.thinking.max" = "Maximum";
+"chat.thinking.xhigh" = "Extra High";
+"chat.thinking.max" = "Max";
 "chat.thinking.title" = "Thinking strength";
 "chat.thinking.configure" = "Configure";
 "chat.bionicSuggestion.title" = "Your task keeps running. Chat with Palmi?";

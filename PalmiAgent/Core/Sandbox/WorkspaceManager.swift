@@ -22,6 +22,40 @@ final class WorkspaceManager {
     private let storageRootOverride: URL?
     private var activeSelection: WorkspaceSelection?
 
+    private struct ConversationSnapshot: Sendable {
+        let messages: [PalmiChatMessage]
+        let sessionData: Data?
+    }
+    private var conversationCache: [WorkspaceSelection: ConversationSnapshot] = [:]
+    private var conversationRevision = 0
+
+    // 磁盘读取与 JSON 解码提前完成，界面切换只领取快照。
+    func prepareConversation(_ selection: WorkspaceSelection) async {
+        guard conversationCache[selection] == nil else { return }
+        let revision = conversationRevision
+        let messagesURL = threadMessagesURL(for: selection.projectID, threadID: selection.threadID)
+        let sessionURL = threadAgentSessionURL(for: selection.projectID, threadID: selection.threadID)
+        let snapshot = await Task.detached(priority: .userInitiated) { () -> ConversationSnapshot? in
+            do {
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                let messages = FileManager.default.fileExists(atPath: messagesURL.path)
+                    ? try decoder.decode([PalmiChatMessage].self, from: Data(contentsOf: messagesURL)) : []
+                let sessionData = FileManager.default.fileExists(atPath: sessionURL.path)
+                    ? try Data(contentsOf: sessionURL) : nil
+                return ConversationSnapshot(messages: messages, sessionData: sessionData)
+            } catch { return nil }
+        }.value
+        guard !Task.isCancelled, revision == conversationRevision, let snapshot else { return }
+        if conversationCache.count >= 6 { conversationCache.removeAll(keepingCapacity: true) }
+        conversationCache[selection] = snapshot
+    }
+
+    private func invalidateConversation(_ selection: WorkspaceSelection) {
+        conversationRevision &+= 1
+        conversationCache.removeValue(forKey: selection)
+    }
+
     init(storageRootURL: URL? = nil) {
         storageRootOverride = storageRootURL
     }
@@ -541,6 +575,8 @@ final class WorkspaceManager {
     }
 
     func deleteProject(projectID: UUID) throws {
+        conversationRevision &+= 1
+        conversationCache = conversationCache.filter { $0.key.projectID != projectID }
         let directoryURL = projectDirectoryURL(for: projectID)
         guard fileManager.fileExists(atPath: directoryURL.path) else {
             throw AppError.invalidState("目标项目不存在。")
@@ -651,6 +687,7 @@ final class WorkspaceManager {
     }
 
     func deleteThread(projectID: UUID, threadID: UUID) throws {
+        invalidateConversation(WorkspaceSelection(projectID: projectID, threadID: threadID))
         let directoryURL = threadDirectoryURL(for: projectID, threadID: threadID)
         guard fileManager.fileExists(atPath: directoryURL.path) else {
             throw AppError.invalidState("目标会话不存在。")
@@ -751,14 +788,19 @@ final class WorkspaceManager {
 
     func saveChatMessagesForCurrentThread(_ messages: [PalmiChatMessage]) throws {
         let selection = try currentSelection()
+        invalidateConversation(selection)
         let url = threadMessagesURL(for: selection.projectID, threadID: selection.threadID)
         try writeJSON(messages, to: url)
-        try touchActiveThread()
+        // 浏览和重复保存不能把会话时间改成当前时间。
+        if let activity = messages.map({ $0.sessionHeader?.finishedAt ?? $0.timestamp }).max() {
+            try touchActiveThread(at: activity)
+        }
         onChatMessagesSaved?(selection, messages)
     }
 
     func loadChatMessagesForCurrentThread() throws -> [PalmiChatMessage] {
         let selection = try currentSelection()
+        if let cached = conversationCache[selection] { return cached.messages }
         let url = threadMessagesURL(for: selection.projectID, threadID: selection.threadID)
         guard fileManager.fileExists(atPath: url.path) else {
             return []
@@ -775,13 +817,18 @@ final class WorkspaceManager {
 
     func saveAgentSessionForCurrentThread(_ session: AgentSession) throws {
         let selection = try currentSelection()
+        invalidateConversation(selection)
         let url = threadAgentSessionURL(for: selection.projectID, threadID: selection.threadID)
         try writeJSON(session, to: url)
-        try touchActiveThread()
     }
 
     func loadAgentSessionForCurrentThread() throws -> AgentSession? {
         let selection = try currentSelection()
+        if let cached = conversationCache[selection] {
+            guard let data = cached.sessionData else { return nil }
+            let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+            return try decoder.decode(AgentSession.self, from: data)
+        }
         let url = threadAgentSessionURL(for: selection.projectID, threadID: selection.threadID)
         guard fileManager.fileExists(atPath: url.path) else {
             return nil
@@ -793,7 +840,6 @@ final class WorkspaceManager {
         let selection = try currentSelection()
         let url = threadRunLedgerURL(for: selection.projectID, threadID: selection.threadID)
         try writeJSON(ledger, to: url)
-        try touchActiveThread()
     }
 
     func loadRunLedgerForCurrentThread() throws -> AgentRunLedger? {
@@ -818,6 +864,8 @@ final class WorkspaceManager {
     }
 
     func deleteAllWorkspaceData() throws {
+        conversationRevision &+= 1
+        conversationCache.removeAll()
         activeSelection = nil
         guard fileManager.fileExists(atPath: storageRoot.path) else { return }
         try fileManager.removeItem(at: storageRoot)
@@ -1343,7 +1391,7 @@ final class WorkspaceManager {
         return try decoder.decode(type, from: data)
     }
 
-    private func touchActiveThread() throws {
+    private func touchActiveThread(at date: Date = .now) throws {
         // 项目级作用域（withProject）下没有具体会话可触碰：跳过，避免误碰别的会话。
         if Self.pinnedProjectID != nil && Self.pinnedSelection == nil {
             return
@@ -1351,7 +1399,8 @@ final class WorkspaceManager {
         guard let selection = Self.pinnedSelection ?? activeSelection else { return }
         let threadURL = threadDirectoryURL(for: selection.projectID, threadID: selection.threadID)
         var thread = try readThread(at: threadURL)
-        thread.updatedAt = .now
+        guard date > thread.updatedAt else { return }
+        thread.updatedAt = date
         try writeJSON(thread, to: threadManifestURL(for: selection.projectID, threadID: selection.threadID))
     }
 }

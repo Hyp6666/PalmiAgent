@@ -80,7 +80,7 @@ nonisolated enum BionicPersonaCatalog {
         if p.text("gender_kind") == "custom" {
             guard (1...20).contains(p.text("gender_text").count) else { throw BionicFailure("invalidFields", detail: "gender_text") }
         } else if p["gender_text"] != .null { throw BionicFailure("invalidFields", detail: "gender_text") }
-        if let old = existing, old.text("native_language") != p.text("native_language") { throw BionicFailure("invalidFields", detail: "native_language") }
+        if let old = existing, !BionicSystemPersona.acceptsLanguageChange(from: old, to: p) { throw BionicFailure("invalidFields", detail: "native_language") }
         if let asset = p.optionalText("avatar_asset") {
             guard asset.hasPrefix("assets/"), asset.hasSuffix(".png"), asset.count == 75,
                   asset.dropFirst(7).dropLast(4).allSatisfy({ $0.isHexDigit && !$0.isUppercase }) else {

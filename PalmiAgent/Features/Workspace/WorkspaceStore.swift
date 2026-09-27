@@ -779,7 +779,7 @@ final class WorkspaceStore {
 
         if let preferredProjectID,
            let project = availableProjects.first(where: { $0.id == preferredProjectID }) {
-            let threads = try workspaceManager.listThreads(in: project.id)
+            let threads = try threadsByProject[project.id] ?? workspaceManager.listThreads(in: project.id)
             if let preferredThreadID,
                threads.contains(where: { $0.id == preferredThreadID }) {
                 return WorkspaceSelection(projectID: preferredProjectID, threadID: preferredThreadID)
@@ -795,7 +795,7 @@ final class WorkspaceStore {
     /// 解析项目下用于激活的首个会话。空项目返回 nil，**绝不新建**。
     /// 仅同步该项目会话缓存，保持侧栏计数/列表一致。
     private func primaryThread(in projectID: UUID) throws -> WorkspaceThreadRecord? {
-        let projectThreads = try workspaceManager.listThreads(in: projectID)
+        let projectThreads = try threadsByProject[projectID] ?? workspaceManager.listThreads(in: projectID)
         threadsByProject[projectID] = projectThreads
         threadCounts[projectID] = projectThreads.count
         return projectThreads.first
@@ -812,10 +812,13 @@ final class WorkspaceStore {
     }
 
     private func applyActiveSelection(projectID: UUID, threadID: UUID) {
+        guard selectedProjectID != projectID || selectedThreadID != threadID else { return }
         selectedProjectID = projectID
         selectedThreadID = threadID
         threads = threadsByProject[projectID] ?? []
-        refreshCurrentThreadContents()
+        fileTree = []
+        selectedNode = nil
+        selectedNodePreview = nil
     }
 
     @discardableResult

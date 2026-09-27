@@ -107,7 +107,7 @@ struct BionicPersonaEditor: View {
                     ForEach(BionicPersonaCatalog.languages, id: \.self) { language in
                         Text(BionicPersonaCatalog.languageNames[language] ?? language).tag(language)
                     }
-                }.disabled(instance != nil)
+                }.disabled(instance != nil && persona.text("character_id") != BionicSystemPersona.characterID)
                 if instance == nil {
                     Text(PalmiL10n.tr("bionic.nativeLanguageLocked")).font(.caption).foregroundStyle(.secondary)
                 }

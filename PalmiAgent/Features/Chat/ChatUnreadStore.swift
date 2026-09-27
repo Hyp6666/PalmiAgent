@@ -35,6 +35,16 @@ final class ChatUnreadStore {
         guard let selection else { return 0 }
         return state.entries[Self.key(selection)]?.unread.count ?? 0
     }
+    func contains(_ id: UUID, selection: WorkspaceSelection?) -> Bool {
+        let _ = revision
+        guard let selection else { return false }
+        return state.entries[Self.key(selection)]?.unread.contains(id) == true
+    }
+    func firstUnreadID(in messages: [PalmiChatMessage], selection: WorkspaceSelection?) -> UUID? {
+        let _ = revision
+        guard let selection, let entry = state.entries[Self.key(selection)] else { return nil }
+        return messages.first { entry.unread.contains($0.id) }?.id
+    }
     func count(isChat: Bool, validKeys: Set<String>) -> Int {
         let _ = revision
         return state.entries.reduce(0) { total, item in

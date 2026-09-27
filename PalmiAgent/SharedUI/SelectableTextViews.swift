@@ -62,6 +62,12 @@ struct SelectableMarkdownTextView: View {
     @Environment(\.selectableLinkInteractionHandler) private var linkInteractionHandler
     @State private var renderedMarkdown: RenderedMarkdown?
 
+    private static let renderCache: NSCache<NSString, NSAttributedString> = {
+        let cache = NSCache<NSString, NSAttributedString>()
+        cache.countLimit = 96; cache.totalCostLimit = 8 * 1024 * 1024
+        return cache
+    }()
+
     private struct RenderedMarkdown {
         let key: String
         let attributedText: NSAttributedString
@@ -69,7 +75,7 @@ struct SelectableMarkdownTextView: View {
 
     private var renderKey: String {
         [
-            String(markdown.hashValue),
+            markdown,
             textColor.description,
             tintColor.description,
             baseFont.fontName,
@@ -107,6 +113,10 @@ struct SelectableMarkdownTextView: View {
         .task(id: key) {
             await Task.yield()
             guard !Task.isCancelled else { return }
+            if let cached = Self.renderCache.object(forKey: key as NSString) {
+                renderedMarkdown = RenderedMarkdown(key: key, attributedText: cached)
+                return
+            }
             let rendered = MarkdownAttributedTextRenderer.render(
                 markdown: markdown,
                 textColor: textColor,
@@ -114,6 +124,7 @@ struct SelectableMarkdownTextView: View {
                 baseFont: baseFont
             )
             guard !Task.isCancelled else { return }
+            Self.renderCache.setObject(rendered, forKey: key as NSString, cost: rendered.length * 4)
             renderedMarkdown = RenderedMarkdown(key: key, attributedText: rendered)
         }
     }

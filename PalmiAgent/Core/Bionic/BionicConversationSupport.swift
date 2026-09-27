@@ -94,22 +94,45 @@ nonisolated enum BionicDeliveryPolicy {
     }
 }
 
-nonisolated enum BionicTimelineClock {
+@MainActor enum BionicTimelineClock {
+    private static let timestampFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+    private static let dates: NSCache<NSString, NSDate> = {
+        let cache = NSCache<NSString, NSDate>(); cache.countLimit = 512; return cache
+    }()
+    private static var labelFormatters: [String: DateFormatter] = [:]
+
     static func date(_ message: BionicObject) -> Date? {
-        try? BionicCodec.date(message.text("logical_at"))
+        let text = message.text("logical_at")
+        if let cached = dates.object(forKey: text as NSString) { return cached as Date }
+        guard text.hasSuffix("Z"), let date = timestampFormatter.date(from: text) else { return nil }
+        dates.setObject(date as NSDate, forKey: text as NSString)
+        return date
     }
     static func startsGroup(_ message: BionicObject, after previous: BionicObject?) -> Bool {
-        guard let previous, let current = date(message), let last = date(previous) else { return true }
-        if (try? BionicPersonaCatalog.logicalDate(message)) != (try? BionicPersonaCatalog.logicalDate(previous)) { return true }
+        guard let previous, let current = date(message), let last = date(previous),
+              let zone = TimeZone(identifier: message.text("recorded_timezone")) else { return true }
         if message.text("recorded_timezone") != previous.text("recorded_timezone") { return true }
-        return current.timeIntervalSince(last) >= 300 || current < last
+        var calendar = Calendar(identifier: .gregorian); calendar.timeZone = zone
+        return !calendar.isDate(current, inSameDayAs: last)
+            || current.timeIntervalSince(last) >= 300 || current < last
     }
     static func label(_ message: BionicObject, locale: Locale, now: Date = .now, detailed: Bool = false) -> String {
         guard let date = date(message), let zone = TimeZone(identifier: message.text("recorded_timezone")) else { return "" }
         var calendar = Calendar(identifier: .gregorian); calendar.timeZone = zone
-        let formatter = DateFormatter(); formatter.locale = locale; formatter.calendar = calendar; formatter.timeZone = zone
-        formatter.timeStyle = .short
-        formatter.dateStyle = !detailed && calendar.isDate(date, inSameDayAs: now) ? .none : .medium
+        let includesDate = detailed || !calendar.isDate(date, inSameDayAs: now)
+        let key = locale.identifier + ":" + zone.identifier + ":" + String(includesDate)
+        let formatter: DateFormatter
+        if let cached = labelFormatters[key] { formatter = cached }
+        else {
+            formatter = DateFormatter(); formatter.locale = locale; formatter.calendar = calendar; formatter.timeZone = zone
+            formatter.timeStyle = .short; formatter.dateStyle = includesDate ? .medium : .none
+            if labelFormatters.count >= 32 { labelFormatters.removeAll() }
+            labelFormatters[key] = formatter
+        }
         return formatter.string(from: date)
     }
 }

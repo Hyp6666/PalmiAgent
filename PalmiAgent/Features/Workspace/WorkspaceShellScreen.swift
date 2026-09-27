@@ -43,7 +43,6 @@ struct WorkspaceShellScreen: View {
     @State private var isShowingOnboarding = false
     @State private var chatModePath: [ChatModeRoute] = []
     @State private var openingPalmi = false
-    @State private var nativeModeMenuPresented = false
 
     init(workspaceStore: WorkspaceStore, manualLabStore: ManualLabStore,
          skillRegistry: SkillRegistry, chatStore: ChatStore, bionicStore: BionicStore) {
@@ -56,7 +55,7 @@ struct WorkspaceShellScreen: View {
 
     private var readingAllowed: Bool {
         !isShowingWorkspaceBrowser && !isShowingSettings && !isShowingProjectSkills
-            && !isShowingModePicker && !isShowingOnboarding && !bionicStore.showingPurchase && !nativeModeMenuPresented
+            && !isShowingModePicker && !isShowingOnboarding && !bionicStore.showingPurchase
     }
     private var unreadSnapshot: PalmiUnreadSnapshot {
         let keys = Set((workspaceStore.projects + workspaceStore.chatProjects).flatMap { project in
@@ -87,7 +86,6 @@ struct WorkspaceShellScreen: View {
             }
         }
         .environment(\.palmiUnread, unreadSnapshot)
-        .environment(\.palmiModeMenuPresentationChanged, { nativeModeMenuPresented = $0 })
         .environment(\.locale, PalmiLanguage.resolve(selectedOnboardingLanguageID).locale)
         .sheet(
             isPresented: $isShowingWorkspaceBrowser,
@@ -419,6 +417,14 @@ private struct WorkspaceSidebar: View {
                                 isExpanded: expandedProjectIDs.contains(project.id),
                                 threads: expandedProjectIDs.contains(project.id) ? store.threads(for: project.id) : [],
                                 selectedThreadID: store.selectedThreadID,
+                                unreadCount: store.threads(for: project.id).reduce(0) { count, thread in
+                                    count + (thread.subagentOrigin == nil ? chatStore.unreadStore.count(for:
+                                        WorkspaceSelection(projectID: project.id, threadID: thread.id)) : 0)
+                                },
+                                unreadForThread: { thread in
+                                    thread.subagentOrigin == nil ? chatStore.unreadStore.count(for:
+                                        WorkspaceSelection(projectID: project.id, threadID: thread.id)) : 0
+                                },
                                 onToggleProject: { toggleProject(project) },
                                 onCreateThread: { presentThreadCreation(for: project) },
                                 onRenameProject: { presentedNameEditor = .renameProject(project) },
@@ -610,6 +616,8 @@ private struct WorkspaceProjectRow: View {
     let isExpanded: Bool
     let threads: [WorkspaceThreadRecord]
     let selectedThreadID: UUID?
+    let unreadCount: Int
+    let unreadForThread: (WorkspaceThreadRecord) -> Int
     let onToggleProject: () -> Void
     let onCreateThread: () -> Void
     let onRenameProject: () -> Void
@@ -654,6 +662,7 @@ private struct WorkspaceProjectRow: View {
                         }
 
                         Spacer()
+                        PalmiUnreadBadge(count: unreadCount)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
@@ -698,6 +707,7 @@ private struct WorkspaceProjectRow: View {
                             thread: thread,
                             isSelected: selectedThreadID == thread.id,
                             runningBadgeText: runningBadgeText(thread),
+                            unreadCount: unreadForThread(thread),
                             onSelect: { onSelectThread(thread) },
                             onRename: { onRenameThread(thread) },
                             onDelete: { onDeleteThread(thread) }
@@ -717,6 +727,7 @@ private struct WorkspaceThreadRow: View {
     let thread: WorkspaceThreadRecord
     let isSelected: Bool
     let runningBadgeText: String?
+    let unreadCount: Int
     let onSelect: () -> Void
     let onRename: () -> Void
     let onDelete: () -> Void
@@ -753,6 +764,7 @@ private struct WorkspaceThreadRow: View {
                 }
 
                 Spacer()
+                PalmiUnreadBadge(count: unreadCount)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -938,6 +950,7 @@ private struct WorkspaceBrowser: View {
     var body: some View {
         NavigationStack(path: $navigationPath) {
             browserContent(for: nil)
+                .task { store.refreshCurrentThreadContents() }
                 .navigationDestination(for: WorkspaceBrowserRoute.self) { route in
                     browserContent(for: route)
                 }

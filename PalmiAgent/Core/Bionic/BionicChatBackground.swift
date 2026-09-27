@@ -5,6 +5,22 @@ import UniformTypeIdentifiers
 
 actor BionicBackgroundImageProcessor {
     static let shared = BionicBackgroundImageProcessor()
+    private var displayImages: [String: CGImage] = [:]
+
+    // 背景图在非 UI 执行器上解码，并复用少量已解码图片。
+    func displayImage(_ data: Data, key: String) throws -> CGImage {
+        if let cached = displayImages[key] { return cached }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: 2048
+              ] as CFDictionary) else { throw BionicFailure("invalidImage") }
+        if displayImages.count >= 3 { displayImages.removeAll() }
+        displayImages[key] = image
+        return image
+    }
 
     func prepare(_ data: Data) throws -> Data {
         guard !data.isEmpty, data.count <= 40 * 1024 * 1024,

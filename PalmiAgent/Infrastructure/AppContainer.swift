@@ -10,10 +10,11 @@ final class AppContainer {
     lazy var imageGenerationService = PalmiImageGenerationService(plans: modelPlanStore, permissions: toolPermissionStore)
 
     init() {
-        let introducedKey = "palmi.image-generation.tool-introduced"
-        if !UserDefaults.standard.bool(forKey: introducedKey) {
-            toolPermissionStore.setEnabled(false, for: ToolManagementGroupID.imageGeneration)
-            UserDefaults.standard.set(true, forKey: introducedKey)
+        // 修正旧版本首次启用图片工具时写入的关闭状态，仅迁移一次。
+        let enabledDefaultKey = "palmi.image-generation.default-enabled.v2"
+        if !UserDefaults.standard.bool(forKey: enabledDefaultKey) {
+            toolPermissionStore.setEnabled(true, for: ToolManagementGroupID.imageGeneration)
+            UserDefaults.standard.set(true, forKey: enabledDefaultKey)
         }
         AppDataManagementService.prepareBionicReset = { [weak self] in
             guard let self else { return }

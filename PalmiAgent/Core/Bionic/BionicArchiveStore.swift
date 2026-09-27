@@ -132,7 +132,7 @@ nonisolated enum BionicDisk {
                 s["last_observed_timezone"] = p["timezone"]
             case "persona_selected":
                 let new = try read(p.text("persona_ref"))
-                guard new.text("character_id") == role.characterID, new.text("native_language") == role.persona.text("native_language") else { throw BionicFailure("archiveInvalid") }
+                guard new.text("character_id") == role.characterID, BionicSystemPersona.acceptsLanguageChange(from: role.persona, to: new) else { throw BionicFailure("archiveInvalid") }
                 if p.text("reason") == "manual", new["baseline_traits"] != role.persona["baseline_traits"] {
                     s["last_personality_assessment"] = .object(["assessed_at": transaction["recorded_at"] ?? .null, "through_message_sequence": .count(role.state.lastMessageSequence)])
                 }
@@ -411,7 +411,9 @@ actor BionicArchiveStore {
             guard let index = order.firstIndex(where: { $0.id == centerID }) else { throw BionicFailure("sourceMissing") }
             lower = max(0, index - 30)
         }
-        lower = min(lower, order.count); let end = min(order.count, lower + max(1, count))
+        lower = min(lower, order.count)
+        // 定位历史消息后仍保留直到最新消息的连续时间线。
+        let end = centerID == nil ? lower + min(order.count - lower, max(1, count)) : order.count
         let values = try order[lower..<end].map { try BionicDisk.read(roleURL(instance), "messages/\($0.id).json") }
         return BionicWindow(messages: values, startIndex: lower, endIndex: end, total: order.count)
     }

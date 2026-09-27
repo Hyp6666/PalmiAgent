@@ -281,8 +281,8 @@ final class BionicStore {
             if let id = selectedID,
                let role = updated.first(where: { $0.installationID == id }) {
                 totalMessages = max(totalMessages, role.state.lastMessageSequence)
-                if isForeground && modeVisible && chatVisibleID == id,
-                   followingLatest, windowEnd < totalMessages {
+                // 消息列表始终接收新消息；followingLatest 只决定是否滚到底部。
+                if windowEnd < totalMessages {
                     try? await loadLatest()
                 }
             }
@@ -378,17 +378,18 @@ final class BionicStore {
         guard let id = selectedID else { return }
         if forceScroll { followingLatest = true }
         windowTicket += 1
-        let ticket = windowTicket
-        let token = invalidationToken
-        let page = try await archive.windowPresentation(id)
-        guard selectedID == id, ticket == windowTicket,
-              token == invalidationToken else { return }
-        totalMessages = max(totalMessages, page.window.total)
-        guard followingLatest else { return }
-        let changed = messages != page.window.messages
-        apply(page.window)
+        let ticket = windowTicket, token = invalidationToken
+        let start = messages.isEmpty ? nil : Optional(windowEnd)
+        let page = try await archive.windowPresentation(id, start: start, count: start == nil ? 60 : Int.max)
+        guard selectedID == id, ticket == windowTicket, token == invalidationToken else { return }
+        if start == nil { apply(page.window) }
+        else {
+            messages.append(contentsOf: page.window.messages)
+            windowEnd = page.window.endIndex
+            totalMessages = max(totalMessages, page.window.total)
+        }
         quotedMessages.merge(page.quotes, uniquingKeysWith: { _, next in next })
-        if changed || forceScroll {
+        if followingLatest && (!page.window.messages.isEmpty || forceScroll) {
             scrollTarget = "bionic-end"
             scrollTargetAtBottom = true
             scrollRequest = UUID()
@@ -399,45 +400,20 @@ final class BionicStore {
         guard let id = selectedID, windowStart > 0 else { return }
         followingLatest = false
         windowTicket += 1
-        let ticket = windowTicket
-        let token = invalidationToken
+        let ticket = windowTicket, token = invalidationToken
         let firstID = messages.first?.text("message_id")
         let begin = max(0, windowStart - 60)
-        let count = min(180, windowEnd - begin)
-        let page = try await archive.windowPresentation(id, start: begin, count: count)
-        guard selectedID == id, ticket == windowTicket,
-              token == invalidationToken else { return }
-        apply(page.window)
+        // 向前翻页只补前面的内容，不丢弃已经到达的尾部消息。
+        let page = try await archive.windowPresentation(id, start: begin, count: windowStart - begin)
+        guard selectedID == id, ticket == windowTicket, token == invalidationToken else { return }
+        messages.insert(contentsOf: page.window.messages, at: 0)
+        windowStart = page.window.startIndex
+        totalMessages = max(totalMessages, page.window.total)
         quotedMessages.merge(page.quotes, uniquingKeysWith: { _, next in next })
         scrollTarget = firstID
         scrollTargetAtBottom = false
         scrollRequest = UUID()
-    }
-
-    func loadNewer() async throws {
-        guard let id = selectedID, hasNewerMessages else { return }
-        windowTicket += 1
-        let ticket = windowTicket
-        let token = invalidationToken
-        let anchor = messages.last?.text("message_id")
-        let upper = min(totalMessages, windowEnd + 60)
-        let lower = max(windowStart, upper - 180)
-        let page = try await archive.windowPresentation(
-            id, start: lower, count: max(1, upper - lower)
-        )
-        guard selectedID == id, ticket == windowTicket,
-              token == invalidationToken else { return }
-        apply(page.window)
-        quotedMessages.merge(page.quotes, uniquingKeysWith: { _, next in next })
-        if !followingLatest {
-            scrollTarget = anchor
-            scrollTargetAtBottom = true
-            scrollRequest = UUID()
-        } else {
-            scrollTarget = "bionic-end"
-            scrollTargetAtBottom = true
-            scrollRequest = UUID()
-        }
+        if hasNewerMessages { try await loadLatest() }
     }
 
     func jump(to messageID: String) async throws {
@@ -476,9 +452,7 @@ final class BionicStore {
         guard isForeground, modeVisible, selectedID == instance,
               chatVisibleID == instance,
               selectedRole?.state.participantID == participantID,
-              messages.contains(where: {
-                  $0.text("message_id") == messageID && $0.text("author_kind") == "character"
-              }) else { return }
+              unreadSequencesByInstance[instance]?[messageID] != nil else { return }
         let key = BionicReadKey(instance: instance, participantID: participantID)
         pendingReads[key, default: []].insert(messageID)
         scheduleReadFlush()

@@ -14,14 +14,10 @@ struct BionicChatScreen: View {
     @State private var userScrolling = false
     @State private var nearBottom = true
     @State private var measuredScroll = false
-    @State private var pagingNewer = false
     @State private var screenVisible = false
     @State private var composerPresented = false
     @State private var readableViewport = CGRect.zero
     @State private var scrollCommand: ScrollCommand?
-    @State private var entrySequence: Int?
-    @State private var actuallyVisibleIDs = Set<String>()
-    @State private var seenDuringVisit = Set<String>()
     @State private var contentFits = true
     @State private var scrollFrame = CGRect.zero
 
@@ -35,28 +31,14 @@ struct BionicChatScreen: View {
     private var role: BionicRole? {
         store.roles.first { $0.installationID == instance }
     }
-    private var otherConversationUnreadCount: Int {
-        max(0, unreadSnapshot.total - (store.unreadCounts[instance] ?? 0))
-    }
     private var canRead: Bool {
         screenVisible && store.isForeground && unreadSnapshot.readingAllowed
             && store.selectedID == instance && !details && !showingRoleInfo
             && preview == nil && !composerPresented && localError == nil
             && !store.showingPurchase
     }
-    private var newestVisibleSequence: Int {
-        role?.state.order.filter { actuallyVisibleIDs.contains($0.id) }.map(\.sequence).max() ?? 0
-    }
-    private var newUnreadCount: Int {
-        guard let entrySequence else { return 0 }
-        let floor = max(entrySequence, newestVisibleSequence)
-        return (store.unreadSequencesByInstance[instance] ?? [:]).filter {
-            $0.value > floor && !seenDuringVisit.contains($0.key)
-        }.count
-    }
     private var showsLatestButton: Bool {
-        canRead && measuredScroll && (!contentFits || store.hasNewerMessages)
-            && !store.followingLatest && (!nearBottom || store.hasNewerMessages) && newUnreadCount > 0
+        canRead && measuredScroll && !contentFits && !nearBottom
     }
     private var rows: [BionicBubbleRowData] {
         let values = store.selectedID == instance ? store.messages : []
@@ -106,20 +88,16 @@ struct BionicChatScreen: View {
                                     )
                                     .palmiMessageVisibility(
                                         in: readableViewport,
-                                        enabled: canRead && !reader.isEmpty,
-                                        revision: store.unreadCounts[instance] ?? 0
+                                        enabled: canRead && !reader.isEmpty
+                                            && store.unreadSequencesByInstance[instance]?[row.id] != nil
                                     ) { visible in
-                                        if visible { actuallyVisibleIDs.insert(row.id) }
-                                        else { actuallyVisibleIDs.remove(row.id) }
                                         if visible && canRead && row.message.text("author_kind") == "character" {
-                                            seenDuringVisit.insert(row.id)
                                             store.appeared(row.id, instance: instance, participantID: reader)
                                         }
                                     }
                                 }
                                 .id(row.id)
                             }
-                            if pagingNewer { ProgressView().padding(8) }
                             Color.clear.frame(height: composerHeight + 12).id("bionic-end")
                         }
                         .padding(.horizontal, 14).padding(.top, 10)
@@ -155,10 +133,6 @@ struct BionicChatScreen: View {
                            scrollCommand == nil || scrollCommand?.requiresFollowing == true {
                             if !store.followingLatest { store.followingLatest = true }
                         }
-                        if next.atBottom, store.hasNewerMessages,
-                           userScrolling, !store.followingLatest {
-                            loadFollowingPage()
-                        }
                         if store.followingLatest,
                            (abs(old.contentHeight - next.contentHeight) > 0.5
                             || abs(old.containerHeight - next.containerHeight) > 0.5
@@ -193,7 +167,7 @@ struct BionicChatScreen: View {
                         if showsLatestButton {
                             Button {
                                 store.followingLatest = true
-                                Task { await perform { try await store.loadLatest(forceScroll: true) } }
+                                requestBottom()
                             } label: {
                                 Image(systemName: "arrow.down").font(.body.bold()).padding(12)
                                     .background(.regularMaterial, in: Circle())
@@ -245,10 +219,6 @@ struct BionicChatScreen: View {
             }
         }
         .background(Color(uiColor: .systemGroupedBackground))
-        .background {
-            PalmiNativeBackIndicator(count: otherConversationUnreadCount)
-                .frame(width: 0, height: 0)
-        }
         .palmiKeyboardDismissOnOutsideTap(excludingBottom: composerHeight)
         .toolbar(.visible, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
@@ -284,7 +254,6 @@ struct BionicChatScreen: View {
         .task(id: instance) {
             if store.selectedID != instance { await store.open(instance) }
             guard !Task.isCancelled else { return }
-            if entrySequence == nil, store.selectedID == instance { entrySequence = store.totalMessages }
             store.chatVisibility(instance, visible: canRead)
         }
         .onAppear {
@@ -293,7 +262,7 @@ struct BionicChatScreen: View {
             Task { @MainActor in
                 await store.refresh(changed: instance)
                 guard screenVisible, store.selectedID == instance else { return }
-                if store.followingLatest && store.hasNewerMessages { try? await store.loadLatest() }
+                if store.hasNewerMessages { try? await store.loadLatest() }
             }
         }
         .onDisappear {
@@ -319,7 +288,7 @@ struct BionicChatScreen: View {
     }
     private var bottomFrost: some View {
         Rectangle()
-            .fill(.regularMaterial)
+            .fill(Color(uiColor: .systemGroupedBackground))
             .frame(height: composerHeight + 56)
             .mask {
                 LinearGradient(stops: [
@@ -342,15 +311,6 @@ struct BionicChatScreen: View {
         guard measuredScroll, store.selectedID == instance, nearBottom,
               scrollCommand == nil || scrollCommand?.requiresFollowing == true else { return }
         if !store.hasNewerMessages { store.followingLatest = true }
-        else if !store.followingLatest { loadFollowingPage() }
-    }
-    private func loadFollowingPage() {
-        guard !pagingNewer, store.selectedID == instance, store.hasNewerMessages else { return }
-        pagingNewer = true
-        Task { @MainActor in
-            defer { pagingNewer = false }
-            await perform { try await store.loadNewer() }
-        }
     }
     private func openRoleInfo() {
         guard !details else { return }
@@ -441,6 +401,7 @@ private struct BionicBubbleRow: View {
                 if hasVisibleBody {
                     BionicBubbleWidthLayout(maximumWidth: maxWidth) {
                         BionicLinkedText(text: message.text("body"))
+                            .equatable()
                             .font(.body).textSelection(.enabled)
                             .padding(.horizontal, 12).padding(.vertical, 10)
                             .background(
@@ -669,11 +630,18 @@ struct BionicImageTile: View {
     }
 }
 
-struct BionicLinkedText: View {
+struct BionicLinkedText: View, Equatable {
     let text: String
+    private static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+    private static let cache: NSCache<NSString, NSAttributedString> = {
+        let cache = NSCache<NSString, NSAttributedString>()
+        cache.countLimit = 256; cache.totalCostLimit = 2 * 1024 * 1024
+        return cache
+    }()
     private var attributed: AttributedString {
+        if let cached = Self.cache.object(forKey: text as NSString) { return AttributedString(cached) }
         var value = AttributedString(text)
-        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return value }
+        guard let detector = Self.detector else { return value }
         for match in detector.matches(in: text, range: NSRange(text.startIndex..<text.endIndex, in: text)) {
             guard let url = match.url, ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
                   let range = Range(match.range, in: text),
@@ -681,6 +649,7 @@ struct BionicLinkedText: View {
                   let upper = AttributedString.Index(range.upperBound, within: value) else { continue }
             value[lower..<upper].link = url
         }
+        Self.cache.setObject(NSAttributedString(value), forKey: text as NSString, cost: text.utf8.count)
         return value
     }
     var body: some View { Text(attributed) }

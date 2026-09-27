@@ -21,12 +21,15 @@ struct BionicWallpaperView: View {
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
-        .task(id: backgroundID) {
+        .task(id: instance + ":" + (backgroundID ?? "")) {
             guard let backgroundID else { image = nil; return }
             do {
                 let data = try await archive.chatBackgroundData(instance, id: backgroundID)
                 guard !Task.isCancelled else { return }
-                image = data.flatMap { UIImage(data: $0) }
+                guard let data else { image = nil; return }
+                let decoded = try await BionicBackgroundImageProcessor.shared.displayImage(data, key: instance + ":" + backgroundID)
+                guard !Task.isCancelled else { return }
+                image = UIImage(cgImage: decoded)
             } catch {
                 if !Task.isCancelled { image = nil }
             }

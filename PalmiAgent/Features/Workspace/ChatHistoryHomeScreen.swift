@@ -48,6 +48,10 @@ struct ChatHistoryHomeScreen: View {
                                 project: project,
                                 updatedAt: thread?.updatedAt ?? project.createdAt,
                                 runningBadgeText: runningBadgeText,
+                                unreadCount: threads.reduce(0) { count, thread in
+                                    count + (thread.subagentOrigin == nil ? chatStore.unreadStore.count(for:
+                                        WorkspaceSelection(projectID: project.id, threadID: thread.id)) : 0)
+                                },
                                 onOpen: {
                                     onOpenConversation(project)
                                 },
@@ -167,6 +171,7 @@ private struct ChatHistoryCard: View {
     let project: WorkspaceProjectRecord
     let updatedAt: Date
     let runningBadgeText: String?
+    let unreadCount: Int
     let onOpen: () -> Void
     let onRename: () -> Void
     let onDelete: () -> Void
@@ -197,6 +202,8 @@ private struct ChatHistoryCard: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+
+            PalmiUnreadBadge(count: unreadCount)
 
             Menu {
                 Button(PalmiL10n.tr("common.rename")) {

@@ -9,6 +9,15 @@ nonisolated enum BionicSystemPersona {
         instance == installationID
     }
 
+    // 默认角色允许修改母语；普通角色继续使用不可变母语规则。
+    // 以角色 ID 判断，使已导出的历史版本也可按相同规则重放。
+    static func acceptsLanguageChange(from old: BionicObject, to new: BionicObject) -> Bool {
+        old.text("native_language") == new.text("native_language")
+            || (old.text("character_id") == characterID && new.text("character_id") == characterID
+                && BionicPersonaCatalog.languages.contains(old.text("native_language"))
+                && BionicPersonaCatalog.languages.contains(new.text("native_language")))
+    }
+
     @MainActor static func avatarData() throws -> Data {
         guard let image = UIImage(named: "PalmiCharacterAvatar"), let data = image.pngData() else {
             throw BionicFailure("invalidImage")

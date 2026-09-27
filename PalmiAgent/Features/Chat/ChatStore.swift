@@ -214,7 +214,10 @@ final class ChatStore {
     let toolAuthorizationStore: ToolAuthorizationStore
     let unreadStore: ChatUnreadStore
 
-    var messages: [PalmiChatMessage] = []
+    var messages: [PalmiChatMessage] = [] {
+        didSet { messagesNeedPersistence = true }
+    }
+    @ObservationIgnored private var messagesNeedPersistence = false
     var queuedUserGuidance: [QueuedUserGuidance] = []
     var pendingAttachments: [PendingAttachment] = []
     var inputText = ""
@@ -236,6 +239,14 @@ final class ChatStore {
     private var activeRuns: [WorkspaceSelection: ActiveRun] = [:]
     private let runJournalStore = AgentRunJournalStore()
     private let continuedProcessingCoordinator = AgentContinuedProcessingCoordinator()
+    private struct PendingDisplay {
+        let loop: AgentLoop
+        var text = ""
+        var tokens: Int?
+    }
+    @ObservationIgnored private var pendingDisplay: [WorkspaceSelection: PendingDisplay] = [:]
+    @ObservationIgnored private var displayFlushTask: Task<Void, Never>?
+
     private var agentEventTask: Task<Void, Never>?
     private var loadedSelection: WorkspaceSelection?
     @ObservationIgnored private var loadedProjectionSucceeded = false
@@ -280,6 +291,7 @@ final class ChatStore {
     }
 
     func flushForAppBackground() {
+        for selection in Array(pendingDisplay.keys) { flushDisplay(for: selection) }
         saveVisibleComposerState()
         saveVisibleActiveSessionViewState()
         persistMessages()
@@ -374,7 +386,12 @@ final class ChatStore {
         return surface == .professional ? filtered : filtered.filter { $0.id != .createBionicPersona }
     }
 
+    var hasLoadedDisplayedConversation: Bool {
+        loadedProjectionSucceeded && loadedSelection == displayedSelection
+    }
+
     var canSend: Bool {
+        guard hasLoadedDisplayedConversation else { return false }
         let trimmedInput = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedInput.isEmpty || !pendingAttachments.isEmpty else { return false }
         guard let displayedSelection,
@@ -1712,6 +1729,7 @@ final class ChatStore {
     }
 
     func loadMessagesForActiveThread() {
+        for selection in Array(pendingDisplay.keys) { flushDisplay(for: selection) }
         if let selection = workspaceStore.selectedSelection,
            selection == loadedSelection, loadedProjectionSucceeded {
             return
@@ -1753,6 +1771,7 @@ final class ChatStore {
             errorMessage = nil
             loadedSelection = selection
             loadedProjectionSucceeded = true
+            messagesNeedPersistence = false
             activeRuns[selection]?.backgroundMessages = nil
             activeRuns[selection]?.backgroundProjectionDirty = false
             if workspaceStore.thread(for: selection)?.subagentOrigin == nil {
@@ -2400,7 +2419,39 @@ final class ChatStore {
         handleAgentEvent(event, selection: selection, loop: agentLoop)
     }
 
-    private func handleAgentEvent(
+    private func handleAgentEvent(_ event: AgentEvent, selection: WorkspaceSelection, loop: AgentLoop) {
+        switch event {
+        case .streamingDelta(let text):
+            if pendingDisplay[selection] == nil { pendingDisplay[selection] = PendingDisplay(loop: loop) }
+            pendingDisplay[selection]?.text += text
+        case .tokenUpdate(let tokens):
+            if pendingDisplay[selection] == nil { pendingDisplay[selection] = PendingDisplay(loop: loop) }
+            pendingDisplay[selection]?.tokens = tokens
+        default:
+            flushDisplay(for: selection)
+            applyImmediateAgentEvent(event, selection: selection, loop: loop)
+            return
+        }
+        guard displayFlushTask == nil else { return }
+        displayFlushTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
+            guard let self else { return }
+            self.displayFlushTask = nil
+            for selection in Array(self.pendingDisplay.keys) { self.flushDisplay(for: selection) }
+        }
+    }
+
+    private func flushDisplay(for selection: WorkspaceSelection) {
+        guard let pending = pendingDisplay.removeValue(forKey: selection) else { return }
+        if !pending.text.isEmpty {
+            applyImmediateAgentEvent(.streamingDelta(text: pending.text), selection: selection, loop: pending.loop)
+        }
+        if let tokens = pending.tokens {
+            applyImmediateAgentEvent(.tokenUpdate(totalTokens: tokens), selection: selection, loop: pending.loop)
+        }
+    }
+
+    private func applyImmediateAgentEvent(
         _ event: AgentEvent,
         selection: WorkspaceSelection,
         loop: AgentLoop
@@ -3843,7 +3894,7 @@ final class ChatStore {
         materializeActiveStreamingReasoningIntoMessageIfNeeded()
         var didChange = false
 
-        messages = messages.map { message in
+        let closedMessages = messages.map { message in
             guard message.kind == .sessionHeader,
                   let header = message.sessionHeader,
                   header.finishedAt == nil else {
@@ -3864,6 +3915,7 @@ final class ChatStore {
         }
 
         if didChange {
+            messages = closedMessages
             persistMessages()
         }
 
@@ -3881,6 +3933,7 @@ final class ChatStore {
     }
 
     private func persistMessages() {
+        guard messagesNeedPersistence || activeStreamingReasoningMessageID != nil else { return }
         do {
             materializeActiveStreamingReasoningIntoMessageIfNeeded()
             let normalized = normalizeMessages(messages)
@@ -3888,6 +3941,7 @@ final class ChatStore {
             try withMessagePersistenceSelection {
                 try workspaceManager.saveChatMessagesForCurrentThread(normalized)
             }
+            messagesNeedPersistence = false
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -3901,6 +3955,7 @@ final class ChatStore {
             try workspaceManager.withSelection(selection) {
                 try workspaceManager.saveChatMessagesForCurrentThread(normalized)
             }
+            messagesNeedPersistence = false
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -4107,6 +4162,7 @@ final class ChatStore {
         phase: AgentRunProgressPhase
     ) {
         guard run.continuedProcessingIdentifier != nil else { return }
+        if phase == .summarizing, run.lastProgressSnapshot?.phase == .summarizing { return }
         let taskState = run.loop.currentSessionSnapshot().taskStateSnapshot?.currentState
         let childRecords = records(for: Array(run.ownedSubagentThreadIDs))
         let taskTotal = taskState?.totalCount ?? 0
