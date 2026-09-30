@@ -16,26 +16,16 @@ nonisolated struct BionicPresentationCache: Sendable {
 }
 
 extension BionicArchiveStore {
-    func presentationStats(_ instance: String, read: Set<String>, after: Int) throws -> BionicHistoryStats {
+    private func latestBodyForPresentation(_ instance: String) throws -> String {
         let role = try loadRole(instance)
         var projection = presentationCache[instance] ?? BionicPresentationCache()
-        var unread = 0
-        for ref in role.state.order where ref.sequence > after && !read.contains(ref.id) {
-            let character: Bool
-            if let known = projection.isCharacter[ref.id] { character = known }
-            else {
-                character = try readMessageForPresentation(instance, ref.id).text("author_kind") == "character"
-                projection.isCharacter[ref.id] = character
-            }
-            if character { unread += 1 }
-        }
         let lastID = role.state.order.last?.id ?? ""
         if projection.lastID != lastID {
             projection.lastBody = lastID.isEmpty ? "" : String(try readMessageForPresentation(instance, lastID).text("body").prefix(200))
             projection.lastID = lastID
         }
         presentationCache[instance] = projection
-        return BionicHistoryStats(unread: unread, latestBody: projection.lastBody)
+        return projection.lastBody
     }
     private func readMessageForPresentation(_ instance: String, _ id: String) throws -> BionicObject {
         try BionicDisk.read(roleURL(instance), "messages/\(id).json")
@@ -75,7 +65,7 @@ nonisolated struct BionicReadProjection: Sendable {
     let participantID: String
     let throughSequence: Int
     let totalMessages: Int
-    let unread: Int
+    var unread: Int { unreadSequences.count }
     let latestBody: String
     let readIDs: Set<String>
     let unreadSequences: [String: Int]
@@ -105,16 +95,13 @@ extension BionicArchiveStore {
         let role = try loadRole(instance)
         let local = try binding(instance)
         let read = Set(role.state.raw.object("read_message_ids_by_participant")[role.state.participantID]?.array.compactMap(\.string) ?? [])
-        let stats = try presentationStats(
-            instance, read: read, after: local.int("unread_after_sequence")
-        )
+        let latestBody = try latestBodyForPresentation(instance)
         return BionicReadProjection(
             instance: instance,
             participantID: role.state.participantID,
             throughSequence: role.throughSequence,
             totalMessages: role.state.lastMessageSequence,
-            unread: stats.unread,
-            latestBody: stats.latestBody,
+            latestBody: latestBody,
             readIDs: read,
             unreadSequences: try unreadCharacterSequences(instance, read: read, after: local.int("unread_after_sequence"))
         )

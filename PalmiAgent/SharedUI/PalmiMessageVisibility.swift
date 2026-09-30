@@ -1,63 +1,34 @@
 import SwiftUI
 
-private struct PalmiMessageVisibilityKey: Equatable {
-    let visible: Bool
+/// Unread badges represent unopened conversations, not measured reading progress.
+/// All three modes acknowledge the current conversation with this one rule.
+struct PalmiConversationReadState: Hashable {
+    let scope: String
     let enabled: Bool
-    let revision: Int
+    let unreadIDs: Set<String>
+
+    var receipt: Set<String> {
+        enabled && !scope.isEmpty ? unreadIDs : []
+    }
 }
 
-private struct PalmiMessageVisibilityModifier: ViewModifier {
-    let viewport: CGRect
-    let enabled: Bool
-    let revision: Int
-    let onVisibility: (Bool) -> Void
-    @State private var geometricallyVisible = false
-
-    private var key: PalmiMessageVisibilityKey {
-        .init(visible: geometricallyVisible, enabled: enabled, revision: revision)
-    }
+private struct PalmiConversationReadModifier: ViewModifier {
+    let state: PalmiConversationReadState
+    let onRead: (Set<String>) -> Void
 
     func body(content: Content) -> some View {
-        content
-            .onGeometryChange(for: Bool.self) { proxy in
-                let frame = proxy.frame(in: .global)
-                guard frame.width > 0, frame.height > 0,
-                      viewport.width > 0, viewport.height > 0 else { return false }
-                let intersection = frame.intersection(viewport)
-                guard !intersection.isNull, !intersection.isEmpty else { return false }
-                let requiredHeight = min(frame.height, viewport.height) * 0.5
-                let requiredWidth = min(16, frame.width * 0.5)
-                return intersection.height >= requiredHeight
-                    && intersection.width >= requiredWidth
-            } action: { visible in
-                if geometricallyVisible != visible { geometricallyVisible = visible }
-                if !visible { onVisibility(false) }
-            }
-            .task(id: key) {
-                let captured = key
-                guard captured.enabled, captured.visible else {
-                    onVisibility(false)
-                    return
-                }
-                do { try await Task.sleep(for: .milliseconds(250)) }
-                catch { return }
-                guard !Task.isCancelled, key == captured else { return }
-                onVisibility(true)
-            }
-            .onDisappear { onVisibility(false) }
+        content.task(id: state) { @MainActor in
+            guard !Task.isCancelled, !state.receipt.isEmpty else { return }
+            onRead(state.receipt)
+        }
     }
 }
 
 extension View {
-    func palmiMessageVisibility(
-        in viewport: CGRect,
-        enabled: Bool,
-        revision: Int = 0,
-        onVisibility: @escaping (Bool) -> Void
-    ) -> some View {
-        modifier(PalmiMessageVisibilityModifier(
-            viewport: viewport, enabled: enabled, revision: revision,
-            onVisibility: onVisibility
+    func palmiReadConversation(scope: String, enabled: Bool, unreadIDs: Set<String>,
+                               onRead: @escaping (Set<String>) -> Void) -> some View {
+        modifier(PalmiConversationReadModifier(
+            state: .init(scope: scope, enabled: enabled, unreadIDs: unreadIDs), onRead: onRead
         ))
     }
 }

@@ -44,6 +44,14 @@ enum BionicResponseDecoder {
                 if value[key] == nil || value[key] == .string("") { value[key] = .null }
             }
             if value["message_ids"] == nil { value["message_ids"] = .array([]) }
+        case "generate_image":
+            // 仅对"确实只有 prompt 这一个字段"的旧调用做确定性归一化：
+            // 旧调用从未授权使用自动参考，恢复旧操作时不突然上传角色图片。
+            if Set(value.keys) == Set(["prompt"]) {
+                value["reference_mode"] = .string("none")
+                value["reference_image_paths"] = .array([])
+                value["depicts_character"] = .bool(false)
+            }
         case "planning":
             if case .array(let groups)? = value["groups"] {
                 value["groups"] = .array(groups.map { item in

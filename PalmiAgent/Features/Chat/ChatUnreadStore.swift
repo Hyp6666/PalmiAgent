@@ -40,6 +40,11 @@ final class ChatUnreadStore {
         guard let selection else { return false }
         return state.entries[Self.key(selection)]?.unread.contains(id) == true
     }
+    func unreadIDs(for selection: WorkspaceSelection?) -> Set<UUID> {
+        let _ = revision
+        guard let selection else { return [] }
+        return state.entries[Self.key(selection)]?.unread ?? []
+    }
     func firstUnreadID(in messages: [PalmiChatMessage], selection: WorkspaceSelection?) -> UUID? {
         let _ = revision
         guard let selection, let entry = state.entries[Self.key(selection)] else { return nil }
@@ -59,7 +64,7 @@ final class ChatUnreadStore {
         let old = entry
         entry.isChat = isChat
         for id in valid.subtracting(entry.seen) {
-            if (completed[id] ?? .distantPast) >= state.baseline { entry.unread.insert(id) }
+            if (completed[id]?.finishedAt ?? .distantPast) >= state.baseline { entry.unread.insert(id) }
         }
         entry.seen.formUnion(valid)
         entry.unread.formIntersection(valid)
@@ -89,33 +94,43 @@ final class ChatUnreadStore {
         guard let data = try? JSONEncoder().encode(state) else { return }
         defaults.set(data, forKey: storageKey)
     }
-    private static func completedAnswers(_ messages: [PalmiChatMessage]) -> [UUID: Date] {
-        var result: [UUID: Date] = [:]
+    static func readTargets(in messages: [PalmiChatMessage]) -> [UUID: UUID] {
+        Dictionary(completedAnswers(messages).map { ($0.value.messageID, $0.key) }, uniquingKeysWith: { _, next in next })
+    }
+    private struct CompletedAnswer {
+        let finishedAt: Date
+        let messageID: UUID
+    }
+    private static func completedAnswers(_ messages: [PalmiChatMessage]) -> [UUID: CompletedAnswer] {
+        var result: [UUID: CompletedAnswer] = [:]
         var header: PalmiChatMessage?
-        var hasAnswer = false
+        var answer: PalmiChatMessage?
         func flush() {
-            if hasAnswer, let header, let finished = header.sessionHeader?.finishedAt {
-                result[header.id] = finished
+            if let answer, let header, let finished = header.sessionHeader?.finishedAt {
+                result[header.id] = CompletedAnswer(finishedAt: finished, messageID: answer.id)
             }
         }
         for message in messages {
             if message.kind == .sessionHeader {
                 flush()
                 header = message
-                hasAnswer = false
+                answer = nil
                 continue
             }
             if message.isLeadingUserMessage {
                 flush()
                 header = nil
-                hasAnswer = false
+                answer = nil
                 continue
             }
             guard message.role == .agent,
                   message.kind == .normal || message.kind == .summary,
                   !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !message.attachments.isEmpty else { continue }
-            if header != nil { hasAnswer = true }
-            else { result[message.id] = message.timestamp }
+            if header != nil {
+                // Summary is the final answer; otherwise the last normal reply is
+                // the visible target for the header's one unread receipt.
+                if answer?.kind != .summary { answer = message }
+            } else { result[message.id] = CompletedAnswer(finishedAt: message.timestamp, messageID: message.id) }
         }
         flush()
         return result

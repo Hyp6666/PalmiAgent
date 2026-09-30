@@ -1,0 +1,26 @@
+{
+  "identifier": "BIONIC-PRO-LOCAL-TEST",
+  "nonRenewingSubscriptions": [],
+  "products": [
+    {
+      "displayPrice": "0.99",
+      "familyShareable": false,
+      "internalID": "bionic-pro-full-unlock",
+      "localizations": [
+        {"description": "99 custom characters and advanced Bionic features.", "displayName": "Bionic Pro", "locale": "en_US"},
+        {"description": "99个自建角色与高级仿生功能。", "displayName": "仿生 Pro", "locale": "zh_Hans"}
+      ],
+      "productID": "com.hongyupeng.PalmiAgent.personality.fullunlock",
+      "referenceName": "Bionic Pro",
+      "type": "NonConsumable"
+    }
+  ],
+  "settings": {
+    "_failTransactionsEnabled": false,
+    "_locale": "en_US",
+    "_storefront": "USA",
+    "_storeKitErrors": []
+  },
+  "subscriptionGroups": [],
+  "version": {"major": 3, "minor": 0}
+}

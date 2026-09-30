@@ -35,7 +35,17 @@ enum BionicToolbox {
     }
     static var schemas: [String: BionicJSON] { [
         "write_diary": object(["text": shortText(2400)]),
-        "generate_image": object(["prompt": shortText(6000)]),
+        "generate_image": object([
+            "prompt": .object(["type": .string("string"), "minLength": .integer(1), "maxLength": .count(6000),
+                "description": .string("本次图片的内容、场景、动作、构图和画风要求。不把图片地址写入正文描述。")]),
+            "reference_mode": .object(["type": .string("string"), "enum": .strings(["auto", "none", "explicit"]),
+                "description": .string("auto由宿主选择角色参考；none从零生成；explicit只使用reference_image_paths指定的已授权图片。")]),
+            "reference_image_paths": .object(["type": .string("array"), "minItems": .count(0), "maxItems": .count(3),
+                "items": .object(["type": .string("string"), "minLength": .integer(1)]),
+                "description": .string("只填写宿主当前参考目录或本轮recall结果中实际存在的相对图片路径。auto/none必须为空；explicit最多三张，按参考优先级排列。")]),
+            "depicts_character": .object(["type": .string("boolean"),
+                "description": .string("本次图片是否包含当前角色自身的外形。自拍、角色全身、含角色的合照为true；仅风景、食物、物品等为false。")])
+        ]),
         "recall": object(["query": nullableText, "from_date": nullableText, "through_date": nullableText, "message_ids": array(text), "cursor": nullableText]),
         "speak": object(["messages": array(spokenMessageSchema, minimum: 1, maximum: maximumBubbles), "end_turn": boolean]),
         "context_pro_max_plus": object(["summary": text, "memory_changes": array(object([
@@ -53,7 +63,7 @@ enum BionicToolbox {
     ] }
     static let descriptions = [
         "write_diary": "记录指定日期的一篇角色私人日记，第一人称，中文约400字。只写角色自己的虚构生活与有来源的聊天感受，不虚构用户经历，不发送聊天消息。",
-        "generate_image": "仅在对方明确要图或本轮同意发图时生成一张。prompt描述成品画面，结合角色人设和当前话题，不伪造对方真实经历或外貌。只调用一次。成功后用speak.image_ids引用宿主返回的image_id；失败继续文字交流，不反复调用。工具只准备图，不等于已发送。",
+        "generate_image": "只有用户明确要求或同意生成图片时才调用。每轮最多一次，只准备图片，不直接发到聊天。prompt描述本次画面。depicts_character说明画面是否包含当前角色自身。需要沿用角色外形时用auto，宿主最多选当前角色头像和最近两张已发送的角色图片；auto/none的reference_image_paths填空数组。不想用参考时用none。从宿主提供的实际路径中指定参考用explicit，最多三张，按优先级排序，不虚构路径、不读取其他角色资产。成功后使用返回的image_id通过speak发送，失败不得声称图片已生成。结合角色人设和当前话题，不伪造对方真实经历或外貌。",
         "planning": "提出尚未发送的后续消息。没有自然动机时groups=[]。只从future_calendar.slots选择delay_minutes，未来72小时总计最多30条，不凑满。相邻组至少相隔30分钟，每组默认一条。针对给定发送时刻的场景写正文；不臆测用户的未来经历。本工具只保存预存稿，不直接发送，也不进入真实对话历史。",
         "recall": "需要确认较早的具体话语或记忆时读取本角色档案；当前上下文已经足够时直接speak。query是关键词，日期使用YYYY-MM-DD，message_ids可精确定位；不使用的字段填null或空数组。继续阅读时沿用查询并传next_cursor。返回空结果就承认记不清，不编造经历。",
         "speak": "默认一条消息、end_turn=true。每项text为正文，image_ids为空或本轮生成结果的一个ID；纯图text可空，不能填写URL、路径、base64、自造ID或再次引用已用图片。必要才分开发，整轮最多101条。直接接话不引用，reply_to_message_id默认null。",

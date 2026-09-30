@@ -103,7 +103,6 @@ struct ChatScreen: View {
     @State private var messageScrollWorkID = UUID()
     @State private var messageListNearBottom = true
     @State private var screenIsVisible = false
-    @State private var readableMessageViewport = CGRect.zero
     @State private var messageGeometryReady = false
     @State private var isShowingBionicSuggestion = false
     @State private var markdownImageRoot: URL?
@@ -705,7 +704,9 @@ struct ChatScreen: View {
     }
 
     private var messageList: some View {
-        ScrollViewReader { proxy in
+        let readTargets = ChatUnreadStore.readTargets(in: store.messages)
+        let readSelection = workspaceStore.selectedSelection
+        return ScrollViewReader { proxy in
             // GeometryReader 自身忽略顶部安全区以从屏幕顶部铺开，于是它上报的
             // safeAreaInsets.top 即为被忽略的状态栏高度，用于下方顶部让位 spacer。
             GeometryReader { geometry in
@@ -722,7 +723,7 @@ struct ChatScreen: View {
                         }
 
                         ForEach(turns) { turn in
-                            turnView(turn)
+                            turnView(turn, readTargets: readTargets)
                                 .id(turn.id)
                         }
 
@@ -733,17 +734,14 @@ struct ChatScreen: View {
                     .padding(.horizontal, 18)
                     .background { PalmiChatScrollTopGuard().frame(width: 0, height: 0) }
                 }
-                .onGeometryChange(for: CGRect.self) { proxy in
-                    let frame = proxy.frame(in: .global)
-                    let top = geometry.safeAreaInsets.top + 90
-                    let bottom = messageBottomClearance
-                    return CGRect(
-                        x: frame.minX, y: frame.minY + top,
-                        width: frame.width,
-                        height: max(0, frame.height - top - bottom)
-                    )
-                } action: { rect in
-                    if readableMessageViewport != rect { readableMessageViewport = rect }
+                .palmiReadConversation(
+                    scope: readSelection.map(ChatUnreadStore.key) ?? "",
+                    enabled: mayMarkVisibleAnswersRead,
+                    unreadIDs: Set(store.unreadStore.unreadIDs(for: workspaceStore.selectedSelection).map(\.uuidString))
+                ) { ids in
+                    guard mayMarkVisibleAnswersRead, let selection = readSelection,
+                          workspaceStore.selectedSelection == selection else { return }
+                    store.unreadStore.markRead(Set(ids.compactMap(UUID.init(uuidString:))), selection: selection)
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .onScrollPhaseChange { _, phase in
@@ -832,7 +830,7 @@ struct ChatScreen: View {
     }
 
     @ViewBuilder
-    private func turnView(_ turn: ChatTurn) -> some View {
+    private func turnView(_ turn: ChatTurn, readTargets: [UUID: UUID]) -> some View {
         let hidesCompletedChatDetails = shouldHideCompletedChatDetails(for: turn)
         let isCollapsed = turn.headerMessage != nil && collapsedTurnIDs.contains(turn.id)
         let visibleBeforeFinalMessages = hidesCompletedChatDetails
@@ -885,7 +883,7 @@ struct ChatScreen: View {
                    ) {
                     ChatIterationDivider()
                 }
-                turnMessageView(message)
+                turnMessageView(message, readTargets: readTargets)
             }
 
             if let finalMessage = turn.finalMessage {
@@ -893,23 +891,10 @@ struct ChatScreen: View {
                     ChatIterationDivider()
                 }
                 ForEach(finalThoughtMessages) { message in
-                    turnMessageView(message)
+                    turnMessageView(message, readTargets: readTargets)
                 }
-                let selection = workspaceStore.selectedSelection
-                let answerID = turn.headerMessage?.id ?? finalMessage.id
-                let completed = turn.headerMessage != nil
-                    ? turn.headerMessage?.sessionHeader?.finishedAt != nil
-                    : store.activeStreamingMessageIDValue != finalMessage.id
+                let answerID = readTargets[finalMessage.id] ?? finalMessage.id
                 assistantMarkdown(for: finalMessage)
-                    .palmiMessageVisibility(
-                        in: readableMessageViewport,
-                        enabled: mayMarkVisibleAnswersRead && completed
-                            && store.unreadStore.contains(answerID, selection: selection)
-                    ) { visible in
-                        guard visible, let selection,
-                              workspaceStore.selectedSelection == selection else { return }
-                        store.unreadStore.markRead(Set([answerID]), selection: selection)
-                    }
                     .id("unread-" + answerID.uuidString)
                 if store.activeStreamingMessageIDValue != finalMessage.id {
                     finalAnswerCompletionRow(for: turn, finalMessage: finalMessage)
@@ -927,27 +912,21 @@ struct ChatScreen: View {
                 ) {
                     ChatIterationDivider()
                 }
-                turnMessageView(message)
+                turnMessageView(message, readTargets: readTargets)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
-    private func turnMessageView(_ message: PalmiChatMessage) -> some View {
+    private func turnMessageView(_ message: PalmiChatMessage, readTargets: [UUID: UUID]) -> some View {
         if message.role == .user {
             userBubble(message)
         } else {
             switch message.kind {
             case .normal:
-                let selection = workspaceStore.selectedSelection
                 assistantMarkdown(for: message)
                     .id("unread-" + message.id.uuidString)
-                    .palmiMessageVisibility(in: readableMessageViewport,
-                        enabled: mayMarkVisibleAnswersRead && store.unreadStore.contains(message.id, selection: selection)) { visible in
-                        guard visible, let selection, workspaceStore.selectedSelection == selection else { return }
-                        store.unreadStore.markRead([message.id], selection: selection)
-                    }
             case .toolCall:
                 if let toolCall = message.toolCall {
                     ToolCallCard(

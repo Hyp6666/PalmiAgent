@@ -1434,7 +1434,8 @@ final class ActionExecutor {
                     action,
                     status: .failure,
                     summary: "执行失败",
-                    details: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    details: (error as? BionicFailure).map { BionicStore.errorText($0) }
+                        ?? (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 )
             )
         }

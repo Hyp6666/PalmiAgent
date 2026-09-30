@@ -7,6 +7,9 @@ struct BionicDiaryScreen: View {
     @State private var loaded = false
     @State private var error: String?
     var body: some View {
+        BionicProGate(purchases: store.purchases) { diaryContent }
+    }
+    private var diaryContent: some View {
         List {
             if !loaded { ProgressView().frame(maxWidth: .infinity) }
             else if entries.isEmpty {
@@ -31,7 +34,7 @@ struct BionicDiaryScreen: View {
         .task(id: store.diagnosticRevision) {
             do {
                 try await Task.sleep(for: .milliseconds(150))
-                let values = try await store.archive.diaryEntries(instance)
+                let values = try await store.archive.userDiaryEntries(instance)
                 try Task.checkCancellation()
                 entries = Array(values.reversed()); loaded = true
             } catch is CancellationError { }

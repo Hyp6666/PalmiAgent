@@ -14,7 +14,7 @@ struct ChatGPTOAuthScreen: View {
         List {
             if let active = account.account {
                 Section {
-                    LabeledContent("ChatGPT OAuth", value: active.email.isEmpty ? active.accountID : active.email)
+                    LabeledContent("Codex OAuth", value: active.email.isEmpty ? active.accountID : active.email)
                     Button(PalmiL10n.tr("chatgpt.refreshModels")) { Task { await refresh() } }.disabled(busy)
                     Button(PalmiL10n.tr("chatgpt.signOut"), role: .destructive) { signOutConfirmation = true }.disabled(busy)
                 }
@@ -40,7 +40,7 @@ struct ChatGPTOAuthScreen: View {
             }
             if busy || account.signingIn { ProgressView().frame(maxWidth: .infinity) }
         }
-        .navigationTitle("ChatGPT OAuth").navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("Codex OAuth").navigationBarTitleDisplayMode(.inline)
         .task(id: copiedCode) {
             guard copiedCode != nil else { return }
             do { try await Task.sleep(for: .seconds(2)) } catch { return }

@@ -10,7 +10,7 @@ struct AgentCustomPersonalityConfiguration: Sendable {
 
     init(title: String, description: String) {
         self.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.description = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.description = String(description.prefix(200)).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     init(from userDefaults: UserDefaults = .standard) {
@@ -21,7 +21,7 @@ struct AgentCustomPersonalityConfiguration: Sendable {
     }
 
     var isConfigured: Bool {
-        !title.isEmpty && !description.isEmpty
+        !description.isEmpty
     }
 
     var displayTitle: String {
@@ -45,7 +45,7 @@ struct AgentCustomPersonalityConfiguration: Sendable {
         - 以下规则只影响表达风格与互动气质，不改变事实标准、工具选择、执行流程或安全边界。
         - 当这些规则与更高优先级规则冲突时，以更高优先级规则为准。
 
-        性格：\(title)
+        性格：\(title.isEmpty ? "自定义" : title)
         - 以下是用户自定义的性格描述，请在后续对话中稳定遵循其表达风格和互动气质。
 
         用户自定义性格描述：
@@ -83,9 +83,9 @@ enum AgentPersonalityPreset: String, CaseIterable, Codable, Identifiable, Sendab
     var systemImageName: String {
         switch self {
         case .focused:
-            return "scope"
+            return "text.alignleft"
         case .friendly:
-            return "face.smiling.fill"
+            return "bubble.left"
         case .custom:
             return "slider.horizontal.3"
         }

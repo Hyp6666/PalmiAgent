@@ -12,21 +12,11 @@ struct BionicChatScreen: View {
     @State private var localError: String?
     @State private var composerHeight: CGFloat = 120
     @State private var userScrolling = false
-    @State private var nearBottom = true
-    @State private var measuredScroll = false
     @State private var screenVisible = false
     @State private var composerPresented = false
     @State private var readableViewport = CGRect.zero
-    @State private var scrollCommand: ScrollCommand?
-    @State private var contentFits = true
     @State private var scrollFrame = CGRect.zero
-
-    private struct ScrollCommand {
-        let id = UUID()
-        let target: String
-        let bottom: Bool
-        let requiresFollowing: Bool
-    }
+    @State private var scrollController = BionicScrollController()
 
     private var role: BionicRole? {
         store.roles.first { $0.installationID == instance }
@@ -37,9 +27,11 @@ struct BionicChatScreen: View {
             && preview == nil && !composerPresented && localError == nil
             && !store.showingPurchase
     }
+    // 箭头只依赖实际阅读位置（controller 策略输出），不依赖未读数量。
     private var showsLatestButton: Bool {
-        canRead && measuredScroll && !contentFits && !nearBottom
+        canRead && scrollController.showsLatestButton
     }
+    private var latestIsReached: Bool { scrollController.latestIsReached }
     private var rows: [BionicBubbleRowData] {
         let values = store.selectedID == instance ? store.messages : []
         return values.enumerated().map { index, message in
@@ -60,13 +52,12 @@ struct BionicChatScreen: View {
                         LazyVStack(spacing: 8) {
                             if store.windowStart > 0 {
                                 Button(PalmiL10n.tr("bionic.loadOlder")) {
-                                    cancelFollowing()
+                                    store.followingLatest = false
                                     Task { await perform { try await store.loadOlder() } }
                                 }
                                 .font(.footnote).padding(.vertical, 8)
                             }
                             ForEach(rows) { row in
-                                let reader = role?.state.participantID ?? ""
                                 VStack(spacing: 8) {
                                     if row.showsTime {
                                         Text(BionicTimelineClock.label(
@@ -80,28 +71,30 @@ struct BionicChatScreen: View {
                                         maxWidth: min(440, max(120, geometry.size.width - 104)),
                                         onQuote: { store.quote(row.message) },
                                         onJump: { id in
-                                            cancelFollowing()
+                                            store.followingLatest = false
                                             Task { await perform { try await store.jump(to: id) } }
                                         },
                                         onAsset: openAsset,
                                         onRoleTap: openRoleInfo
                                     )
-                                    .palmiMessageVisibility(
-                                        in: readableViewport,
-                                        enabled: canRead && !reader.isEmpty
-                                            && store.unreadSequencesByInstance[instance]?[row.id] != nil
-                                    ) { visible in
-                                        if visible && canRead && row.message.text("author_kind") == "character" {
-                                            store.appeared(row.id, instance: instance, participantID: reader)
-                                        }
-                                    }
                                 }
                                 .id(row.id)
+                                // 最新真实消息行的尾部探针：零布局占用，读取 全局坐标 maxY。
+                                .background { lastRowProbe(for: row) }
                             }
+                            // 定位到输入框避让区末端，确保最后气泡位于可读区域。
                             Color.clear.frame(height: composerHeight + 12).id("bionic-end")
                         }
                         .padding(.horizontal, 14).padding(.top, 10)
                         .background { PalmiChatScrollTopGuard().frame(width: 0, height: 0) }
+                    }
+                    .palmiReadConversation(
+                        scope: instance + ":" + (role?.state.participantID ?? ""),
+                        enabled: canRead,
+                        unreadIDs: Set(store.unreadSequencesByInstance[instance]?.keys.map { $0 } ?? [])
+                    ) { ids in
+                        guard canRead, let reader = role?.state.participantID else { return }
+                        store.readConversationMessages(ids, instance: instance, participantID: reader)
                     }
                     .onGeometryChange(for: CGRect.self) { proxy in
                         proxy.frame(in: .global)
@@ -115,59 +108,48 @@ struct BionicChatScreen: View {
                     .defaultScrollAnchor(.bottom, for: .initialOffset)
                     .defaultScrollAnchor(.top, for: .alignment)
                     .onScrollPhaseChange { _, phase in
-                        userScrolling = phase == .interacting || phase == .decelerating
+                        let interacting = phase == .interacting || phase == .decelerating
+                        if interacting != userScrolling {
+                            userScrolling = interacting
+                            if interacting {
+                                // 用户开始真实拖动/减速：立刻让出滚动控制。
+                                scrollController.beginUserInteraction()
+                            } else {
+                                scrollController.endUserInteraction()
+                            }
+                        }
                         if phase == .idle { reconcileBottom() }
                     }
-                    .onScrollGeometryChange(for: PalmiChatScrollMetrics.self) {
-                        PalmiChatScrollMetrics($0)
-                    } action: { old, next in
-                        let firstMeasurement = !measuredScroll
-                        measuredScroll = true
-                        contentFits = next.contentHeight <= next.containerHeight + 1
-                        if nearBottom != next.nearBottom { nearBottom = next.nearBottom }
-                        guard store.selectedID == instance else { return }
-                        if userScrolling, next.isUserMovingToOlder(comparedWith: old), !next.nearBottom {
-                            cancelFollowing()
+                    .onScrollGeometryChange(for: ScrollGeometry.self) { $0 } action: { old, next in
+                        scrollController.observeScrollGeometry(next)
+                        // 用户向更早消息移动：即使图片解码/新消息改变了 contentHeight 也要能接管。
+                        if userScrolling,
+                           next.contentOffset.y < old.contentOffset.y - 1,
+                           !latestIsReached {
+                            store.followingLatest = false
+                            scrollController.userScrolledToOlder()
                         }
-                        if next.atBottom, !store.hasNewerMessages,
-                           scrollCommand == nil || scrollCommand?.requiresFollowing == true {
+                        // 到达末尾且无更新消息：真实抵达后重新接上 follow。
+                        if !userScrolling, latestIsReached, !store.hasNewerMessages {
                             if !store.followingLatest { store.followingLatest = true }
+                            scrollController.acknowledgeArrivalIfReached()
                         }
+                        // follow 意图下视口/内容真正变化时推进一个已存在的命令。
                         if store.followingLatest,
-                           (abs(old.contentHeight - next.contentHeight) > 0.5
-                            || abs(old.containerHeight - next.containerHeight) > 0.5
-                            || abs(old.bottomInset - next.bottomInset) > 0.5) {
-                            requestBottom()
+                           abs(old.contentSize.height - next.contentSize.height) > 0.5
+                            || abs(old.containerSize.height - next.containerSize.height) > 0.5
+                            || abs(old.contentInsets.bottom - next.contentInsets.bottom) > 0.5 {
+                            scrollController.requestBottom()
                         }
-                        if firstMeasurement && !contentFits && store.followingLatest { requestBottom() }
                     }
-                    .onChange(of: store.scrollRequest) { _, _ in
-                        guard store.selectedID == instance, let target = store.scrollTarget else { return }
-                        scrollCommand = ScrollCommand(
-                            target: target, bottom: store.scrollTargetAtBottom,
-                            requiresFollowing: target == "bionic-end"
-                        )
-                    }
-                    .task(id: scrollCommand?.id) {
-                        guard let command = scrollCommand else { return }
-                        if command.requiresFollowing && contentFits && !store.hasNewerMessages {
-                            scrollCommand = nil
-                            return
-                        }
-                        await Task.yield()
-                        guard !Task.isCancelled, screenVisible,
-                              scrollCommand?.id == command.id, store.selectedID == instance,
-                              !command.requiresFollowing || store.followingLatest else { return }
-                        proxy.scrollTo(command.target, anchor: command.bottom ? .bottom : .top)
-                        await Task.yield()
-                        guard !Task.isCancelled, scrollCommand?.id == command.id else { return }
-                        scrollCommand = nil
+                    .onPreferenceChange(BionicLastRowMaxYKey.self) { value in
+                        scrollController.observeLatestRow(maxY: value)
                     }
                     .overlay(alignment: .bottomTrailing) {
                         if showsLatestButton {
                             Button {
                                 store.followingLatest = true
-                                requestBottom()
+                                scrollController.chooseLatest()
                             } label: {
                                 Image(systemName: "arrow.down").font(.body.bold()).padding(12)
                                     .background(.regularMaterial, in: Circle())
@@ -175,6 +157,9 @@ struct BionicChatScreen: View {
                             .padding(.horizontal, 14).padding(.bottom, composerHeight + 14)
                             .accessibilityLabel(PalmiL10n.tr("bionic.latestMessages"))
                         }
+                    }
+                    .onAppear {
+                        scrollController.bind(proxy: proxy)
                     }
                 }
                 .frame(maxHeight: .infinity)
@@ -202,7 +187,9 @@ struct BionicChatScreen: View {
                     composerHeight = height
                     readableViewport = CGRect(x: scrollFrame.minX, y: scrollFrame.minY, width: scrollFrame.width,
                                               height: max(0, scrollFrame.height - height - 8))
-                    if store.followingLatest { requestBottom() }
+                    // 输入区高度变化是布局结构变化：推进 revision，follow 时重新对齐。
+                    scrollController.invalidateLayout()
+                    if store.followingLatest { scrollController.requestBottom() }
                 }
             }
             .background {
@@ -216,6 +203,8 @@ struct BionicChatScreen: View {
             .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
                 guard size.width > 0, size.height > 0 else { return }
                 store.chatCanvasAspects[instance] = size.width / size.height
+                // 视口宽高变化：布局结构变化。
+                scrollController.invalidateLayout()
             }
         }
         .background(Color(uiColor: .systemGroupedBackground))
@@ -241,9 +230,8 @@ struct BionicChatScreen: View {
         .navigationDestination(isPresented: $details) {
             BionicConversationDetailsScreen(store: store, instance: instance) { messageID in
                 details = false
-                cancelFollowing()
+                store.followingLatest = false
                 Task { @MainActor in
-                    await Task.yield()
                     await perform { try await store.jump(to: messageID) }
                 }
             }
@@ -258,7 +246,9 @@ struct BionicChatScreen: View {
         }
         .onAppear {
             screenVisible = true
-            if store.followingLatest { requestBottom() }
+            scrollController.enterRole(installationID: instance, followingLatest: store.followingLatest)
+            scrollController.updateLatestMessage(store.messages.last?.text("message_id"), following: store.followingLatest)
+            if store.followingLatest { scrollController.requestBottom() }
             Task { @MainActor in
                 await store.refresh(changed: instance)
                 guard screenVisible, store.selectedID == instance else { return }
@@ -267,11 +257,37 @@ struct BionicChatScreen: View {
         }
         .onDisappear {
             screenVisible = false
-            scrollCommand = nil
+            scrollController.leaveRole()
             store.chatVisibility(instance, visible: false)
         }
         .onChange(of: canRead, initial: true) { _, allowed in
             store.chatVisibility(instance, visible: allowed)
+        }
+        .onChange(of: readableViewport, initial: true) { _, viewport in
+            scrollController.observeReadableBottom(viewport.maxY)
+        }
+        .onChange(of: store.followingLatest) { _, following in
+            scrollController.setFollowingLatest(following)
+        }
+        .onChange(of: store.scrollRequest) { _, _ in
+            guard store.selectedID == instance, let target = store.scrollTarget else { return }
+            if target == "bionic-end" {
+                if store.followingLatest { scrollController.requestBottom() }
+            } else {
+                store.followingLatest = false
+                scrollController.scrollTarget(target)
+            }
+        }
+        .onChange(of: store.messages.count) { old, new in
+            guard store.selectedID == instance else { return }
+            let latestID = store.messages.last?.text("message_id")
+            scrollController.updateLatestMessage(latestID, following: nil)
+            // follow 意图下新消息追加：推进滚动命令；readHistory 不滚动。
+            if new > old, store.followingLatest { scrollController.requestBottom() }
+        }
+        .onChange(of: store.hasNewerMessages) { _, newer in
+            guard store.selectedID == instance, !newer, store.followingLatest else { return }
+            scrollController.requestBottom()
         }
         .sheet(item: $preview) { BionicAssetPreviewSheet(url: $0.url) }
         .alert(PalmiL10n.tr("bionic.errorTitle"), isPresented: Binding(
@@ -281,13 +297,19 @@ struct BionicChatScreen: View {
         } message: { Text(localError ?? "") }
     }
 
-    private func requestBottom() {
-        guard store.selectedID == instance, store.followingLatest, measuredScroll,
-              !contentFits || store.hasNewerMessages else { return }
-        scrollCommand = ScrollCommand(target: "bionic-end", bottom: true, requiresFollowing: true)
+    /// 最新真实消息行的尾部探针；不是每行都建一个默认高度的 GeometryReader。
+    @ViewBuilder
+    private func lastRowProbe(for row: BionicBubbleRowData) -> some View {
+        if row.id == rows.last?.id {
+            GeometryReader { probe in
+                Color.clear.preference(
+                    key: BionicLastRowMaxYKey.self,
+                    value: probe.frame(in: .global).maxY
+                )
+            }
+        }
     }
-    private var bottomFrost: some View {
-        Rectangle()
+    private var bottomFrost: some View {        Rectangle()
             .fill(Color(uiColor: .systemGroupedBackground))
             .frame(height: composerHeight + 56)
             .mask {
@@ -303,14 +325,17 @@ struct BionicChatScreen: View {
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
-    private func cancelFollowing() {
-        store.followingLatest = false
-        scrollCommand = nil
-    }
+    /// 轻触/减速结束回到 idle：若真实仍在末尾则重新 follow，不永久误判为历史阅读。
     private func reconcileBottom() {
-        guard measuredScroll, store.selectedID == instance, nearBottom,
-              scrollCommand == nil || scrollCommand?.requiresFollowing == true else { return }
-        if !store.hasNewerMessages { store.followingLatest = true }
+        guard store.selectedID == instance else { return }
+        if latestIsReached, !store.hasNewerMessages {
+            if !store.followingLatest { store.followingLatest = true }
+            scrollController.cancelCommands()
+        } else if scrollController.hasPendingCommand, scrollController.shouldCorrectAtIdle() {
+            // 一次无动画校正；之后仍未到达就停止该命令，保持实际位置决定的箭头。
+            scrollController.scrollToBottom(animated: false)
+        }
+        scrollController.acknowledgeArrivalIfReached()
     }
     private func openRoleInfo() {
         guard !details else { return }
@@ -326,6 +351,14 @@ struct BionicChatScreen: View {
             do { preview = BionicAssetPreview(url: try await store.archive.previewURL(instance, path: path)) }
             catch { localError = BionicStore.errorText(error) }
         }
+    }
+}
+
+/// 最新真实消息行在 全局坐标中的 maxY 探针。
+private struct BionicLastRowMaxYKey: PreferenceKey {
+    static let defaultValue: CGFloat? = nil
+    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
+        value = nextValue() ?? value
     }
 }
 

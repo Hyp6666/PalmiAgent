@@ -10,13 +10,12 @@ struct BionicRootScreen: View {
     let onSelectMode: (AppShellMode) -> Void
     @State private var creating = false
     @State private var importing = false
-    @State private var adding = false
     @State private var preparing = false
     @State private var prepared: BionicMigrationService.PreparedImport?
     @State private var errorText: String?
     private var localUnread: PalmiUnreadSnapshot {
         var value = parentUnread
-        value.readingAllowed = value.readingAllowed && !creating && !importing && !adding
+        value.readingAllowed = value.readingAllowed && !creating && !importing
             && !preparing && prepared == nil && !store.showingPurchase
         return value
     }
@@ -35,16 +34,6 @@ struct BionicRootScreen: View {
         }
         .environment(\.palmiUnread, localUnread)
         .task { await store.refresh() }
-        .confirmationDialog(PalmiL10n.tr("common.add"), isPresented: $adding, titleVisibility: .hidden) {
-            Button(PalmiL10n.tr("bionic.create")) {
-                if store.purchases.canUse { creating = true }
-                else { store.showingPurchase = true }
-            }
-            Button(PalmiL10n.tr("bionic.import")) { importing = true }
-            if store.purchases.isEnabled {
-                Button(PalmiL10n.tr("bionic.purchase.title")) { store.showingPurchase = true }
-            }
-        }
         .sheet(isPresented: $creating) { NavigationStack { BionicPersonaEditor(store: store, instance: nil) } }
         .sheet(isPresented: $store.showingPurchase) {
             BionicPurchaseSheet(purchases: store.purchases)
@@ -66,6 +55,12 @@ struct BionicRootScreen: View {
             if !$0 { errorText = nil; store.globalError = nil }
         })) { Button(PalmiL10n.tr("bionic.ok"), role: .cancel) { errorText = nil; store.globalError = nil } }
         message: { Text(errorText ?? store.globalError ?? "") }
+    }
+    private func checkCapacity(_ proceed: @escaping @MainActor () -> Void) {
+        Task {
+            do { try await store.archive.requireRoleCapacity(); proceed() }
+            catch { errorText = BionicStore.errorText(error) }
+        }
     }
     private var home: some View {
         let displayedRoles = store.orderedRoles
@@ -119,7 +114,11 @@ struct BionicRootScreen: View {
         .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .top, spacing: 0) {
             AppShellTopBar(mode: .bionic, trailingSystemName: "plus", trailingAccessibilityLabel: PalmiL10n.tr("common.add"),
-                           onOpenSettings: onOpenSettings, onTrailingAction: { adding = true }, onSelectMode: onSelectMode)
+                           onOpenSettings: onOpenSettings, onTrailingAction: {}, onSelectMode: onSelectMode,
+                           bionicMenu: BionicAddMenu(purchases: store.purchases,
+                               onCreate: { checkCapacity { creating = true } },
+                               onImport: { checkCapacity { importing = true } },
+                               onPro: { store.showingPurchase = true }))
                 .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 6)
                 .background(Color(uiColor: .systemGroupedBackground))
         }
@@ -139,5 +138,22 @@ struct BionicAvatar: View {
         }
         .frame(width: size, height: size).clipShape(Circle()).accessibilityHidden(true)
         .task(id: data) { image = data.flatMap { UIImage(data: $0) } }
+    }
+}
+
+struct BionicAddMenu: View {
+    let purchases: BionicPurchaseStore
+    let onCreate: () -> Void
+    let onImport: () -> Void
+    let onPro: () -> Void
+
+    var body: some View {
+        Button(PalmiL10n.tr("bionic.create"), systemImage: "person.badge.plus", action: onCreate)
+        Button(PalmiL10n.tr("bionic.import"), systemImage: "square.and.arrow.down", action: onImport)
+        Divider()
+        Button(PalmiL10n.tr(purchases.hasFullAccess ? "bionic.pro.about" : "bionic.pro.get"),
+               systemImage: purchases.hasFullAccess ? "checkmark.seal" : "sparkles", action: onPro)
+        Divider()
+        Button(PalmiL10n.tr("bionic.cancel"), role: .cancel) { }
     }
 }

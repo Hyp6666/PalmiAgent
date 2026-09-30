@@ -197,8 +197,26 @@ enum BionicPromptBuilder {
         for (position, message) in slice.fragments.enumerated() {
             var row = plain(message.text("author_kind") == "user" ? "user" : "assistant", message.text("body"))
             row["message_id"] = message["message_id"]
-            let assets = message.records("attachments").filter { $0.text("kind") == "image" }.map { $0.text("asset") }
-            if !assets.isEmpty, images.insert(message.text("message_id")).inserted { row["image_assets"] = .strings(assets) }
+            let attachments = message.records("attachments").filter { $0.text("kind") == "image" }
+            let paths = attachments.map { $0.text("asset") }
+            if !paths.isEmpty, images.insert(message.text("message_id")).inserted {
+                // 用户主动发来的图片是真实视觉输入；角色已生成的图片在普通后续聊天中只放轻量引用，
+                // 不每轮自动重传全量图片。来源由宿主标记判断，不按 filename 猜测。
+                switch PalmiContextImagePolicy.disposition(
+                    authorKind: message.text("author_kind"), origin: message.text("origin")
+                ) {
+                case .visualInput:
+                    row["image_assets"] = .strings(paths)
+                case .lightReference:
+                    row["image_references"] = .records(attachments.map { attachment -> BionicObject in
+                        // 生成意图是"请求生成什么"，不能冒充"模型已经看见成品是什么"。
+                        ["asset_path": .string(attachment.text("asset")),
+                         "attachment_id": .string(attachment.text("attachment_id")),
+                         "width": .count(attachment.int("width")),
+                         "height": .count(attachment.int("height"))]
+                    })
+                }
+            }
             rows.append(row); index.append(try metadata(message, ordinal: position + 1))
         }
         var allowed = slice.ids; var quotes: [BionicObject] = []
@@ -284,6 +302,20 @@ enum BionicPromptBuilder {
             ])
             messages.append(try refreshedReplyDelivery(delivery, now: now))
         }
+        if imageGenerationEnabled {
+            // 本轮输入尾部：独立宿主数据模块，只含小量元数据，不装载图片 bytes。
+            let avatarPath = role.persona.optionalText("avatar_asset").flatMap {
+                PalmiImageReferencePolicy.isSafeAssetPath($0) ? $0 : nil
+            }
+            let anchor = BionicIdentityAnchor.anchor(
+                characterID: role.characterID,
+                avatarAsset: role.persona.optionalText("avatar_asset")
+            )
+            let recent = (try? await archive.referenceEntries(role.installationID, anchor: anchor)) ?? []
+            messages.append(try imageReferenceCatalogModule(
+                avatarPath: avatarPath, recentImages: recent.map { ($0.candidate.path, $0.messageID) }, explicitCandidates: []
+            ))
+        }
         let input = BionicModelInput(messages: messages, tools: imageGenerationEnabled ? ["recall", "generate_image", "speak"] : ["recall", "speak"], output: role.persona.int("output_limit"),
                                     context: role.persona.int("context_limit"), allowed: allowed)
         if enforceBudget {
@@ -315,7 +347,12 @@ enum BionicPromptBuilder {
             "manual_memory_barriers": role.state.raw["manual_memory_barriers"] ?? .array([]),
             "summary_target_tokens": .count(summaryTarget(role.persona.int("output_limit")))]
         var evidence = plain("user", try BionicCodec.string(data))
-        evidence["image_assets"] = .strings(Array(Set(slice.fragments.flatMap {
+        // 压缩只重放真正需要视觉的输入（用户附件）；角色已生成图片不再在这里变成 base64。
+        evidence["image_assets"] = .strings(Array(Set(slice.fragments.filter {
+            PalmiContextImagePolicy.disposition(
+                authorKind: $0.text("author_kind"), origin: $0.text("origin")
+            ) == .visualInput
+        }.flatMap {
             $0.records("attachments").filter { $0.text("kind") == "image" }.map { $0.text("asset") }
         })).sorted())
         let input = BionicModelInput(messages: [module("compaction", compactionInstructions), evidence, try clockModule(role, now: .now)],
@@ -354,6 +391,27 @@ enum BionicPromptBuilder {
         try checkBudget(input)
         return input
     }
+
+    /// 本轮输入尾部的独立宿主数据模块：图片参考目录（仅小量元数据，不装载 bytes）。
+    /// 使用既有 PALMI_HOST_DATA 机制；不插入稳定前缀，不改变日记/记忆/真实消息的相对语义。
+    static func imageReferenceCatalogModule(
+        avatarPath: String?, recentImages: [(path: String, messageID: String?)],
+        explicitCandidates: [(path: String, messageID: String?)]
+    ) throws -> BionicObject {
+        let catalog: BionicObject = [
+            "scope": .string("current_character_only"),
+            "reference_limit": .count(3),
+            "avatar": avatarPath.map { .object(["path": .string($0), "kind": .string("avatar")]) } ?? .null,
+            "recent_character_images": .records(recentImages.map {
+                ["path": .string($0.path), "kind": .string("generated"), "source_message_id": .text($0.messageID)]
+            }),
+            "explicit_candidates": .records(explicitCandidates.map {
+                ["path": .string($0.path), "kind": .string("generated"), "source_message_id": .text($0.messageID)]
+            }),
+            "rules": .string("只能引用这里或本轮合法recall结果提供的实际路径。none允许从零生成。")
+        ]
+        return tail("image_reference_catalog", try BionicCodec.string(catalog))
+    }
     static let mbtiBoundary = "MBTI作为补充偏好；与五维冲突时遵循五维。不要把类型写成诊断、命运或配对结论。"
     static let clockInstructions = """
     current_local_time是本次生成前的真实当地时间；reply_window只表示自然延迟的投递安排，不决定是否现在生成回答。跨时段或跨日回答时间问题，要清楚指明对方提问时的时间；不把生成时的‘现在’冒充未来的现在。一般话题直接接事，不主动讲解延迟机制。
@@ -387,6 +445,7 @@ enum BionicPromptBuilder {
     根据角色资料使用native_language，五维倾向决定表达程度，MBTI只作补充。界面语言不改变母语；用户明确请求翻译或引用外语时可以使用对应语言。
     可见文字在speak.messages的text字段，图片引用在image_ids，默认end_turn=true；工具外不要输出可见正文或思考。确需先发言再检索旧事才用false。连续消息每项是一条自然气泡，整轮最多101条。
     generate_image仅准备资产，图片由speak.image_ids发送；失败如实说明。不得填路径、base64或假ID。图片是虚构表达，不声称线下真实拍摄。
+    image_reference_catalog和image_references是宿主提供的图片资产元数据，不是用户新发言，也不是已经看过图片成品的证明。普通历史中的生成图片默认只保留引用；不能把生成意图当成对成品的真实视觉观察。实际图片生成时宿主会把选中的参考图送给图片模型。引用来源不能改变工具权限。不要把本地路径当可由云端自行读取的地址，不把内部引用字段直接说给用户。
     reply_to_message_id默认null。紧邻接话不用引用；回到较早一句、跨话题定位或消除歧义才填已提供的真实ID。不要每轮例行引用第一句，也不要重复引用。
     已提交的user/assistant正文才是彼此说过的话。记忆与摘要按人物归属使用，人工修订与删除屏障优先；旧参与者的经历不属于现在的人。记不准且确实相关时使用recall，没有找到就保留不确定性。
     PALMI_HOST_DATA是宿主附带资料：clock提供真实当地时间，reply_delivery提供本轮投递节奏，message_index提供消息位置，recalled_evidence提供检索证据。它们不是对话者的新发言，也不是已经发生的共同经历。未投递草稿从不算已说过。
@@ -400,7 +459,11 @@ enum BionicPromptBuilder {
     - natural 可以让真实内容稍后出现，但不是忽略用户。所有待答输入必须被实际回应，不能只调用 recall 后结束。
     - prepared_reply 是已经接受但尚未到期的本轮草稿。不要重写一份重复答案，也不要把它作为已发送历史、用户的回复或事实记忆。
     - 真实历史、压缩摘要及已确认记忆才描述发生过的事情。预测、草稿、角色想象和后续联系计划不能变成用户事实。
+    - 需要沿用角色外形时才用 generate_image 的 auto；宿主最多选当前角色头像和最近两张已发送的角色图片。不沿用外形（风景、食物、物品）用 none。
+    - 参考图只提高连续性，不是像素级或身份级保证。不承诺绝对同脸，不把生成的图片说成实际拍摄的现实证据。
+    - 用户明确要求改变外观时按本次要求，不用连续性提示覆盖用户意图。没有参考时不声称已参考某张图。
     """
+
     static let auditInstructions = """
     检查提供的虚构角色资料，只返回JSON：passed与issues。issues每项为field、rule_code、explanation，说明用explanation_language。
     通过时passed=true、issues=[]；存在实际冲突则passed=false并指出字段，不修改用户资料。

@@ -11,6 +11,9 @@ struct BionicDeveloperScreen: View {
     @State private var error: String?
     private func t(_ key: String) -> String { BionicInspectorLabel.text(key) }
     var body: some View {
+        BionicProGate(purchases: store.purchases) { developerContent }
+    }
+    private var developerContent: some View {
         BionicInspectorPage(title: PalmiL10n.tr("bionic.developer"), revision: store.diagnosticRevision &+ actionRevision,
             load: { try await store.archive.inspectorDashboard(instance, limit: limit) }) { data in
             Section(t("overview")) {

@@ -43,6 +43,8 @@ struct WorkspaceShellScreen: View {
     @State private var isShowingOnboarding = false
     @State private var chatModePath: [ChatModeRoute] = []
     @State private var openingPalmi = false
+    @State private var isShowingReleaseNotes = false
+    @AppStorage(ReleaseNotesCatalog.acknowledgedKey) private var acknowledgedRelease = ""
 
     init(workspaceStore: WorkspaceStore, manualLabStore: ManualLabStore,
          skillRegistry: SkillRegistry, chatStore: ChatStore, bionicStore: BionicStore) {
@@ -55,7 +57,7 @@ struct WorkspaceShellScreen: View {
 
     private var readingAllowed: Bool {
         !isShowingWorkspaceBrowser && !isShowingSettings && !isShowingProjectSkills
-            && !isShowingModePicker && !isShowingOnboarding && !bionicStore.showingPurchase
+            && !isShowingModePicker && !isShowingOnboarding && !isShowingReleaseNotes && !bionicStore.showingPurchase
     }
     private var unreadSnapshot: PalmiUnreadSnapshot {
         let keys = Set((workspaceStore.projects + workspaceStore.chatProjects).flatMap { project in
@@ -99,14 +101,28 @@ struct WorkspaceShellScreen: View {
         }
         .sheet(isPresented: $isShowingSettings) {
             AppSettingsScreen(
+                purchases: bionicStore.purchases,
                 store: manualLabStore,
                 skillRegistry: skillRegistry,
                 onContinuedProcessingPreferenceChange: { isEnabled in
                     chatStore.handleContinuedProcessingPreferenceChange(isEnabled: isEnabled)
                 },
                 onStartOnboarding: presentOnboardingFromSettings,
-                onFactoryResetCompleted: handleFactoryResetCompleted
+                onFactoryResetCompleted: handleFactoryResetCompleted,
+                onOpenBionic: {
+                    isShowingSettings = false
+                    selectShellMode(.bionic)
+                }
             )
+        }
+        .sheet(isPresented: $isShowingReleaseNotes) {
+            NavigationStack {
+                CurrentReleaseNotesScreen(
+                    onOpenBionic: { selectShellMode(.bionic) },
+                    onClose: { isShowingReleaseNotes = false }
+                )
+            }
+            .interactiveDismissDisabled()
         }
         .sheet(isPresented: $isShowingProjectSkills) {
             NavigationStack {
@@ -140,6 +156,12 @@ struct WorkspaceShellScreen: View {
             .interactiveDismissDisabled(true)
         }
         .onAppear {
+            if !hasCompletedOnboarding {
+                // A new install has onboarding; the update remains available in Settings.
+                acknowledgedRelease = ReleaseNotesCatalog.currentID
+            } else if acknowledgedRelease != ReleaseNotesCatalog.currentID {
+                isShowingReleaseNotes = true
+            }
             presentOnboardingIfNeeded()
             bionicStore.visibleMode(shellMode == .bionic && readingAllowed)
         }
@@ -1910,6 +1932,7 @@ private struct OnboardingModeChoiceStep: View {
 }
 
 private struct AppSettingsScreen: View {
+    let purchases: BionicPurchaseStore
     @Environment(\.dismiss) private var dismiss
     @AppStorage(PalmiLanguage.storageKey) private var selectedLanguageID = PalmiLanguage.zhHans.rawValue
     @Bindable var store: ManualLabStore
@@ -1917,6 +1940,7 @@ private struct AppSettingsScreen: View {
     let onContinuedProcessingPreferenceChange: (Bool) -> Void
     let onStartOnboarding: () -> Void
     let onFactoryResetCompleted: () -> Void
+    let onOpenBionic: () -> Void
 
     var body: some View {
         NavigationStack {
@@ -1976,12 +2000,15 @@ private struct AppSettingsScreen: View {
             SkillCatalogScreen(registry: skillRegistry, mode: .global)
         case .personalization:
             PersonalizationSettingsScreen()
+        case .bionicPro:
+            BionicProScreen(purchases: purchases)
         case .systemSettings:
             SystemSettingsScreen(
                 store: store,
                 onContinuedProcessingPreferenceChange: onContinuedProcessingPreferenceChange,
                 onStartOnboarding: onStartOnboarding,
-                onFactoryResetCompleted: onFactoryResetCompleted
+                onFactoryResetCompleted: onFactoryResetCompleted,
+                onOpenBionic: onOpenBionic
             )
         case .privacyAndPolicy:
             PrivacyAndPolicySettingsScreen(selectedLanguageID: selectedLanguageID)
@@ -1996,6 +2023,7 @@ private struct SystemSettingsScreen: View {
     let onContinuedProcessingPreferenceChange: (Bool) -> Void
     let onStartOnboarding: () -> Void
     let onFactoryResetCompleted: () -> Void
+    let onOpenBionic: () -> Void
 
     var body: some View {
         List {
@@ -2038,6 +2066,11 @@ private struct SystemSettingsScreen: View {
             }
 
             Section(PalmiL10n.tr("settings.section.about")) {
+                NavigationLink {
+                    ReleaseNotesHistoryScreen(onOpenBionic: onOpenBionic)
+                } label: {
+                    Label(PalmiL10n.tr("updates.title"), systemImage: "newspaper")
+                }
                 NavigationLink {
                     SystemInformationScreen(workspaceManager: store.workspaceStore.workspaceManager)
                 } label: {
@@ -2419,29 +2452,20 @@ private struct PalmiPolicyDocumentScreen: View {
 private struct PersonalizationSettingsScreen: View {
     @AppStorage(AgentPersonalityPreset.storageKey)
     private var selectedPresetRaw = AgentPersonalityPreset.friendly.rawValue
-    @AppStorage(AgentCustomPersonalityConfiguration.titleStorageKey)
-    private var customTitle = ""
     @AppStorage(AgentCustomPersonalityConfiguration.descriptionStorageKey)
     private var customDescription = ""
     @State private var isCustomExpanded = false
-    @FocusState private var focusedField: CustomField?
-
-    private enum CustomField: Hashable {
-        case title
-        case description
-    }
+    @State private var showsPersonalityHelp = false
+    @FocusState private var isDescriptionFocused: Bool
+    @State private var editorFrame = CGRect.zero
 
     private var selectedPreset: AgentPersonalityPreset {
         AgentPersonalityPreset.current()
     }
 
-    private var customConfiguration: AgentCustomPersonalityConfiguration {
-        AgentCustomPersonalityConfiguration(title: customTitle, description: customDescription)
-    }
-
     var body: some View {
         List {
-            Section(PalmiL10n.tr("personalization.section.personality")) {
+            Section {
                 ForEach(AgentPersonalityPreset.allCases) { preset in
                     if preset == .custom {
                         customPresetRow
@@ -2449,18 +2473,46 @@ private struct PersonalizationSettingsScreen: View {
                         presetRow(for: preset)
                     }
                 }
+            } header: {
+                HStack(spacing: 6) {
+                    Text(PalmiL10n.tr("personalization.section.personality"))
+                    Button { showsPersonalityHelp = true } label: {
+                        Image(systemName: "questionmark.circle")
+                            .frame(minWidth: 28, minHeight: 28)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(PalmiL10n.tr("bionic.pro.help.label", PalmiL10n.tr("personalization.section.personality")))
+                }
             }
+        }
+        .coordinateSpace(name: "styleEditor")
+        .scrollDismissesKeyboard(.interactively)
+        .simultaneousGesture(SpatialTapGesture(coordinateSpace: .named("styleEditor")).onEnded { value in
+            if !editorFrame.contains(value.location) { isDescriptionFocused = false }
+        })
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button(PalmiL10n.tr("common.done")) { isDescriptionFocused = false }
+            }
+        }
+        .alert(PalmiL10n.tr("personalization.section.personality"), isPresented: $showsPersonalityHelp) {
+            Button(PalmiL10n.tr("common.done"), role: .cancel) { }
+        } message: {
+            Text(PalmiL10n.tr("personalization.personality.help"))
         }
         .navigationTitle(PalmiL10n.tr("settings.row.personalization"))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             isCustomExpanded = selectedPreset == .custom
+            customDescription = String(customDescription.prefix(200))
         }
     }
 
     private func presetRow(for preset: AgentPersonalityPreset) -> some View {
         Button {
-            focusedField = nil
+            isDescriptionFocused = false
             selectedPresetRaw = preset.rawValue
         } label: {
             HStack(spacing: 12) {
@@ -2479,87 +2531,72 @@ private struct PersonalizationSettingsScreen: View {
 
     private func personalityIcon(for preset: AgentPersonalityPreset) -> some View {
         Image(systemName: preset.systemImageName)
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(preset.tintColor)
-            .frame(width: 22, height: 22)
+            .font(.system(size: 18, weight: .regular))
+            .symbolRenderingMode(.monochrome)
+            .foregroundStyle(.secondary)
+            .frame(width: 24, height: 24)
+            .accessibilityHidden(true)
     }
 
     private var customPresetRow: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Button {
-                let shouldExpand = selectedPreset == .custom ? !isCustomExpanded : true
-                selectedPresetRaw = AgentPersonalityPreset.custom.rawValue
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isCustomExpanded = shouldExpand
-                }
-
-                if shouldExpand {
-                    DispatchQueue.main.async {
-                        focusedField = customConfiguration.title.isEmpty ? .title : .description
+            HStack(spacing: 6) {
+                Button {
+                    isDescriptionFocused = false
+                    selectedPresetRaw = AgentPersonalityPreset.custom.rawValue
+                } label: {
+                    HStack(spacing: 12) {
+                        personalityIcon(for: .custom)
+                        Text(PalmiL10n.tr("personality.custom")).foregroundStyle(.primary)
                     }
-                } else {
-                    focusedField = nil
                 }
-            } label: {
-                HStack(spacing: 12) {
-                    personalityIcon(for: .custom)
-
-                    Text(customConfiguration.localizedDisplayTitle)
-                        .foregroundStyle(.primary)
-
-                    Spacer(minLength: 12)
-
+                Button {
+                    isDescriptionFocused = false
+                    withAnimation(.easeInOut(duration: 0.2)) { isCustomExpanded.toggle() }
+                } label: {
                     Image(systemName: isCustomExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.secondary)
-
-                    selectionIndicator(isSelected: selectedPreset == .custom)
+                        .font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+                        .frame(width: 32, height: 44).contentShape(.rect)
                 }
+                .accessibilityLabel(PalmiL10n.tr(isCustomExpanded ? "personalization.custom.collapse" : "personalization.custom.expand"))
+                Spacer(minLength: 0)
+                Button {
+                    isDescriptionFocused = false
+                    selectedPresetRaw = AgentPersonalityPreset.custom.rawValue
+                } label: { selectionIndicator(isSelected: selectedPreset == .custom) }
+                .accessibilityLabel(PalmiL10n.tr("personality.custom"))
+                .accessibilityAddTraits(selectedPreset == .custom ? .isSelected : [])
             }
             .buttonStyle(.plain)
 
             if isCustomExpanded {
-                VStack(alignment: .leading, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(PalmiL10n.tr("personalization.custom.title"))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        TextField(PalmiL10n.tr("personalization.custom.titlePlaceholder"), text: $customTitle)
-                            .textFieldStyle(.roundedBorder)
-                            .submitLabel(.next)
-                            .focused($focusedField, equals: .title)
-                            .onSubmit {
-                                focusedField = .description
-                            }
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(PalmiL10n.tr("personalization.custom.heading"))
+                        .font(.subheadline.weight(.semibold))
+                    Text(PalmiL10n.tr("personalization.custom.description"))
+                        .font(.caption).foregroundStyle(.secondary)
+                    VStack(spacing: 4) {
+                        TextEditor(text: Binding(
+                            get: { customDescription },
+                            set: { customDescription = String($0.prefix(200)) }
+                        ))
+                        .focused($isDescriptionFocused)
+                        .frame(minHeight: 120)
+                        .scrollContentBackground(.hidden)
+                        .accessibilityLabel(PalmiL10n.tr("personalization.custom.description"))
+                        .onGeometryChange(for: CGRect.self) { proxy in
+                            proxy.frame(in: .named("styleEditor"))
+                        } action: { editorFrame = $0 }
+                        Text("\(customDescription.count)/200")
+                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
                     }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(PalmiL10n.tr("personalization.custom.description"))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        TextEditor(text: $customDescription)
-                            .focused($focusedField, equals: .description)
-                            .frame(minHeight: 120)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 8)
-                            .scrollContentBackground(.hidden)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Color(uiColor: .systemBackground))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(Color(uiColor: .separator).opacity(0.4), lineWidth: 1)
-                            )
-                    }
+                    .padding(10)
+                    .background(Color(uiColor: .systemBackground), in: .rect(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(uiColor: .separator).opacity(0.4)))
                 }
                 .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color(uiColor: .secondarySystemGroupedBackground))
-                )
+                .background(Color(uiColor: .secondarySystemGroupedBackground), in: .rect(cornerRadius: 14))
             }
         }
         .padding(.vertical, isCustomExpanded ? 6 : 0)
@@ -2625,27 +2662,33 @@ private struct ModelConfigurationManagerScreen: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button {
-                        presentedPlan = ModelPlanPresentation(planID: planStore.createPlan())
-                    } label: {
-                        Label(
-                            PalmiL10n.tr("model.management.addMenu.plan"),
-                            systemImage: "rectangle.stack.badge.plus"
-                        )
+                    Button { showingChatGPT = true } label: {
+                        Label {
+                            Text("Codex OAuth")
+                        } icon: {
+                            Image(uiImage: ModelManagementMenuIcons.codex)
+                        }
                     }
 
                     Button {
                         isAddingModel = true
                     } label: {
-                        Label(
-                            PalmiL10n.tr("model.management.addMenu.model"),
-                            systemImage: "cube.box"
-                        )
+                        Label { Text(PalmiL10n.tr("model.management.addMenu.model")) } icon: {
+                            Image(uiImage: ModelManagementMenuIcons.model)
+                        }
+                    }
+                    Divider()
+
+                    Button {
+                        presentedPlan = ModelPlanPresentation(planID: planStore.createPlan())
+                    } label: {
+                        Label { Text(PalmiL10n.tr("model.management.addMenu.plan")) } icon: {
+                            Image(uiImage: ModelManagementMenuIcons.plan)
+                        }
                     }
 
                     Divider()
 
-                    Button("ChatGPT OAuth", systemImage: "person.crop.circle.badge.checkmark") { showingChatGPT = true }
                     Button(PalmiL10n.tr("common.cancel"), role: .cancel) {}
                 } label: {
                     Image(systemName: "plus")
@@ -3214,6 +3257,11 @@ private struct ModelLibraryScreen: View {
     @State private var editingCandidate: ModelCandidateSnapshot?
     @State private var pendingDeletion: ModelCandidateSnapshot?
     @State private var errorMessage: String?
+    @State private var isAddingModel = false
+    @State private var showingChatGPT = false
+
+    @State private var oauthExpanded = false
+    @State private var manualExpanded = false
 
     var body: some View {
         List {
@@ -3226,24 +3274,55 @@ private struct ModelLibraryScreen: View {
             } else {
                 let manual = planStore.libraryModels.filter { !$0.isChatGPTOAuth }
                 let oauth = planStore.libraryModels.filter(\.isChatGPTOAuth)
-                if !manual.isEmpty { Section { ForEach(manual) { libraryRow($0) } } }
-                if !oauth.isEmpty { Section("ChatGPT OAuth") { ForEach(oauth) { libraryRow($0) } } }
+                if !oauth.isEmpty {
+                    Section {
+                        DisclosureGroup("Codex OAuth", isExpanded: $oauthExpanded) {
+                            ForEach(oauth) { libraryRow($0) }
+                        }
+                    }
+                }
+                if !manual.isEmpty {
+                    Section {
+                        DisclosureGroup(PalmiL10n.tr("model.library.manual"), isExpanded: $manualExpanded) {
+                            ForEach(manual) { libraryRow($0) }
+                        }
+                    }
+                }
             }
         }
         .navigationTitle(PalmiL10n.tr("model.library.globalTitle"))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink {
-                    ModelCandidateAddScreen(
-                        planStore: planStore,
-                        planID: planID,
-                        slot: nil,
-                        attachToSlot: false
-                    )
+                Menu {
+                    Button { isAddingModel = true } label: {
+                        Label { Text(PalmiL10n.tr("model.management.addMenu.model")) } icon: {
+                            Image(uiImage: ModelManagementMenuIcons.model)
+                        }
+                    }
+                    Button { showingChatGPT = true } label: {
+                        Label { Text("Codex OAuth") } icon: {
+                            Image(uiImage: ModelManagementMenuIcons.codex)
+                        }
+                    }
+                    Divider()
+                    Button(PalmiL10n.tr("common.cancel"), role: .cancel) {}
                 } label: {
                     Image(systemName: "plus")
                 }
+                .menuOrder(.fixed)
+                .accessibilityLabel(PalmiL10n.tr("model.management.addMenu.title"))
             }
+        }
+        .navigationDestination(isPresented: $isAddingModel) {
+            ModelCandidateAddScreen(
+                planStore: planStore,
+                planID: planID,
+                slot: nil,
+                attachToSlot: false
+            )
+        }
+        .navigationDestination(isPresented: $showingChatGPT) {
+            ChatGPTOAuthScreen(planStore: planStore)
         }
         .sheet(item: $editingCandidate) { candidate in
             NavigationStack {
@@ -3375,7 +3454,7 @@ private struct ModelCandidateEditorSheet: View {
         Form {
             Section(PalmiL10n.tr("model.connection.title")) {
                 if let account = candidate.connection.chatGPTAccount {
-                    LabeledContent("ChatGPT OAuth", value: account.email.isEmpty ? account.accountID : account.email)
+                    LabeledContent("Codex OAuth", value: account.email.isEmpty ? account.accountID : account.email)
                     LabeledContent(PalmiL10n.tr("model.connection.protocol.title"), value: "Responses")
                 } else {
                 TextField(PalmiL10n.tr("model.connection.address"), text: $inputAddress)
@@ -4127,4 +4206,29 @@ private struct ModelPlanPresentation: Identifiable {
 
 private func modelConfigurationErrorMessage(_ error: Error) -> String {
     (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+}
+
+// Native menu images use intrinsic sizes; SwiftUI frames do not size their glyphs.
+@MainActor
+private enum ModelManagementMenuIcons {
+    static let plan = UIImage(systemName: "rectangle.stack.badge.plus",
+        withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .regular)) ?? UIImage()
+    static let model: UIImage = {
+        let configuration = UIImage.SymbolConfiguration(pointSize: 19, weight: .regular)
+        return UIGraphicsImageRenderer(size: CGSize(width: 24, height: 24)).image { context in
+            UIImage(systemName: "cube.box", withConfiguration: configuration)?
+                .draw(in: CGRect(x: 0, y: 1, width: 20, height: 20))
+            context.cgContext.setBlendMode(.clear)
+            context.cgContext.fillEllipse(in: CGRect(x: 13, y: 12, width: 11, height: 11))
+            context.cgContext.setBlendMode(.normal)
+            UIImage(systemName: "plus.circle.fill", withConfiguration: configuration)?
+                .draw(in: CGRect(x: 14, y: 13, width: 10, height: 10))
+        }.withRenderingMode(.alwaysTemplate)
+    }()
+    static let codex: UIImage = {
+        let size = CGSize(width: 18, height: 18)
+        return UIGraphicsImageRenderer(size: size).image { _ in
+            UIImage(named: "CodexOAuthLogo")?.draw(in: CGRect(origin: .zero, size: size))
+        }.withRenderingMode(.alwaysTemplate)
+    }()
 }

@@ -30,7 +30,9 @@ final class BionicStore {
     var participants: [String: BionicObject] = [:]
     var avatars: [String: Data] = [:]
     var lastBodies: [String: String] = [:]
-    var unreadCounts: [String: Int] = [:]
+    var unreadCounts: [String: Int] {
+        unreadSequencesByInstance.mapValues(\.count)
+    }
     private(set) var unreadSequencesByInstance: [String: [String: Int]] = [:]
     private(set) var typingWindowsByInstance: [String: [BionicTypingWindow]] = [:]
     private(set) var chatPreferences: [String: BionicChatPreferences] = [:]
@@ -88,13 +90,13 @@ final class BionicStore {
 
     init(modelRuntime: any AgentModelRuntime, modelPlanStore: ModelPlanStore,
          notificationService: NotificationService, purchases: BionicPurchaseStore? = nil,
-         imageGeneration: PalmiImageGenerationService? = nil) {
-        let archive = BionicArchiveStore()
+         imageGeneration: PalmiImageGenerationService? = nil,
+         archive: BionicArchiveStore? = nil) {
         let model = BionicModelService(runtime: modelRuntime, plans: modelPlanStore)
         model.imageGeneration = imageGeneration
-        let purchaseStore = purchases ?? BionicPurchaseStore()
+        let purchaseStore = purchases ?? BionicPurchaseStore(access: archive?.access ?? BionicAccessState())
+        let archive = archive ?? BionicArchiveStore(access: purchaseStore.access)
         self.purchases = purchaseStore
-        model.canGenerate = { purchaseStore.canUse }
         model.archive = archive
         let coordinator = BionicCoordinator(archive: archive, model: model)
         coordinator.imageGeneration = imageGeneration
@@ -200,7 +202,7 @@ final class BionicStore {
         try BionicUserProfileStore.shared.reset()
         selectedID = nil; chatVisibleID = nil; path = []; roles = []; messages = []; participants = [:]; avatars = [:]; errors = [:]
         composers.removeAll(); avatarPaths.removeAll(); statsKeys.removeAll(); refreshRequests.removeAll()
-        quotedIDs = [:]; quotedMessages = [:]; lastBodies = [:]; unreadCounts = [:]; globalError = nil
+        quotedIDs = [:]; quotedMessages = [:]; lastBodies = [:]; globalError = nil
         typingWindowsByInstance = [:]; chatPreferences = [:]; lastActivityTimes = [:]
         activityMessageIDs.removeAll(); chatCanvasAspects.removeAll()
         diagnosticRevision += 1
@@ -215,7 +217,6 @@ final class BionicStore {
         let id = projection.instance
         guard projection.throughSequence >= (readProjectionSequences[id] ?? -1) else { return }
         readProjectionSequences[id] = projection.throughSequence
-        if unreadCounts[id] != projection.unread { unreadCounts[id] = projection.unread }
         if unreadSequencesByInstance[id] != projection.unreadSequences {
             unreadSequencesByInstance[id] = projection.unreadSequences
         }
@@ -290,7 +291,6 @@ final class BionicStore {
     }
     private func prunePresentation(validIDs: Set<String>) {
         unreadSequencesByInstance = unreadSequencesByInstance.filter { validIDs.contains($0.key) }
-        for id in Set(unreadCounts.keys).subtracting(validIDs) { unreadCounts.removeValue(forKey: id) }
         for id in Set(lastBodies.keys).subtracting(validIDs) { lastBodies.removeValue(forKey: id) }
         for id in Set(chatPreferences.keys).subtracting(validIDs) { chatPreferences.removeValue(forKey: id) }
         for id in Set(lastActivityTimes.keys).subtracting(validIDs) { lastActivityTimes.removeValue(forKey: id) }
@@ -448,13 +448,14 @@ final class BionicStore {
         windowEnd = window.endIndex
         totalMessages = max(totalMessages, window.total)
     }
-    func appeared(_ messageID: String, instance: String, participantID: String) {
-        guard isForeground, modeVisible, selectedID == instance,
-              chatVisibleID == instance,
-              selectedRole?.state.participantID == participantID,
-              unreadSequencesByInstance[instance]?[messageID] != nil else { return }
+    func readConversationMessages(_ ids: Set<String>, instance: String, participantID: String) {
+        guard isForeground, selectedID == instance,
+              selectedRole?.state.participantID == participantID else { return }
+        let unread = Set(unreadSequencesByInstance[instance]?.keys.map { $0 } ?? [])
+        let conversationUnread = ids.intersection(unread)
+        guard !conversationUnread.isEmpty else { return }
         let key = BionicReadKey(instance: instance, participantID: participantID)
-        pendingReads[key, default: []].insert(messageID)
+        pendingReads[key, default: []].formUnion(conversationUnread)
         scheduleReadFlush()
     }
 
@@ -489,17 +490,17 @@ final class BionicStore {
         let batch = pendingReads
         pendingReads.removeAll()
         let token = invalidationToken
-        var changed = false
+        var published = false
         for (key, ids) in batch {
             guard token == invalidationToken else { return }
             do {
-                let didChange = try await archive.markRead(
+                _ = try await archive.markRead(
                     key.instance, ids: Array(ids), participantID: key.participantID
                 )
-                changed = changed || didChange
                 let projection = try await archive.readProjection(key.instance)
                 guard token == invalidationToken else { return }
                 publishReadProjection(projection)
+                published = true
             } catch {
                 guard token == invalidationToken else { return }
                 if (error as? BionicFailure)?.code != "roleMissing" {
@@ -507,10 +508,9 @@ final class BionicStore {
                 }
             }
         }
-        if changed, token == invalidationToken { await notifications.reconcile() }
+        if published, token == invalidationToken { await notifications.reconcile() }
     }
     func send(_ instance: String) async {
-        guard purchases.canUse else { showingPurchase = true; return }
         let draft = composer(instance)
         guard draft.canSend else { return }
         if selectedID == instance { followingLatest = true }
@@ -584,7 +584,7 @@ final class BionicStore {
     func create(persona: BionicObject, participant: BionicObject, assets: [String: Data],
                 binding: BionicObject, audit: BionicValidation?,
                 openAfterCreation: Bool = true) async throws -> BionicRole {
-        guard purchases.canUse else { throw BionicFailure("purchaseRequired") }
+        try await archive.requireRoleCapacity()
         try BionicPersonaCatalog.validate(persona)
         if let audit {
             guard audit.receipt.flag("passed"), audit.receipt.text("input_hash") == (try BionicPersonaCatalog.fingerprint(persona)) else { throw BionicFailure("auditRequired") }
@@ -612,7 +612,6 @@ final class BionicStore {
         executionID: UUID,
         avatar: Data? = nil
     ) async throws -> BionicObject {
-        guard purchases.canUse else { throw BionicFailure("purchaseRequired") }
         let token = invalidationToken
         let characterID = executionID.uuidString.lowercased()
         let draft = try BionicPersonaCreation.make(arguments, characterID: characterID)
@@ -640,6 +639,7 @@ final class BionicStore {
                     "character_id": .string(existing.characterID), "nickname": .string(existing.name)]
         }
         guard token == invalidationToken else { throw CancellationError() }
+        try await archive.requireRoleCapacity()
         var binding = model.defaultBinding()
         binding["notifications_enabled"] = .bool(false)
         binding["contact_resume_allowed"] = persona["proactive_enabled"] ?? .bool(false)

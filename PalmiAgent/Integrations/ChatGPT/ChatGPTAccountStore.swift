@@ -174,7 +174,8 @@ final class ChatGPTAccountStore {
         return try await task.value.access
     }
     func authorizedRequest(path: String, accountID: String, body: Data? = nil) async throws -> URLRequest {
-        guard ["responses", "models", "images/generations"].contains(path) else { throw ChatGPTConnectionError("request") }
+        // 只新增 images/edits 这一项；保留 HTTPS、host、账号代次、认证与响应大小校验。
+        guard ["responses", "models", "images/generations", "images/edits"].contains(path) else { throw ChatGPTConnectionError("request") }
         let token = try await accessToken(accountID: accountID)
         var url = Self.base.appendingPathComponent(path)
         if path == "models" {
@@ -247,7 +248,8 @@ final class ChatGPTAccountStore {
     }
     func imageResponse(_ request: URLRequest, accountID: String) async throws -> Data {
         guard account?.accountID == accountID, request.url?.host == "chatgpt.com",
-              request.url?.path == "/backend-api/codex/images/generations" else { throw ChatGPTConnectionError("request") }
+              request.url?.path == "/backend-api/codex/images/generations"
+                || request.url?.path == "/backend-api/codex/images/edits" else { throw ChatGPTConnectionError("request") }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw ChatGPTConnectionError("image", status: (response as? HTTPURLResponse)?.statusCode)

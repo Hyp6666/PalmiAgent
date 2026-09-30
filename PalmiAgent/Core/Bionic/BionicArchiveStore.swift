@@ -272,11 +272,33 @@ nonisolated enum BionicDisk {
 
 actor BionicArchiveStore {
     nonisolated let root: URL
+    nonisolated let access: BionicAccessState
     private var cache: [String: BionicRole] = [:]
     var presentationCache: [String: BionicPresentationCache] = [:]
+    var imageReferenceCache: [String: BionicReferenceCache] = [:]
     var diaryProjectionCache: [String: BionicDiaryProjectionCache] = [:]
     private var deleted: Set<String> = []
-    init(root: URL = BionicDisk.root) { self.root = root }
+    init(root: URL = BionicDisk.root, access: BionicAccessState = BionicAccessState()) {
+        self.root = root
+        self.access = access
+    }
+
+    /// Called again at the synchronous actor-isolated commit boundary. No await
+    /// between this check and installation, so concurrent tools cannot overbook.
+    /// Reserve Palmi's slot even if its lazy installation has not happened yet.
+    func requireRoleCapacity() throws {
+        let base = root.appendingPathComponent("roles", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: base.path) else { return }
+        let entries = try FileManager.default.contentsOfDirectory(at: base, includingPropertiesForKeys: nil)
+        // Count physical slots, including incomplete archives. Never undercount
+        // because a supplied binding/manifest is malformed or forged.
+        let count = entries.filter {
+            BionicCodec.validID($0.lastPathComponent)
+                && $0.lastPathComponent != BionicSystemPersona.installationID
+        }.count
+        guard count < access.customRoleLimit else { throw BionicFailure("roleLimitReached") }
+    }
+
     nonisolated func roleURL(_ instance: String) -> URL { root.appendingPathComponent("roles/\(instance)", isDirectory: true) }
     nonisolated func localURL(_ instance: String) -> URL { root.appendingPathComponent("local/\(instance)", isDirectory: true) }
 
@@ -348,6 +370,11 @@ actor BionicArchiveStore {
                     auditRequest: BionicObject? = nil, auditResult: BionicObject? = nil,
                     installationID: String? = nil) throws -> BionicRole {
         let instance = installationID ?? BionicCodec.id()
+        if instance == BionicSystemPersona.installationID {
+            guard persona.text("character_id") == BionicSystemPersona.characterID else {
+                throw BionicFailure("invalidFields")
+            }
+        } else { try requireRoleCapacity() }
         guard BionicCodec.validID(instance) else { throw BionicFailure("invalidFields") }
         let fm = FileManager.default
         guard !fm.fileExists(atPath: roleURL(instance).path) else {
@@ -521,6 +548,9 @@ actor BionicArchiveStore {
                 items.append(["kind": .string("message"), "message_id": .string(ref.id), "memory_id": .null, "author_id": m["author_id"] ?? .null,
                               "logical_at": m["logical_at"] ?? .null, "recorded_timezone": m["recorded_timezone"] ?? .null, "title": .null,
                               "text": .string(String(decoding: bytes[offset..<end], as: UTF8.self)), "source_message_ids": .strings([ref.id]),
+                              "image_references": .records(m.records("attachments").filter { $0.text("kind") == "image" }.map {
+                                  ["asset_path": .string($0.text("asset")), "attachment_id": .string($0.text("attachment_id"))]
+                              }),
                               "truncated": .bool(offset > 0 || end < bytes.count), "source_utf8_start": .count(offset), "source_utf8_end": .count(end)])
                 bytesBudget -= end - offset
                 if end == bytes.count { position += 1; offset = 0 } else { offset = end }
@@ -573,6 +603,8 @@ actor BionicArchiveStore {
         return (roleURL(instance), meta, files)
     }
     func installImportedRole(from staging: URL, instance: String, binding: BionicObject) throws -> BionicRole {
+        guard instance != BionicSystemPersona.installationID else { throw BionicFailure("systemRoleProtected") }
+        try requireRoleCapacity()
         guard BionicCodec.validID(instance), !FileManager.default.fileExists(atPath: roleURL(instance).path) else { throw BionicFailure("archiveInvalid") }
         _ = try BionicDisk.loadRole(at: staging, instance: instance, fullValidation: true)
         try FileManager.default.createDirectory(at: roleURL(instance).deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -584,12 +616,14 @@ actor BionicArchiveStore {
         guard !BionicSystemPersona.isProtected(instance) else {
             throw BionicFailure("systemRoleProtected")
         }
+        imageReferenceCache.removeValue(forKey: instance)
         presentationCache.removeValue(forKey: instance)
         diaryProjectionCache.removeValue(forKey: instance)
         deleted.insert(instance); cache.removeValue(forKey: instance)
         for url in [roleURL(instance), localURL(instance)] where FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
     }
     func forgetAll() {
+        imageReferenceCache.removeAll()
         diaryProjectionCache.removeAll()
         presentationCache.removeAll()
         deleted.formUnion(cache.keys); cache.removeAll()
@@ -684,6 +718,7 @@ extension BionicArchiveStore {
     }
     @discardableResult
     func changeMemory(_ instance: String, memoryID: String, title: String, content: String, deleting: Bool) throws -> BionicRole {
+        if !deleting { try access.requirePro() }
         let role = try commitDue(instance, at: .now)
         guard let old = try memoryList(instance, includeDeleted: true).first(where: { $0.text("memory_id") == memoryID }) else { throw BionicFailure("sourceMissing") }
         var revision = old; revision["memory_revision_id"] = .string(BionicCodec.id())
@@ -718,6 +753,7 @@ extension BionicArchiveStore {
         return true
     }
     func resetAll() throws {
+        imageReferenceCache.removeAll()
         diaryProjectionCache.removeAll()
         presentationCache.removeAll()
         deleted.formUnion(cache.keys); cache.removeAll()

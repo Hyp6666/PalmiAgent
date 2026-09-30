@@ -12,7 +12,7 @@ extension ModelPlanStore {
             } else {
                 connectionID = UUID()
                 var value = ModelAPIConnectionRecord(
-                    id: connectionID, displayName: "ChatGPT OAuth",
+                    id: connectionID, displayName: "Codex OAuth",
                     inputAddress: "https://chatgpt.com/backend-api/codex",
                     chatCompletionsURLString: "https://chatgpt.com/backend-api/codex/responses",
                     responsesURLString: "https://chatgpt.com/backend-api/codex/responses",
@@ -366,7 +366,7 @@ struct ModelCandidateSnapshot: Identifiable, Equatable, Sendable {
     var isImageGenerationOnly: Bool { record.imageGenerationOnly == true }
     var subtitle: String {
         if let account = connection.chatGPTAccount {
-            return "ChatGPT OAuth · " + (account.email.isEmpty ? account.accountID : account.email)
+            return "Codex OAuth · " + (account.email.isEmpty ? account.accountID : account.email)
         }
         return connection.inputAddress
     }

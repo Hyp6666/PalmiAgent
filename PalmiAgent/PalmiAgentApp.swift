@@ -18,10 +18,7 @@ struct PalmiAgentApp: App {
                 else if scenePhase == .inactive { container.bionicStore.sceneBecameInactive() }
             }
             .onChange(of: scenePhase) { _, newPhase in handleScenePhaseChange(newPhase) }
-            .onChange(of: container.bionicStore.purchases.canUse) { _, enabled in
-                guard enabled, scenePhase == .active else { return }
-                Task { await container.bionicStore.coordinator.activate() }
-            }
+
         }
     }
     private func handleScenePhaseChange(_ phase: ScenePhase) {

@@ -104,6 +104,9 @@ final class BionicCoordinator {
         diaryCompletedThisActivation.removeValue(forKey: instance)
         diaryQuotaDays.removeValue(forKey: instance)
         imageTasks[instance]?.cancel()
+        // 删除角色：同步清理其派生参考索引与活跃任务登记。
+        imageTasks.removeValue(forKey: instance)
+        imageTaskIDs.removeValue(forKey: instance)
         deleted.insert(instance); blocked.remove(instance); queue.removeAll { $0 == instance }; model.cancel(instance: instance)
     }
     func open(_ instance: String) async {
@@ -663,7 +666,9 @@ final class BionicCoordinator {
                 return ["tool_result": .object(page.json)]
             }
             if answer.toolName == "generate_image" {
-                return try await self.generateImageEffect(current, root: request, prompt: answer.payload.text("prompt"))
+                return try await self.generateImageEffect(
+                    current, root: request, allowedMessageIDs: actual.allowedIDs, payload: answer.payload
+                )
             }
             var effect = try BionicToolbox.speakEffect(
                 answer.payload, allowedIDs: actual.allowedIDs,
@@ -687,32 +692,211 @@ final class BionicCoordinator {
         }
         return true
     }
-    private var imageTasks: [String: Task<PalmiGeneratedPicture, Error>] = [:]
-    private func generateImageEffect(_ frozen: BionicRole, root: BionicObject, prompt: String) async throws -> BionicObject {
+    private var imageTasks: [String: Task<FrozenImageOutcome, Error>] = [:]
+    private var imageTaskIDs: [String: UUID] = [:]
+
+    /// 冻结后的生图请求：进入 resolver 前固定角色、参考与意图，之后不受全局状态变化影响。
+    private struct FrozenImageRequest {
+        let instance: String
+        let characterID: String
+        let inputMessageID: String
+        let prompt: String
+        let mode: PalmiReferenceMode
+        let depictsCharacter: Bool
+        let requestedPaths: [String]
+        let allowedMessageIDs: Set<String>
+        let avatarPath: String?
+    }
+
+    private struct FrozenImageOutcome {
+        let picture: PalmiGeneratedPicture?
+        let errorCode: String?
+        let references: [PalmiPreparedReference]
+        let anchor: String
+        let fingerprint: String
+
+        static func failed(_ code: String, anchor: String) -> FrozenImageOutcome {
+            FrozenImageOutcome(picture: nil, errorCode: code, references: [], anchor: anchor, fingerprint: "")
+        }
+    }
+
+    private func generateImageEffect(
+        _ frozen: BionicRole,
+        root: BionicObject,
+        allowedMessageIDs: Set<String>,
+        payload: BionicObject
+    ) async throws -> BionicObject {
         let instance = frozen.installationID
         guard let generator = imageGeneration, let inputID = root.strings("input_message_ids").last else {
             return ["tool_result": .object(["ok": .bool(false), "error": .string("imageConfigurationMissing")])]
         }
-        let task = Task { @MainActor in try await generator.generate(prompt: prompt, scope: "bionic:" + instance + ":" + inputID) }
+        // 冻结：之后即使用户切换角色、换头像、换模型，也不替换正在请求的输入。
+        let request = FrozenImageRequest(
+            instance: instance,
+            characterID: frozen.characterID,
+            inputMessageID: inputID,
+            prompt: payload.text("prompt"),
+            mode: PalmiReferenceMode(rawValue: payload.text("reference_mode")) ?? .none,
+            depictsCharacter: payload.flag("depicts_character"),
+            requestedPaths: payload.strings("reference_image_paths"),
+            allowedMessageIDs: allowedMessageIDs,
+            avatarPath: frozen.persona.optionalText("avatar_asset")
+        )
+        let task = Task { @MainActor in
+            try await self.performFrozenImageGeneration(request, generator: generator)
+        }
+        let taskID = UUID()
         imageTasks[instance] = task
-        defer { imageTasks.removeValue(forKey: instance) }
+        imageTaskIDs[instance] = taskID
+        defer {
+            // 只移除仍是本次任务的登记；旧任务的 defer 不能删掉同角色后来启动的新任务。
+            if imageTaskIDs[instance] == taskID {
+                imageTasks.removeValue(forKey: instance)
+                imageTaskIDs.removeValue(forKey: instance)
+            }
+        }
+        let outcome: FrozenImageOutcome
         do {
-            let picture = try await withTaskCancellationHandler(operation: { try await task.value }, onCancel: { task.cancel() })
-            try await checkCurrent(frozen, generation: true)
-            let path = try await archive.saveAsset(instance, picture.data)
-            try await checkCurrent(frozen, generation: true)
-            let id = BionicCodec.id()
-            let attachment: BionicObject = ["attachment_id": .string(id), "kind": .string("image"),
-                "asset": .string(path), "filename": .string(picture.filename), "byte_count": .count(picture.data.count),
-                "width": .count(picture.width), "height": .count(picture.height)]
-            return ["attachment": .object(attachment), "tool_result": .object([
-                "ok": .bool(true), "image_id": .string(id), "width": .count(picture.width), "height": .count(picture.height)])]
+            outcome = try await withTaskCancellationHandler(
+                operation: { try await task.value }, onCancel: { task.cancel() }
+            )
         } catch is CancellationError { throw CancellationError() }
         catch BionicControl.stale { throw BionicControl.stale }
         catch {
             try await checkCurrent(frozen, generation: true)
             return ["tool_result": .object(["ok": .bool(false),
                 "error": .string((error as? BionicFailure)?.code ?? "imageGenerationFailed")])]
+        }
+        guard let picture = outcome.picture else {
+            // 已冻结范围内的失败：真实错误返回，不伪装成功、不自动换端点/换模型重试。
+            return ["tool_result": .object(["ok": .bool(false), "error": .string(outcome.errorCode ?? "imageGenerationFailed")])]
+        }
+        try await checkCurrent(frozen, generation: true)
+        let path = try await archive.saveAsset(instance, picture.data)
+        try await checkCurrent(frozen, generation: true)
+        let id = BionicCodec.id()
+        let attachment: BionicObject = ["attachment_id": .string(id), "kind": .string("image"),
+            "asset": .string(path), "filename": .string(picture.filename), "byte_count": .count(picture.data.count),
+            "width": .count(picture.width), "height": .count(picture.height)]
+        let kindByPath = Dictionary(uniqueKeysWithValues: outcome.references.map {
+            ($0.sourcePath, $0.sourceSHA256.isEmpty ? "generated" : "reference")
+        })
+        let manifest: BionicObject = [
+            "reference_contract": .string("palmi.image-references.v1"),
+            "requested_mode": .string(request.mode.rawValue),
+            "depicts_character": .bool(request.depictsCharacter),
+            "identity_anchor": .string(outcome.anchor),
+            "request_fingerprint": .string(outcome.fingerprint),
+            "references": .records(outcome.references.map { reference in
+                ["path": .string(reference.sourcePath),
+                 "source_sha256": .string(reference.sourceSHA256),
+                 "prepared_sha256": .string(reference.preparedSHA256),
+                 "kind": .string(kindByPath[reference.sourcePath] ?? "generated"),
+                 "source_message_id": .null] as [String: BionicJSON]
+            })
+        ]
+        return ["attachment": .object(attachment),
+                "reference_manifest": .object(manifest),
+                "tool_result": .object([
+                    "ok": .bool(true), "image_id": .string(id),
+                    "width": .count(picture.width), "height": .count(picture.height),
+                    "asset_path": .string(path), "reference_count": .count(outcome.references.count)])]
+    }
+
+    /// 冻结请求 → 候选目录 → 选择 → 准备 → 统一生图服务。
+    private func performFrozenImageGeneration(
+        _ request: FrozenImageRequest, generator: PalmiImageGenerationService
+    ) async throws -> FrozenImageOutcome {
+        let anchor = BionicIdentityAnchor.anchor(
+            characterID: request.characterID,
+            avatarAsset: request.avatarPath
+        )
+        // 宿主候选目录：冻结时点的角色证据（不是全局用户头像、不是其他角色）。
+        let avatarPath = request.avatarPath
+        var candidates: [PalmiImageReferenceCandidate] = []
+        if let avatarPath, PalmiImageReferencePolicy.isSafeAssetPath(avatarPath) {
+            let hash = String(avatarPath.dropFirst("assets/".count).prefix(64))
+            candidates.append(PalmiImageReferenceCandidate(
+                path: avatarPath, sha256: hash,
+                installationID: request.instance, characterID: request.characterID,
+                kind: .avatar, identityAnchor: anchor, depictsCharacter: true, committedSequence: nil
+            ))
+        }
+        let history = try await archive.referenceEntries(request.instance, anchor: anchor)
+        candidates.append(contentsOf: history.map(\.candidate))
+        if request.mode == .explicit {
+            candidates.append(contentsOf: try await archive.explicitReferenceCandidates(
+                request.instance, messageIDs: request.allowedMessageIDs, paths: request.requestedPaths
+            ))
+        }
+        // 按 path 去重整理；同一路径保留确定的主记录。
+        var deduplicated: [String: PalmiImageReferenceCandidate] = [:]
+        for candidate in candidates where deduplicated[candidate.path] == nil {
+            deduplicated[candidate.path] = candidate
+        }
+        let selected: [PalmiImageReferenceCandidate]
+        do {
+            selected = try PalmiImageReferencePolicy.select(
+                mode: request.mode,
+                depictsCharacter: request.depictsCharacter,
+                requestedPaths: request.requestedPaths,
+                installationID: request.instance,
+                characterID: request.characterID,
+                identityAnchor: anchor,
+                catalog: Array(deduplicated.values)
+            )
+        } catch let error as PalmiReferencePolicyError {
+            return FrozenImageOutcome.failed(Self.referenceErrorCode(error), anchor: anchor)
+        }
+        // 只在真正的图片生成请求中读取与上传参考图（非 MainActor 的处理器）。
+        var prepared: [PalmiPreparedReference] = []
+        if !selected.isEmpty {
+            let preparer = PalmiImageReferencePreparer(archive: archive)
+            for candidate in selected {
+                prepared.append(try await preparer.prepare(candidate: candidate, instance: request.instance))
+            }
+        }
+        let scope = "bionic:" + request.instance + ":" + request.inputMessageID
+        let receipt = try await generator.generateWithReceipt(
+            prompt: Self.supplementedPrompt(request.prompt, selected: selected, depictsCharacter: request.depictsCharacter),
+            scope: scope, references: prepared
+        )
+        return FrozenImageOutcome(
+            picture: receipt.picture, errorCode: nil,
+            references: prepared, anchor: anchor, fingerprint: receipt.fingerprint
+        )
+    }
+
+    /// 宿主补充与本次引用顺序匹配的简短约束；不依赖模型"应该知道第一张是谁"。
+    private static func supplementedPrompt(
+        _ prompt: String, selected: [PalmiImageReferenceCandidate], depictsCharacter: Bool
+    ) -> String {
+        guard !selected.isEmpty else { return prompt }
+        var lines = [prompt, "", "宿主附加约束（按参考图顺序）："]
+        for (index, candidate) in selected.enumerated() {
+            let position = index + 1
+            switch candidate.kind {
+            case .avatar:
+                lines.append("第\(position)张是当前角色头像，作为主要形象参考。")
+            case .generated:
+                lines.append("第\(position)张是角色此前的生成图，作为外观连续性的辅助参考。")
+            case .userProvided:
+                lines.append("第\(position)张是本次指定的参考图。")
+            }
+        }
+        if depictsCharacter {
+            lines.append("保持角色的外形特征、发型、轮廓、主要配色或非人类角色辨识特征。不强制复制头像背景、构图或衣着；场景、动作、服装可按本次用户要求改变。")
+        }
+        lines.append("参考图提高连续性，不是像素级或身份级保证。")
+        return lines.joined(separator: "\n")
+    }
+
+    private static func referenceErrorCode(_ error: PalmiReferencePolicyError) -> String {
+        switch error {
+        case .tooManyReferences: "referenceLimitExceeded"
+        case .conflictingArguments, .invalidPath, .ambiguousReference, .invalidMetadata: "referenceInvalid"
+        case .unknownReference: "referenceMissing"
+        case .wrongScope: "referenceScopeMismatch"
         }
     }
 

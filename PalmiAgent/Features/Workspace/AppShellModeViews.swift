@@ -73,6 +73,7 @@ struct AppShellTopBar: View {
     let onOpenSettings: () -> Void
     let onTrailingAction: () -> Void
     let onSelectMode: (AppShellMode) -> Void
+    var bionicMenu: BionicAddMenu? = nil
 
     var body: some View {
         GlassEffectContainer(spacing: 18) {
@@ -104,17 +105,28 @@ struct AppShellTopBar: View {
         .accessibilityLabel(PalmiL10n.tr("common.settings"))
     }
 
-    private var trailingButton: some View {
-        Button(action: onTrailingAction) {
-            Image(systemName: trailingSystemName)
-                .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(.blue)
-                .frame(width: 50, height: 50)
-                .contentShape(Circle())
+    @ViewBuilder private var trailingButton: some View {
+        if let bionicMenu {
+            Menu { bionicMenu } label: { trailingLabel }
+                .menuOrder(.fixed)
+                .buttonStyle(.plain)
+                .glassEffect(.regular.tint(.white.opacity(0.14)).interactive(), in: .capsule)
+                .accessibilityLabel(trailingAccessibilityLabel)
+                .accessibilityIdentifier("bionic.addMenu")
+        } else {
+            Button(action: onTrailingAction) { trailingLabel }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.tint(.white.opacity(0.14)).interactive(), in: .capsule)
+                .accessibilityLabel(trailingAccessibilityLabel)
         }
-        .buttonStyle(.plain)
-        .glassEffect(.regular.tint(.white.opacity(0.14)).interactive(), in: .capsule)
-        .accessibilityLabel(trailingAccessibilityLabel)
+    }
+
+    private var trailingLabel: some View {
+        Image(systemName: trailingSystemName)
+            .font(.system(size: 24, weight: .semibold))
+            .foregroundStyle(.blue)
+            .frame(width: 50, height: 50)
+            .contentShape(Circle())
     }
 
     private var modeMenu: some View {
@@ -128,21 +140,23 @@ struct AppShellTopBar: View {
             }
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: mode.symbolName).font(.subheadline.weight(.semibold))
-                Text(mode.title).font(.headline.weight(.semibold))
+                Image(systemName: mode.symbolName)
+                    .font(.subheadline.weight(.semibold))
+                Text(mode.title)
+                    .font(.headline.weight(.semibold))
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
             }
-            .foregroundStyle(.primary)
+            .foregroundStyle(unreadSnapshot.countOutside(mode) > 0 ? Color.blue : Color.primary)
             .padding(.horizontal, 18)
             .frame(height: 50)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .menuOrder(.fixed)
         .glassEffect(.regular.tint(.white.opacity(0.12)).interactive(), in: .capsule)
-        .overlay(alignment: .topTrailing) {
-            PalmiUnreadBadge(count: unreadSnapshot.countOutside(mode)).offset(x: 4, y: -4)
-        }
         .accessibilityLabel(PalmiL10n.tr("common.mode"))
+
     }
 }
 

@@ -80,6 +80,9 @@ struct BionicPersonaEditor: View {
                     BionicAvatar(data: roleAvatar, name: persona.text("nickname"), size: 64)
                     PhotosPicker(selection: $rolePhoto, matching: .images) { Text(PalmiL10n.tr("bionic.chooseAvatar")) }
                 }
+                // 头像用途建议：非必填，不增加角色身份限制，不弹窗。
+                Text(PalmiL10n.tr("bionic.avatar.consistencyHint"))
+                    .font(.caption).foregroundStyle(.secondary)
                 TextField(PalmiL10n.tr("bionic.nickname"), text: text("nickname"))
                     .focused($focusedField, equals: .nickname).bionicInputField()
                 DatePicker(PalmiL10n.tr("bionic.birthDate"), selection: birthday, in: birthRange, displayedComponents: .date)

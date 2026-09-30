@@ -268,6 +268,7 @@ private struct BionicMemoryListScreen: View {
     let instance: String
     let onJump: (String) -> Void
     @State private var memories: [BionicObject] = []
+    @State private var showingPro = false
     @State private var selected: BionicMemorySelection?
     @State private var error: String?
     private var revision: Int { store.roles.first { $0.installationID == instance }?.state.memorySequence ?? 0 }
@@ -276,10 +277,21 @@ private struct BionicMemoryListScreen: View {
             ForEach(memories, id: \.memoryIdentity) { memory in
                 Menu {
                     Button(PalmiL10n.tr("bionic.jump"), systemImage: "arrow.turn.up.right") {
-                        if let id = memory.optionalText("primary_source_message_id") { onJump(id) }
+                        guard store.purchases.hasFullAccess else { showingPro = true; return }
+                        Task {
+                            do {
+                                if let id = try await store.archive.userMemorySource(instance, memoryID: memory.text("memory_id")) { onJump(id) }
+                            } catch { self.error = BionicStore.errorText(error) }
+                        }
                     }.disabled(memory.optionalText("primary_source_message_id") == nil)
                     Button(PalmiL10n.tr("bionic.memoryDetails"), systemImage: "info.circle") {
-                        selected = BionicMemorySelection(value: memory)
+                        guard store.purchases.hasFullAccess else { showingPro = true; return }
+                        Task {
+                            do {
+                                let detail = try await store.archive.userMemoryDetail(instance, memoryID: memory.text("memory_id"))
+                                selected = BionicMemorySelection(value: detail)
+                            } catch { self.error = BionicStore.errorText(error) }
+                        }
                     }
                     Divider()
                     Button(PalmiL10n.tr("bionic.cancel")) { }
@@ -292,6 +304,7 @@ private struct BionicMemoryListScreen: View {
             if memories.isEmpty { Text(PalmiL10n.tr("bionic.noMemories")).foregroundStyle(.secondary) }
             if let error { Text(error).font(.footnote).foregroundStyle(.red) }
         }
+        .sheet(isPresented: $showingPro) { BionicPurchaseSheet(purchases: store.purchases) }
         .navigationTitle(PalmiL10n.tr("bionic.memory")).navigationBarTitleDisplayMode(.inline)
         .task(id: revision) { await reload() }
         .sheet(item: $selected) { item in
@@ -321,6 +334,9 @@ private struct BionicMemoryDetail: View {
     @State private var deleting = false
     @State private var error: String?
     var body: some View {
+        BionicProGate(purchases: store.purchases) { detailContent }
+    }
+    private var detailContent: some View {
         List {
             Section { Text(memory.text("title")).font(.headline); Text(memory.text("content")).textSelection(.enabled) }
             Section(PalmiL10n.tr("bionic.sources")) {

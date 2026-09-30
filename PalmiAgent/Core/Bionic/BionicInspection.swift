@@ -7,6 +7,7 @@ nonisolated struct BionicInspectionPage: Sendable {
 
 extension BionicArchiveStore {
     func inspectionState(_ instance: String) throws -> BionicObject {
+        try access.requirePro()
         let role = try loadRole(instance)
         let binding = try self.binding(instance)
         let keys = ["plan_id", "primary_candidate_id", "multimodal_candidate_id", "lightweight_candidate_id", "developer_visible",
@@ -23,6 +24,7 @@ extension BionicArchiveStore {
             "memory_view_with_staged_revisions": .records(try memoryList(instance, includeDeleted: true, includeStaged: true))]
     }
     func inspectionOperations(_ instance: String, limit: Int = 40) throws -> BionicInspectionPage {
+        try access.requirePro()
         let role = try loadRole(instance)
         var records: [BionicObject] = []
         for root in role.state.checkpoints where root.text("step_id") == "root" {
@@ -45,6 +47,7 @@ extension BionicArchiveStore {
         return BionicInspectionPage(records: Array(records.prefix(max(1, limit))), total: records.count)
     }
     func inspectionOperation(_ instance: String, operationID: String) throws -> BionicObject {
+        try access.requirePro()
         let role = try loadRole(instance)
         guard BionicCodec.validID(operationID), role.state.checkpoints.contains(where: { $0.text("operation_id") == operationID }) else {
             throw BionicFailure("sourceMissing")
@@ -71,6 +74,7 @@ extension BionicArchiveStore {
         return record
     }
     func inspectionTransactions(_ instance: String, limit: Int = 40) throws -> BionicInspectionPage {
+        try access.requirePro()
         _ = try loadRole(instance)
         let directory = roleURL(instance).appendingPathComponent("transactions", isDirectory: true)
         let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)

@@ -17,9 +17,18 @@ struct ImageGenerationConfigurationScreen: View {
                         Text(PalmiL10n.tr("image.unavailableModel")).tag(Optional(id))
                     }
                 }
-                if let active = account.account { LabeledContent("ChatGPT OAuth", value: active.email.isEmpty ? active.accountID : active.email) }
+                .pickerStyle(.menu)
+                .tint(models.isEmpty ? Color.secondary : Color.accentColor)
+                if let active = account.account { LabeledContent("Codex OAuth", value: active.email.isEmpty ? active.accountID : active.email) }
                 NavigationLink { ChatGPTOAuthScreen(planStore: plans) }
-                label: { Label("ChatGPT OAuth", systemImage: "person.crop.circle") }
+                label: {
+                    Label {
+                        Text("Codex OAuth")
+                    } icon: {
+                        Image("CodexOAuthLogo").renderingMode(.template).resizable()
+                            .scaledToFit().frame(width: 18, height: 18)
+                    }
+                }
             }
         }
         .navigationTitle(PalmiL10n.tr("image.configuration")).navigationBarTitleDisplayMode(.inline)

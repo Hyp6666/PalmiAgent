@@ -2,6 +2,7 @@ import Foundation
 
 extension BionicArchiveStore {
     func inspectorDashboard(_ instance: String, limit: Int) throws -> BionicObject {
+        try access.requirePro()
         let role = try loadRole(instance)
         let page = try inspectionOperations(instance, limit: limit)
         var data = try diagnosticHeader(instance)
@@ -30,6 +31,7 @@ extension BionicArchiveStore {
         return data
     }
     func inspectorDeliveries(_ instance: String, state: String, limit: Int) throws -> BionicObject {
+        try access.requirePro()
         let role = try loadRole(instance)
         var rows: [BionicObject] = []
         for group in role.state.groups {
@@ -57,6 +59,7 @@ extension BionicArchiveStore {
         return ["rows": .records(shown), "total": .count(rows.count)]
     }
     func inspectorDelivery(_ instance: String, messageID: String) throws -> BionicObject {
+        try access.requirePro()
         let role = try loadRole(instance)
         guard let group = role.state.groups.first(where: { $0.records("items").contains { $0.text("message_id") == messageID } }),
               let item = group.records("items").first(where: { $0.text("message_id") == messageID }) else { throw BionicFailure("sourceMissing") }
@@ -105,6 +108,7 @@ extension BionicArchiveStore {
         return nil
     }
     func inspectorMemories(_ instance: String) throws -> BionicObject {
+        try access.requirePro()
         let role = try loadRole(instance)
         let confirmed = try memoryList(instance, includeDeleted: true)
         let known = Dictionary(uniqueKeysWithValues: confirmed.map { ($0.text("memory_id"), $0) })
@@ -120,12 +124,14 @@ extension BionicArchiveStore {
                 "deleted": .records(confirmed.filter { $0.text("status") == "deleted" })]
     }
     func inspectorMemory(_ instance: String, memory: BionicObject) throws -> BionicObject {
+        try access.requirePro()
         var result = memory
         result["sources"] = .records(try memory.strings("source_message_ids").map { try message(instance, $0) })
         result["participants"] = .records(try participants(instance))
         return result
     }
     func inspectorOperation(_ instance: String, operationID: String) throws -> BionicObject {
+        try access.requirePro()
         var data = try inspectionOperation(instance, operationID: operationID)
         let role = try loadRole(instance)
         let generatedGroups = Set(data.records("results").flatMap {
@@ -161,6 +167,7 @@ extension BionicArchiveStore {
 
 extension BionicArchiveStore {
     func inspectorNotificationHistory(_ instance: String, limit: Int) throws -> BionicObject {
+        try access.requirePro()
         let role = try loadRole(instance)
         let directory = roleURL(instance).appendingPathComponent("transactions")
         let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
@@ -184,6 +191,7 @@ extension BionicArchiveStore {
         return ["rows": .records(rows), "has_more": .bool(false)]
     }
     func inspectorEvent(_ instance: String, path: String) throws -> BionicObject {
+        try access.requirePro()
         let record = try read(instance, path)
         var events: [BionicObject] = []
         for event in record.records("events") {
