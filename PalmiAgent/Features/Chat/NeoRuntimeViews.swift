@@ -68,7 +68,6 @@ struct NeoRuntimeCard: View {
                 liveReasoningBuffer: liveReasoningBuffer,
                 onOpenRelatedThread: onOpenRelatedThread
             )
-            .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
             .presentationCornerRadius(30)
         }
@@ -84,11 +83,12 @@ struct NeoRuntimeTimelineSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var selectedStep: NeoRuntimeStep?
+    @State private var selectedDetent: PresentationDetent = .large
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 12) {
                     NeoRuntimeElapsedText(header: header, isLive: isLive)
                         .font(.footnote.monospacedDigit())
                         .foregroundStyle(.secondary)
@@ -117,6 +117,22 @@ struct NeoRuntimeTimelineSheet: View {
             .navigationTitle(PalmiL10n.tr("neo.runtime.title"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(
+                        PalmiL10n.tr(selectedDetent == .large ? "neo.runtime.collapse" : "neo.runtime.expand"),
+                        systemImage: selectedDetent == .large
+                            ? "arrow.down.right.and.arrow.up.left"
+                            : "arrow.up.left.and.arrow.down.right"
+                    ) {
+                        withAnimation(.easeInOut(duration: 0.28)) {
+                            selectedDetent = selectedDetent == .large ? .medium : .large
+                        }
+                    }
+                    .labelStyle(.iconOnly)
+                    .tint(.primary)
+                    .contentTransition(.symbolEffect(.replace))
+                    .accessibilityIdentifier("neo-reasoning-size-toggle")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(PalmiL10n.tr("common.close"), systemImage: "xmark") { dismiss() }
                         .labelStyle(.iconOnly)
@@ -124,6 +140,7 @@ struct NeoRuntimeTimelineSheet: View {
                 }
             }
         }
+        .presentationDetents([.medium, .large], selection: $selectedDetent)
         .sheet(item: $selectedStep) { selection in
             // Resolve by stable ID on every update so an open detail stays live.
             NeoRuntimeStepDetailSheet(
@@ -146,53 +163,64 @@ private struct NeoRuntimeTimelineRow: View {
     let isLast: Bool
     let onSelect: () -> Void
 
+    @ViewBuilder
     var body: some View {
-        Button(action: onSelect) {
-            HStack(spacing: 12) {
-                if step.kind == .explanation {
-                    Text(step.messages.first?.content ?? "")
-                        .font(.body)
-                        .lineSpacing(4)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    NeoRuntimeFadingLabel(text: step.statusText, isRunning: step.state == .running)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+        if step.kind == .explanation {
+            rowContent
+                .accessibilityLabel(step.messages.first?.content ?? "")
+                .accessibilityIdentifier("neo-step-\(step.id.uuidString)")
+        } else {
+            Button(action: onSelect) { rowContent }
+                .buttonStyle(.plain)
+                .accessibilityLabel(step.statusText)
+                .accessibilityHint(PalmiL10n.tr("neo.runtime.detail"))
+                .accessibilityIdentifier("neo-step-\(step.id.uuidString)")
+        }
+    }
+
+    private var rowContent: some View {
+        HStack(spacing: 12) {
+            if step.kind == .explanation {
+                Text(step.messages.first?.content ?? "")
+                    .font(.body)
+                    .lineSpacing(4)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                NeoRuntimeFadingLabel(text: step.statusText, isRunning: step.state == .running)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if step.kind != .explanation {
                 Image(systemName: "chevron.right")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.tertiary)
             }
-            .padding(.leading, 48)
-            .padding(.vertical, 22)
-            .frame(minHeight: 72, alignment: .topLeading)
-            .overlay(alignment: .topLeading) {
-                NeoRuntimeNode(step: step)
-                    .padding(.leading, 2)
-                    .padding(.top, 18)
-                    .accessibilityHidden(true)
-            }
-            .background {
-                if !isLast {
-                    GeometryReader { geometry in
-                        Path { path in
-                            path.move(to: CGPoint(x: 16, y: 50))
-                            path.addLine(to: CGPoint(x: 16, y: geometry.size.height + 14))
-                        }
-                        .stroke(Color.secondary.opacity(0.22), lineWidth: 1)
+        }
+        .padding(.leading, 48)
+        .padding(.vertical, 14)
+        .frame(minHeight: 48, alignment: .topLeading)
+        .overlay(alignment: .topLeading) {
+            NeoRuntimeNode(step: step)
+                .padding(.leading, 2)
+                .padding(.top, 8)
+                .accessibilityHidden(true)
+        }
+        .background {
+            if !isLast {
+                GeometryReader { geometry in
+                    Path { path in
+                        path.move(to: CGPoint(x: 16, y: 40))
+                        path.addLine(to: CGPoint(x: 16, y: geometry.size.height + 4))
                     }
+                    .stroke(Color.secondary.opacity(0.22), lineWidth: 1)
                 }
             }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(step.kind == .explanation ? (step.messages.first?.content ?? step.statusText) : step.statusText)
-        .accessibilityHint(PalmiL10n.tr("neo.runtime.detail"))
-        .accessibilityIdentifier("neo-step-\(step.id.uuidString)")
+        .contentShape(Rectangle())
     }
 }
 
@@ -221,9 +249,9 @@ private struct NeoRuntimeFadingLabel: View {
     var body: some View {
         Group {
             if isRunning && !reduceMotion {
-                label.phaseAnimator([false, true]) { content, faded in
-                    content.opacity(faded ? 0.58 : 1).blur(radius: faded ? 0.35 : 0)
-                } animation: { _ in .easeInOut(duration: 2.2) }
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+                    label.foregroundStyle(activityGradient(at: context.date))
+                }
             } else {
                 label
             }
@@ -236,19 +264,16 @@ private struct NeoRuntimeFadingLabel: View {
             .lineLimit(1)
             .truncationMode(.tail)
             .id(text)
-            .transition(reduceMotion ? .opacity : .modifier(
-                active: NeoRuntimeFadeModifier(opacity: 0, blur: 6),
-                identity: NeoRuntimeFadeModifier(opacity: 1, blur: 0)
-            ))
+            .transition(.opacity)
     }
-}
 
-private struct NeoRuntimeFadeModifier: ViewModifier {
-    let opacity: Double
-    let blur: CGFloat
-
-    func body(content: Content) -> some View {
-        content.opacity(opacity).blur(radius: blur)
+    private func activityGradient(at date: Date) -> LinearGradient {
+        let phase = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 2.8) / 2.8
+        let colors = (0...12).map { index in
+            let wave = (sin((Double(index) / 12.0 - phase) * .pi * 2) + 1) / 2
+            return Color.primary.opacity(0.46 + 0.54 * wave)
+        }
+        return LinearGradient(colors: colors, startPoint: .leading, endPoint: .trailing)
     }
 }
 

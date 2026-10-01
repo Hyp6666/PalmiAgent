@@ -1657,8 +1657,8 @@
 "settings.runtime.reasoningStyle" = "推理 UI 风格";
 "settings.runtime.style.hardcore" = "硬核风格";
 "settings.runtime.style.neo" = "Neo风格";
-"settings.runtime.style.hardcore.caption" = "保留现有的过程卡片与用量展示。";
-"settings.runtime.style.neo.caption" = "精简状态，通过时间线弹窗查看过程与详情。";
+"settings.runtime.style.hardcore.caption" = "更直接地展示状态信息";
+"settings.runtime.style.neo.caption" = "更优雅地记录推理过程";
 "settings.runtime.scope" = "适用于专业模式和聊天模式。";
 "neo.runtime.reply" = "最终回复";
 "neo.runtime.compaction" = "上下文压缩";
@@ -1667,8 +1667,10 @@
 "neo.runtime.failed" = "%@失败";
 "neo.runtime.outputting" = "正在输出回复…";
 "neo.runtime.ended" = "已结束";
-"neo.runtime.open" = "查看运行过程";
-"neo.runtime.title" = "运行过程";
+"neo.runtime.open" = "查看推理过程";
+"neo.runtime.title" = "推理过程";
+"neo.runtime.expand" = "展开推理过程";
+"neo.runtime.collapse" = "收起推理过程";
 "neo.runtime.detail" = "查看详情";
 "neo.runtime.elapsed.seconds" = "用时 %d 秒";
 "neo.runtime.elapsed.minutesSeconds" = "用时 %d 分 %d 秒";

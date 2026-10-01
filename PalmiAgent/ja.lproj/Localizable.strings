@@ -1656,8 +1656,8 @@
 "settings.runtime.reasoningStyle" = "推論 UI スタイル";
 "settings.runtime.style.hardcore" = "ハードコアスタイル";
 "settings.runtime.style.neo" = "Neoスタイル";
-"settings.runtime.style.hardcore.caption" = "既存のプロセスカードと使用量表示を維持します。";
-"settings.runtime.style.neo.caption" = "状態を簡潔に表示し、タイムラインシートで過程と詳細を確認します。";
+"settings.runtime.style.hardcore.caption" = "状態情報をより直接的に表示";
+"settings.runtime.style.neo.caption" = "推論過程をより洗練された形で記録";
 "settings.runtime.scope" = "プロモードとチャットモードに適用されます。";
 "neo.runtime.reply" = "最終回答";
 "neo.runtime.compaction" = "コンテキスト圧縮";
@@ -1666,8 +1666,10 @@
 "neo.runtime.failed" = "%@失敗";
 "neo.runtime.outputting" = "回答を出力中…";
 "neo.runtime.ended" = "終了";
-"neo.runtime.open" = "実行過程を表示";
-"neo.runtime.title" = "実行過程";
+"neo.runtime.open" = "推論過程を表示";
+"neo.runtime.title" = "推論過程";
+"neo.runtime.expand" = "推論過程を展開";
+"neo.runtime.collapse" = "推論過程を縮小";
 "neo.runtime.detail" = "詳細を表示";
 "neo.runtime.elapsed.seconds" = "経過 %d秒";
 "neo.runtime.elapsed.minutesSeconds" = "経過 %d分 %d秒";

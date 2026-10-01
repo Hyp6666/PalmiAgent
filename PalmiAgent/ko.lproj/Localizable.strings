@@ -1656,8 +1656,8 @@
 "settings.runtime.reasoningStyle" = "추론 UI 스타일";
 "settings.runtime.style.hardcore" = "하드코어 스타일";
 "settings.runtime.style.neo" = "Neo 스타일";
-"settings.runtime.style.hardcore.caption" = "기존 과정 카드와 사용량 표시를 유지합니다.";
-"settings.runtime.style.neo.caption" = "간결한 상태와 타임라인 시트로 과정 및 세부 내용을 확인합니다.";
+"settings.runtime.style.hardcore.caption" = "상태 정보를 더 직접적으로 표시";
+"settings.runtime.style.neo.caption" = "추론 과정을 더 우아하게 기록";
 "settings.runtime.scope" = "전문가 모드와 채팅 모드에 적용됩니다.";
 "neo.runtime.reply" = "최종 답변";
 "neo.runtime.compaction" = "컨텍스트 압축";
@@ -1666,8 +1666,10 @@
 "neo.runtime.failed" = "%@ 실패";
 "neo.runtime.outputting" = "답변 출력 중…";
 "neo.runtime.ended" = "종료됨";
-"neo.runtime.open" = "실행 과정 보기";
-"neo.runtime.title" = "실행 과정";
+"neo.runtime.open" = "추론 과정 보기";
+"neo.runtime.title" = "추론 과정";
+"neo.runtime.expand" = "추론 과정 펼치기";
+"neo.runtime.collapse" = "추론 과정 접기";
 "neo.runtime.detail" = "세부 내용 보기";
 "neo.runtime.elapsed.seconds" = "경과 %d초";
 "neo.runtime.elapsed.minutesSeconds" = "경과 %d분 %d초";

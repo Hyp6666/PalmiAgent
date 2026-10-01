@@ -1656,8 +1656,8 @@
 "settings.runtime.reasoningStyle" = "Reasoning UI style";
 "settings.runtime.style.hardcore" = "Hardcore style";
 "settings.runtime.style.neo" = "Neo style";
-"settings.runtime.style.hardcore.caption" = "Keep the existing process cards and usage display.";
-"settings.runtime.style.neo.caption" = "Compact status with a timeline sheet for steps and details.";
+"settings.runtime.style.hardcore.caption" = "Show status information more directly.";
+"settings.runtime.style.neo.caption" = "Record the reasoning process more elegantly.";
 "settings.runtime.scope" = "Applies to professional mode and chat mode.";
 "neo.runtime.reply" = "Final reply";
 "neo.runtime.compaction" = "Context compaction";
@@ -1666,8 +1666,10 @@
 "neo.runtime.failed" = "%@ failed";
 "neo.runtime.outputting" = "Writing reply…";
 "neo.runtime.ended" = "Ended";
-"neo.runtime.open" = "View run timeline";
-"neo.runtime.title" = "Run timeline";
+"neo.runtime.open" = "View reasoning process";
+"neo.runtime.title" = "Reasoning process";
+"neo.runtime.expand" = "Expand reasoning process";
+"neo.runtime.collapse" = "Collapse reasoning process";
 "neo.runtime.detail" = "View details";
 "neo.runtime.elapsed.seconds" = "Elapsed %ds";
 "neo.runtime.elapsed.minutesSeconds" = "Elapsed %dm %ds";
