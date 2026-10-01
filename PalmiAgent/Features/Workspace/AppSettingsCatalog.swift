@@ -7,6 +7,7 @@ enum AppSettingsRowID: String, CaseIterable, Hashable, Sendable {
     case searchConfiguration
     case skills
     case personalization
+    case runtime
     case bionicPro
     case systemSettings
     case privacyAndPolicy
@@ -55,7 +56,8 @@ enum AppSettingsCatalog {
             id: "experience",
             titleKey: "settings.section.experience",
             rows: [
-                .init(id: .personalization, titleKey: "settings.row.personalization", systemImageName: "paintpalette.fill")
+                .init(id: .personalization, titleKey: "settings.row.personalization", systemImageName: "paintpalette.fill"),
+                .init(id: .runtime, titleKey: "settings.row.runtime", systemImageName: "waveform.path")
             ]
         ),
         .init(

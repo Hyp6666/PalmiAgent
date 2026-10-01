@@ -123,6 +123,7 @@ struct ChatScreen: View {
     @AppStorage("palmi.chat.tools-enabled") private var areToolsEnabled = true
     @AppStorage("palmi.chat.external-reasoning-enabled") private var isExternalReasoningEnabled = true
     @AppStorage("palmi.prof.bionic-suggestion.never") private var neverSuggestBionic = false
+    @AppStorage(PalmiReasoningUIStyle.storageKey) private var reasoningUIStyleRaw = PalmiReasoningUIStyle.hardcore.rawValue
 
     private let bottomAnchorID = "chat-bottom-anchor"
     private let linkActionPopoverWidth: CGFloat = 286
@@ -723,7 +724,7 @@ struct ChatScreen: View {
                         }
 
                         ForEach(turns) { turn in
-                            turnView(turn, readTargets: readTargets)
+                            runtimeTurnView(turn, readTargets: readTargets)
                                 .id(turn.id)
                         }
 
@@ -826,6 +827,43 @@ struct ChatScreen: View {
                 }
             }
             .ignoresSafeArea(edges: .top)
+        }
+    }
+
+    @ViewBuilder
+    private func runtimeTurnView(_ turn: ChatTurn, readTargets: [UUID: UUID]) -> some View {
+        if PalmiReasoningUIStyle.resolve(reasoningUIStyleRaw).applies(to: shellMode),
+           let headerMessage = turn.headerMessage,
+           let header = headerMessage.sessionHeader {
+            VStack(alignment: .leading, spacing: 16) {
+                if let userMessage = turn.userMessage {
+                    userBubble(userMessage)
+                }
+                NeoRuntimeCard(
+                    headerID: headerMessage.id, header: header,
+                    messages: turn.messagesBeforeFinal + turn.messagesAfterFinal,
+                    finalMessage: turn.finalMessage,
+                    isCurrentTurn: store.activeTurnHeaderID == headerMessage.id,
+                    streamingMessageID: store.activeStreamingMessageIDValue,
+                    liveReasoningBuffer: store.liveReasoningBuffer(for:),
+                    onOpenRelatedThread: openRelatedThread
+                )
+                // In-turn user guidance remains visible independently of process details.
+                ForEach((turn.messagesBeforeFinal + turn.messagesAfterFinal).filter { $0.role == .user }) { message in
+                    userBubble(message)
+                }
+                if let finalMessage = turn.finalMessage {
+                    let answerID = readTargets[finalMessage.id] ?? finalMessage.id
+                    assistantMarkdown(for: finalMessage)
+                        .id("unread-" + answerID.uuidString)
+                    if store.activeStreamingMessageIDValue != finalMessage.id {
+                        finalAnswerCompletionRow(for: turn, finalMessage: finalMessage)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            turnView(turn, readTargets: readTargets)
         }
     }
 
@@ -3325,6 +3363,27 @@ struct ChatScreen: View {
         return output
     }
 
+}
+
+// Neo reuses the existing sprite and incremental text renderer without altering them.
+struct NeoPalmiProcessingSprite: View {
+    let isLive: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        PalmiProcessingSpriteView(reduceMotion: !isLive || reduceMotion)
+    }
+}
+
+struct NeoReasoningText: View {
+    let messageID: UUID
+    let staticText: String
+    let liveBuffer: LiveReasoningBuffer?
+
+    var body: some View {
+        ReasoningTextBody(messageID: messageID, staticText: staticText, liveBuffer: liveBuffer,
+                          textColor: .label, font: .preferredFont(forTextStyle: .body))
+    }
 }
 
 // 纯文本框：直接绑 store.inputText（无本地副本/无防抖）。整棵视图树里只有它读 inputText，

@@ -2000,6 +2000,8 @@ private struct AppSettingsScreen: View {
             SkillCatalogScreen(registry: skillRegistry, mode: .global)
         case .personalization:
             PersonalizationSettingsScreen()
+        case .runtime:
+            RuntimeExperienceSettingsScreen()
         case .bionicPro:
             BionicProScreen(purchases: purchases)
         case .systemSettings:
