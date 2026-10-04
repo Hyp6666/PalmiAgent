@@ -31,11 +31,13 @@ struct PalmiUnreadBadge: View {
     var body: some View {
         if count > 0 {
             Text(count > 99 ? "99+" : String(count))
-                .font(.caption2.weight(.bold)).monospacedDigit()
+                .font(.system(size: 11, weight: .bold)).monospacedDigit()
                 .foregroundStyle(.white)
-                .padding(.horizontal, count > 9 ? 5 : 4)
-                .frame(minWidth: 18, minHeight: 18)
-                .background(.tint, in: Capsule())
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(width: 24, height: 24)
+                .background(.tint, in: Circle())
+                .fixedSize()
                 .accessibilityLabel(PalmiL10n.tr("chat.unread.count", count))
                 .allowsHitTesting(false)
         }

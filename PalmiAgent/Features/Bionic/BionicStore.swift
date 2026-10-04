@@ -74,14 +74,21 @@ final class BionicStore {
     @ObservationIgnored private var avatarPaths: [String: String] = [:]
     @ObservationIgnored private var statsKeys: [String: String] = [:]
     @ObservationIgnored private var pendingReads: [BionicReadKey: Set<String>] = [:]
+    // 已认可但尚未在归档投影确认的回执，覆盖排队、写入中和重试阶段。
+    @ObservationIgnored private var acknowledgedReads: [BionicReadKey: Set<String>] = [:]
+    @ObservationIgnored private let readReceiptLedger: BionicReadReceiptLedger
+    @ObservationIgnored private var readReceiptErrors: [String: String] = [:]
     @ObservationIgnored private var readTask: Task<Void, Never>?
     @ObservationIgnored private var refreshing = false
     @ObservationIgnored private var refreshRequests = Set<String>()
     @ObservationIgnored private var windowTicket = 0
     @ObservationIgnored private var openTicket = 0
     @ObservationIgnored private var invalidationToken = 0
+    @ObservationIgnored private var resetting = false
     @ObservationIgnored private var modeVisible = false
+    @ObservationIgnored private var chatPageID: String?
     @ObservationIgnored private var chatVisibleID: String?
+    @ObservationIgnored private var chatVisibilityToken: UUID?
     @ObservationIgnored private var bootstrapped = false
     @ObservationIgnored private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     @ObservationIgnored private var backgroundFinishTask: Task<Void, Never>?
@@ -105,6 +112,7 @@ final class BionicStore {
         self.archive = archive; self.model = model; self.coordinator = coordinator; self.notifications = notifications
         history = sharedHistory
         migration = BionicMigrationService(archive: archive, model: model)
+        readReceiptLedger = BionicReadReceiptLedger(root: archive.root)
         coordinator.onChange = { [weak self] id in Task { await self?.refresh(changed: id) } }
         coordinator.onDiagnostics = { [weak self] _ in self?.diagnosticRevision += 1 }
         coordinator.onError = { [weak self] id, code in self?.errors[id] = code; self?.diagnosticRevision += 1 }
@@ -120,6 +128,7 @@ final class BionicStore {
             Task { await self.refresh(changed: id) }
         }
         notifications.onDiagnostics = { [weak self] _ in self?.diagnosticRevision += 1 }
+        restoreReadReceipts()
     }
     func composer(_ instance: String) -> BionicComposerState {
         if let value = composers[instance] { return value }
@@ -184,23 +193,61 @@ final class BionicStore {
     func visibleMode(_ visible: Bool) {
         modeVisible = visible; notifications.setVisible(visible ? chatVisibleID : nil, foreground: isForeground && visible)
     }
-    func chatVisibility(_ instance: String, visible: Bool) {
-        if visible { chatVisibleID = instance }
-        else if chatVisibleID == instance { chatVisibleID = nil }
+    func chatAppeared(_ instance: String, token: UUID) {
+        guard !resetting else { return }
+        chatPageID = instance
+        chatVisibilityToken = token
+        chatVisibility(instance, visible: false, token: token)
+    }
+    func chatDisappeared(_ instance: String, token: UUID) {
+        guard chatPageID == instance, chatVisibilityToken == token else { return }
+        chatVisibility(instance, visible: false, token: token)
+        chatPageID = nil
+        chatVisibilityToken = nil
+    }
+    func chatVisibility(_ instance: String, visible: Bool, token: UUID) {
+        guard !resetting, chatPageID == instance, chatVisibilityToken == token else { return }
+        if visible {
+            guard selectedID == instance else { return }
+            chatVisibleID = instance
+        } else {
+            chatVisibleID = nil
+        }
         notifications.setVisible(modeVisible ? chatVisibleID : nil, foreground: isForeground && modeVisible)
     }
     func reset() async throws {
+        guard !resetting else { return }
+        resetting = true
+        defer { resetting = false }
         backgroundEpoch += 1
         backgroundFinishTask?.cancel()
         backgroundFinishTask = nil
         endBackgroundAllowance()
         invalidationToken += 1; openTicket += 1; windowTicket += 1
+        // 在首次 await 前撤销旧页面，禁止它在重置中重新写入回执日志。
+        selectedID = nil; chatPageID = nil; chatVisibleID = nil; chatVisibilityToken = nil
+        path = []; messages = []; quotedMessages = [:]
+        notifications.setVisible(nil, foreground: false)
         coordinator.stopForReset(); readTask?.cancel(); readTask = nil; readTaskID = nil; pendingReads.removeAll()
+        acknowledgedReads.removeAll()
+        readReceiptErrors.removeAll()
         readProjectionSequences.removeAll()
         unreadSequencesByInstance.removeAll()
-        await notifications.removeAll(); try await archive.resetAll(); await history.clear()
+        await notifications.removeAll()
+        do { try await archive.resetAll() }
+        catch {
+            // 归档尚未删除成功时，日志仍在；恢复回执和列表后再报告失败。
+            resetting = false
+            restoreReadReceipts()
+            await refresh()
+            await notifications.restoreSurvivingAfterFailedRemoval()
+            if isForeground { await coordinator.activate() }
+            throw error
+        }
+        try readReceiptLedger.removeAll()
+        await history.clear()
         try BionicUserProfileStore.shared.reset()
-        selectedID = nil; chatVisibleID = nil; path = []; roles = []; messages = []; participants = [:]; avatars = [:]; errors = [:]
+        selectedID = nil; chatPageID = nil; chatVisibleID = nil; chatVisibilityToken = nil; path = []; roles = []; messages = []; participants = [:]; avatars = [:]; errors = [:]
         composers.removeAll(); avatarPaths.removeAll(); statsKeys.removeAll(); refreshRequests.removeAll()
         quotedIDs = [:]; quotedMessages = [:]; lastBodies = [:]; globalError = nil
         typingWindowsByInstance = [:]; chatPreferences = [:]; lastActivityTimes = [:]
@@ -214,18 +261,43 @@ final class BionicStore {
                 String(role.state.memorySequence), String(read)].joined(separator: ":")
     }
     private func publishReadProjection(_ projection: BionicReadProjection) {
+        guard !resetting else { return }
         let id = projection.instance
         guard projection.throughSequence >= (readProjectionSequences[id] ?? -1) else { return }
         readProjectionSequences[id] = projection.throughSequence
-        if unreadSequencesByInstance[id] != projection.unreadSequences {
-            unreadSequencesByInstance[id] = projection.unreadSequences
+        let key = BionicReadKey(instance: id, participantID: projection.participantID)
+        acknowledgedReads = acknowledgedReads.filter { $0.key.instance != id || $0.key == key }
+        pendingReads = pendingReads.filter { $0.key.instance != id || $0.key == key }
+        do {
+            // 只减掉已确认 ID；另一 Store 后来写入的回执仍需恢复、提交。
+            let durable = try readReceiptLedger.removeConfirmed(projection.readIDs,
+                key: .init(instance: id, participantID: projection.participantID))
+            if !durable.isEmpty {
+                acknowledgedReads[key, default: []].formUnion(durable)
+                pendingReads[key, default: []].formUnion(durable)
+            }
+            clearReadReceiptError(id)
+        } catch { readReceiptFailed(error, instance: id) }
+        let queued = (pendingReads[key] ?? []).subtracting(projection.readIDs)
+        if queued.isEmpty { pendingReads.removeValue(forKey: key) }
+        else { pendingReads[key] = queued }
+        let unconfirmed = (acknowledgedReads[key] ?? []).subtracting(projection.readIDs)
+        if unconfirmed.isEmpty { acknowledgedReads.removeValue(forKey: key) }
+        else { acknowledgedReads[key] = unconfirmed }
+        notifications.setPendingReadIDs(id, ids: unconfirmed)
+        let unread = projection.unreadSequences.filter { !unconfirmed.contains($0.key) }
+        if unreadSequencesByInstance[id] != unread {
+            unreadSequencesByInstance[id] = unread
         }
         if lastBodies[id] != projection.latestBody { lastBodies[id] = projection.latestBody }
         if selectedID == id {
             totalMessages = max(totalMessages, projection.totalMessages)
         }
+        scheduleReadFlush()
     }
     func refresh(changed: String? = nil) async {
+        guard !resetting else { return }
+        restoreReadReceipts()
         refreshRequests.insert(changed ?? "*")
         guard !refreshing else { return }
         refreshing = true; defer { refreshing = false }
@@ -290,6 +362,19 @@ final class BionicStore {
         } while !refreshRequests.isEmpty
     }
     private func prunePresentation(validIDs: Set<String>) {
+        let readInstances = Set(acknowledgedReads.keys.map(\.instance) + pendingReads.keys.map(\.instance))
+        var retainedReadInstances = validIDs
+        for id in readInstances.subtracting(validIDs) {
+            // roles() 会忽略暂时加载失败；真实目录仍在时保留回执和重试。
+            if FileManager.default.fileExists(atPath: archive.roleURL(id).path) {
+                retainedReadInstances.insert(id)
+            } else {
+                do { try readReceiptLedger.removeInstance(id) }
+                catch { readReceiptFailed(error, instance: id) }
+                notifications.setPendingReadIDs(id, ids: [])
+            }
+        }
+        acknowledgedReads = acknowledgedReads.filter { retainedReadInstances.contains($0.key.instance) }
         unreadSequencesByInstance = unreadSequencesByInstance.filter { validIDs.contains($0.key) }
         for id in Set(lastBodies.keys).subtracting(validIDs) { lastBodies.removeValue(forKey: id) }
         for id in Set(chatPreferences.keys).subtracting(validIDs) { chatPreferences.removeValue(forKey: id) }
@@ -297,7 +382,7 @@ final class BionicStore {
         for id in Set(typingWindowsByInstance.keys).subtracting(validIDs) { typingWindowsByInstance.removeValue(forKey: id) }
         statsKeys = statsKeys.filter { validIDs.contains($0.key) }
         readProjectionSequences = readProjectionSequences.filter { validIDs.contains($0.key) }
-        pendingReads = pendingReads.filter { validIDs.contains($0.key.instance) }
+        pendingReads = pendingReads.filter { retainedReadInstances.contains($0.key.instance) }
         activityMessageIDs = activityMessageIDs.filter { validIDs.contains($0.key) }
         chatCanvasAspects = chatCanvasAspects.filter { validIDs.contains($0.key) }
         avatarPaths = avatarPaths.filter { key, _ in
@@ -326,6 +411,7 @@ final class BionicStore {
         chatPreferences[instance] = value
     }
     func open(_ instance: String, target: String? = nil) async {
+        guard !resetting, !Task.isCancelled else { return }
         openTicket += 1
         let ticket = openTicket, token = invalidationToken
         do {
@@ -333,15 +419,15 @@ final class BionicStore {
                 followingLatest = true
                 path = [instance]
                 await coordinator.open(instance)
-                guard ticket == openTicket, token == invalidationToken else { return }
+                guard !resetting, !Task.isCancelled, ticket == openTicket, token == invalidationToken else { return }
                 await refresh(changed: instance)
-                guard ticket == openTicket, token == invalidationToken,
+                guard !resetting, !Task.isCancelled, ticket == openTicket, token == invalidationToken,
                       selectedID == instance else { return }
                 try await loadLatest(forceScroll: true)
                 return
             }
             let presentation = try await archive.openingPresentation(instance, target: target)
-            guard ticket == openTicket, token == invalidationToken else { return }
+            guard !resetting, !Task.isCancelled, ticket == openTicket, token == invalidationToken else { return }
             windowTicket += 1
             if let position = roles.firstIndex(where: { $0.installationID == instance }) {
                 roles[position] = presentation.role
@@ -368,10 +454,12 @@ final class BionicStore {
                 }
             }
             await coordinator.open(instance)
-            guard ticket == openTicket, token == invalidationToken else { return }
+            guard !resetting, !Task.isCancelled, ticket == openTicket, token == invalidationToken else { return }
             await refresh(changed: instance)
         } catch {
-            if ticket == openTicket, token == invalidationToken { globalError = Self.errorText(error) }
+            if !resetting, !Task.isCancelled, ticket == openTicket, token == invalidationToken {
+                globalError = Self.errorText(error)
+            }
         }
     }
     func loadLatest(forceScroll: Bool = false) async throws {
@@ -448,14 +536,100 @@ final class BionicStore {
         windowEnd = window.endIndex
         totalMessages = max(totalMessages, window.total)
     }
-    func readConversationMessages(_ ids: Set<String>, instance: String, participantID: String) {
-        guard isForeground, selectedID == instance,
+    private func restoreReadReceipts() {
+        guard !resetting else { return }
+        let entries: [BionicReadReceiptLedger.Key: Set<String>]
+        do {
+            let recovered = try readReceiptLedger.recover()
+            entries = recovered.entries
+            for (instance, error) in recovered.failures { readReceiptFailed(error, instance: instance) }
+        }
+        catch { globalError = Self.errorText(error); diagnosticRevision += 1; return }
+        for instance in Set(entries.keys.map(\.instance)) {
+            do {
+                // 同步初始化尚未让出 MainActor；通知校验前先核对本机当前读者。
+                let role = try BionicDisk.loadRole(at: archive.roleURL(instance), instance: instance)
+                let participant = role.state.participantID
+                let key = BionicReadKey(instance: instance, participantID: participant)
+                let journalKey = BionicReadReceiptLedger.Key(instance: instance, participantID: participant)
+                let known = Set(role.state.order.map(\.id))
+                let read = Set(role.state.raw.object("read_message_ids_by_participant")[participant]?.array.compactMap(\.string) ?? [])
+                // 有效日志已经证明回执持久化；清理失败不能撤回这个已认可状态。
+                let trusted = (entries[journalKey] ?? []).intersection(known).subtracting(read)
+                var accepted = (acknowledgedReads[key] ?? []).union(trusted).subtracting(read)
+                if accepted.isEmpty { acknowledgedReads.removeValue(forKey: key) }
+                else { acknowledgedReads[key] = accepted }
+                let queued = (pendingReads[key] ?? []).union(trusted).subtracting(read)
+                if queued.isEmpty { pendingReads.removeValue(forKey: key) }
+                else { pendingReads[key] = queued }
+                readProjectionSequences[instance] = max(readProjectionSequences[instance] ?? -1, role.throughSequence)
+                notifications.setPendingReadIDs(instance, ids: accepted)
+                var cleaned = true
+                for obsolete in entries.keys where obsolete.instance == instance && obsolete.participantID != participant {
+                    let oldKey = BionicReadKey(instance: instance, participantID: obsolete.participantID)
+                    acknowledgedReads.removeValue(forKey: oldKey)
+                    pendingReads.removeValue(forKey: oldKey)
+                    do { try readReceiptLedger.removeParticipant(obsolete) }
+                    catch { cleaned = false; readReceiptFailed(error, instance: instance) }
+                }
+                let invalid = (entries[journalKey] ?? []).subtracting(known)
+                do {
+                    let latest = try readReceiptLedger.removeConfirmed(read.union(invalid), key: journalKey)
+                    let additional = latest.intersection(known).subtracting(read)
+                    accepted.formUnion(additional)
+                    if !accepted.isEmpty { acknowledgedReads[key] = accepted }
+                    if !additional.isEmpty { pendingReads[key, default: []].formUnion(additional) }
+                    notifications.setPendingReadIDs(instance, ids: accepted)
+                } catch { cleaned = false; readReceiptFailed(error, instance: instance) }
+                if cleaned { clearReadReceiptError(instance) }
+            } catch {
+                if !FileManager.default.fileExists(atPath: archive.roleURL(instance).path) {
+                    do { try readReceiptLedger.removeInstance(instance) }
+                    catch { readReceiptFailed(error, instance: instance) }
+                    acknowledgedReads = acknowledgedReads.filter { $0.key.instance != instance }
+                    pendingReads = pendingReads.filter { $0.key.instance != instance }
+                    notifications.setPendingReadIDs(instance, ids: [])
+                } else { readReceiptFailed(error, instance: instance) }
+            }
+        }
+        scheduleReadFlush()
+    }
+    private func readReceiptFailed(_ error: Error, instance: String) {
+        let code = (error as? BionicFailure)?.code ?? "operationFailed"
+        errors[instance] = code
+        readReceiptErrors[instance] = code
+        diagnosticRevision += 1
+    }
+    private func clearReadReceiptError(_ instance: String) {
+        if let text = readReceiptErrors.removeValue(forKey: instance), errors[instance] == text {
+            errors.removeValue(forKey: instance)
+        }
+    }
+    func readConversationMessages(_ ids: Set<String>, instance: String, participantID: String,
+                                  visibilityToken: UUID) {
+        guard !resetting, isForeground, selectedID == instance,
+              chatVisibleID == instance, chatVisibilityToken == visibilityToken,
               selectedRole?.state.participantID == participantID else { return }
         let unread = Set(unreadSequencesByInstance[instance]?.keys.map { $0 } ?? [])
         let conversationUnread = ids.intersection(unread)
         guard !conversationUnread.isEmpty else { return }
         let key = BionicReadKey(instance: instance, participantID: participantID)
         pendingReads[key, default: []].formUnion(conversationUnread)
+        do {
+            let durable = try readReceiptLedger.add(conversationUnread,
+                key: .init(instance: instance, participantID: participantID))
+            acknowledgedReads[key, default: []].formUnion(durable)
+            clearReadReceiptError(instance)
+        } catch {
+            // 日志失败仍可提交归档，但持久化确认前保留未读，不能谎报已保存。
+            readReceiptFailed(error, instance: instance)
+            scheduleReadFlush()
+            return
+        }
+        unreadSequencesByInstance[instance] = unreadSequencesByInstance[instance]?.filter {
+            !conversationUnread.contains($0.key)
+        }
+        notifications.setPendingReadIDs(instance, ids: acknowledgedReads[key] ?? [])
         scheduleReadFlush()
     }
 
@@ -505,6 +679,11 @@ final class BionicStore {
                 guard token == invalidationToken else { return }
                 if (error as? BionicFailure)?.code != "roleMissing" {
                     pendingReads[key, default: []].formUnion(ids)
+                } else {
+                    acknowledgedReads.removeValue(forKey: key)
+                    do { try readReceiptLedger.removeInstance(key.instance) }
+                    catch { readReceiptFailed(error, instance: key.instance) }
+                    notifications.setPendingReadIDs(key.instance, ids: [])
                 }
             }
         }
@@ -708,7 +887,18 @@ final class BionicStore {
         guard !BionicSystemPersona.isProtected(instance) else {
             throw BionicFailure("systemRoleProtected")
         }
-        coordinator.remove(instance); await notifications.remove(instance); try await archive.deleteRole(instance); await history.clear(instance)
+        coordinator.remove(instance); await notifications.remove(instance)
+        do { try await archive.deleteRole(instance) }
+        catch {
+            restoreReadReceipts()
+            await refresh(changed: instance)
+            await notifications.restoreSurvivingAfterFailedRemoval(instance)
+            await coordinator.restoreSurvivingAfterFailedRemoval(instance)
+            throw error
+        }
+        try readReceiptLedger.removeInstance(instance)
+        await history.clear(instance)
+        readReceiptErrors.removeValue(forKey: instance)
         composers.removeValue(forKey: instance); errors.removeValue(forKey: instance); statsKeys.removeValue(forKey: instance); pendingReads = pendingReads.filter { $0.key.instance != instance }
         typingWindowsByInstance.removeValue(forKey: instance)
         if selectedID == instance { openTicket += 1; windowTicket += 1; selectedID = nil; path = []; messages = []; quotedMessages = [:] }

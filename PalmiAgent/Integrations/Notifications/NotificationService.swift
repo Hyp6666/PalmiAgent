@@ -2,11 +2,46 @@ import Foundation
 import UserNotifications
 
 @MainActor
+final class NotificationBadgeWriter {
+    private let write: @MainActor (Int) async throws -> Void
+    private var latest: Task<Void, Error>?
+    private var revision = 0
+
+    init(write: @escaping @MainActor (Int) async throws -> Void) { self.write = write }
+
+    func setCount(_ count: Int) async throws {
+        revision += 1
+        let token = revision
+        let previous = latest
+        let operation = Task { @MainActor [write] in
+            if let previous { _ = try? await previous.value }
+            try await write(max(0, count))
+        }
+        latest = operation
+        defer { if revision == token { latest = nil } }
+        try await operation.value
+    }
+}
+
+@MainActor
 final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     private let center = UNUserNotificationCenter.current()
-    var bionicVisibleInstance: String?
-    var bionicForeground = false
+    private let badgeWriter = NotificationBadgeWriter { try await UNUserNotificationCenter.current().setBadgeCount($0) }
+    var bionicVisibleInstance: String? { didSet { observeVisibleConversation() } }
+    var bionicForeground = false { didSet { observeVisibleConversation() } }
     var onBionicNotification: ((String, String, String, Bool) async -> Bool)?
+    private struct PresentationVisibility {
+        let instance: String
+        var wasVisible: Bool
+    }
+    private var presentationVisibility: [UUID: PresentationVisibility] = [:]
+
+    private func observeVisibleConversation() {
+        guard bionicForeground, let instance = bionicVisibleInstance else { return }
+        for token in Array(presentationVisibility.keys) where presentationVisibility[token]?.instance == instance {
+            presentationVisibility[token]?.wasVisible = true
+        }
+    }
 
     override init() {
         super.init()
@@ -57,7 +92,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         try await center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
     }
     func setBadgeCount(_ count: Int) async throws {
-        try await center.setBadgeCount(max(0, count))
+        try await badgeWriter.setCount(count)
     }
 
     func bionicNotificationSettings() async -> BionicObject {
@@ -91,35 +126,43 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     func removePending(_ ids: [String]) { center.removePendingNotificationRequests(withIdentifiers: ids) }
     func removeDelivered(_ ids: [String]) { center.removeDeliveredNotifications(withIdentifiers: ids) }
 
+    private func bionicAddress(_ request: UNNotificationRequest) -> (instance: String, group: String, message: String)? {
+        let info = request.content.userInfo
+        guard let instance = info["bionic_instance"] as? String,
+              let group = info["bionic_group"] as? String,
+              let message = info["bionic_message"] as? String,
+              BionicCodec.validID(instance), BionicCodec.validID(group), BionicCodec.validID(message),
+              request.identifier == BionicNotifications.identifier(instance, group) else { return nil }
+        return (instance, group, message)
+    }
+
+    func foregroundPresentation(for request: UNNotificationRequest) async -> UNNotificationPresentationOptions {
+        guard let address = bionicAddress(request) else { return [] }
+        let token = UUID()
+        presentationVisibility[token] = PresentationVisibility(instance: address.instance,
+            wasVisible: bionicForeground && bionicVisibleInstance == address.instance)
+        defer { presentationVisibility.removeValue(forKey: token) }
+        let valid = await onBionicNotification?(address.instance, address.group, address.message, false) ?? false
+        // 验证期间任意时刻打开过该会话，就不再把这次到达作为系统横幅展示。
+        guard valid, presentationVisibility[token]?.wasVisible == false else { return [] }
+        // 前台角标由当前未读投影写入，不能再应用注册通知时预测的旧数值。
+        return [.banner, .list, .sound]
+    }
+
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void) {
-        let identifier = notification.request.identifier
-        let info = notification.request.content.userInfo
-        let instance = info["bionic_instance"] as? String ?? ""
-        let group = info["bionic_group"] as? String ?? ""
-        let message = info["bionic_message"] as? String ?? ""
+        let request = notification.request
         Task { @MainActor [weak self] in
-            guard identifier.hasPrefix("palmi.bionic."), let self else {
-                completionHandler([])
-                return
-            }
-            let valid = await self.onBionicNotification?(instance, group, message, false) ?? false
-            guard valid else { completionHandler([]); return }
-            completionHandler(self.bionicForeground && self.bionicVisibleInstance == instance
-                ? [] : [.banner, .list, .sound, .badge])
+            completionHandler(await self?.foregroundPresentation(for: request) ?? [])
         }
     }
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping @Sendable () -> Void) {
-        let identifier = response.notification.request.identifier
-        let info = response.notification.request.content.userInfo
-        let instance = info["bionic_instance"] as? String ?? ""
-        let group = info["bionic_group"] as? String ?? ""
-        let message = info["bionic_message"] as? String ?? ""
+        let request = response.notification.request
         let opened = response.actionIdentifier == UNNotificationDefaultActionIdentifier
         Task { @MainActor [weak self] in
-            if identifier.hasPrefix("palmi.bionic."), opened {
-                _ = await self?.onBionicNotification?(instance, group, message, true)
+            if opened, let self, let address = self.bionicAddress(request) {
+                _ = await self.onBionicNotification?(address.instance, address.group, address.message, true)
             }
             completionHandler()
         }

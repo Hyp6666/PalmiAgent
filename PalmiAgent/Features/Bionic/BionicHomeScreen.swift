@@ -17,6 +17,7 @@ struct BionicRootScreen: View {
         var value = parentUnread
         value.readingAllowed = value.readingAllowed && !creating && !importing
             && !preparing && prepared == nil && !store.showingPurchase
+            && errorText == nil && store.globalError == nil
         return value
     }
     var body: some View {
@@ -97,8 +98,7 @@ struct BionicRootScreen: View {
                                     }
                                     Spacer(minLength: 12)
                                     if let count = store.unreadCounts[role.installationID], count > 0 {
-                                        Text(count > 99 ? "99+" : String(count)).font(.caption2.bold())
-                                            .foregroundStyle(.white).padding(.horizontal, 7).padding(.vertical, 4).background(.tint, in: Capsule())
+                                        PalmiUnreadBadge(count: count)
                                     }
                                 }
                                 .padding(.horizontal, 20).padding(.vertical, 14).contentShape(Rectangle())

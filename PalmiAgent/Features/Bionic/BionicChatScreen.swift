@@ -13,6 +13,7 @@ struct BionicChatScreen: View {
     @State private var composerHeight: CGFloat = 120
     @State private var userScrolling = false
     @State private var screenVisible = false
+    @State private var visibilityToken = UUID()
     @State private var composerPresented = false
     @State private var readableViewport = CGRect.zero
     @State private var scrollFrame = CGRect.zero
@@ -93,8 +94,7 @@ struct BionicChatScreen: View {
                         enabled: canRead,
                         unreadIDs: Set(store.unreadSequencesByInstance[instance]?.keys.map { $0 } ?? [])
                     ) { ids in
-                        guard canRead, let reader = role?.state.participantID else { return }
-                        store.readConversationMessages(ids, instance: instance, participantID: reader)
+                        acknowledgeConversation(ids)
                     }
                     .onGeometryChange(for: CGRect.self) { proxy in
                         proxy.frame(in: .global)
@@ -240,12 +240,16 @@ struct BionicChatScreen: View {
             BionicRoleInfoScreen(store: store, instance: instance)
         }
         .task(id: instance) {
+            guard !Task.isCancelled else { return }
             if store.selectedID != instance { await store.open(instance) }
             guard !Task.isCancelled else { return }
-            store.chatVisibility(instance, visible: canRead)
+            store.chatVisibility(instance, visible: canRead, token: visibilityToken)
         }
         .onAppear {
             screenVisible = true
+            store.chatAppeared(instance, token: visibilityToken)
+            store.chatVisibility(instance, visible: canRead, token: visibilityToken)
+            acknowledgeConversation(Set(store.unreadSequencesByInstance[instance]?.keys.map { $0 } ?? []))
             scrollController.enterRole(installationID: instance, followingLatest: store.followingLatest)
             scrollController.updateLatestMessage(store.messages.last?.text("message_id"), following: store.followingLatest)
             if store.followingLatest { scrollController.requestBottom() }
@@ -258,10 +262,13 @@ struct BionicChatScreen: View {
         .onDisappear {
             screenVisible = false
             scrollController.leaveRole()
-            store.chatVisibility(instance, visible: false)
+            store.chatDisappeared(instance, token: visibilityToken)
         }
         .onChange(of: canRead, initial: true) { _, allowed in
-            store.chatVisibility(instance, visible: allowed)
+            store.chatVisibility(instance, visible: allowed, token: visibilityToken)
+            if allowed {
+                acknowledgeConversation(Set(store.unreadSequencesByInstance[instance]?.keys.map { $0 } ?? []))
+            }
         }
         .onChange(of: readableViewport, initial: true) { _, viewport in
             scrollController.observeReadableBottom(viewport.maxY)
@@ -295,6 +302,12 @@ struct BionicChatScreen: View {
         )) {
             Button(PalmiL10n.tr("bionic.ok"), role: .cancel) {}
         } message: { Text(localError ?? "") }
+    }
+
+    private func acknowledgeConversation(_ ids: Set<String>) {
+        guard canRead, let reader = role?.state.participantID else { return }
+        store.readConversationMessages(ids, instance: instance, participantID: reader,
+                                       visibilityToken: visibilityToken)
     }
 
     /// 最新真实消息行的尾部探针；不是每行都建一个默认高度的 GeometryReader。

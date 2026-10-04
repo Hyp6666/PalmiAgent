@@ -8,8 +8,11 @@ struct BionicModelBindingFields: View {
     @State private var modelHelp: String?
     private var planOverride: ModelPlanSessionOverride { store.model.sessionOverride(binding) }
     private var plan: ModelPlanSnapshot? { store.model.plans.selectedPlan(for: planOverride) }
-    private func candidate(_ key: String) -> Binding<String> {
-        Binding(get: { binding.text(key) }, set: { binding[key] = $0.isEmpty ? .null : .string($0) })
+    private func candidate(_ key: String, slot: ModelPlanSlot, plan: ModelPlanSnapshot) -> Binding<String> {
+        Binding(get: {
+            store.model.plans.selectedCandidate(for: slot, in: plan, sessionOverride: planOverride)?
+                .id.uuidString.lowercased() ?? ""
+        }, set: { binding[key] = $0.isEmpty ? .null : .string($0) })
     }
     var body: some View {
         Section(PalmiL10n.tr("bionic.models")) {
@@ -38,9 +41,13 @@ struct BionicModelBindingFields: View {
             Button { modelHelp = help } label: { Image(systemName: "questionmark.circle").foregroundStyle(.secondary) }
                 .buttonStyle(.plain).accessibilityLabel(PalmiL10n.tr(title))
             Spacer()
-            Picker(PalmiL10n.tr(title), selection: candidate(key)) {
-                Text(store.model.plans.selectedCandidate(for: slot, in: plan, sessionOverride: planOverride)?.title ?? PalmiL10n.tr("bionic.followActivePlan")).tag("")
-                ForEach(plan.candidates) { Text($0.title).tag($0.id.uuidString.lowercased()) }
+            Picker(PalmiL10n.tr(title), selection: candidate(key, slot: slot, plan: plan)) {
+                if store.model.plans.selectedCandidate(for: slot, in: plan, sessionOverride: planOverride) == nil {
+                    Text(PalmiL10n.tr("common.notSelected")).tag("").disabled(true)
+                }
+                ForEach(plan.candidates.filter { !$0.isImageGenerationOnly }) {
+                    Text($0.title).tag($0.id.uuidString.lowercased())
+                }
             }.labelsHidden()
         }
     }

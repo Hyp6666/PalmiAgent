@@ -186,6 +186,7 @@ struct ChatScreen: View {
     }
     private var mayMarkVisibleAnswersRead: Bool {
         screenIsVisible && scenePhase == .active && unreadSnapshot.readingAllowed
+            && store.hasLoadedDisplayedConversation
             && store.pendingApprovalRequest == nil && store.browserPresentation == nil
             && !isShowingQuickConfiguration && !isShowingBionicSuggestion
             && previewedWorkspaceFile == nil && previewedAttachmentFiles == nil

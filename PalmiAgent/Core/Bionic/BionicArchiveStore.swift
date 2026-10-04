@@ -619,8 +619,9 @@ actor BionicArchiveStore {
         imageReferenceCache.removeValue(forKey: instance)
         presentationCache.removeValue(forKey: instance)
         diaryProjectionCache.removeValue(forKey: instance)
-        deleted.insert(instance); cache.removeValue(forKey: instance)
+        cache.removeValue(forKey: instance)
         for url in [roleURL(instance), localURL(instance)] where FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+        deleted.insert(instance)
     }
     func forgetAll() {
         imageReferenceCache.removeAll()
@@ -753,11 +754,13 @@ extension BionicArchiveStore {
         return true
     }
     func resetAll() throws {
+        let instances = Set(cache.keys)
         imageReferenceCache.removeAll()
         diaryProjectionCache.removeAll()
         presentationCache.removeAll()
-        deleted.formUnion(cache.keys); cache.removeAll()
+        cache.removeAll()
         if FileManager.default.fileExists(atPath: root.path) { try FileManager.default.removeItem(at: root) }
+        deleted.formUnion(instances)
     }
 }
 

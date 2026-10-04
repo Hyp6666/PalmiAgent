@@ -12,9 +12,14 @@ final class BionicNotifications {
     private var reconciling = false
     private var again = false
     private var reconcileWaiters: [CheckedContinuation<Void, Never>] = []
+    private var resetsInFlight = 0
     private var epoch = 0
     private var removed = Set<String>()
+    private var retiredGenerationByInstance: [String: String] = [:]
     private var scheduledFingerprints: [String: String] = [:]
+    private var pendingReadIDs: [String: Set<String>] = [:]
+    private var readRevisionsByInstance: [String: Int] = [:]
+    private var readRevision = 0
     private(set) var badgeCount = 0
     private(set) var omittedGroupCount = 0
     private(set) var lastError: String?
@@ -39,7 +44,16 @@ final class BionicNotifications {
         }
     }
     func setVisible(_ instance: String?, foreground: Bool) {
-        service.bionicVisibleInstance = instance; service.bionicForeground = foreground
+        service.bionicVisibleInstance = foreground ? instance : nil; service.bionicForeground = foreground
+    }
+    func setPendingReadIDs(_ instance: String, ids: Set<String>) {
+        guard (pendingReadIDs[instance] ?? []) != ids else { return }
+        if ids.isEmpty { pendingReadIDs.removeValue(forKey: instance) }
+        else { pendingReadIDs[instance] = ids }
+        readRevision += 1
+        readRevisionsByInstance[instance, default: 0] += 1
+        if reconciling { again = true }
+        else { Task { @MainActor [weak self] in await self?.reconcile() } }
     }
     static func identifier(_ instance: String, _ group: String) -> String { "palmi.bionic.\(instance).\(group)" }
     func enable(_ instance: String, enabled: Bool) async throws {
@@ -49,6 +63,8 @@ final class BionicNotifications {
     }
     func remove(_ instance: String) async {
         removed.insert(instance)
+        pendingReadIDs.removeValue(forKey: instance)
+        readRevision += 1
         let prefix = "palmi.bionic.\(instance)."
         service.removePending(await service.pendingIdentifiers().filter { $0.hasPrefix(prefix) })
         service.removeDelivered(await service.deliveredIdentifiers().filter { $0.hasPrefix(prefix) })
@@ -56,17 +72,40 @@ final class BionicNotifications {
         await reconcile()
     }
     func removeAll() async {
+        resetsInFlight += 1
+        defer { resetsInFlight -= 1 }
         epoch += 1
+        pendingReadIDs.removeAll()
+        readRevisionsByInstance.removeAll()
+        readRevision += 1
+        for role in await archive.roles() {
+            retiredGenerationByInstance[role.installationID] = role.state.generationID
+        }
         service.removePending(await service.pendingIdentifiers().filter { $0.hasPrefix("palmi.bionic.") })
         service.removeDelivered(await service.deliveredIdentifiers().filter { $0.hasPrefix("palmi.bionic.") })
         scheduledFingerprints.removeAll(); badgeCount = 0; omittedGroupCount = 0
         do { try await service.setBadgeCount(0) } catch { lastError = String(describing: error) }
     }
+    private func isRetired(_ role: BionicRole) -> Bool {
+        retiredGenerationByInstance[role.installationID] == role.state.generationID
+    }
+    func restoreSurvivingAfterFailedRemoval(_ instance: String? = nil) async {
+        guard resetsInFlight == 0 else { return }
+        let generation = epoch
+        let survivors = await archive.roles()
+        guard resetsInFlight == 0, generation == epoch else { return }
+        for role in survivors where instance == nil || role.installationID == instance {
+            // 文件删除失败时，只撤回仍能从真实归档加载的角色屏蔽。
+            removed.remove(role.installationID)
+            if isRetired(role) { retiredGenerationByInstance.removeValue(forKey: role.installationID) }
+        }
+        await reconcile()
+    }
     private func observed(_ instance: String, group: String, result: String, details: BionicObject = [:]) async {
         guard !removed.contains(instance) else { return }
         do {
             let role = try await archive.loadRole(instance)
-            guard role.state.groups.contains(where: { $0.text("group_id") == group }) else { return }
+            guard !isRetired(role), role.state.groups.contains(where: { $0.text("group_id") == group }) else { return }
             let id = Self.identifier(instance, group)
             let observations = try await archive.binding(instance).object("notification_observations")
             let marker = result + ":" + (try BionicCodec.hash(details))
@@ -80,10 +119,12 @@ final class BionicNotifications {
     }
     private func received(_ instance: String, group: String, message: String,
                           clicked: Bool) async -> Bool {
-        guard !removed.contains(instance), BionicCodec.validID(instance),
+        guard resetsInFlight == 0, !removed.contains(instance), BionicCodec.validID(instance),
               BionicCodec.validID(group), BionicCodec.validID(message) else { return false }
+        let generation = epoch
         do {
             let role = try await archive.commitDue(instance, at: .now)
+            guard resetsInFlight == 0, generation == epoch, !removed.contains(instance), !isRetired(role) else { return false }
             guard let record = role.state.groups.first(where: { $0.text("group_id") == group }),
                   record.records("items").contains(where: { $0.text("message_id") == message }),
                   role.state.itemState(message) == "committed",
@@ -92,16 +133,29 @@ final class BionicNotifications {
                 return false
             }
             await observed(instance, group: group, result: clicked ? "clicked" : "delivered_seen")
+            guard resetsInFlight == 0, generation == epoch, !removed.contains(instance) else { return false }
             onArrival?(instance)
             if clicked {
                 service.removeDelivered([Self.identifier(instance, group)])
                 onRoute?(instance, message)
             }
             await reconcile()
+            guard resetsInFlight == 0, generation == epoch, !removed.contains(instance) else { return false }
             if clicked { return true }
-            let currentBinding = try await archive.binding(instance)
-            return currentBinding.flag("notifications_enabled")
-                && !currentBinding.flag("chat_muted")
+            while resetsInFlight == 0, generation == epoch, !removed.contains(instance), !Task.isCancelled {
+                let reading = readRevisionsByInstance[instance] ?? 0
+                let projection = try await archive.readProjection(instance)
+                let currentBinding = try await archive.binding(instance)
+                guard resetsInFlight == 0, generation == epoch, !removed.contains(instance) else { return false }
+                // 落盘确认可能在 await 期间清除临时回执；此时必须重新取投影，
+                // 不能把旧 unread 与已清空的 pendingReadIDs 混合后重新弹通知。
+                guard reading == (readRevisionsByInstance[instance] ?? 0) else { continue }
+                let unread = projection.unreadSequences[message] != nil
+                    && !(pendingReadIDs[instance]?.contains(message) ?? false)
+                if !unread { service.removeDelivered([Self.identifier(instance, group)]) }
+                return unread && currentBinding.flag("notifications_enabled") && !currentBinding.flag("chat_muted")
+            }
+            return false
         } catch {
             lastError = String(describing: error)
             onDiagnostics?(instance)
@@ -140,6 +194,7 @@ final class BionicNotifications {
                 .sorted { $0.text("delivered_at") > $1.text("delivered_at") })]
     }
     func reconcile() async {
+        guard resetsInFlight == 0 else { return }
         if reconciling {
             again = true
             await withCheckedContinuation { reconcileWaiters.append($0) }
@@ -155,6 +210,7 @@ final class BionicNotifications {
         let generation = epoch
         repeat {
             again = false
+            let reading = readRevision
             guard generation == epoch, !Task.isCancelled else { return }
             let now = Date.now
             let status = await service.authorizationStatus()
@@ -168,17 +224,19 @@ final class BionicNotifications {
             var unread = 0
             var projectionsComplete = true
             var candidates: [Candidate] = []
-            for snapshot in await archive.roles() where !removed.contains(snapshot.installationID) {
+            for snapshot in await archive.roles() where !removed.contains(snapshot.installationID) && !isRetired(snapshot) {
                 guard generation == epoch, !Task.isCancelled else { return }
                 let instance = snapshot.installationID
                 do {
                     let role = try await archive.commitDue(instance, at: now)
+                    guard !isRetired(role) else { continue }
                     if role.state.lastMessageSequence != snapshot.state.lastMessageSequence { onArrival?(instance) }
                     let binding = try await archive.binding(instance)
                     let projection = try await archive.readProjection(instance)
-                    let read = projection.readIDs
-                    unread += projection.unread
-                    if binding.flag("chat_muted") {
+                    let acknowledged = pendingReadIDs[instance] ?? []
+                    let unreadIDs = Set(projection.unreadSequences.keys).subtracting(acknowledged)
+                    unread += unreadIDs.count
+                    if binding.flag("chat_muted") || !binding.flag("notifications_enabled") {
                         let prefix = "palmi.bionic.\(instance)."
                         service.removeDelivered(Array(delivered.filter { $0.hasPrefix(prefix) }))
                     }
@@ -187,10 +245,9 @@ final class BionicNotifications {
                         let items = group.records("items").sorted { $0.text("planned_at") < $1.text("planned_at") }
                         if delivered.contains(id) {
                             await observed(instance, group: group.text("group_id"), result: "delivered_seen")
-                            if items.allSatisfy({ item in
-                                read.contains(item.text("message_id"))
-                                    || role.state.itemState(item.text("message_id")) == "cancelled"
-                            }) { service.removeDelivered([id]) }
+                            if let first = items.first,
+                               role.state.itemState(first.text("message_id")) != "pending",
+                               !unreadIDs.contains(first.text("message_id")) { service.removeDelivered([id]) }
                         }
                         if existing.contains(id), !delivered.contains(id),
                            authorized, binding.flag("notifications_enabled"),
@@ -199,7 +256,7 @@ final class BionicNotifications {
                            BionicOutboxPolicy.invalidReason(group, role: role) == nil,
                            group.text("planned_timezone") == TimeZone.current.identifier,
                            let first = items.first,
-                           !read.contains(first.text("message_id")),
+                           unreadIDs.contains(first.text("message_id")),
                            role.state.itemState(first.text("message_id")) != "cancelled",
                            let date = try? BionicCodec.date(first.text("planned_at")),
                            date <= now, now.timeIntervalSince(date) < 5 {
@@ -228,10 +285,13 @@ final class BionicNotifications {
                 }
             }
             guard generation == epoch, !Task.isCancelled else { return }
+            guard reading == readRevision else { again = true; continue }
             // 读取失败时保留有效角标和既有通知，下一轮再重建投影。
             guard projectionsComplete else { continue }
             badgeCount = unread
             do { try await service.setBadgeCount(unread) } catch { lastError = String(describing: error) }
+            guard generation == epoch, !Task.isCancelled else { return }
+            guard reading == readRevision else { again = true; continue }
             candidates.sort { $0.at == $1.at ? $0.id < $1.id : $0.at < $1.at }
             let chosen = Array(candidates.prefix(max(0, available - keepDueRequests.count)))
             omittedGroupCount = max(0, candidates.count - chosen.count)
@@ -253,7 +313,7 @@ final class BionicNotifications {
                     if existing.contains(id), scheduledFingerprints[id] == fingerprint { continue }
                     let current = try await archive.loadRole(instance)
                     let binding = try await archive.binding(instance)
-                    guard !removed.contains(instance),
+                    guard generation == epoch, !Task.isCancelled, !removed.contains(instance), !isRetired(current),
                           BionicOutboxPolicy.invalidReason(candidate.group, role: current) == nil,
                           BionicDeliveryPolicy.contactAllowed(candidate.group, binding: binding),
                           binding.flag("notifications_enabled"),
@@ -267,7 +327,7 @@ final class BionicNotifications {
                         deliveryTimeZone: TimeZone(secondsFromGMT: 0))
                     let after = try await archive.loadRole(instance)
                     let local = try await archive.binding(instance)
-                    guard generation == epoch, !removed.contains(instance),
+                    guard generation == epoch, !removed.contains(instance), !isRetired(after),
                           BionicOutboxPolicy.invalidReason(candidate.group, role: after) == nil,
                           local.flag("notifications_enabled"),
                           !local.flag("chat_muted"),

@@ -109,6 +109,13 @@ final class BionicCoordinator {
         imageTaskIDs.removeValue(forKey: instance)
         deleted.insert(instance); blocked.remove(instance); queue.removeAll { $0 == instance }; model.cancel(instance: instance)
     }
+    func restoreSurvivingAfterFailedRemoval(_ instance: String) async {
+        let epoch = lifecycle
+        guard (try? await archive.loadRole(instance)) != nil, epoch == lifecycle else { return }
+        deleted.remove(instance)
+        blocked.remove(instance)
+        wake(instance)
+    }
     func open(_ instance: String) async {
         selectedInstance = instance; blocked.remove(instance); onError?(instance, nil)
         do { _ = try await archive.commitDue(instance, at: .now); onChange?(instance); enqueue(instance) }
