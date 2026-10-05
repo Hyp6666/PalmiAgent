@@ -16,12 +16,22 @@ struct BionicIntroductionContent: View {
                     if section != "origin" {
                         Text(PalmiL10n.tr("bionic.introduction.\(section).title")).font(.title3.bold())
                     }
-                    Text(PalmiL10n.tr("bionic.introduction.\(section)"))
+                    Text(sectionBody(section))
                         .font(.body).lineSpacing(5).fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
         .textSelection(.enabled)
+    }
+
+    private func sectionBody(_ section: String) -> AttributedString {
+        let content = PalmiL10n.tr("bionic.introduction.\(section)")
+        guard section == "cost",
+              let linkedContent = try? AttributedString(
+                markdown: content,
+                options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+              ) else { return AttributedString(content) }
+        return linkedContent
     }
 }
 
