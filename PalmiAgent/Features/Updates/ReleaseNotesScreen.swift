@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Content identifiers are independent of build numbers, so patch builds do not repeat an announcement.
 enum ReleaseNotesCatalog {
-    static let currentID = "bionic-introduction-2026-09"
+    static let currentID = "release-26.10"
     static let acknowledgedKey = "palmi.release-notes.acknowledged"
     static let history = ["26.9", "26.8", "26.7", "1.0.1", "1.0.0"]
 }
@@ -49,6 +49,7 @@ struct BionicIntroductionScreen: View {
 struct CurrentReleaseNotesScreen: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage(ReleaseNotesCatalog.acknowledgedKey) private var acknowledged = ""
+    @State private var showsIntroduction = false
     let onOpenBionic: () -> Void
     var onClose: (() -> Void)? = nil
 
@@ -56,12 +57,13 @@ struct CurrentReleaseNotesScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 Text(PalmiL10n.tr("updates.current")).font(.largeTitle.bold())
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(PalmiL10n.tr("updates.highlights.title")).font(.title2.bold())
-                    Text(PalmiL10n.tr("updates.highlights.body")).lineSpacing(5)
-                }
+                releaseSection("bionic", items: ["characters", "conversations", "plans"], introductionHelp: true)
+                releaseSection("models", items: ["oauth", "images"])
+                releaseSection("neo", items: ["timeline", "details"])
+                releaseSection("interaction", items: ["settings", "unread"])
                 Divider()
-                BionicIntroductionContent()
+                Text(PalmiL10n.tr("updates.modelUsageNote"))
+                    .font(.footnote).foregroundStyle(.secondary)
             }
             .frame(maxWidth: 680, alignment: .leading).padding(24).frame(maxWidth: .infinity)
         }
@@ -83,6 +85,41 @@ struct CurrentReleaseNotesScreen: View {
         }
         .navigationTitle(PalmiL10n.tr("updates.title"))
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showsIntroduction) {
+            NavigationStack {
+                BionicIntroductionScreen()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button(PalmiL10n.tr("common.done")) { showsIntroduction = false }
+                        }
+                    }
+            }
+        }
+    }
+
+    private func releaseSection(_ section: String, items: [String], introductionHelp: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(PalmiL10n.tr("updates.\(section).title")).font(.title2.bold())
+                if introductionHelp {
+                    Button { showsIntroduction = true } label: {
+                        Image(systemName: "questionmark.circle")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                            .frame(minWidth: 36, minHeight: 36).contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(PalmiL10n.tr("bionic.introduction.shortTitle"))
+                    .accessibilityIdentifier("updates.bionic.introduction")
+                }
+            }
+            ForEach(items, id: \.self) { item in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(PalmiL10n.tr("updates.\(section).\(item).title")).font(.headline)
+                    Text(PalmiL10n.tr("updates.\(section).\(item).body"))
+                        .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
     }
 
     private func acknowledge() {

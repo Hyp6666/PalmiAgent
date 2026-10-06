@@ -3,208 +3,86 @@
 </p>
 
 <h1 align="center">
-  <img src="Screenshots/palmi-icon-github.png" width="88" alt="PalmiAgent 图标"><br>
-  PalmiAgent
+  <img src="Screenshots/palmi-icon-github.png" width="88" alt="Palmi 图标"><br>
+  Palmi
 </h1>
 
 <p align="center">
-  <a href="https://apps.apple.com/cn/app/palmiagent/id6787664658"><strong> 在 App Store 免费下载</strong></a>
+  <a href="https://apps.apple.com/cn/app/palmiagent/id6787664658"><strong>在 App Store 下载</strong></a>
 </p>
+
+Palmi 是面向 iPhone 和 iPad 的原生 AI 应用，提供日常对话、以项目组织的智能体工作区，以及虚拟角色对话。用户自行接入模型服务，在应用内管理对话、文件、工具和可复用的工作流程。
+
+应用将工作区保存在设备上，模型请求直接发送到用户配置的服务。支持兼容的云端 API、局域网模型服务，以及具备相应访问权限的 Codex OAuth 账号。开源仓库名称仍为 **PalmiAgent**。
+
+## 使用模式与对话
+
+Palmi 提供三种使用模式：
+
+| 模式 | 主要功能 |
+| --- | --- |
+| 聊天 | 日常问答、写作、图像理解和工具辅助对话。 |
+| 专业 | 项目、文件、多步骤任务、资料研究和成果文件。智能体可以把独立工作分配给子智能体，再将结果汇入主对话。 |
+| 仿生 | 与虚拟角色对话，通过角色设定、记忆、虚构日记和主动消息延续交流。 |
+
+专业模式中的对话可选择标准聊天、目标模式或深度研究模式。运行过程展示进度、工具调用、审批和结果，用户可以在执行期间追加消息，并查看已记录的过程。聊天与专业模式均可选择 Hardcore 或 Neo 呈现风格；Neo 将活动整理为时间线，支持展开步骤详情并显示耗时。
+
+仿生角色可以手动创建、从存档导入，也可以使用专业模式内置的角色创建技能生成。角色设置包含名称、头像、背景、性格和模型配置。对话支持历史搜索、秒回或自然回复节奏、置顶、免打扰、自定义聊天背景，以及存档导出与导入。角色、故事和生成图片均为虚构内容。
+
+仿生基础版包含内置 Palmi 角色，并可保留最多两个自定义角色。免费方案中的角色也会形成记忆、生成日记。一次性购买仿生 Pro 后，自定义角色上限提升至 99 个，并解锁记忆详情、来源消息跳转、手动记忆编辑、日记阅读和开发者检查面板。模型服务的使用费用与此项购买分开计算。
 
 <p align="center">
-  <strong>让 AI 在 iPhone 上真正开始做事。</strong><br>
-  本机优先、模型自由、工具可控的个人 AI Agent 工作区。
+  <a href="Screenshots/AppStore/26.10/iPhone/zh-CN/02-Bionic-Mode.png"><img src="Screenshots/AppStore/26.10/iPhone/zh-CN/02-Bionic-Mode.png" width="300" alt="仿生角色对话"></a>
+  <a href="Screenshots/AppStore/26.10/iPhone/zh-CN/04-Execution-Timeline.png"><img src="Screenshots/AppStore/26.10/iPhone/zh-CN/04-Execution-Timeline.png" width="300" alt="支持展开步骤的 Neo 过程时间线"></a>
 </p>
 
-PalmiAgent 不只回答问题。它能围绕一个真实任务持续工作：理解目标、阅读文件、搜索资料、调用工具、运行 Python、整理产物，并把对话、过程和结果完整留在你的工作区里。
+## 模型接入
 
-你选择模型，PalmiAgent 负责把模型变成一位真正能行动的移动 Agent。
+用户可以填写服务地址、API Key 和模型 ID，选择 OpenAI Chat Completions、OpenAI Responses 或 Anthropic Messages，也可以使用自动协议匹配。内置服务配置涵盖 OpenAI、Azure OpenAI、DeepSeek、GLM / Z.AI、Qwen、Kimi、MiniMax、OpenRouter、SiliconFlow、Ollama 和 LM Studio 等；其他兼容服务可手动添加。
+
+全局模型库支持获取远程模型列表、手动添加模型和连接验证。模型方案可分别配置主模型、多模态模型和轻量模型，保存后在不同对话中复用。支持相应能力的模型可以调整思考开关与推理强度。用户也可以选择表达风格，或填写自定义表达要求。
+
+Codex OAuth 登录可将账号关联的模型导入模型库。图像生成设置用于选择可用的图像模型，供支持的图像工具和仿生交互使用。模型可用性、图像访问权限、额度和费用取决于所连接的账号或服务商。
 
 <p align="center">
-  <a href="Screenshots/Product/zh-CN/01-真正的Agent.png"><img src="Screenshots/Product/zh-CN/01-真正的Agent.png" width="430" alt="PalmiAgent 在 iPhone 上规划任务并调用工具"></a>
+  <a href="Screenshots/AppStore/26.10/iPhone/zh-CN/09-Model-Protocols.png"><img src="Screenshots/AppStore/26.10/iPhone/zh-CN/09-Model-Protocols.png" width="300" alt="API 协议与模型服务配置"></a>
+  <a href="Screenshots/AppStore/26.10/iPhone/zh-CN/08-Codex-OAuth.png"><img src="Screenshots/AppStore/26.10/iPhone/zh-CN/08-Codex-OAuth.png" width="300" alt="全局模型库中的 Codex OAuth 模型"></a>
 </p>
 
-## 不止聊天，而是完成任务
+## 工作区与工具
 
-普通 AI 聊天在回复结束时停止，PalmiAgent 则为持续执行而设计。
+专业模式通过项目和会话组织工作，附件、原始资料、中间文件和成果保存在对应工作区中。用户可以浏览与预览文件，打开生成的 HTML 工具和可视化内容，并导出项目。智能体能够读取、创建、追加、移动、复制、重命名和整理工作区文件。文档工具可从 PDF、Office、iWork 文档及支持的压缩包中提取文本与资源。
 
-- **完整 Agent 循环**：围绕目标分析、规划、调用工具、读取结果并继续推进，直到形成最终答复或可交付文件。
-- **对话内的三种任务方式**：日常问题使用标准聊天；复杂目标交给目标模式；需要多来源查证时使用深度研究模式。
-- **长任务不断档**：自动压缩较早上下文并保护关键任务状态；开启后台处理后，离开 App 或锁屏时可在 iOS 允许的时间内继续运行。
-- **运行中也能追加想法**：Agent 工作时可以先把新消息放入待发送队列，在下一个安全节点继续处理。
-- **过程清晰可见**：阶段思考、工具调用、审批、任务状态、引用依据、文件变更、耗时与 Token 使用都有结构化记录。
+网页研究支持本地搜索和单独配置的远程搜索。本地搜索可选择百度、Bing、DuckDuckGo、搜狗或 360 搜索；远程搜索通过 Responses 或 Messages 服务提供。智能体可以读取网页和 PDF、跟进链接、批量获取来源，并按范围读取长文档。引用来源和工具结果保留在对话中供查看。
 
-### 多个 Agent，并行推进
+本地计算工具可在设备上执行计算和数据处理，读取任务输入，并将结果文件写入工作区。
 
-复杂任务可以拆分给多个独立的子 Agent，主 Agent 负责协调工作、收集结果并继续决策。
+图片可以交给支持视觉的主模型，或单独配置的多模态模型理解。内置 PP-OCRv6 Tiny 资源提供端侧文字识别，可输出文字行、置信度和边界框。应用也支持系统文档扫描与实时文字扫描。
+
+技能为特定工作提供可复用的操作说明。用户可以导入 `SKILL.md` 文件或 ZIP 技能包，将技能设为全局可用或仅在项目内使用，并在应用中管理。内置 Skill Creator 可辅助创建技能。设备集成包括日历、提醒事项、通讯录、定位与地图、相机、照片、通知及语音输入与朗读，使用时遵循系统权限和工具设置。
+
+对话与任务状态保存在本地。长任务可以压缩较早的上下文并保留任务状态。后台处理可在 iOS 允许的时间内继续运行，实际运行时长由系统管理。
 
 <p align="center">
-  <a href="Screenshots/Product/zh-CN/03-多智能体协作.png"><img src="Screenshots/Product/zh-CN/03-多智能体协作.png" width="430" alt="多个子 Agent 并行完成任务"></a>
+  <a href="Screenshots/Product/zh-CN/05-端侧OCR.png"><img src="Screenshots/Product/zh-CN/05-端侧OCR.png" width="300" alt="端侧文字识别"></a>
+  <a href="Screenshots/Product/zh-CN/09-技能扩展.png"><img src="Screenshots/Product/zh-CN/09-技能扩展.png" width="300" alt="导入技能与内置技能管理"></a>
 </p>
 
-### 一条提示词，到可交互的成果
+## 数据与权限
 
-PalmiAgent 可以创建独立运行的 HTML 工具、可视化作品和网页游戏，并直接在应用内打开和使用。
+对话、项目文件、角色存档、任务状态和设置默认保存在设备上。API Key 和 Codex OAuth 凭据使用系统 Keychain 保存。Palmi 不运行中转模型对话的服务器；请求所需的任务内容会直接发送到用户选择的模型或搜索服务，并适用相应服务商的条款和隐私政策。
 
-<p align="center">
-  <a href="Screenshots/Product/zh-CN/02-一句话生成游戏.png"><img src="Screenshots/Product/zh-CN/02-一句话生成游戏.png" width="430" alt="PalmiAgent 创建并在应用内预览可玩的网页游戏"></a>
-</p>
+工具授权支持每次询问、允许已启用工具，以及依据用户策略进行自动审核。工具活动、审批和文件变更会记录在任务过程中。访问受保护的设备数据还需遵循 iOS 权限。文件操作、Python 执行和 OCR 可以在设备上完成。
 
-## 你的模型，由你决定
+## 安装与开源
 
-PalmiAgent 不把你绑定在某一家模型服务上，也不通过自有云端代理你的模型请求。
+从 [App Store 下载 Palmi](https://apps.apple.com/cn/app/palmiagent/id6787664658)，配置兼容的模型服务或具备访问权限的 Codex OAuth 账号，然后选择模型方案。应用要求 **iOS 或 iPadOS 26.1 及以上版本**，界面提供简体中文、繁体中文、英语、日语和韩语。
 
-### 接入你自己的模型服务
+Palmi 不附带通用模型权重或第三方模型额度。联网功能需要网络连接和相应服务可用。仿生基础版和仿生 Pro 均使用用户配置的模型服务，不包含模型服务额度。
 
-直接连接你自己的 API 账号或局域网模型服务。支持选择 **OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 三种协议**，以及**自动协议匹配**。按服务需要填写请求地址、API Key 与模型，即可接入。
+项目采用 [Apache License 2.0](LICENSE) 开源。
 
-内置支持 OpenAI、Azure OpenAI、GLM / Z.AI、DeepSeek、Qwen、Kimi、MiniMax、豆包、混元、千帆、阶跃星辰、ModelScope、SiliconFlow、OpenRouter、Ollama 与 LM Studio，也可手动添加其他兼容服务。
-
-<p align="center">
-  <a href="Screenshots/Product/zh-CN/07-OpenAI兼容.png"><img src="Screenshots/Product/zh-CN/07-OpenAI兼容.png" width="430" alt="模型配置支持三种协议及自动协议匹配"></a>
-</p>
-
-### 三种模型角色，一套灵活方案
-
-为**主模型、多模态模型和轻量模型**分别安排角色，在能力、速度与成本之间自由组合。模型保存在全局模型库中，可以被不同方案和会话重复使用。
-
-<p align="center">
-  <a href="Screenshots/Product/zh-CN/06-模型方案.png"><img src="Screenshots/Product/zh-CN/06-模型方案.png" width="430" alt="分别配置主模型、多模态模型和轻量模型"></a>
-</p>
-
-### 每次对话，都能选择合适的思考深度
-
-支持远程模型列表发现、手动填写模型 ID、连接验证、会话级临时切换，以及不同模型的思考开关与强度控制。API Key 保存在系统 Keychain 中。
-
-<p align="center">
-  <a href="Screenshots/Product/zh-CN/08-推理强度.png"><img src="Screenshots/Product/zh-CN/08-推理强度.png" width="430" alt="调整模型思考强度和工具授权"></a>
-</p>
-
-无论你偏爱云端旗舰模型、性价比模型，还是家中局域网内运行的本地模型，都可以保留自己的选择权。
-
-## 每个任务，都有自己的工作区
-
-PalmiAgent 把聊天从一串容易丢失的消息，变成可持续维护的项目。
-
-- **两种界面形态**：它们与上面的任务方式不是同一层级；**聊天模式**保留轻量直接的使用体验，**专业模式**则提供项目、会话、文件和长任务管理。
-- 用项目和会话组织不同主题，聊天记录、附件、网页资料、OCR 结果、Python 日志和生成文件始终归属于当前任务。
-- Agent 可以读取、创建、追加、移动、复制、重命名和整理工作区文件。
-- 在 App 内浏览目录、预览附件和生成物，完成后直接导出整个项目。
-- 可拆解 PDF、Word、Excel、PowerPoint、Pages、Numbers、Keynote、RAR 与 7z 等复杂文件，按需读取其中的文本和原始资源。
-- 会话与任务状态持续保存在本机，应用中断后仍能识别未完成运行，避免不安全的重复执行。
-
-今天收集的资料、明天追加的数据、下周继续的报告，都可以在同一个上下文里自然衔接。
-
-## 把真正的 Python 装进 iPhone
-
-PalmiAgent 内置真实的 **CPython 3.14** 运行环境，让 Agent 不必只靠语言模型“心算”。
-
-- 执行计算、符号推导、日期处理、文本与结构化数据处理。
-- 读取和生成 Excel，整理 JSON、CSV、HTML、XML 与表格。
-- 使用 SymPy、openpyxl、NetworkX、Beautiful Soup、tabulate 等精选纯 Python 包。
-- 脚本在受限的本机工作区内执行，可直接读取任务输入并写回结果文件。
-
-从一组数据到一份表格，从一个公式到可复核的计算过程，结果不再只是“听起来合理”。
-
-## 看懂图片，也读出文字
-
-你可以从相机、照片或文件中加入图片，PalmiAgent 会根据当前配置选择合适的处理方式。
-
-- 主模型支持视觉时，直接进行图片理解。
-- 主模型不看图时，可交给单独配置的多模态模型。
-
-<p align="center">
-  <a href="Screenshots/Product/zh-CN/04-多模态理解.png"><img src="Screenshots/Product/zh-CN/04-多模态理解.png" width="430" alt="PalmiAgent 多模态图片理解"></a>
-</p>
-
-- 需要提取文字时，使用内置 PP-OCRv6 Tiny 在设备端完成 OCR。
-- OCR 不只返回纯文本，还可保存行级内容、置信度和位置框等结构化结果，方便后续检索和处理。
-- 工具中心同时接入文档扫描与实时文本扫描能力。
-
-<p align="center">
-  <a href="Screenshots/Product/zh-CN/05-端侧OCR.png"><img src="Screenshots/Product/zh-CN/05-端侧OCR.png" width="430" alt="使用内置 PP-OCRv6 Tiny 资源进行端侧 OCR"></a>
-</p>
-
-一张截图、一页资料、一份拍照文档，都可以直接成为任务上下文。
-
-## 从搜索结果走到可验证结论
-
-PalmiAgent 的网页能力面向研究流程，而不只是打开一个搜索框。
-
-- 在「设置 → 搜索配置」中选择**本地搜索或远端搜索**。
-- **本地搜索**：由设备直接进行联网搜索，可从百度、必应、DuckDuckGo、搜狗、360 搜索中选择一个搜索源。
-- **远端搜索**：通过 Responses 或 Messages 接入具备服务端联网搜索能力的服务。可保存多套服务地址、模型和 API Key 配置，验证连接，并按需切换使用。
-- 搜索候选页面后，继续读取网页、JavaScript 页面、PDF、JSON、XML 与纯文本内容。
-- 可批量获取多个来源，按区间读取长页面，减少无关上下文与 Token 消耗。
-- 必要时可归档网页及其图片、样式、脚本和字体，保留可追溯的研究素材。
-- 链接可在 Palmi 内置浏览器或 Safari 中继续查看。
-
-配合深度研究模式，Agent 可以自己检索、阅读、比较和整理，而你始终能看到它使用了哪些依据。
-
-## 用 Skills 教会 Palmi 新方法
-
-不同工作需要不同流程。PalmiAgent 的 Skills 让 Agent 可以按需加载专门的任务说明，而不必把所有规则永久塞进每次对话。
-
-- 从 `SKILL.md` 或 ZIP 导入技能包。
-- 技能可以全局使用，也可以只属于某个项目。
-- 随时启用、停用、查看或删除已导入技能。
-- 内置 Skill Creator，帮助你直接在移动工作区中创建自己的技能。
-- 技能按需读取，既减少无关上下文，也让复杂流程更容易复用。
-
-<p align="center">
-  <a href="Screenshots/Product/zh-CN/09-技能扩展.png"><img src="Screenshots/Product/zh-CN/09-技能扩展.png" width="430" alt="导入和管理可复用的 Agent Skills"></a>
-</p>
-
-你可以为调研、写作、数据分析、代码审查或自己的行业流程制作专属技能，让 Palmi 越来越贴合你的工作方式。
-
-## 与 iPhone 的能力真正连接
-
-PalmiAgent 是原生 SwiftUI 应用，不是套在网页外面的聊天窗口。
-
-工具中心已经接入日历、提醒事项、通讯录、系统闹钟与倒计时、定位、附近地点、Apple 地图、相机、照片、通知、语音识别与朗读、邮件、短信、电话、FaceTime、Spotlight、App Intents、Handoff 等系统能力。
-
-不同能力会根据风险与系统要求单独请求权限。涉及用户继续操作的动作会交回系统界面完成，不会在后台静默越权。
-
-PalmiAgent 同时提供简体中文、繁体中文、English、日本語和한국어界面。你还可以选择专注或亲切的回复风格，也可以写下自己的自定义人格，让 Palmi 用更适合你的方式沟通。
-
-## 隐私不是一句口号，而是产品架构
-
-- **本机保存**：会话、工作区文件、任务状态和设置默认保存在设备上。
-- **没有自有模型中转服务器**：模型请求从设备直接发送到你选择并配置的第三方接口。
-- **敏感信息进 Keychain**：API Key 由系统 Keychain 保存。
-- **只处理你主动加入的内容**：未加入当前任务的照片、文件或个人数据不会因为打开 App 而自动上传。
-- **工具权限由你掌控**：可以选择每次询问、全部同意或按照自定义策略自动审查；单次会话也能单独授权。
-- **副作用可追踪**：文件变更、工具动作与审批过程都会进入任务过程记录。
-- **本地能力优先**：文件管理、Python 执行与 OCR 等能力可以直接在设备端完成。
-
-当你调用第三方模型或搜索服务时，完成请求所需的内容仍会发送给相应服务商，并受其条款与隐私政策约束。PalmiAgent 会清楚说明这个边界，把最终选择留给你。
-
-## 适合这些工作
-
-- **研究与学习**：搜索多方资料、阅读长文档、提取重点并整理带依据的结论。
-- **数据与办公**：处理表格、执行计算、生成报告，让结果以文件形式留在工作区。
-- **图片与文档处理**：理解截图、扫描纸质材料、识别文字并继续分类或总结。
-- **开发与技术工作**：阅读项目文件、生成代码和说明文档、调用 Python 验证结果。
-- **长期个人项目**：把多轮对话、素材、决定和产物放进同一个可继续的项目中。
-- **模型玩家**：组合云端、本地、多模态与轻量模型，精细控制思考方式和工具权限。
-
-## 三步开始
-
-1. [从 App Store 下载 PalmiAgent](https://apps.apple.com/cn/app/palmiagent/id6787664658)。
-2. 添加你自己的模型服务、API Key 或局域网模型地址，并选择主模型。
-3. 新建对话或项目，加入文件、图片或一个目标，让 Palmi 开始工作。
-
-> **系统要求：** iOS 26.1 或更高版本。PalmiAgent 不内置通用大模型权重，也不赠送第三方模型额度。使用前需要自行准备可用的模型服务；联网搜索、云端模型及部分系统能力还需要网络、服务可用性或相应的 iOS 权限。后台任务的持续时间由 iOS 决定。
-
-## 开源
-
-PalmiAgent 使用 SwiftUI 构建，并以 [Apache License 2.0](LICENSE) 开源。你可以查看实现、提交问题、改进功能，或基于项目探索属于自己的移动 Agent。
-
-- [查看源代码](https://github.com/Hyp6666/PalmiAgent)
-- [提交问题或建议](https://github.com/Hyp6666/PalmiAgent/issues)
-- [第三方组件与许可](THIRD_PARTY_NOTICES.md)
-
-<p align="center">
-  <strong>把模型装进工作流，把 Agent 带在身边。</strong><br><br>
-  <a href="https://apps.apple.com/cn/app/palmiagent/id6787664658"><strong> 在 App Store 免费下载 PalmiAgent</strong></a>
-</p>
+- [源代码仓库](https://github.com/Hyp6666/PalmiAgent)
+- [问题反馈与功能建议](https://github.com/Hyp6666/PalmiAgent/issues)
+- [版本发布记录](https://github.com/Hyp6666/PalmiAgent/releases)
+- [第三方组件与许可证](THIRD_PARTY_NOTICES.md)
