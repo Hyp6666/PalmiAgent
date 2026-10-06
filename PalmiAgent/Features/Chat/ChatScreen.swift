@@ -123,7 +123,7 @@ struct ChatScreen: View {
     @AppStorage("palmi.chat.tools-enabled") private var areToolsEnabled = true
     @AppStorage("palmi.chat.external-reasoning-enabled") private var isExternalReasoningEnabled = true
     @AppStorage("palmi.prof.bionic-suggestion.never") private var neverSuggestBionic = false
-    @AppStorage(PalmiReasoningUIStyle.storageKey) private var reasoningUIStyleRaw = PalmiReasoningUIStyle.hardcore.rawValue
+    @AppStorage(PalmiReasoningUIStyle.storageKey) private var reasoningUIStyleRaw = PalmiReasoningUIStyle.defaultStyle.rawValue
 
     private let bottomAnchorID = "chat-bottom-anchor"
     private let linkActionPopoverWidth: CGFloat = 286

@@ -1657,11 +1657,11 @@
 "updates.models.oauth.body" = "登录账号，将可用模型加入全局模型库。";
 "updates.models.images.title" = "独立生图配置";
 "updates.models.images.body" = "选择账号可用的生图模型，为专业任务和仿生对话生成图片。";
-"updates.neo.title" = "Neo 推理过程";
-"updates.neo.timeline.title" = "时间线展示";
-"updates.neo.timeline.body" = "在聊天和专业模式中，以时间线查看思考、过程说明和工具调用。";
-"updates.neo.details.title" = "步骤详情";
-"updates.neo.details.body" = "展开查看各步骤内容和工具结果，并查看整轮处理耗时。";
+"updates.neo.title" = "Neo 显示风格";
+"updates.neo.timeline.title" = "推理进度时间线";
+"updates.neo.timeline.body" = "聊天和专业模式新增 Neo 风格，以时间线呈现思考、过程说明和工具调用。";
+"updates.neo.details.title" = "详情与风格切换";
+"updates.neo.details.body" = "展开查看步骤内容、工具结果和耗时。更新后默认使用 Neo；可在运行时设置中切换，选择会保留。";
 "updates.interaction.title" = "设置与消息体验";
 "updates.interaction.settings.title" = "回复风格与模型选择";
 "updates.interaction.settings.body" = "专业模式支持最多 200 字符的自定义回复风格；模型库按来源分组，选择状态更清楚。";

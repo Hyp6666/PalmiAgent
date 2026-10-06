@@ -6,6 +6,10 @@ struct PalmiAgentApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var container = AppContainer()
 
+    init() {
+        PalmiReasoningUIStyle.migrateDefaultIfNeeded()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView(manualLabStore: container.store, workspaceStore: container.workspaceStore,

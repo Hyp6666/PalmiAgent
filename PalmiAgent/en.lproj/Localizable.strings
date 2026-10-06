@@ -1656,11 +1656,11 @@
 "updates.models.oauth.body" = "Sign in and add the models available to your account to the global model library.";
 "updates.models.images.title" = "Dedicated image settings";
 "updates.models.images.body" = "Choose an image model available to your account for Professional tasks and Bionic conversations.";
-"updates.neo.title" = "Neo reasoning view";
-"updates.neo.timeline.title" = "A reasoning timeline";
-"updates.neo.timeline.body" = "View thinking, explanations and tool calls in a timeline in Chat and Professional modes.";
-"updates.neo.details.title" = "Step details";
-"updates.neo.details.body" = "Expand steps to read their content and tool results, and view the elapsed time for the turn.";
+"updates.neo.title" = "Neo display style";
+"updates.neo.timeline.title" = "A new progress view";
+"updates.neo.timeline.body" = "The new Neo style displays thinking, explanations and tool calls in a timeline for Chat and Professional modes.";
+"updates.neo.details.title" = "Details and style selection";
+"updates.neo.details.body" = "Expand steps to view content, results and elapsed time. Neo is the default after updating; your choice in Runtime settings is saved.";
 "updates.interaction.title" = "Settings and messages";
 "updates.interaction.settings.title" = "Reply styles and model selection";
 "updates.interaction.settings.body" = "Describe a custom Professional reply style in up to 200 characters. Models are grouped by source, with clearer selection states.";

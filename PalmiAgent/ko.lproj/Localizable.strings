@@ -1656,11 +1656,11 @@
 "updates.models.oauth.body" = "계정에 로그인하고 사용 가능한 모델을 전체 모델 라이브러리에 추가할 수 있습니다.";
 "updates.models.images.title" = "이미지 생성 전용 설정";
 "updates.models.images.body" = "계정에서 사용할 수 있는 이미지 모델을 선택해 전문가 작업과 바이오닉 대화에서 이미지를 생성할 수 있습니다.";
-"updates.neo.title" = "Neo 추론 보기";
-"updates.neo.timeline.title" = "타임라인 표시";
-"updates.neo.timeline.body" = "채팅과 전문가 모드에서 생각, 설명, 도구 호출을 타임라인으로 확인할 수 있습니다.";
-"updates.neo.details.title" = "단계별 상세 내용";
-"updates.neo.details.body" = "각 단계를 펼쳐 내용과 도구 결과를 확인하고 전체 응답의 경과 시간을 볼 수 있습니다.";
+"updates.neo.title" = "Neo 표시 스타일";
+"updates.neo.timeline.title" = "추론 진행 타임라인";
+"updates.neo.timeline.body" = "채팅과 전문가 모드에 Neo 스타일을 추가했습니다. 생각, 설명, 도구 호출을 타임라인으로 표시합니다.";
+"updates.neo.details.title" = "상세 보기와 스타일 선택";
+"updates.neo.details.body" = "단계별 내용, 도구 결과, 경과 시간을 확인할 수 있습니다. 업데이트 후 기본값은 Neo이며 런타임 설정에서 선택한 스타일은 저장됩니다.";
 "updates.interaction.title" = "설정과 메시지";
 "updates.interaction.settings.title" = "답변 스타일과 모델 선택";
 "updates.interaction.settings.body" = "전문가 모드의 답변 스타일을 최대 200자로 지정할 수 있습니다. 모델을 연결 출처별로 묶고 선택 상태를 더 명확하게 표시합니다.";

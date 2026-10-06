@@ -25,7 +25,7 @@ Palmi provides three modes for different uses:
 | Professional | Projects, files, multi-step tasks, research, and generated deliverables. The agent can divide independent work among child agents and bring their results back into the main conversation. |
 | Bionic | Conversations with virtual characters whose profiles, memories, fictional diaries, and proactive messages provide continuity across exchanges. |
 
-Professional mode offers standard chat, Goal mode, and Deep Research mode. Runs show progress, tool calls, approvals, and results. Users can add messages while work is in progress and inspect the recorded process. The Hardcore and Neo presentation styles are available in both Chat and Professional modes; Neo organizes activity into a timeline with expandable steps and elapsed time.
+Professional mode offers standard chat, Goal mode, and Deep Research mode. Runs show progress, tool calls, approvals, and results. Users can add messages while work is in progress and inspect the recorded process. Chat and Professional modes use Neo by default, with Hardcore available in runtime settings. The selected display style is saved. Neo presents the task process as a timeline with expandable steps and elapsed time.
 
 Bionic characters can be created manually, imported from an archive, or created with the built-in character-creation skill in Professional mode. Character settings include a name, avatar, background, personality, and model configuration. Conversations support history search, immediate or natural reply timing, pinned chats, muted notifications, custom backgrounds, and archive export and import. Generated characters, stories, and images are fictional.
 

@@ -68,9 +68,9 @@ final class NeoRuntimeTimelineTests: XCTestCase {
         XCTAssertEqual(steps.flatMap(\.messages).map(\.id), [first.id, next.id])
     }
 
-    func testStyleDefaultsToHardcoreAndExcludesBionic() {
-        XCTAssertEqual(PalmiReasoningUIStyle.resolve(nil), .hardcore)
-        XCTAssertEqual(PalmiReasoningUIStyle.resolve("unknown"), .hardcore)
+    func testStyleDefaultsToNeoAndExcludesBionic() {
+        XCTAssertEqual(PalmiReasoningUIStyle.resolve(nil), .neo)
+        XCTAssertEqual(PalmiReasoningUIStyle.resolve("unknown"), .neo)
         XCTAssertTrue(PalmiReasoningUIStyle.neo.applies(to: .chat))
         XCTAssertTrue(PalmiReasoningUIStyle.neo.applies(to: .professional))
         XCTAssertFalse(PalmiReasoningUIStyle.neo.applies(to: .bionic))

@@ -1656,11 +1656,11 @@
 "updates.models.oauth.body" = "アカウントにログインし、利用可能なモデルをグローバルモデルライブラリに追加できます。";
 "updates.models.images.title" = "画像生成専用の設定";
 "updates.models.images.body" = "アカウントで利用できる画像モデルを選び、プロフェッショナルのタスクや仿生モードの会話で画像を生成できます。";
-"updates.neo.title" = "Neo 推論ビュー";
-"updates.neo.timeline.title" = "タイムライン表示";
-"updates.neo.timeline.body" = "チャットとプロフェッショナルモードで、思考、説明、ツール呼び出しをタイムラインで確認できます。";
-"updates.neo.details.title" = "ステップの詳細";
-"updates.neo.details.body" = "各ステップを開いて内容やツールの結果を確認し、ターン全体の経過時間も表示できます。";
+"updates.neo.title" = "Neo 表示スタイル";
+"updates.neo.timeline.title" = "推論の進捗をタイムラインで表示";
+"updates.neo.timeline.body" = "チャットとプロフェッショナルモードに Neo スタイルを追加。思考、説明、ツール呼び出しをタイムラインで表示します。";
+"updates.neo.details.title" = "詳細とスタイルの切り替え";
+"updates.neo.details.body" = "各ステップの内容、ツール結果、経過時間を確認できます。更新後の既定は Neo です。ランタイム設定で選んだスタイルは保存されます。";
 "updates.interaction.title" = "設定とメッセージ";
 "updates.interaction.settings.title" = "返信スタイルとモデル選択";
 "updates.interaction.settings.body" = "プロフェッショナルの返信スタイルを最大 200 文字で指定できます。モデルを接続元ごとに整理し、選択状態も見やすくしました。";

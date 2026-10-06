@@ -1656,11 +1656,11 @@
 "updates.models.oauth.body" = "登入帳號，將可用模型加入全域模型庫。";
 "updates.models.images.title" = "獨立圖片生成設定";
 "updates.models.images.body" = "選擇帳號可用的圖片生成模型，為專業任務與仿生對話生成圖片。";
-"updates.neo.title" = "Neo 推理過程";
-"updates.neo.timeline.title" = "時間軸呈現";
-"updates.neo.timeline.body" = "在聊天與專業模式中，透過時間軸查看思考、過程說明及工具呼叫。";
-"updates.neo.details.title" = "步驟詳情";
-"updates.neo.details.body" = "展開查看各步驟內容與工具結果，並查看整輪處理耗時。";
+"updates.neo.title" = "Neo 顯示風格";
+"updates.neo.timeline.title" = "推理進度時間軸";
+"updates.neo.timeline.body" = "聊天與專業模式新增 Neo 風格，以時間軸呈現思考、過程說明及工具呼叫。";
+"updates.neo.details.title" = "詳情與風格切換";
+"updates.neo.details.body" = "展開查看步驟內容、工具結果及耗時。更新後預設使用 Neo；可在執行階段設定中切換，選擇會保留。";
 "updates.interaction.title" = "設定與訊息體驗";
 "updates.interaction.settings.title" = "回覆風格與模型選擇";
 "updates.interaction.settings.body" = "專業模式支援最多 200 字元的自訂回覆風格；模型庫依來源分組，選擇狀態更清楚。";

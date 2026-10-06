@@ -1,25 +1,7 @@
 import SwiftUI
 
-enum PalmiReasoningUIStyle: String, CaseIterable, Identifiable {
-    case hardcore
-    case neo
-
-    static let storageKey = "palmi.experience.reasoning-ui-style"
-    var id: String { rawValue }
-    var title: String { PalmiL10n.tr("settings.runtime.style.\(rawValue)") }
-    var caption: String { PalmiL10n.tr("settings.runtime.style.\(rawValue).caption") }
-
-    static func resolve(_ rawValue: String?) -> Self {
-        rawValue.flatMap(Self.init(rawValue:)) ?? .hardcore
-    }
-
-    func applies(to mode: AppShellMode?) -> Bool {
-        self == .neo && (mode == .professional || mode == .chat)
-    }
-}
-
 struct RuntimeExperienceSettingsScreen: View {
-    @AppStorage(PalmiReasoningUIStyle.storageKey) private var styleRaw = PalmiReasoningUIStyle.hardcore.rawValue
+    @AppStorage(PalmiReasoningUIStyle.storageKey) private var styleRaw = PalmiReasoningUIStyle.defaultStyle.rawValue
 
     var body: some View {
         List {
