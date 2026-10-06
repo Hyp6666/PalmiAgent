@@ -362,13 +362,21 @@ extension BionicArchiveStore {
 }
 
 nonisolated enum BionicOutboxPolicy {
+    /// 已接受的回复独立于下一轮生成；主动预案才随新输入或自动演进失效。
+    static func cancels(_ group: BionicObject, for reason: String) -> Bool {
+        switch reason {
+        case "user_input", "personality_evolved": return !BionicDeliveryPolicy.isReply(group)
+        default: return true
+        }
+    }
+
     static func invalidReason(_ group: BionicObject, role: BionicRole) -> String? {
         guard group.text("context_contract") == BionicPromptBuilder.contextContract,
               group.text("character_id") == role.characterID else { return "stale_recovery" }
         guard group.text("target_participant_id") == role.state.participantID else { return "participant_changed" }
-        guard group.text("generation_id") == role.state.generationID else { return "stale_recovery" }
-        if !BionicDeliveryPolicy.isReply(group), !role.persona.flag("proactive_enabled") {
-            return "proactive_disabled"
+        if !BionicDeliveryPolicy.isReply(group) {
+            guard group.text("generation_id") == role.state.generationID else { return "stale_recovery" }
+            guard role.persona.flag("proactive_enabled") else { return "proactive_disabled" }
         }
         return nil
     }

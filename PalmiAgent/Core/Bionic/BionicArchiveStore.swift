@@ -644,7 +644,8 @@ actor BionicArchiveStore {
 
 extension BionicArchiveStore {
     static func invalidationEvents(_ role: BionicRole, reason: String) -> [BionicObject] {
-        let pending = role.state.groups.flatMap { $0.records("items") }.map { $0.text("message_id") }
+        let pending = role.state.groups.filter { BionicOutboxPolicy.cancels($0, for: reason) }
+            .flatMap { $0.records("items") }.map { $0.text("message_id") }
             .filter { role.state.itemState($0) == "pending" }
         var result = [BionicRecords.event("runtime_marker", ["marker": .string("generation_changed"), "generation_id": .string(BionicCodec.id()), "reason": .string(reason)])]
         if !pending.isEmpty { result.append(BionicRecords.event("outbox_cancelled", ["message_ids": .strings(pending), "reason": .string(reason)])) }
@@ -689,12 +690,13 @@ extension BionicArchiveStore {
         return try commit(instance, events: events, writes: writes)
     }
     func updateReplyTiming(_ instance: String, timing: BionicReplyTiming) throws -> BionicRole {
-        let old = try commitDue(instance, at: .now)
+        let now = Date.now
+        let old = try commitDue(instance, at: now)
         guard BionicReplyTiming.resolve(old.persona) != timing else { return old }
         var persona = old.persona
         persona["reply_timing"] = .string(timing.rawValue)
         persona["persona_revision_id"] = .string(BionicCodec.id())
-        persona["recorded_at"] = .string(BionicCodec.instant())
+        persona["recorded_at"] = .string(BionicCodec.instant(now))
         try BionicPersonaCatalog.validate(persona, existing: old.persona)
         let path = "personas/\(persona.text("persona_revision_id")).json"
         var events = [BionicRecords.event("persona_selected", [
@@ -702,20 +704,15 @@ extension BionicArchiveStore {
             "previous_persona_revision_id": .string(old.state.personaID),
             "reason": .string("reply_timing_changed")
         ])]
+        var writes = [BionicWrite(path, persona)]
         if timing == .instant {
-            let ids = old.state.groups.filter(BionicDeliveryPolicy.isReply).flatMap {
-                $0.records("items")
-            }.filter {
-                old.state.itemState($0.text("message_id")) == "pending"
-            }.map { $0.text("message_id") }
-            if !ids.isEmpty {
-                events.append(BionicRecords.event("outbox_cancelled", [
-                    "message_ids": .strings(ids), "reason": .string("reply_timing_changed")
-                ]))
-            }
+            // 更改节奏与投递原稿同一事务提交，沿用正文、附件及消息 ID。
+            let (deliveryEvents, deliveryWrites) = try BionicDisk.dueEffects(old, at: now, expediteReplies: true)
+            events += deliveryEvents
+            writes += deliveryWrites
         }
-        return try commit(instance, events: events, writes: [BionicWrite(path, persona)],
-                          guard: BionicGuard(old, generation: true))
+        return try commit(instance, events: events, writes: writes,
+                          guard: BionicGuard(old, generation: true), now: now)
     }
     @discardableResult
     func changeMemory(_ instance: String, memoryID: String, title: String, content: String, deleting: Bool) throws -> BionicRole {
@@ -765,8 +762,9 @@ extension BionicArchiveStore {
 }
 
 nonisolated extension BionicDisk {
-    static func dueEffects(_ role: BionicRole, at now: Date) throws -> ([BionicObject], [BionicWrite]) {
-        var due: [(BionicObject, BionicObject, Date, Int)] = []
+    static func dueEffects(_ role: BionicRole, at now: Date,
+                           expediteReplies: Bool = false) throws -> ([BionicObject], [BionicWrite]) {
+        var due: [(BionicObject, BionicObject, Date, Int, Date)] = []
         var cancellations: [BionicObject] = []
         var cancelledIDs = Set<String>()
         var stableIndex = 0
@@ -797,15 +795,17 @@ nonisolated extension BionicDisk {
                     ]))
                     continue
                 }
-                if planned <= now { due.append((group, item, planned, stableIndex)) }
+                let delivery = expediteReplies && BionicDeliveryPolicy.isReply(group)
+                    ? max(generated, min(planned, now)) : planned
+                if delivery <= now { due.append((group, item, delivery, stableIndex, planned)) }
             }
         }
-        due.sort { $0.2 == $1.2 ? $0.3 < $1.3 : $0.2 < $1.2 }
+        due.sort { $0.4 == $1.4 ? $0.3 < $1.3 : $0.4 < $1.4 }
         var events = cancellations
         var writes: [BionicWrite] = []
         var sequence = role.state.lastMessageSequence
         var becomingCommitted = Set<String>()
-        for (group, item, logical, _) in due {
+        for (group, item, logical, _, _) in due {
             let id = item.text("message_id")
             guard !cancelledIDs.contains(id) else { continue }
             var message = BionicRecords.message(

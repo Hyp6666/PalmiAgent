@@ -249,7 +249,7 @@ final class TaskStateFileStore {
     }
 
     private func sessionDirectoryURL(for identity: AgentTaskStateIdentity) throws -> URL {
-        let workspaceURL = try workspaceManager.currentThreadWorkspaceURL()
+        let workspaceURL = try workspaceManager.runtimeWorkspaceURL()
         return workspaceURL
             .appendingPathComponent(".task", isDirectory: true)
             .appendingPathComponent("palmi", isDirectory: true)

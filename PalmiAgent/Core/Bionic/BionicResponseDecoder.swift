@@ -52,6 +52,10 @@ enum BionicResponseDecoder {
                 value["reference_image_paths"] = .array([])
                 value["depicts_character"] = .bool(false)
             }
+        case "professional_mode":
+            if value["workspace_id"] == nil || value["workspace_id"] == .string("") {
+                value["workspace_id"] = .null
+            }
         case "planning":
             if case .array(let groups)? = value["groups"] {
                 value["groups"] = .array(groups.map { item in

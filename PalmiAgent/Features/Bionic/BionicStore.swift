@@ -98,7 +98,8 @@ final class BionicStore {
     init(modelRuntime: any AgentModelRuntime, modelPlanStore: ModelPlanStore,
          notificationService: NotificationService, purchases: BionicPurchaseStore? = nil,
          imageGeneration: PalmiImageGenerationService? = nil,
-         archive: BionicArchiveStore? = nil) {
+         archive: BionicArchiveStore? = nil,
+         professionalExecutor: (any BionicProfessionalExecuting)? = nil) {
         let model = BionicModelService(runtime: modelRuntime, plans: modelPlanStore)
         model.imageGeneration = imageGeneration
         let purchaseStore = purchases ?? BionicPurchaseStore(access: archive?.access ?? BionicAccessState())
@@ -107,6 +108,7 @@ final class BionicStore {
         model.archive = archive
         let coordinator = BionicCoordinator(archive: archive, model: model)
         coordinator.imageGeneration = imageGeneration
+        coordinator.professionalExecutor = professionalExecutor
         let sharedHistory = BionicHistoryIndex(archive: archive)
         let notifications = BionicNotifications(archive: archive, service: notificationService, history: sharedHistory)
         self.archive = archive; self.model = model; self.coordinator = coordinator; self.notifications = notifications

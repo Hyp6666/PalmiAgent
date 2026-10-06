@@ -17,6 +17,8 @@ final class WorkspaceManager {
     @TaskLocal static var pinnedSelection: WorkspaceSelection?
     // 项目级作用域：项目工作区与是否有会话无关，空项目也可访问其文件夹。
     @TaskLocal static var pinnedProjectID: UUID?
+    @TaskLocal private static var executionStorageRoot: URL?
+    @TaskLocal private static var executionFileRoot: URL?
 
     private let fileManager = FileManager.default
     private let storageRootOverride: URL?
@@ -65,6 +67,7 @@ final class WorkspaceManager {
     nonisolated deinit {}
 
     private var storageRoot: URL {
+        if let root = Self.executionStorageRoot { return root }
         if let storageRootOverride {
             return storageRootOverride
         }
@@ -112,6 +115,37 @@ final class WorkspaceManager {
 
     func ensureWorkspace() throws -> URL {
         try currentThreadWorkspaceURL()
+    }
+
+    /// Professional delegation keeps session metadata disposable and never activates a UI project.
+    func withTemporaryProfessionalWorkspace<T>(
+        using workspaceRoot: URL? = nil,
+        operation: () async throws -> T
+    ) async throws -> T {
+        let scratch = fileManager.temporaryDirectory
+            .appendingPathComponent("palmi-professional-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: scratch) }
+        return try await Self.$executionStorageRoot.withValue(scratch) {
+            let project = try createProject(named: "Professional delegation", activate: false)
+            guard let thread = try listThreads(in: project.id).first else {
+                throw AppError.invalidState("临时专业会话创建失败。")
+            }
+            let selection = WorkspaceSelection(projectID: project.id, threadID: thread.id)
+            return try await Self.$pinnedProjectID.withValue(nil) {
+                try await withSelection(selection) {
+                    try await Self.$executionFileRoot.withValue(workspaceRoot) {
+                        try await operation()
+                    }
+                }
+            }
+        }
+    }
+
+    func runtimeWorkspaceURL() throws -> URL {
+        if Self.executionStorageRoot != nil {
+            return try ensureProjectWorkspace(for: currentSelection().projectID)
+        }
+        return try currentThreadWorkspaceURL()
     }
 
     func writeReadme() throws -> URL {
@@ -541,7 +575,8 @@ final class WorkspaceManager {
     func createProject(
         named name: String,
         surface: WorkspaceProjectSurface = .professional,
-        initialThreadName: String = "主会话"
+        initialThreadName: String = "主会话",
+        activate: Bool = true
     ) throws -> WorkspaceProjectRecord {
         _ = try ensureWorkspaceStorage()
         let project = WorkspaceProjectRecord(
@@ -559,7 +594,7 @@ final class WorkspaceManager {
         try writeJSON(project, to: projectManifestURL(for: project.id))
 
         let initialThread = try createThread(named: initialThreadName, in: project.id)
-        try activateThread(projectID: project.id, threadID: initialThread.id)
+        if activate { try activateThread(projectID: project.id, threadID: initialThread.id) }
         return project
     }
 
@@ -778,6 +813,7 @@ final class WorkspaceManager {
     }
 
     func currentThreadWorkspaceURL() throws -> URL {
+        if let root = Self.executionFileRoot { return root }
         // 项目工作区按项目解析：项目级作用域优先，否则回退到当前选中会话所属项目。
         if let projectID = Self.pinnedProjectID {
             return try ensureProjectWorkspace(for: projectID)
@@ -900,6 +936,13 @@ final class WorkspaceManager {
         let rootComponents = root.pathComponents
         guard candidate.pathComponents.starts(with: rootComponents) else {
             throw AppError.permissionDenied("不允许访问工作区外部路径：\(relativePath)")
+        }
+        if Self.executionStorageRoot != nil {
+            let resolvedRoot = root.resolvingSymlinksInPath().pathComponents
+            guard !normalized.hasPrefix("/"),
+                  candidate.resolvingSymlinksInPath().pathComponents.starts(with: resolvedRoot) else {
+                throw AppError.permissionDenied("不允许访问工作区外部路径：\(relativePath)")
+            }
         }
         return candidate
     }

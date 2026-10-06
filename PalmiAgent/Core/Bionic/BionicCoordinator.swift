@@ -5,6 +5,7 @@ final class BionicCoordinator {
     let archive: BionicArchiveStore
     let model: BionicModelService
     var imageGeneration: PalmiImageGenerationService?
+    var professionalExecutor: (any BionicProfessionalExecuting)?
     var onChange: ((String) -> Void)?
     var onDiagnostics: ((String) -> Void)?
     var onError: ((String, String?) -> Void)?
@@ -28,6 +29,8 @@ final class BionicCoordinator {
         clock?.cancel(); clock = nil; worker?.cancel(); worker = nil
         model.cancelAll(); queue.removeAll()
         imageTasks.values.forEach { $0.cancel() }; imageTasks.removeAll()
+        professionalTasks.values.forEach { $0.cancel() }
+        professionalTasks.removeAll(); professionalTaskIDs.removeAll()
     }
 
     init(archive: BionicArchiveStore, model: BionicModelService) { self.archive = archive; self.model = model }
@@ -107,6 +110,9 @@ final class BionicCoordinator {
         // 删除角色：同步清理其派生参考索引与活跃任务登记。
         imageTasks.removeValue(forKey: instance)
         imageTaskIDs.removeValue(forKey: instance)
+        professionalTasks[instance]?.cancel()
+        professionalTasks.removeValue(forKey: instance)
+        professionalTaskIDs.removeValue(forKey: instance)
         deleted.insert(instance); blocked.remove(instance); queue.removeAll { $0 == instance }; model.cancel(instance: instance)
     }
     func restoreSurvivingAfterFailedRemoval(_ instance: String) async {
@@ -159,6 +165,7 @@ final class BionicCoordinator {
     }
     func userSubmitted(_ instance: String, text: String, reply: String?, images: [BionicPreparedImage] = [], at now: Date = .now) async throws {
         imageTasks[instance]?.cancel()
+        professionalTasks[instance]?.cancel()
         _ = try await archive.appendUserWithImages(instance, text: text, reply: reply, images: images, at: now)
         if let writingDiaryInstance { model.cancel(instance: writingDiaryInstance) }
         model.cancel(instance: instance)
@@ -171,6 +178,7 @@ final class BionicCoordinator {
     }
     func changed(_ instance: String) {
         imageTasks[instance]?.cancel()
+        professionalTasks[instance]?.cancel()
         blocked.remove(instance); model.cancel(instance: instance)
         planningReady.removeValue(forKey: instance); onError?(instance, nil); onChange?(instance); enqueue(instance)
     }
@@ -345,7 +353,7 @@ final class BionicCoordinator {
                 return try await compactStep(role, request: capacity)
             }
             do {
-                let input = try await BionicPromptBuilder.daily(role, archive: archive, imageGenerationEnabled: imageGeneration?.isEnabled == true)
+                let input = try await dailyInput(role)
                 _ = try await start(role, kind: "chat", input: input,
                                     to: await archive.upperCursor(instance), ids: inputs)
             } catch BionicControl.capacity {
@@ -575,7 +583,7 @@ final class BionicCoordinator {
     private func chatStep(_ role: BionicRole, request: BionicObject) async throws -> Bool {
         let instance = role.installationID, op = request.text("operation_id")
         var input: BionicModelInput
-        do { input = try await BionicPromptBuilder.daily(role, archive: archive, imageGenerationEnabled: imageGeneration?.isEnabled == true) }
+        do { input = try await dailyInput(role) }
         catch BionicControl.capacity {
             try await finishRoot(instance, request, phase: "cancelled")
             try await startCapacity(role); return true
@@ -616,6 +624,10 @@ final class BionicCoordinator {
                 input.allowedIDs.formUnion(output.records("items").compactMap { $0.optionalText("message_id") })
                 for item in output.records("items") { input.allowedIDs.formUnion(item.strings("source_message_ids")) }
                 input.messages.append(BionicPromptBuilder.tail("recalled_evidence", try BionicCodec.string(output)))
+            }
+            if result.text("tool_name") == "professional_mode" {
+                input.messages.append(BionicPromptBuilder.tail("professional_result",
+                    try BionicCodec.string(effect.object("tool_result"))))
             }
             stepNumber = number + 1
         }
@@ -677,6 +689,10 @@ final class BionicCoordinator {
                     current, root: request, allowedMessageIDs: actual.allowedIDs, payload: answer.payload
                 )
             }
+            if answer.toolName == "professional_mode" {
+                return try await self.professionalEffect(current, root: request,
+                    step: step, payload: answer.payload, input: actual)
+            }
             var effect = try BionicToolbox.speakEffect(
                 answer.payload, allowedIDs: actual.allowedIDs,
                 lastCall: actual.toolNames == ["speak"] || stepNumber == 6,
@@ -698,6 +714,51 @@ final class BionicCoordinator {
                 guard: BionicGuard(current, generation: true), operation: op)
         }
         return true
+    }
+    private func dailyInput(_ role: BionicRole) async throws -> BionicModelInput {
+        let workspaces = professionalExecutor.map { (try? $0.workspaceCatalog(for: role)) ?? [] }
+        return try await BionicPromptBuilder.daily(role, archive: archive,
+            imageGenerationEnabled: imageGeneration?.isEnabled == true,
+            professionalWorkspaces: workspaces)
+    }
+
+    private var professionalTasks: [String: Task<BionicProfessionalResult, Error>] = [:]
+    private var professionalTaskIDs: [String: UUID] = [:]
+
+    private func professionalEffect(_ frozen: BionicRole, root: BionicObject,
+                                    step: String, payload: BionicObject,
+                                    input: BionicModelInput) async throws -> BionicObject {
+        let instance = frozen.installationID
+        do {
+            guard let executor = professionalExecutor else { throw BionicFailure("professionalModeUnavailable") }
+            let budget = try BionicToolbox.professionalResultBudget(input)
+            guard budget > 512 else { throw BionicFailure("professionalContextBudgetInsufficient") }
+            let binding = try await archive.binding(instance)
+            let request = try BionicToolbox.professionalRequest(payload, role: frozen, binding: binding,
+                operationID: root.text("operation_id"), stepID: step, maximumResultTokens: budget)
+            try await checkCurrent(frozen, generation: true)
+            let task = Task { @MainActor in try await executor.execute(request) }
+            let taskID = UUID()
+            professionalTasks[instance] = task; professionalTaskIDs[instance] = taskID
+            defer {
+                if professionalTaskIDs[instance] == taskID {
+                    professionalTasks.removeValue(forKey: instance)
+                    professionalTaskIDs.removeValue(forKey: instance)
+                }
+            }
+            let result = try await withTaskCancellationHandler(
+                operation: { try await task.value }, onCancel: { task.cancel() }
+            )
+            try await checkCurrent(frozen, generation: true)
+            return ["tool_result": .object(BionicToolbox.professionalResult(result, role: frozen,
+                maximumTokens: budget))]
+        } catch is CancellationError { throw CancellationError() }
+        catch BionicControl.stale { throw BionicControl.stale }
+        catch {
+            try await checkCurrent(frozen, generation: true)
+            return ["tool_result": .object(BionicToolbox.professionalResult(nil, role: frozen,
+                error: (error as? BionicFailure)?.code ?? "professionalModeFailed"))]
+        }
     }
     private var imageTasks: [String: Task<FrozenImageOutcome, Error>] = [:]
     private var imageTaskIDs: [String: UUID] = [:]
@@ -1094,7 +1155,7 @@ final class BionicCoordinator {
         if effect["new_persona"] != .null, let p = effect["new_persona"]?.object, !p.isEmpty {
             _ = try await archive.commitDue(instance, at: .now)
             let path = "personas/\(p.text("persona_revision_id")).json"; writes.append(BionicWrite(path, p))
-            events += BionicArchiveStore.invalidationEvents(try await archive.loadRole(instance), reason: "persona_changed")
+            events += BionicArchiveStore.invalidationEvents(try await archive.loadRole(instance), reason: "personality_evolved")
             events.append(BionicRecords.event("persona_selected", ["persona_ref": .string(path), "previous_persona_revision_id": .string(role.state.personaID), "reason": .string("evolution")]))
         }
         let cp = try await archive.checkpoint(instance, operation: request.text("operation_id"), step: "evolution")

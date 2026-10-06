@@ -47,6 +47,7 @@ enum BionicToolbox {
                 "description": .string("本次图片是否包含当前角色自身的外形。自拍、角色全身、含角色的合照为true；仅风景、食物、物品等为false。")])
         ]),
         "recall": object(["query": nullableText, "from_date": nullableText, "through_date": nullableText, "message_ids": array(text), "cursor": nullableText]),
+        "professional_mode": object(["task": shortText(4000), "workspace_id": nullableText]),
         "speak": object(["messages": array(spokenMessageSchema, minimum: 1, maximum: maximumBubbles), "end_turn": boolean]),
         "context_pro_max_plus": object(["summary": text, "memory_changes": array(object([
             "operation": choice(["add", "update", "delete"]), "target_memory_id": nullableText,
@@ -66,6 +67,7 @@ enum BionicToolbox {
         "generate_image": "只有用户明确要求或同意生成图片时才调用。每轮最多一次，只准备图片，不直接发到聊天。prompt描述本次画面。depicts_character说明画面是否包含当前角色自身。需要沿用角色外形时用auto，宿主最多选当前角色头像和最近两张已发送的角色图片；auto/none的reference_image_paths填空数组。不想用参考时用none。从宿主提供的实际路径中指定参考用explicit，最多三张，按优先级排序，不虚构路径、不读取其他角色资产。成功后使用返回的image_id通过speak发送，失败不得声称图片已生成。结合角色人设和当前话题，不伪造对方真实经历或外貌。",
         "planning": "提出尚未发送的后续消息。没有自然动机时groups=[]。只从future_calendar.slots选择delay_minutes，未来72小时总计最多30条，不凑满。相邻组至少相隔30分钟，每组默认一条。针对给定发送时刻的场景写正文；不臆测用户的未来经历。本工具只保存预存稿，不直接发送，也不进入真实对话历史。",
         "recall": "需要确认较早的具体话语或记忆时读取本角色档案；当前上下文已经足够时直接speak。query是关键词，日期使用YYYY-MM-DD，message_ids可精确定位；不使用的字段填null或空数组。继续阅读时沿用查询并传next_cursor。返回空结果就承认记不清，不编造经历。",
+        "professional_mode": "范围明确的检索、核实或分析任务可借助Palmi APP专业模式。task写目标、必要背景和文本交付要求；每次独立会话，最终结果返回给你再答复。不承接长期或大型执行。workspace_id通常为null；仅宿主标注有工作区权限时可填目录中的真实ID，普通角色不能操作用户工作区。",
         "speak": "默认一条消息、end_turn=true。每项text为正文，image_ids为空或本轮生成结果的一个ID；纯图text可空，不能填写URL、路径、base64、自造ID或再次引用已用图片。必要才分开发，整轮最多101条。直接接话不引用，reply_to_message_id默认null。",
         "context_pro_max_plus": "Context Pro Max Plus：用紧凑摘要维持未完话题，只提炼以后确实有用的稳定事实、明确偏好、边界和未完约定。寒暄、猜测、待发消息不提炼。summary与memory_changes是唯一两个字段。每条记忆须有真实来源；没有新事实返回空数组。",
         "evolve_personality": "只对五个性格维度提出小幅变化，附真实来源；没有持续证据时返回空changes。"
@@ -176,6 +178,64 @@ enum BionicToolbox {
         }
         return ["batch_id": .string(BionicCodec.id()), "messages": .records(messages),
                 "end_turn": .bool(normalized.flag("end_turn") || rows.count == remaining)]
+    }
+
+    static func professionalRequest(_ payload: BionicObject, role: BionicRole, binding: BionicObject,
+                                    operationID: String, stepID: String,
+                                    maximumResultTokens: Int = 2000) throws -> BionicProfessionalRequest {
+        let normalized = BionicResponseDecoder.canonical(payload, name: "professional_mode")
+        try validate(normalized, name: "professional_mode")
+        let task = normalized.text("task").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !task.isEmpty else {
+            throw BionicFailure("invalidModelOutput", detail: "professional_mode.task: blank")
+        }
+        let workspaceID = normalized.optionalText("workspace_id")
+        guard workspaceID == nil || BionicProfessionalPolicy.canUseUserWorkspaces(role) else {
+            throw BionicFailure("professionalWorkspaceNotAllowed")
+        }
+        return BionicProfessionalRequest(role: role, binding: binding, task: task,
+            workspaceID: workspaceID, operationID: operationID, stepID: stepID,
+            maximumResultTokens: maximumResultTokens)
+    }
+
+    static func professionalResultBudget(_ input: BionicModelInput) throws -> Int {
+        let ceiling = BionicPromptBuilder.threshold([
+            "context_limit": .count(input.contextLimit), "output_limit": .count(input.outputLimit)
+        ])
+        return min(4000, max(0, try ceiling - BionicPromptBuilder.estimatedTokens(input) - 1024))
+    }
+
+    /// 来源与权限说明由宿主附加，专业会话不能覆盖；只有最终正文进入角色上下文。
+    static func professionalResult(_ result: BionicProfessionalResult?, role: BionicRole,
+                                   error: String? = nil, maximumTokens: Int? = nil) -> BionicObject {
+        let text = result?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let completed = error == nil && result?.approvalRequired == false && !text.isEmpty
+        let approval = error == nil && result?.approvalRequired == true
+        func wrapped(_ body: String, truncated: Bool) -> BionicObject {
+            ["ok": .bool(completed),
+                "status": .string(completed ? (truncated ? "partial" : "completed") : (approval ? "approval_required" : "failed")),
+                "result": .string(completed || approval ? body : ""),
+                "truncated": .bool(truncated),
+                "error": .text(completed ? nil : (approval ? "approvalRequired" : (error ?? "professionalModeFailed"))),
+                "source": .string("Palmi APP 专业模式"),
+                "source_instruction": .string("必要时说明你借助了 Palmi APP 的专业模式；是否完成以 status 为准，partial 是截短结果。"),
+                "workspace_access": .bool(BionicProfessionalPolicy.canUseUserWorkspaces(role))]
+        }
+        let output = wrapped(text, truncated: result?.truncated == true)
+        guard let maximumTokens else { return output }
+        // 计量完整JSON，换行、引号等转义也消耗上下文；来源说明始终保留。
+        func fits(_ value: BionicObject) -> Bool {
+            guard let encoded = try? BionicCodec.string(value) else { return false }
+            return ApproximateTokenCounter.estimate(encoded) <= maximumTokens
+        }
+        guard !fits(output), completed || approval else { return output }
+        var lower = 0, upper = text.count
+        while lower < upper {
+            let middle = lower + (upper - lower + 1) / 2
+            if fits(wrapped(String(text.prefix(middle)), truncated: true)) { lower = middle }
+            else { upper = middle - 1 }
+        }
+        return wrapped(String(text.prefix(lower)), truncated: true)
     }
 
     static func normalizedMemories(_ payload: BionicObject, role: BionicRole, slice: BionicSlice,

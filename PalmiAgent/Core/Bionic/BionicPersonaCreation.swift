@@ -5,10 +5,10 @@ enum BionicPersonaCreation {
     nonisolated static var schema: JSONValue {
         ToolJSONSchema.object(properties: [
             "nickname": ToolJSONSchema.string(description: "角色昵称，1到20字"),
-            "identity": ToolJSONSchema.string(description: "身份设定，1到120字"),
+            "identity": ToolJSONSchema.string(description: "身份设定，1到120字；必须用native_language对应的母语填写，与用户确认的文本一致"),
             "birth_date": ToolJSONSchema.string(description: "真实合法的 YYYY-MM-DD；角色必须已满19岁且不超过70岁", format: "date"),
-            "background": ToolJSONSchema.string(description: "背景，最多2000字；未给出时为空"),
-            "native_language": ToolJSONSchema.string(description: "角色固定语言，默认应用语言，创建后不可直接改",
+            "background": ToolJSONSchema.string(description: "背景，最多2000字；非空时必须用native_language对应的母语填写，忠实保留已确认设定；未给出时为空"),
+            "native_language": ToolJSONSchema.string(description: "角色固定母语；用户已指定时必须显式填写对应代码，identity和非空background使用该语言。未指定时默认应用语言，创建后不可直接改",
                 enumValues: ["zh-Hans", "zh-Hant", "en", "ja", "ko"]),
             "gender_kind": ToolJSONSchema.string(description: "性别表达；默认none", enumValues: ["none", "male", "female", "custom"]),
             "gender_text": ToolJSONSchema.string(description: "仅gender_kind=custom时使用，1到20字"),

@@ -1,6 +1,6 @@
 ---
 name: bionic-persona-creator
-description: Help the user design one adult bionic persona, show the final proposal, and wait for the user's explicit confirmation before calling create_bionic_persona. Supports an optional uploaded workspace avatar and a crop suggested by the existing vision tool. Discussion and navigation are not creation authorization.
+description: Help the user design one adult bionic persona, write identity and background in the persona's selected native_language, show the final proposal, and wait for the user's explicit confirmation before calling create_bionic_persona. Supports an optional uploaded workspace avatar and a crop suggested by the existing vision tool. Discussion and navigation are not creation authorization.
 ---
 
 # 创建仿生角色
@@ -23,6 +23,14 @@ description: Help the user design one adult bionic persona, show the final propo
 
 不要仅为了凑问题要求用户提供头像、MBTI、复杂履历或精确背景。头像和 MBTI 均可不设。不要替用户虚构个人隐私、经历或偏好。
 
+## 母语与角色描述
+
+Agent 创建新角色时，必须先确定 native_language，再用该母语填写 identity 和非空 background：zh-Hans 使用简体中文，zh-Hant 使用繁体中文，en 使用英语，ja 使用日语，ko 使用韩语。用户已指定母语时，创建参数必须显式提交对应代码，不能省略后依赖应用语言。未指定时，按工具默认的应用语言提出方案并让用户确认。
+
+用户用其他语言提供的身份和背景，应忠实转写为角色母语，不新增、删减或改变设定。姓名与专有名词可保留原文；没有背景时仍可留空，不为满足语言要求编造经历。性格数值、生日、MBTI、工具字段名和语言代码保持 schema 规定的格式。
+
+最终方案展示实际将提交的母语身份和背景；必要时附用户沟通语言的解释，帮助用户理解和确认。用户确认后提交同一份母语文本，不在工具调用时临时翻译、扩写或改写。修改母语时，先同步更新身份和背景，再展示方案并等待确认。
+
 ## 可选头像
 
 没有头像就省略 avatar_path 和 avatar_crop，不生成占位文件，也不从网络擅自找图。用户指定了已上传的图片，才使用该实际工作区文件；有多张图片而未指定时只问一次选哪张。
@@ -44,6 +52,8 @@ vision 不可用或结果不能可靠使用时，如实说明，可提议居中�
 只提交 create_bionic_persona 的实际 schema 允许的字段。固定语言创建后不可直接改变。MBTI 是风格偏好，不是诊断。不要传入角色 UUID、安装路径、API 凭据、购买状态、审核回执或通知授权。
 
 用户在聊天中确认后，再调用 create_bionic_persona，参数必须与其确认的最终方案一致。应用会展示本次创建确认页；用户选“继续修改”或拒绝后停止创建，不自动换参数重试、不绕过确认。
+
+提交前核对 native_language 与 identity、非空 background 的语言一致，并且文本就是最终方案中已确认的内容。
 
 只有工具成功返回 created=true 或 already_created=true 才能说创建成功。失败时说明实际原因；不要悄悄丢掉失败的头像创建一个替代角色，也不要用文件、脚本、迁移包绕过工具。
 

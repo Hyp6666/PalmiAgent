@@ -3,10 +3,18 @@ import Foundation
 @MainActor
 final class AppContainer {
     let bionicPurchases = BionicPurchaseStore()
-    lazy var bionicStore = BionicStore(modelRuntime: llmAPIClient,
-                                      modelPlanStore: modelPlanStore,
-                                      notificationService: notificationService,
-                                      purchases: bionicPurchases, imageGeneration: imageGenerationService)
+    lazy var bionicStore: BionicStore = {
+        let store = BionicStore(modelRuntime: llmAPIClient, modelPlanStore: modelPlanStore,
+            notificationService: notificationService, purchases: bionicPurchases,
+            imageGeneration: imageGenerationService)
+        store.coordinator.professionalExecutor = BionicProfessionalExecutor(
+            workspaceManager: workspaceManager, modelPlans: modelPlanStore,
+            permissions: toolPermissionStore, archive: store.archive,
+            prepareRuntime: { [unowned self] in _ = self.agentToolExecutor },
+            makeAgentLoop: { [unowned self] skills in self.makeAgentLoop(skillRegistry: skills) }
+        )
+        return store
+    }()
     lazy var imageGenerationService = PalmiImageGenerationService(plans: modelPlanStore, permissions: toolPermissionStore)
 
     init() {
@@ -119,13 +127,13 @@ final class AppContainer {
         modelRuntime: llmAPIClient,
         toolContextProjector: toolContextProjector
     )
-    func makeAgentLoop() -> AgentLoop {
+    func makeAgentLoop(skillRegistry scopedSkills: SkillRegistry? = nil) -> AgentLoop {
         AgentLoop(
             modelRuntime: llmAPIClient,
             toolExecutor: agentToolExecutor,
             toolAuthorizationStore: toolAuthorizationStore,
             promptBuilder: AgentPromptBuilder(),
-            skillRegistry: skillRegistry,
+            skillRegistry: scopedSkills ?? skillRegistry,
             workspaceManager: workspaceManager,
             contextAssembler: contextAssembler,
             contextCompactor: contextCompactor,

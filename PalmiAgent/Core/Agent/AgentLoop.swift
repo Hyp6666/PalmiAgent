@@ -434,7 +434,8 @@ final class AgentLoop {
         actions: [ToolAction],
         mode: AgentComposerMode = .standard,
         imagePaths: [String] = [],
-        modelOverrides: AgentModelRoleOverrides = .empty
+        modelOverrides: AgentModelRoleOverrides = .empty,
+        runLimits: AgentRunLimits? = nil
     ) async throws -> AgentTurnResult {
         try await runTurnCore(
             userInput: userInput,
@@ -442,7 +443,8 @@ final class AgentLoop {
             actions: actions,
             mode: mode,
             imagePaths: imagePaths,
-            modelOverrides: modelOverrides
+            modelOverrides: modelOverrides,
+            runLimits: runLimits
         )
     }
 
@@ -452,7 +454,8 @@ final class AgentLoop {
         actions: [ToolAction],
         mode: AgentComposerMode = .standard,
         imagePaths: [String] = [],
-        modelOverrides: AgentModelRoleOverrides = .empty
+        modelOverrides: AgentModelRoleOverrides = .empty,
+        runLimits: AgentRunLimits? = nil
     ) async throws -> AgentTurnResult {
         let trimmedInput = userInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedInput.isEmpty else {
@@ -501,7 +504,7 @@ final class AgentLoop {
             taskRunID: nil
         )
         var runBudget = AgentRunBudget(
-            limits: .default,
+            limits: runLimits ?? .default,
             startedAtNanoseconds: DispatchTime.now().uptimeNanoseconds
         )
 

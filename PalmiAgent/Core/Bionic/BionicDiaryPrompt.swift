@@ -20,6 +20,7 @@ extension BionicPromptBuilder {
                     "message_ids": .array([]), "cursor": .null],
             includeMemories: false, maximumBytes: 12_000)
         let previous = try await archive.diaryEntries(role.installationID).filter { $0.day < day }
+        let localized = BionicPromptLocalization(nativeLanguage: role.persona.text("native_language"))
         var transcript = page.items
         var preceding = Array(previous.suffix(3))
         while true {
@@ -32,7 +33,7 @@ extension BionicPromptBuilder {
                 "earlier_character_diaries": .records(preceding.map(\.object))
             ]
             let input = BionicModelInput(messages: [
-                module("diary_rules", diaryInstructions),
+                module("diary_rules", localized.languageRule + "\n\n" + localized.diaryInstructions),
                 module("persona", try BionicCodec.string(personaData(role, now: now))),
                 tail("diary_source", try BionicCodec.string(source))
             ], tools: ["write_diary"], output: min(1600, role.persona.int("output_limit")),
@@ -48,12 +49,8 @@ extension BionicPromptBuilder {
 
     static func diaryCompaction(_ role: BionicRole, previous: BionicObject?,
                                 entries: [BionicDiaryEntry]) throws -> BionicModelInput {
-        let rules = """
-        维护既有压缩摘要。保留 previous_summary 中有效的真实对话信息、人物归属、边界和未完事项，不重新发明用户事实。
-        把 new_diaries 中以后可能有用的角色生活细节压缩到摘要内独立的“角色生活（日记虚构）”段。保留必要的日期和前后连续性；不要逐篇复述，不把日记内容混成真实共同经历。不写新的故事。
-        memory_changes 必须为 []。日记只能贡献带有虚构归属的角色生活摘要，不能在本动作创建、修改或删除任何事实记忆。
-        使用 native_language，控制整份 summary 接近 summary_target_tokens 的预算。只调用 context_pro_max_plus。
-        """
+        let localized = BionicPromptLocalization(nativeLanguage: role.persona.text("native_language"))
+        let rules = localized.languageRule + "\n\n" + localized.diaryCompactionInstructions
         let data: BionicObject = [
             "native_language": role.persona["native_language"] ?? .null,
             "previous_summary": previous?["text"] ?? .null,
@@ -67,4 +64,11 @@ extension BionicPromptBuilder {
         try checkBudget(input)
         return input
     }
+
+    static let diaryCompactionInstructions = """
+    维护既有压缩摘要。保留 previous_summary 中有效的真实对话信息、人物归属、边界和未完事项，不重新发明用户事实。
+    把 new_diaries 中以后可能有用的角色生活细节压缩到摘要内独立的“角色生活（日记虚构）”段。保留必要的日期和前后连续性；不要逐篇复述，不把日记内容混成真实共同经历。不写新的故事。
+    memory_changes 必须为 []。日记只能贡献带有虚构归属的角色生活摘要，不能在本动作创建、修改或删除任何事实记忆。
+    使用 native_language，控制整份 summary 接近 summary_target_tokens 的预算。只调用 context_pro_max_plus。
+    """
 }
