@@ -1367,9 +1367,6 @@ final class ChatStore {
             // run ledger/journal to repair a stale nonterminal manifest.
             self.errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
-        if let parentRun = activeRuns.values.first(where: { $0.runID == record.parentRunID }) {
-            updateContinuedProcessingProgress(for: parentRun, phase: .executing)
-        }
         workspaceStore.refreshThreadMetadata(in: record.parentProjectID)
     }
 
@@ -4083,19 +4080,44 @@ final class ChatStore {
     private func journalAgentEvent(_ event: AgentEvent, for run: ActiveRun) async throws {
         switch event {
         case let .eventLogged(entry) where entry.kind == .modelRequest:
-            updateContinuedProcessingProgress(for: run, phase: .thinking)
-        case .toolStarted, .internalToolStarted:
-            updateContinuedProcessingProgress(for: run, phase: .executing)
-        case .approvalRequested:
-            updateContinuedProcessingProgress(for: run, phase: .waitingForUser)
+            updateContinuedProcessingProgress(for: run, snapshot: .thinking)
+        case .reasoningDelta:
+            updateContinuedProcessingProgress(for: run, snapshot: .thinking)
         case .streamingDelta:
-            updateContinuedProcessingProgress(for: run, phase: .summarizing)
+            updateContinuedProcessingProgress(for: run, snapshot: .outputting)
+        case .thoughtCard:
+            updateContinuedProcessingProgress(
+                for: run,
+                snapshot: .running(PalmiL10n.tr("chat.phaseThought"), phase: .thinking)
+            )
+        case let .toolStarted(_, action, _):
+            updateContinuedProcessingProgress(for: run, snapshot: .running(action.title, phase: .executing))
+        case let .internalToolStarted(step):
+            updateContinuedProcessingProgress(for: run, snapshot: .running(step.title, phase: .executing))
+        case .contextCompactionStarted:
+            updateContinuedProcessingProgress(
+                for: run,
+                snapshot: .running(PalmiL10n.tr("neo.runtime.compaction"), phase: .executing)
+            )
+        case .approvalRequested:
+            updateContinuedProcessingProgress(for: run, snapshot: .waiting)
+        case .approvalResolved:
+            updateContinuedProcessingProgress(
+                for: run,
+                snapshot: AgentRunProgressSnapshot(
+                    phase: .executing,
+                    statusText: run.lastProgressSnapshot?.phase == .waitingForUser
+                        ? nil
+                        : run.lastProgressSnapshot?.statusText
+                )
+            )
         case let .taskStateChanged(snapshot):
             let lifecycle = snapshot.currentState?.lifecycle
-            let phase: AgentRunProgressPhase = lifecycle == .waitingForUser || lifecycle == .blocked
-                ? .waitingForUser
-                : .executing
-            updateContinuedProcessingProgress(for: run, phase: phase)
+            if lifecycle == .waitingForUser || lifecycle == .blocked {
+                updateContinuedProcessingProgress(for: run, snapshot: .waiting)
+            } else if run.lastProgressSnapshot?.phase == .waitingForUser {
+                updateContinuedProcessingProgress(for: run, snapshot: AgentRunProgressSnapshot(phase: .executing))
+            }
         default:
             break
         }
@@ -4159,20 +4181,9 @@ final class ChatStore {
 
     private func updateContinuedProcessingProgress(
         for run: ActiveRun,
-        phase: AgentRunProgressPhase
+        snapshot: AgentRunProgressSnapshot
     ) {
         guard run.continuedProcessingIdentifier != nil else { return }
-        if phase == .summarizing, run.lastProgressSnapshot?.phase == .summarizing { return }
-        let taskState = run.loop.currentSessionSnapshot().taskStateSnapshot?.currentState
-        let childRecords = records(for: Array(run.ownedSubagentThreadIDs))
-        let taskTotal = taskState?.totalCount ?? 0
-        let childTotal = childRecords.count
-        let hasMeasurableUnits = taskTotal > 0 || childTotal > 0
-        let snapshot = AgentRunProgressSnapshot(
-            phase: phase,
-            completedUnitCount: Int64((taskState?.completedCount ?? 0) + childRecords.filter(\.status.isTerminal).count),
-            totalUnitCount: hasMeasurableUnits ? Int64(taskTotal + childTotal + 1) : nil
-        )
         guard run.lastProgressSnapshot != snapshot else { return }
         run.lastProgressSnapshot = snapshot
         continuedProcessingCoordinator.update(

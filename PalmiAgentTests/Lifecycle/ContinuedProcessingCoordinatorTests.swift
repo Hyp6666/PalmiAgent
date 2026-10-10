@@ -4,12 +4,12 @@ import XCTest
 
 @MainActor
 final class ContinuedProcessingCoordinatorTests: XCTestCase {
-    func testPreferenceDefaultsToDisabledAndPersistsExplicitSelection() throws {
+    func testPreferenceDefaultsToEnabledAndPersistsExplicitSelection() throws {
         let suiteName = "ContinuedProcessingCoordinatorTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertFalse(AgentContinuedProcessingPreference.isEnabled(defaults: defaults))
+        XCTAssertTrue(AgentContinuedProcessingPreference.isEnabled(defaults: defaults))
         defaults.set(true, forKey: AgentContinuedProcessingPreference.storageKey)
         XCTAssertTrue(AgentContinuedProcessingPreference.isEnabled(defaults: defaults))
         defaults.set(false, forKey: AgentContinuedProcessingPreference.storageKey)
@@ -42,41 +42,43 @@ final class ContinuedProcessingCoordinatorTests: XCTestCase {
         XCTAssertEqual(scheduler.submitCount, 1)
     }
 
-    func testProgressUsesAbsoluteSemanticSnapshotsInsteadOfEventCounting() throws {
+    func testHeartbeatAdvancesEverySecondWhileRunningAndPausesWhileWaiting() throws {
         let scheduler = FakeScheduler()
+        var clock = Date(timeIntervalSince1970: 1_000)
         let coordinator = AgentContinuedProcessingCoordinator(
             scheduler: scheduler,
-            isEnabled: { true }
+            isEnabled: { true },
+            now: { clock }
         )
         let identifier = try XCTUnwrap(coordinator.begin(runID: UUID(), onExpiration: {}))
+        let thinking = AgentRunProgressSnapshot.thinking
+        coordinator.update(identifier: identifier, snapshot: thinking)
+        XCTAssertFalse(scheduler.task.progress.isIndeterminate)
 
-        coordinator.update(
-            identifier: identifier,
-            snapshot: AgentRunProgressSnapshot(phase: .thinking)
-        )
-        XCTAssertTrue(scheduler.task.progress.isIndeterminate)
+        var previousFraction = scheduler.task.progress.fractionCompleted
+        for _ in 0..<3 {
+            clock += 1
+            coordinator.tickHeartbeat()
+            XCTAssertGreaterThan(scheduler.task.progress.fractionCompleted, previousFraction)
+            previousFraction = scheduler.task.progress.fractionCompleted
+        }
+        XCTAssertEqual(scheduler.task.progress.completedUnitCount, 3)
+        XCTAssertLessThan(scheduler.task.progress.fractionCompleted, 1)
+        XCTAssertEqual(scheduler.task.events.last?.subtitle, thinking.localizedSubtitle(elapsedSeconds: 3))
 
-        coordinator.update(
-            identifier: identifier,
-            snapshot: AgentRunProgressSnapshot(
-                phase: .executing,
-                completedUnitCount: 2,
-                totalUnitCount: 5
-            )
+        coordinator.update(identifier: identifier, snapshot: .waiting)
+        clock += 1
+        coordinator.tickHeartbeat()
+        XCTAssertEqual(scheduler.task.progress.completedUnitCount, 3)
+        XCTAssertEqual(
+            scheduler.task.events.last?.subtitle,
+            AgentRunProgressSnapshot.waiting.localizedSubtitle(elapsedSeconds: 4)
         )
-        XCTAssertEqual(scheduler.task.progress.completedUnitCount, 2)
-        XCTAssertEqual(scheduler.task.progress.totalUnitCount, 5)
 
-        // Repeating a semantic snapshot never manufactures another unit.
-        coordinator.update(
-            identifier: identifier,
-            snapshot: AgentRunProgressSnapshot(
-                phase: .executing,
-                completedUnitCount: 2,
-                totalUnitCount: 5
-            )
-        )
-        XCTAssertEqual(scheduler.task.progress.completedUnitCount, 2)
+        coordinator.update(identifier: identifier, snapshot: .outputting)
+        clock += 1
+        coordinator.tickHeartbeat()
+        XCTAssertEqual(scheduler.task.progress.completedUnitCount, 4)
     }
 
     func testSuccessfulCompletionPublishes100PercentBeforeCompletingExactlyOnce() throws {
@@ -87,14 +89,8 @@ final class ContinuedProcessingCoordinatorTests: XCTestCase {
         )
         let identifier = try XCTUnwrap(coordinator.begin(runID: UUID(), onExpiration: {}))
 
-        coordinator.update(
-            identifier: identifier,
-            snapshot: AgentRunProgressSnapshot(
-                phase: .summarizing,
-                completedUnitCount: 3,
-                totalUnitCount: 4
-            )
-        )
+        coordinator.update(identifier: identifier, snapshot: .outputting)
+        coordinator.tickHeartbeat()
         coordinator.complete(identifier: identifier, success: true)
         coordinator.complete(identifier: identifier, success: true)
 

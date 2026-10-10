@@ -8,42 +8,41 @@ enum AgentRunProgressPhase: String, Codable, Sendable {
     case summarizing
     case completed
     case failed
+
+    /// 等待用户（审批/补充输入）时心跳暂停：没人在场时不占用系统后台额度。
+    var pausesHeartbeat: Bool {
+        self == .waitingForUser
+    }
 }
 
-/// Absolute, evidence-backed progress for one root run.
-/// A nil total means the work cannot yet be measured honestly.
+/// 后台进度框的语义快照：阶段决定心跳是否走动，statusText 是 Neo 风格的“最后一步”文案。
+/// 进度数值本身由协调器按“实际运行秒数”心跳生成，不在这里计算。
 struct AgentRunProgressSnapshot: Equatable, Sendable {
     let phase: AgentRunProgressPhase
-    let completedUnitCount: Int64
-    let totalUnitCount: Int64?
+    let statusText: String?
 
-    init(
-        phase: AgentRunProgressPhase,
-        completedUnitCount: Int64 = 0,
-        totalUnitCount: Int64? = nil
-    ) {
+    init(phase: AgentRunProgressPhase, statusText: String? = nil) {
         self.phase = phase
-        if let totalUnitCount {
-            let normalizedTotal = max(1, totalUnitCount)
-            self.totalUnitCount = normalizedTotal
-            self.completedUnitCount = min(max(0, completedUnitCount), normalizedTotal)
-        } else {
-            self.totalUnitCount = nil
-            self.completedUnitCount = 0
-        }
+        self.statusText = statusText
     }
 
-    var localizedSubtitle: String {
+    /// 与 Neo 时间线一致的状态文案，不受用户选择的显示风格影响。
+    static func running(_ title: String, phase: AgentRunProgressPhase) -> Self {
+        Self(phase: phase, statusText: PalmiL10n.tr("neo.runtime.running", title))
+    }
+
+    static let thinking = running(PalmiL10n.tr("chat.thinking"), phase: .thinking)
+    static let outputting = Self(phase: .summarizing, statusText: PalmiL10n.tr("neo.runtime.outputting"))
+    static let waiting = Self(phase: .waitingForUser, statusText: PalmiL10n.tr("backgroundProcessing.status.waiting"))
+
+    var localizedStatus: String {
         if phase == .completed {
             return PalmiL10n.tr("backgroundProcessing.status.completed")
         }
         if phase == .failed {
             return PalmiL10n.tr("backgroundProcessing.status.failed")
         }
-        if let totalUnitCount {
-            let percentage = min(99, Int((completedUnitCount * 100) / max(1, totalUnitCount)))
-            return PalmiL10n.tr("backgroundProcessing.status.progress", percentage)
-        }
+        if let statusText { return statusText }
         switch phase {
         case .preparing:
             return PalmiL10n.tr("backgroundProcessing.status.preparing")
@@ -59,5 +58,14 @@ struct AgentRunProgressSnapshot: Equatable, Sendable {
             return PalmiL10n.tr("backgroundProcessing.status.processing")
         }
     }
-}
 
+    /// 后台进度框副标题：“用时 X 秒 + 空格 + 最后一步状态”。
+    func localizedSubtitle(elapsedSeconds: Int) -> String {
+        guard phase != .completed, phase != .failed else { return localizedStatus }
+        let seconds = max(0, elapsedSeconds)
+        let elapsed = seconds < 60
+            ? PalmiL10n.tr("neo.runtime.elapsed.seconds", seconds)
+            : PalmiL10n.tr("neo.runtime.elapsed.minutesSeconds", seconds / 60, seconds % 60)
+        return "\(elapsed) \(localizedStatus)"
+    }
+}
