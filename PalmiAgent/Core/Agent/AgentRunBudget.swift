@@ -8,7 +8,8 @@ struct AgentRunLimits: Equatable, Sendable {
     static let `default` = AgentRunLimits(
         maximumIterations: 999,
         maximumToolCalls: 9_999,
-        maximumElapsedNanoseconds: 30 * 60 * 1_000_000_000
+        // 聊天/专业模式单次运行不设墙钟时限：用户可随时停止，轮次与工具调用上限兜底死循环。
+        maximumElapsedNanoseconds: .max
     )
 }
 
