@@ -1699,3 +1699,7 @@
 "neo.runtime.overview" = "Overview";
 "neo.runtime.result" = "Result";
 "neo.runtime.awaitingResult" = "Waiting for the tool result…";
+
+// Bionic background progress
+"bionic.background.recall" = "Recall";
+"bionic.background.professional" = "Professional task";

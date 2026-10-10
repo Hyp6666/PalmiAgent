@@ -1699,3 +1699,7 @@
 "neo.runtime.overview" = "概要";
 "neo.runtime.result" = "結果";
 "neo.runtime.awaitingResult" = "ツールの結果を待っています…";
+
+// Bionic background progress
+"bionic.background.recall" = "記憶の参照";
+"bionic.background.professional" = "専門タスク";

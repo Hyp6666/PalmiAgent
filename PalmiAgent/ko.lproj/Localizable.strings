@@ -1699,3 +1699,7 @@
 "neo.runtime.overview" = "개요";
 "neo.runtime.result" = "결과";
 "neo.runtime.awaitingResult" = "도구 결과를 기다리는 중…";
+
+// Bionic background progress
+"bionic.background.recall" = "기억 회상";
+"bionic.background.professional" = "전문 작업";

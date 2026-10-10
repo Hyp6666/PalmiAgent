@@ -1700,3 +1700,7 @@
 "neo.runtime.overview" = "概览";
 "neo.runtime.result" = "结果";
 "neo.runtime.awaitingResult" = "等待工具返回结果…";
+
+// Bionic background progress
+"bionic.background.recall" = "回忆聊天记录";
+"bionic.background.professional" = "专业任务";

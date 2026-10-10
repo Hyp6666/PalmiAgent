@@ -93,6 +93,14 @@ final class BionicStore {
     @ObservationIgnored private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     @ObservationIgnored private var backgroundFinishTask: Task<Void, Never>?
     @ObservationIgnored private var backgroundEpoch = 0
+    /// 用户发起的回复申请系统后台额度（与聊天/专业模式同一开关、同一进度框）；自发维护不申请。
+    @ObservationIgnored private let continuedProcessing = AgentContinuedProcessingCoordinator(
+        scheduler: SystemContinuedProcessingScheduler(),
+        isEnabled: { AgentContinuedProcessingPreference.isEnabled() },
+        identifierPrefix: AgentContinuedProcessingCoordinator.defaultIdentifierPrefix + "bionic."
+    )
+    @ObservationIgnored private var continuationID: String?
+    @ObservationIgnored private var backgroundAllowanceExpired = false
     var selectedRole: BionicRole? { roles.first { $0.installationID == selectedID } }
 
     init(modelRuntime: any AgentModelRuntime, modelPlanStore: ModelPlanStore,
@@ -119,6 +127,11 @@ final class BionicStore {
         coordinator.onDiagnostics = { [weak self] _ in self?.diagnosticRevision += 1 }
         coordinator.onError = { [weak self] id, code in self?.errors[id] = code; self?.diagnosticRevision += 1 }
         coordinator.onNotificationReconcile = { [weak notifications] in await notifications?.reconcile() }
+        coordinator.onActivity = { [weak self] snapshot in
+            guard let self, let id = self.continuationID else { return }
+            self.continuedProcessing.update(identifier: id, snapshot: snapshot)
+        }
+        coordinator.onUserTurnEnded = { [weak self] success in self?.endContinuation(success: success) }
         notifications.onRoute = { [weak self] id, message in
             guard let self else { return }
             self.pendingNotificationRouteID = UUID()
@@ -153,6 +166,7 @@ final class BionicStore {
     }
     func activate() async {
         backgroundEpoch += 1
+        backgroundAllowanceExpired = false
         backgroundFinishTask?.cancel()
         backgroundFinishTask = nil
         endBackgroundAllowance()
@@ -168,17 +182,27 @@ final class BionicStore {
         backgroundEpoch += 1
         let epoch = backgroundEpoch
         readTask?.cancel(); readTask = nil; readTaskID = nil
+        backgroundAllowanceExpired = false
         backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "PalmiBionicCommit") { [weak self] in
             guard let self, self.backgroundEpoch == epoch else { return }
+            // 用户发起的回复仍有系统后台额度：短时额度到期不暂停，等这一轮结束再按原流程暂停。
+            if self.continuationID != nil {
+                self.backgroundAllowanceExpired = true
+                self.endBackgroundAllowance()
+                return
+            }
             self.backgroundEpoch += 1
             self.backgroundFinishTask?.cancel()
             self.backgroundFinishTask = nil
             self.coordinator.pause()
             self.endBackgroundAllowance()
         }
-        guard backgroundTaskID != .invalid else {
-            coordinator.pause()
-            return
+        if backgroundTaskID == .invalid {
+            guard continuationID != nil else {
+                coordinator.pause()
+                return
+            }
+            backgroundAllowanceExpired = true
         }
         backgroundFinishTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -691,6 +715,37 @@ final class BionicStore {
         }
         if published, token == invalidationToken { await notifications.reconcile() }
     }
+    private func beginContinuation() {
+        guard continuationID == nil else { return }
+        continuationID = continuedProcessing.begin(
+            runID: UUID(),
+            onExpiration: {},
+            cancelRun: { [weak self] in
+                guard let self else { return }
+                self.continuationID = nil
+                if !self.isForeground { self.stopBackgroundWork() }
+            }
+        )
+    }
+    private func endContinuation(success: Bool) {
+        guard let id = continuationID else { return }
+        continuationID = nil
+        continuedProcessing.complete(identifier: id, success: success)
+        guard !isForeground, backgroundAllowanceExpired else { return }
+        // 回调可能来自 worker 内部：异步暂停，避免在 worker 自身调用栈里取消它。
+        Task { @MainActor [weak self] in
+            guard let self, !self.isForeground, self.continuationID == nil else { return }
+            self.stopBackgroundWork()
+        }
+    }
+    /// 与短时后台额度到期时相同的收尾：暂停 coordinator（取消 worker/模型/生图/专业任务）。
+    private func stopBackgroundWork() {
+        backgroundEpoch += 1
+        backgroundFinishTask?.cancel()
+        backgroundFinishTask = nil
+        coordinator.pause()
+        endBackgroundAllowance()
+    }
     func send(_ instance: String) async {
         let draft = composer(instance)
         guard draft.canSend else { return }
@@ -700,12 +755,14 @@ final class BionicStore {
         do {
             let localBinding = try await archive.binding(instance)
             try await model.requireImageSupport(binding: localBinding, needed: !images.isEmpty)
+            beginContinuation()
             try await coordinator.userSubmitted(instance, text: text, reply: quote, images: images)
             if draft.text == text { draft.text = "" }
             let sentIDs = Set(images.map(\.id)); draft.images.removeAll { sentIDs.contains($0.id) }
             if quotedIDs[instance] == quote { quotedIDs.removeValue(forKey: instance) }
             if selectedID == instance { followingLatest = true; await refresh(changed: instance); try await loadLatest(forceScroll: true) }
         } catch {
+            endContinuation(success: false)
             draft.error = Self.errorText(error)
         }
     }

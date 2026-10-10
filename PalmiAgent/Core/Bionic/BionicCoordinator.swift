@@ -10,6 +10,10 @@ final class BionicCoordinator {
     var onDiagnostics: ((String) -> Void)?
     var onError: ((String, String?) -> Void)?
     var onNotificationReconcile: (() async -> Void)?
+    /// 只供系统后台进度框读取的旁路状态；不进入归档、素材包或聊天框。
+    var onActivity: ((AgentRunProgressSnapshot) -> Void)?
+    /// 用户发起的这一轮回复结束（成功或失败）；worker 空闲时也会触发以兜住未建 chat 操作的情况。
+    var onUserTurnEnded: ((Bool) -> Void)?
     var selectedInstance: String?
     private var foreground = false
     private var queue: [String] = []
@@ -231,8 +235,10 @@ final class BionicCoordinator {
             await Task.yield()
         }
         if foreground, lifecycle == epoch { await onNotificationReconcile?() }
+        if queue.isEmpty { onUserTurnEnded?(!Task.isCancelled) }
     }
     private func report(_ instance: String, _ error: Error) {
+        onUserTurnEnded?(false)
         blocked.insert(instance)
         let code: String
         if let failure = error as? BionicFailure { code = failure.code }
@@ -315,6 +321,7 @@ final class BionicCoordinator {
     }
     private func finishRoot(_ instance: String, _ request: BionicObject, phase: String = "committed", events: [BionicObject] = [], writes: [BionicWrite] = [], guard condition: BionicGuard? = nil) async throws {
         _ = try await archive.commit(instance, events: events + [BionicRecords.event("operation_checkpoint", BionicRecords.checkpoint(request, step: "root", phase: phase))], writes: writes, guard: condition, operation: request.text("operation_id"))
+        if request.text("kind") == "chat" { onUserTurnEnded?(phase == "committed") }
     }
     private func advance(_ instance: String) async throws -> Bool {
         try Task.checkCancellation()
@@ -675,7 +682,9 @@ final class BionicCoordinator {
         }
         try BionicPromptBuilder.checkBudget(input)
         let stepRequest = try await frozenStep(current, root: request, step: step, proposed: input)
+        onActivity?(.thinking)
         let result = try await resultForStep(current, request: stepRequest, maximumAttempts: min(2, max(1, 6 - used))) { answer, actual in
+            self.reportActivity(forTool: answer.toolName)
             if answer.toolName == "recall" {
                 let available = try actual.contextLimit - actual.outputLimit - BionicPromptBuilder.estimatedTokens(actual) - 1024
                 guard available > 512 else { throw BionicControl.capacity }
@@ -705,6 +714,7 @@ final class BionicCoordinator {
         if result.text("tool_name") == "speak" {
             try await deliverBatch(current, root: request, stepRequest: stepRequest, result: result)
             if effect.flag("end_turn") {
+                onUserTurnEnded?(true)
                 planningReady[instance] = .now; return true
             }
         } else {
@@ -714,6 +724,18 @@ final class BionicCoordinator {
                 guard: BionicGuard(current, generation: true), operation: op)
         }
         return true
+    }
+    private func reportActivity(forTool toolName: String?) {
+        switch toolName {
+        case "recall":
+            onActivity?(.running(PalmiL10n.tr("bionic.background.recall"), phase: .executing))
+        case "generate_image":
+            onActivity?(.running(PalmiL10n.tr("image.generate"), phase: .executing))
+        case "professional_mode":
+            onActivity?(.running(PalmiL10n.tr("bionic.background.professional"), phase: .executing))
+        default:
+            onActivity?(.outputting)
+        }
     }
     private func dailyInput(_ role: BionicRole) async throws -> BionicModelInput {
         let workspaces = professionalExecutor.map { (try? $0.workspaceCatalog(for: role)) ?? [] }
