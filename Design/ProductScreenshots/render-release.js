@@ -19,7 +19,7 @@ const added = [
   ['bionic', '02-Bionic-Mode.png'],
   ['details', '03-Conversation-Details.png'],
   ['reasoning', '04-Execution-Timeline.png'],
-  ['models', '08-Codex-OAuth.png']
+  ['models', '08-Model-Setup.png']
 ];
 
 async function render(page, template, params, width, height, destination) {
@@ -50,6 +50,8 @@ async function render(page, template, params, width, height, destination) {
           : path.join(repo, 'Screenshots/Product/zh-CN', chinese);
         await fs.copyFile(source, path.join(phoneOutput, filename));
       }
+      // Remove superseded artwork so a bulk upload cannot include account details.
+      await fs.rm(path.join(phoneOutput, '08-Codex-OAuth.png'), { force: true });
       for (const [topic, filename] of added) {
         await render(page, 'iphone.html', { lang: queryLang, page: topic }, 1284, 2778, path.join(phoneOutput, filename));
       }

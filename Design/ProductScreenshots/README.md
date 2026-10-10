@@ -42,6 +42,12 @@ The renderer starts a separate headless Chrome process and reads the local HTML 
 - `iPad/en/` and `iPad/zh-CN/`: 4 images each, at 2732 × 2048.
 - `Creative/en/` and `Creative/zh-CN/`: `Header.png` at 3840 × 1646 and `Search.png` at 3840 × 2560.
 
-The 10-image iPhone selection retains Agent tasks, playable games, multi-agent work, multimodal input, model protocols, and skills. Bionic conversations, conversation details, execution timelines, and Codex OAuth replace the older OCR, thinking-effort, and model-plan artwork. Original images in `Screenshots/Product/` remain available.
+The 10-image iPhone selection retains Agent tasks, playable games, multi-agent work, multimodal input, model protocols, and skills. Bionic conversations, conversation details, execution timelines, and model setup replace the older OCR, thinking-effort, and model-plan artwork. Original images in `Screenshots/Product/` remain available.
 
 Dimensions were checked against Apple's [screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications) and [asset best practices](https://developer.apple.com/app-store/asset-best-practices/).
+
+## 2026-10-10 review artwork correction
+
+The model-setup theme uses the existing real Add Model capture instead of the account-connected model library. This removes personal account email addresses and the OAuth promotion from both localized iPhone image 08 and iPad image 03. The renderer removes the superseded `08-Codex-OAuth.png` output to prevent accidental upload. The original model-library captures in `assets/26.10/models-*.PNG` are private source references and must not be uploaded.
+
+Use `Screenshots/AppStore/26.10/` for release uploads. Artwork edits do not disable any runtime service and do not establish compliance with the China storefront requirement in the review message.

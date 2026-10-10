@@ -6,8 +6,8 @@ struct AgentRunLimits: Equatable, Sendable {
     let maximumElapsedNanoseconds: UInt64
 
     static let `default` = AgentRunLimits(
-        maximumIterations: 24,
-        maximumToolCalls: 64,
+        maximumIterations: 999,
+        maximumToolCalls: 9_999,
         maximumElapsedNanoseconds: 30 * 60 * 1_000_000_000
     )
 }
