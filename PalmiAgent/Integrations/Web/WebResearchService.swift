@@ -1377,9 +1377,22 @@ struct PalmiBrowserScreen: View {
     var body: some View {
         GeometryReader { proxy in
             VStack(spacing: 0) {
-                browserChrome(safeAreaTop: proxy.safeAreaInsets.top)
-                    .background(browserChromeBackdrop)
-                    .zIndex(1)
+                PalmiBrowserChrome(
+                    title: title,
+                    leadingSystemImage: "chevron.left",
+                    leadingAccessibilityLabel: "返回",
+                    safeAreaTop: proxy.safeAreaInsets.top,
+                    onLeading: {
+                        onClose?()
+                        dismiss()
+                    }
+                ) {
+                    PalmiBrowserChromeButton(systemImage: "square.and.arrow.up", accessibilityLabel: "分享网页") {
+                        sharePayload = SharePayload(url: options.url)
+                    }
+                }
+                .background(PalmiBrowserChromeBackdrop())
+                .zIndex(1)
 
                 PalmiWebBrowserView(options: options)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1405,8 +1418,18 @@ struct PalmiBrowserScreen: View {
 
         return options.url.host ?? "网页"
     }
+}
 
-    private func browserChrome(safeAreaTop: CGFloat) -> some View {
+/// 内置浏览器顶部栏：玻璃胶囊标题 + 左侧圆形按钮 + 可选右侧内容。普通网页预览与 Agent 浏览器查看共用。
+struct PalmiBrowserChrome<Trailing: View>: View {
+    let title: String
+    let leadingSystemImage: String
+    let leadingAccessibilityLabel: String
+    let safeAreaTop: CGFloat
+    let onLeading: () -> Void
+    @ViewBuilder let trailing: () -> Trailing
+
+    var body: some View {
         GlassEffectContainer(spacing: 16) {
             ZStack {
                 Text(title)
@@ -1419,16 +1442,15 @@ struct PalmiBrowserScreen: View {
                     .glassEffect(.regular, in: .capsule)
 
                 HStack {
-                    browserChromeButton(systemImage: "chevron.left", accessibilityLabel: "返回") {
-                        onClose?()
-                        dismiss()
-                    }
+                    PalmiBrowserChromeButton(
+                        systemImage: leadingSystemImage,
+                        accessibilityLabel: leadingAccessibilityLabel,
+                        action: onLeading
+                    )
 
                     Spacer()
 
-                    browserChromeButton(systemImage: "square.and.arrow.up", accessibilityLabel: "分享网页") {
-                        sharePayload = SharePayload(url: options.url)
-                    }
+                    trailing()
                 }
             }
             .padding(.horizontal, 16)
@@ -1437,19 +1459,25 @@ struct PalmiBrowserScreen: View {
         }
     }
 
-    private var browserChromeBackdrop: some View {
+}
+
+/// 顶部栏底衬：系统背景 + 底部细分隔线。
+struct PalmiBrowserChromeBackdrop: View {
+    var body: some View {
         Color(.systemBackground)
             .overlay(alignment: .bottom) {
                 Divider()
                     .opacity(0.45)
             }
     }
+}
 
-    private func browserChromeButton(
-        systemImage: String,
-        accessibilityLabel: String,
-        action: @escaping () -> Void
-    ) -> some View {
+struct PalmiBrowserChromeButton: View {
+    let systemImage: String
+    let accessibilityLabel: String
+    let action: () -> Void
+
+    var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 18, weight: .semibold))

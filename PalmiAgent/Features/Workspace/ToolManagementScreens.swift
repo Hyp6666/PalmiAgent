@@ -376,6 +376,10 @@ private extension AgentExternalToolName {
             "viewfinder"
         case .webSearch, .fetch:
             "globe"
+        case .browser:
+            "safari"
+        case .askUser:
+            "questionmark.bubble"
         case .systemTime:
             "clock"
         case .location:

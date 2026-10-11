@@ -26,6 +26,8 @@ final class ActionExecutor {
     private let speechService: SpeechService
     private let router: SystemRouter
     private let webResearchService: WebResearchService
+    private let browserOperatorService: BrowserOperatorService
+    private let userQuestionService: UserQuestionService
     private let remoteSearchConfigurationStore: RemoteSearchConfigurationStore
     private let remoteWebSearchService: RemoteWebSearchService
     private let spotlightService: SpotlightService
@@ -55,6 +57,8 @@ final class ActionExecutor {
         speechService: SpeechService,
         router: SystemRouter,
         webResearchService: WebResearchService,
+        browserOperatorService: BrowserOperatorService? = nil,
+        userQuestionService: UserQuestionService? = nil,
         remoteSearchConfigurationStore: RemoteSearchConfigurationStore,
         remoteWebSearchService: RemoteWebSearchService,
         spotlightService: SpotlightService,
@@ -83,6 +87,8 @@ final class ActionExecutor {
         self.speechService = speechService
         self.router = router
         self.webResearchService = webResearchService
+        self.browserOperatorService = browserOperatorService ?? BrowserOperatorService()
+        self.userQuestionService = userQuestionService ?? UserQuestionService()
         self.remoteSearchConfigurationStore = remoteSearchConfigurationStore
         self.remoteWebSearchService = remoteWebSearchService
         self.spotlightService = spotlightService
@@ -505,6 +511,21 @@ final class ActionExecutor {
                         )
                     ]
                 )
+
+            case .askUser:
+                let question = try arguments.requiredString("question")
+                let options = (arguments.stringArray("options") ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                switch try await userQuestionService.ask(question: question, options: Array(options.prefix(4))) {
+                case .answered(let answer):
+                    return success(action, "用户已回答", details: "user_answer: \(answer)",
+                        inlineMetadata: ToolCallInlineMetadataBuilder.make(toolName: "ask_user", argumentsJSON: arguments.normalizedJSONString()))
+                case .dismissed:
+                    return success(action, "用户未回答", details: "user_dismissed: 用户关闭了问题，没有作答。",
+                        inlineMetadata: ToolCallInlineMetadataBuilder.make(toolName: "ask_user", argumentsJSON: arguments.normalizedJSONString()))
+                }
+
+            case .browserRead, .browserInteract:
+                return try await executeBrowser(action, arguments: arguments, modelOverrides: modelOverrides)
 
             case .scanImageWithMultimodalModel:
                 let path = try arguments.requiredString("path")
@@ -1454,6 +1475,36 @@ final class ActionExecutor {
             fileDeltas: fileDeltas,
             inlineMetadata: inlineMetadata
         )
+    }
+
+    private func executeBrowser(
+        _ action: ToolAction, arguments: ToolArguments, modelOverrides: AgentModelRoleOverrides
+    ) async throws -> ToolExecutionOutcome {
+        guard UIApplication.shared.applicationState == .active || arguments.string("operation") == "close" else {
+            throw BrowserToolError.foreground
+        }
+        let request = try BrowserRequest(arguments: arguments)
+        guard request.operation.actionID == action.id else {
+            throw BrowserToolError(code: "invalid_action", message: "browser 操作与底层风险分级不一致。")
+        }
+        if request.operation == .look {
+            guard case .resolved = resolvedMultimodalOverride(from: modelOverrides) else {
+                throw BrowserToolError(code: "multimodal_unavailable", message: "未配置可用的多模态角色模型，请改用 observe 阅读结构和文字。")
+            }
+        }
+        let selection = try workspaceManager.currentSelection()
+        let reply = try await browserOperatorService.perform(request, selection: selection, saveScreenshot: { data, path in
+            _ = try self.workspaceManager.withSelection(selection) { try self.workspaceManager.writeData(data, to: path) }
+        }, askImage: { prompt, dataURL in
+            let response = try await self.scanImageWithMultimodalModel(prompt: prompt, imageDataURL: dataURL, modelOverrides: modelOverrides)
+            return response.text
+        })
+        let deltas = reply.screenshotPath.map { path in
+            [FileDelta(toolName: "browser", path: path, kind: .created, beforeByteCount: nil, afterByteCount: nil, summary: "浏览器视口标记截图已保存")]
+        } ?? []
+        return success(action, request.operation == .handoff ? "浏览器已交给用户" : "浏览器操作完成",
+            details: reply.text, fileDeltas: deltas,
+            inlineMetadata: ToolCallInlineMetadataBuilder.make(toolName: "browser", argumentsJSON: arguments.normalizedJSONString()))
     }
 
     private func scanImageWithMultimodalModel(

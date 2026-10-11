@@ -2021,6 +2021,8 @@ private struct AppSettingsScreen: View {
 private struct SystemSettingsScreen: View {
     @AppStorage(AgentContinuedProcessingPreference.storageKey)
     private var isContinuedProcessingEnabled = AgentContinuedProcessingPreference.defaultValue
+    @AppStorage(BrowserGeolocation.preferenceKey)
+    private var isBrowserGeolocationAllowed = false
     @Bindable var store: ManualLabStore
     let onContinuedProcessingPreferenceChange: (Bool) -> Void
     let onStartOnboarding: () -> Void
@@ -2046,6 +2048,10 @@ private struct SystemSettingsScreen: View {
                 Text(PalmiL10n.tr("settings.section.backgroundProcessing"))
             } footer: {
                 Text(PalmiL10n.tr("settings.backgroundProcessing.note"))
+            }
+
+            Section(PalmiL10n.tr("settings.section.browser")) {
+                Toggle(PalmiL10n.tr("settings.browser.location"), isOn: $isBrowserGeolocationAllowed)
             }
 
             Section(PalmiL10n.tr("settings.section.launch")) {

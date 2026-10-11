@@ -162,7 +162,7 @@ enum ToolManagementCatalog {
             sectionID: .nonApp,
             title: "网页研究",
             subtitle: "搜索候选、网页浏览",
-            actionIDs: [.detectWebSearchProviders, .searchWeb, .fetchStaticWebPage, .openInAppBrowser]
+            actionIDs: [.detectWebSearchProviders, .searchWeb, .fetchStaticWebPage, .openInAppBrowser, .browserRead, .browserInteract]
         ),
         .init(
             id: .bionicPersonas,
@@ -180,7 +180,7 @@ enum ToolManagementCatalog {
         settingsGroup(.workspaceFiles),
         settingsGroup(.skills),
         settingsGroup(.multimodal),
-        settingsGroup(.webResearch, actionIDs: [.searchWeb, .fetchStaticWebPage]),
+        settingsGroup(.webResearch, actionIDs: [.searchWeb, .fetchStaticWebPage, .browserRead, .browserInteract]),
         settingsGroup(.bionicPersonas),
         settingsGroup(.imageGeneration)
     ]
@@ -207,7 +207,7 @@ enum ToolManagementCatalog {
         case .multimodal:
             names = [.ocr, .vision]
         case .webResearch:
-            names = [.webSearch, .fetch]
+            names = [.webSearch, .fetch, .browser]
         case .bionicPersonas:
             names = [.createBionicPersona]
         case .imageGeneration:

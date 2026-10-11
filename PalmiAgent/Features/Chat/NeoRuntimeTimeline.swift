@@ -60,6 +60,8 @@ struct NeoRuntimeStep: Identifiable {
             case .ocr: return "text.viewfinder"
             case .vision: return "viewfinder"
             case .webSearch, .fetch: return "globe"
+            case .browser: return "safari"
+            case .askUser: return "questionmark.bubble"
             case .systemTime: return "clock"
             case .location: return "location"
             case .createBionicPersona: return "person.crop.circle.badge.plus"

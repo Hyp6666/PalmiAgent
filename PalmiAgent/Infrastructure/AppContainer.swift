@@ -18,6 +18,10 @@ final class AppContainer {
     lazy var imageGenerationService = PalmiImageGenerationService(plans: modelPlanStore, permissions: toolPermissionStore)
 
     init() {
+        browserOperatorService.isConversationActive = { [weak self] in self?.chatStore.isRunning(selection: $0) ?? false }
+        workspaceManager.onThreadDeleted = { [weak self] in self?.browserOperatorService.forgetConversation($0) }
+        workspaceManager.onProjectDeleted = { [weak self] in self?.browserOperatorService.forgetProject($0) }
+        workspaceManager.onAllWorkspaceDataDeleted = { [weak self] in self?.browserOperatorService.resetPersistentData() }
         // 修正旧版本首次启用图片工具时写入的关闭状态，仅迁移一次。
         let enabledDefaultKey = "palmi.image-generation.default-enabled.v2"
         if !UserDefaults.standard.bool(forKey: enabledDefaultKey) {
@@ -73,6 +77,8 @@ final class AppContainer {
     let speechService = SpeechService()
     let router = SystemRouter()
     let webResearchService = WebResearchService()
+    let browserOperatorService = BrowserOperatorService()
+    let userQuestionService = UserQuestionService()
     let spotlightService = SpotlightService()
     let foundationModelService = FoundationModelService()
     let currentDateTimeService = CurrentDateTimeService()
@@ -95,6 +101,8 @@ final class AppContainer {
         speechService: speechService,
         router: router,
         webResearchService: webResearchService,
+        browserOperatorService: browserOperatorService,
+        userQuestionService: userQuestionService,
         remoteSearchConfigurationStore: remoteSearchConfigurationStore,
         remoteWebSearchService: remoteWebSearchService,
         spotlightService: spotlightService,

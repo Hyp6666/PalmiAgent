@@ -880,6 +880,22 @@
 "tool.facade.vision" = "ビジョン";
 "tool.facade.webSearch" = "ウェブ検索";
 "tool.facade.fetch" = "取得";
+"tool.facade.browser" = "ブラウザ操作";
+"tool.action.browserRead.title" = "ブラウザの読み取り";
+"tool.action.browserRead.effect" = "このチャットの内蔵ブラウザでページと表示領域を読み取る";
+"tool.action.browserInteract.title" = "ブラウザ操作";
+"tool.action.browserInteract.effect" = "ページを一度操作するか、ユーザーにブラウザを引き継ぐ";
+"browser.handoff.done" = "完了";
+"browser.live.collapse" = "閉じる";
+"browser.tabs" = "タブ";
+"browser.newTab" = "新規タブ";
+"browser.address.placeholder" = "検索またはWebサイト名を入力";
+"browser.badge.busy" = "Palmi";
+"browser.toolbox" = "ツール";
+"browser.menu.files" = "ファイル";
+"browser.menu.browser" = "ブラウザ";
+"browser.back" = "戻る";
+"browser.forward" = "進む";
 "tool.status.running" = "実行中";
 "tool.review.reviewing" = "審査中";
 "tool.review.approved" = "承認済み";
@@ -1703,3 +1719,18 @@
 // Bionic background progress
 "bionic.background.recall" = "記憶の参照";
 "bionic.background.professional" = "専門タスク";
+
+// Ask user tool
+"tool.facade.askUser" = "ユーザーに質問";
+"askUser.placeholder" = "回答を入力";
+"askUser.send" = "送信";
+
+// In-app browser
+"settings.section.browser" = "アプリ内ブラウザ";
+"settings.browser.location" = "Webサイトに位置情報の使用を許可";
+"browser.location.title" = "Webサイトに位置情報の使用を許可しますか？";
+"browser.location.message" = "アプリ内ブラウザのWebサイトが必要とする場合、位置情報が自動的に提供されます。設定で変更できます。";
+"browser.location.allow" = "許可";
+"browser.location.deny" = "許可しない";
+"browser.entry" = "アプリ内ブラウザ";
+"browser.entry.hide" = "一時的に非表示";

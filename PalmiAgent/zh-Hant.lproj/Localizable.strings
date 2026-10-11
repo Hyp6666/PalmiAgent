@@ -880,6 +880,22 @@
 "tool.facade.vision" = "視覺";
 "tool.facade.webSearch" = "網頁搜尋";
 "tool.facade.fetch" = "網頁讀取";
+"tool.facade.browser" = "瀏覽器操控";
+"tool.action.browserRead.title" = "瀏覽器讀取";
+"tool.action.browserRead.effect" = "在目前對話的內建瀏覽器讀取頁面與視窗";
+"tool.action.browserInteract.title" = "瀏覽器操控";
+"tool.action.browserInteract.effect" = "在內建瀏覽器執行一次頁面互動或交給使用者接管";
+"browser.handoff.done" = "完成";
+"browser.live.collapse" = "收起";
+"browser.tabs" = "分頁";
+"browser.newTab" = "新增分頁";
+"browser.address.placeholder" = "搜尋或輸入網址";
+"browser.badge.busy" = "Palmi";
+"browser.toolbox" = "擴充工具";
+"browser.menu.files" = "檔案";
+"browser.menu.browser" = "瀏覽器";
+"browser.back" = "上一頁";
+"browser.forward" = "下一頁";
 "tool.status.running" = "執行中";
 "tool.review.reviewing" = "審核中";
 "tool.review.approved" = "審核通過";
@@ -1703,3 +1719,18 @@
 // Bionic background progress
 "bionic.background.recall" = "回憶聊天記錄";
 "bionic.background.professional" = "專業任務";
+
+// Ask user tool
+"tool.facade.askUser" = "詢問使用者";
+"askUser.placeholder" = "輸入你的回答";
+"askUser.send" = "傳送";
+
+// In-app browser
+"settings.section.browser" = "內建瀏覽器";
+"settings.browser.location" = "允許網站使用位置";
+"browser.location.title" = "允許網站使用你的位置？";
+"browser.location.message" = "內建瀏覽器中的網站需要定位時將自動提供，可在設定中更改。";
+"browser.location.allow" = "允許";
+"browser.location.deny" = "不允許";
+"browser.entry" = "內建瀏覽器";
+"browser.entry.hide" = "暫時隱藏";

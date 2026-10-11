@@ -880,6 +880,22 @@
 "tool.facade.vision" = "Vision";
 "tool.facade.webSearch" = "Web Search";
 "tool.facade.fetch" = "Fetch";
+"tool.facade.browser" = "Browser";
+"tool.action.browserRead.title" = "Read browser";
+"tool.action.browserRead.effect" = "Read the page and viewport in this chat’s built-in browser";
+"tool.action.browserInteract.title" = "Operate browser";
+"tool.action.browserInteract.effect" = "Interact with the page once or hand the browser to you";
+"browser.handoff.done" = "Done";
+"browser.live.collapse" = "Collapse";
+"browser.tabs" = "Tabs";
+"browser.newTab" = "New Tab";
+"browser.address.placeholder" = "Search or enter website";
+"browser.badge.busy" = "Palmi";
+"browser.toolbox" = "Tools";
+"browser.menu.files" = "Files";
+"browser.menu.browser" = "Browser";
+"browser.back" = "Back";
+"browser.forward" = "Forward";
 "tool.status.running" = "Running";
 "tool.review.reviewing" = "Reviewing";
 "tool.review.approved" = "Approved";
@@ -1703,3 +1719,18 @@
 // Bionic background progress
 "bionic.background.recall" = "Recall";
 "bionic.background.professional" = "Professional task";
+
+// Ask user tool
+"tool.facade.askUser" = "Ask User";
+"askUser.placeholder" = "Type your answer";
+"askUser.send" = "Send";
+
+// In-app browser
+"settings.section.browser" = "In-App Browser";
+"settings.browser.location" = "Allow Websites to Use Location";
+"browser.location.title" = "Allow websites to use your location?";
+"browser.location.message" = "Websites in the in-app browser will get your location automatically when needed. You can change this in Settings.";
+"browser.location.allow" = "Allow";
+"browser.location.deny" = "Don't Allow";
+"browser.entry" = "In-App Browser";
+"browser.entry.hide" = "Hide for Now";

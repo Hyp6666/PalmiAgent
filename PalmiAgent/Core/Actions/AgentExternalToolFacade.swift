@@ -12,14 +12,17 @@ enum AgentExternalToolName: String, CaseIterable, Codable, Hashable, Sendable {
     case vision
     case webSearch = "web_search"
     case fetch
+    case browser
     case systemTime = "get_system_time"
     case location = "get_location"
     case createBionicPersona = "create_bionic_persona"
     case generateImage = "generate_image"
+    case askUser = "ask_user"
 
     var localizedTitle: String {
         switch self {
         case .generateImage: PalmiL10n.tr("image.generate")
+        case .askUser: PalmiL10n.tr("tool.facade.askUser")
         case .read:
             PalmiL10n.tr("tool.facade.read")
         case .breakDown:
@@ -42,6 +45,8 @@ enum AgentExternalToolName: String, CaseIterable, Codable, Hashable, Sendable {
             PalmiL10n.tr("tool.facade.webSearch")
         case .fetch:
             PalmiL10n.tr("tool.facade.fetch")
+        case .browser:
+            PalmiL10n.tr("tool.facade.browser")
         case .systemTime:
             ToolActionID.getCurrentDateTime.localizedTitleForUI
         case .location:
@@ -79,10 +84,12 @@ enum AgentExternalToolFacadeCatalog {
         .init(name: .vision, backingActionIDs: [.scanImageWithMultimodalModel]),
         .init(name: .webSearch, backingActionIDs: [.searchWeb]),
         .init(name: .fetch, backingActionIDs: [.fetchStaticWebPage]),
+        .init(name: .browser, backingActionIDs: [.browserRead, .browserInteract]),
         .init(name: .systemTime, backingActionIDs: [.getCurrentDateTime]),
         .init(name: .location, backingActionIDs: [.requestLocation]),
         .init(name: .createBionicPersona, backingActionIDs: [.createBionicPersona]),
-        .init(name: .generateImage, backingActionIDs: [.generateImage])
+        .init(name: .generateImage, backingActionIDs: [.generateImage]),
+        .init(name: .askUser, backingActionIDs: [.askUser])
     ]
 
     static func availableFacades(from actions: [ToolAction]) -> [AgentExternalToolFacade] {
@@ -149,6 +156,8 @@ enum AgentExternalToolFacadeCatalog {
         arguments: ToolArguments
     ) throws -> ToolActionID {
         switch facade.name {
+        case .browser:
+            return try BrowserRequest(arguments: arguments).operation.actionID
         case .edit:
             switch try normalizedOperation(arguments) {
             case "write":
@@ -187,6 +196,10 @@ enum AgentExternalToolFacadeCatalog {
         actionID: ToolActionID
     ) throws {
         switch facadeName {
+        case .browser:
+            guard try BrowserRequest(arguments: arguments).operation.actionID == actionID else {
+                throw BrowserToolError(code: "invalid_action", message: "browser 操作与底层风险分级不一致。")
+            }
         case .generateImage:
             let prompt = try arguments.requiredString("prompt")
             guard (1...6000).contains(prompt.trimmingCharacters(in: .whitespacesAndNewlines).count),
@@ -209,6 +222,15 @@ enum AgentExternalToolFacadeCatalog {
             _ = try arguments.requiredString("path")
             if ["move", "rename", "copy"].contains(operation) {
                 _ = try arguments.requiredString("destination")
+            }
+        case .askUser:
+            let question = try arguments.requiredString("question")
+            guard !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, question.count <= 1000 else {
+                throw AppError.invalidState("ask_user.question 必须是 1–1000 字的非空问题。")
+            }
+            let options = arguments.stringArray("options") ?? []
+            guard options.count <= 4, options.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.count <= 200 }) else {
+                throw AppError.invalidState("ask_user.options 最多 4 个，每个 1–200 字。")
             }
         case .readSkill:
             _ = try arguments.requiredString("skill")

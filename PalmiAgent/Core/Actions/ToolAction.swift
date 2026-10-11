@@ -32,6 +32,9 @@ enum ToolActionID: String, CaseIterable, Codable, Hashable, Sendable {
     case detectWebSearchProviders
     case searchWeb
     case fetchStaticWebPage
+    case browserRead
+    case browserInteract
+    case askUser
     case fetchWebBatch
     case saveWebPageToWorkspace
     case openInAppBrowser
@@ -98,7 +101,8 @@ enum ToolActionID: String, CaseIterable, Codable, Hashable, Sendable {
              .publishHandoffActivity:
             return .action
 
-        case .openInAppBrowser,
+        case .browserInteract,
+             .openInAppBrowser,
              .openCamera,
              .openPhotoLibrary,
              .scanDocument,

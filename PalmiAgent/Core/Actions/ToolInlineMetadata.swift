@@ -86,6 +86,11 @@ enum ToolCallInlineMetadataBuilder {
             return workspaceMetadata(path: arguments.string("path"))
         case .webSearch:
             return textMetadata(arguments.string("query"))
+        case .askUser:
+            return textMetadata(arguments.string("question"))
+        case .browser:
+            let targets = arguments.string("url").flatMap { webTarget($0) }.map { [$0] } ?? []
+            return ToolCallInlineMetadata(operation: normalized(arguments.string("operation")), targets: targets)
         case .fetch:
             let rawURLs = [arguments.string("url")].compactMap { $0 }
                 + (arguments.stringArray("urls") ?? [])

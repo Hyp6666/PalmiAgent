@@ -14,6 +14,9 @@ struct WorkspaceEntry: Sendable {
 @MainActor
 final class WorkspaceManager {
     var onChatMessagesSaved: ((WorkspaceSelection, [PalmiChatMessage]) -> Void)?
+    var onThreadDeleted: ((WorkspaceSelection) -> Void)?
+    var onProjectDeleted: ((UUID) -> Void)?
+    var onAllWorkspaceDataDeleted: (() -> Void)?
     @TaskLocal static var pinnedSelection: WorkspaceSelection?
     // 项目级作用域：项目工作区与是否有会话无关，空项目也可访问其文件夹。
     @TaskLocal static var pinnedProjectID: UUID?
@@ -621,6 +624,7 @@ final class WorkspaceManager {
             activeSelection = nil
         }
         try fileManager.removeItem(at: directoryURL)
+        onProjectDeleted?(projectID)
     }
 
     func listThreads(in projectID: UUID) throws -> [WorkspaceThreadRecord] {
@@ -730,6 +734,7 @@ final class WorkspaceManager {
 
         let deletingActiveThread = activeSelection?.projectID == projectID && activeSelection?.threadID == threadID
         try fileManager.removeItem(at: directoryURL)
+        onThreadDeleted?(WorkspaceSelection(projectID: projectID, threadID: threadID))
         onChatMessagesSaved?(WorkspaceSelection(projectID: projectID, threadID: threadID), [])
 
         guard deletingActiveThread else { return }
@@ -903,8 +908,10 @@ final class WorkspaceManager {
         conversationRevision &+= 1
         conversationCache.removeAll()
         activeSelection = nil
-        guard fileManager.fileExists(atPath: storageRoot.path) else { return }
-        try fileManager.removeItem(at: storageRoot)
+        if fileManager.fileExists(atPath: storageRoot.path) {
+            try fileManager.removeItem(at: storageRoot)
+        }
+        onAllWorkspaceDataDeleted?()
     }
 
     func projectSkillsRootURL(for projectID: UUID) throws -> URL {

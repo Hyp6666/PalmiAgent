@@ -16,12 +16,19 @@ enum ActionCatalog {
         .scanImageWithMultimodalModel,
         .searchWeb,
         .fetchStaticWebPage,
+        .browserRead,
+        .browserInteract,
+        .askUser,
         .getCurrentDateTime,
         .requestLocation,
         .createBionicPersona
     ]
 
     static let all: [ToolAction] = [
+        .init(id: .askUser, category: .intelligence, title: "询问用户", effect: "弹出问题，让用户选择推荐答案或自行输入",
+              details: "用于执行中必须由用户决定、且会改变后续做法的问题。等待用户作答后返回答案；用户关闭弹窗时返回未回答。", availability: .live),
+        .init(id: .browserRead, category: .web, title: "浏览器读取", effect: "在当前线程的内置浏览器读取页面与视口", details: "打开、观察、滚动、视觉理解、交给用户接管、前进、后退、刷新与关闭。使用独立持久化登录状态，需 App 在前台。", availability: .live),
+        .init(id: .browserInteract, category: .web, title: "浏览器操控", effect: "在内置浏览器执行一次页面交互", details: "点击、输入、选择与按键。仅使用最新观察中的编号，交互中断后不自动重跑。", availability: .live),
         .init(id: .generateImage, category: .multimodal, title: "生成图片", effect: "生成图片并保存到当前项目",
               details: "使用生图配置中的 Codex OAuth 模型，返回可在 Markdown 中引用的项目相对路径。", availability: .live),
         .init(id: .fileRead, category: .workspace, title: "读取文本", effect: "原样读取工作区中的单个文本文件", details: "按 start/count 读取可解码文本，保留原始内容，不做摘要、搜索、格式化或复杂文档解析。PDF、Office、iWork、RAR、7z 等二进制文件使用 break_down。", availability: .live),

@@ -142,6 +142,21 @@ extension ToolActionID {
         case .breakDownFile:
             return ToolPolicyMetadata(riskLevel: .r2LocalRead, sideEffect: .writesDerivedWorkspaceCache, parallelPolicy: .sequential, confirmationPolicy: .allow, mutatesWorkspace: true, touchesPersonalData: false, isInteractive: false, isCacheable: true, isIdempotent: true)
 
+        case .askUser:
+            return ToolPolicyMetadata(riskLevel: .r0TextOnly, sideEffect: .none,
+                parallelPolicy: .sequential, confirmationPolicy: .allow, mutatesWorkspace: false,
+                touchesPersonalData: false, isInteractive: true, isCacheable: false, isIdempotent: true)
+
+        case .browserRead:
+            return ToolPolicyMetadata(riskLevel: .r1PublicRead, sideEffect: .readsPublicWeb,
+                parallelPolicy: .sequential, confirmationPolicy: .allow, mutatesWorkspace: false,
+                touchesPersonalData: false, isInteractive: false, isCacheable: false, isIdempotent: true)
+
+        case .browserInteract:
+            return ToolPolicyMetadata(riskLevel: .r5ExternalVisibleOrPersistentSystemChange, sideEffect: .externalVisibleSystemChange,
+                parallelPolicy: .sequential, confirmationPolicy: .always, mutatesWorkspace: false,
+                touchesPersonalData: true, isInteractive: true, isCacheable: false, isIdempotent: false)
+
         case .detectWebSearchProviders, .searchWeb, .fetchStaticWebPage, .fetchWebBatch:
             return .publicRead
 

@@ -95,6 +95,21 @@ enum LLMToolDefinitionBuilder {
             lines = [
                 "[网页] 读取一个或多个已知 URL 的完整可见文字，不自行筛选正文。默认使用 page_text；只有普通读取确实拿不到所需信息、并且已经排除网页本身无效或换过更合适来源后仍失败，才使用高资源消耗的 full_snapshot 网页归档。归档会保存页面及其图片、CSS、脚本、字体等素材，后续由 Agent 自行选择文件读取。"
             ]
+        case .askUser:
+            lines = [
+                "[交互] 向用户弹出一个问题，附最多 4 个推荐答案，用户也可以自行输入。只用于执行中必须由用户决定、且答案会改变后续做法的事项，例如在几个方案中选择、确认关键约束或补充缺失信息；能从上下文合理确定的不要问。",
+                "调用会等待用户作答，然后返回 user_answer，任务在本轮继续；用户关闭弹窗时返回 user_dismissed，此时按已知信息继续或在回复中说明。推荐答案要具体、互斥，覆盖最可能的选择。"
+            ]
+        case .browser:
+            lines = [
+                "[Web interaction, Pro only] Run one operation in Palmi's in-app browser. Read the web-operator skill (read_skill skill=\"web-operator\") before first use. For public information that needs no interaction, prefer fetch/web_search; use browser for search boxes, filters, pagination, signed-in pages, and dynamic content. Find a reliable URL first (web_search or fetch) instead of guessing addresses.",
+                "Tabs: the browser is app-wide and shared with the user. Each conversation has a current tab; operations without tab use it. open reuses the current tab (creating one if needed); new_tab=true opens another. tabs lists all tabs (t ids, titles, URLs, current/opened_by_palmi/busy). Pass tab to operate any listed tab; it becomes the current tab. close closes a tab; leave result pages open unless the user asks.",
+                "open loads an http/https URL and returns an observation. observe defaults to interactive (e refs in the current viewport); scope=text pages through all visible text with start/count. click/type/select/scroll take the latest ref and observation_id; stale refs are rejected. Confirm every action from the new observation it returns.",
+                "type sets the value with native setters and input/change events; clear defaults to true, submit defaults to false (true = Enter). press supports Enter/Tab/Escape. scroll takes up/down with amount 0.25-3 screens (default 0.8), or a ref to scroll into view. back/forward/reload return a new observation.",
+                "Use look(question) when the structure lacks the target or layout matters: it saves an e-labelled viewport screenshot under .files/browser/ and asks the multimodal model; it fails clearly when no multimodal model is configured, so continue with observe. Coordinate click(x,y) uses viewport CSS pixels and is a last resort.",
+                "When a page actually requires sign-in or a CAPTCHA, or a password/payment field must be filled, call handoff(reason): the browser is shown full screen to the user and the call waits until they tap Done, then returns a fresh observation so the task continues in the same turn. Do not ask for sign-in up front. Before ordering, paying, sending, posting, submitting personal data, or deleting, describe the action and get the user's explicit approval.",
+                "Non-http/https navigation and downloads are blocked. Except tabs/close, operations run only while Palmi is in the foreground; on requires_foreground, pause browser steps, finish independent work, and tell the user to return to Palmi. Never blindly retry an interrupted interaction; observe the current state first."
+            ]
         case .systemTime:
             lines = [
                 "[设备] 获取设备当前本地日期、时间和时区。涉及今天、明天、相对日期或当前时间时先调用。"
@@ -121,6 +136,10 @@ enum LLMToolDefinitionBuilder {
         switch facade.name {
         case .generateImage:
             return imageGenerationSchema
+        case .browser:
+            return browserSchema
+        case .askUser:
+            return askUserSchema
         case .read:
             return ToolJSONSchema.object(properties: [
                 "path": ToolJSONSchema.string(description: "必填。工作区中的文本文件相对路径。"),
@@ -199,8 +218,45 @@ enum LLMToolDefinitionBuilder {
         ToolJSONSchema.object(properties: ["prompt": ToolJSONSchema.string(description: "完整画面要求，1到6000字")], required: ["prompt"])
     }
 
+    private static var askUserSchema: JSONValue {
+        ToolJSONSchema.object(properties: [
+            "question": ToolJSONSchema.string(description: "必填。向用户提出的一个具体问题，1–1000 字。"),
+            "options": .object([
+                "type": .string("array"),
+                "description": .string("可选。最多 4 个推荐答案，每个 1–200 字；用户点选即作为回答。"),
+                "maxItems": .number(4),
+                "items": .object(["type": .string("string")])
+            ])
+        ], required: ["question"])
+    }
+
+    private static var browserSchema: JSONValue {
+        ToolJSONSchema.object(properties: [
+            "operation": ToolJSONSchema.string(description: "Required. One action per call.", enumValues: BrowserOperation.allCases.map(\.rawValue)),
+            "tab": ToolJSONSchema.string(description: "Optional target tab id from tabs, e.g. t3. Omit to use this conversation's current tab. Not used by tabs."),
+            "new_tab": ToolJSONSchema.bool(description: "open only. true opens the URL in a new tab; default false reuses the current tab."),
+            "url": ToolJSONSchema.string(description: "Required for open. http/https URL only.", format: "uri"),
+            "scope": ToolJSONSchema.string(description: "observe only. interactive (default) lists e refs in the viewport; text pages through visible text.", enumValues: ["interactive", "text"]),
+            "start": ToolJSONSchema.integer(description: "scope=text start offset, default 0; continue with next_start."),
+            "count": ToolJSONSchema.integer(description: "scope=text maximum characters, default 1000, range 1-20000; output is paged to fit tool context, continue with next_start."),
+            "ref": ToolJSONSchema.string(description: "e ref from the latest observation; for click/type/select or scrolling to an element."),
+            "observation_id": ToolJSONSchema.string(description: "Required with ref; must match the latest observation."),
+            "x": ToolJSONSchema.number(description: "click fallback: viewport CSS pixel x, instead of ref."),
+            "y": ToolJSONSchema.number(description: "click fallback: viewport CSS pixel y, together with x."),
+            "text": ToolJSONSchema.string(description: "Required for type. Text to enter; may be empty."),
+            "clear": ToolJSONSchema.bool(description: "type: clear the field first, default true."),
+            "submit": ToolJSONSchema.bool(description: "type: press Enter afterwards, default false."),
+            "value": ToolJSONSchema.string(description: "Required for select. The option value."),
+            "key": ToolJSONSchema.string(description: "Required for press.", enumValues: ["Enter", "Tab", "Escape"]),
+            "direction": ToolJSONSchema.string(description: "Screen scrolling direction; use either direction or ref.", enumValues: ["up", "down"]),
+            "amount": .object(["type": .string("number"), "description": .string("Screens to scroll, default 0.8."), "minimum": .number(0.25), "maximum": .number(3)]),
+            "question": ToolJSONSchema.string(description: "Required for look. A visual question about the current viewport."),
+            "reason": ToolJSONSchema.string(description: "Required for handoff. Briefly state what the user needs to do, e.g. sign in.")
+        ], required: ["operation"])
+    }
+
     private static func toolDescription(for action: ToolAction) -> String {
-        if action.id == .generateImage, let facade = AgentExternalToolFacadeCatalog.facade(backing: action.id) {
+        if [.generateImage, .browserRead, .browserInteract].contains(action.id), let facade = AgentExternalToolFacadeCatalog.facade(backing: action.id) {
             return facadeDescription(for: facade, backingActions: [action])
         }
         var lines = [
@@ -266,6 +322,8 @@ enum LLMToolDefinitionBuilder {
 
     static func toolParametersSchema(for action: ToolAction) -> JSONValue {
         switch action.id {
+        case .browserRead, .browserInteract: return browserSchema
+        case .askUser: return askUserSchema
         case .generateImage: return imageGenerationSchema
         case .createBionicPersona:
             return BionicPersonaCreation.schema

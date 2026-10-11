@@ -69,6 +69,7 @@ struct ChatScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.palmiUnread) private var unreadSnapshot
+    @Environment(BrowserOperatorService.self) private var browserOperator: BrowserOperatorService?
 
     @Bindable var store: ChatStore
     @Bindable var workspaceStore: WorkspaceStore
@@ -538,6 +539,10 @@ struct ChatScreen: View {
                     Color.clear.contentShape(Rectangle()).onTapGesture { }
                 }
         }
+        // 内置浏览器入口位于上下文窗口等弹层之下，弹层展开时不会被它遮住。
+        .overlay(alignment: .bottomTrailing) {
+            browserLiveButton
+        }
         .overlay {
             contextInspectorOverlayAnchor
         }
@@ -690,6 +695,46 @@ struct ChatScreen: View {
         )
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// 内置浏览器入口：本对话中 Palmi 用过浏览器后常驻；点开列出标签页（Palmi 正在处理的排在前面），
+    /// 最下方“暂时隐藏”，该对话下次操作浏览器时自动恢复。Palmi 正在处理本对话的网页时带彩虹光效。
+    @ViewBuilder
+    private var browserLiveButton: some View {
+        if let browserOperator,
+           let selection = workspaceStore.selectedSelection,
+           browserOperator.isShortcutVisible(for: selection),
+           !browserOperator.isPresented {
+            let controlled = browserOperator.tabs.filter { browserOperator.isControlled($0.id) }
+            let others = browserOperator.tabs.filter { !browserOperator.isControlled($0.id) }
+            Menu {
+                ForEach(controlled) { tab in
+                    Button { browserOperator.openBrowser(focus: tab.id) } label: {
+                        Text(tab.displayTitle)
+                        Text(PalmiL10n.tr("browser.badge.busy"))
+                    }
+                }
+                ForEach(others) { tab in
+                    Button(tab.displayTitle) { browserOperator.openBrowser(focus: tab.id) }
+                }
+                Divider()
+                Button(PalmiL10n.tr("browser.entry.hide")) {
+                    browserOperator.hideShortcut(for: selection)
+                }
+            } label: {
+                Label(PalmiL10n.tr("browser.entry"), systemImage: "globe")
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 14)
+                    .frame(height: 38)
+                    .contentShape(Capsule())
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .palmiAIGlow(Capsule(), isActive: browserOperator.isControlling(selection), lineWidth: 2)
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 16)
+            .padding(.bottom, composerSectionHeight + 10)
+        }
     }
 
     private var topChromeVisualMask: some View {
@@ -2505,6 +2550,8 @@ struct ChatScreen: View {
             TopChromeIconButton(
                 systemImage: configuration.systemImage,
                 accessibilityLabel: configuration.accessibilityLabel,
+                assetImage: configuration.assetImage,
+                menuItems: configuration.menuItems,
                 unreadCount: unreadCount,
                 action: configuration.action
             )
@@ -2552,9 +2599,24 @@ struct ChatScreen: View {
 
     private var trailingTopChromeButton: TopChromeButtonConfiguration? {
         if let onShowFiles {
+            // 专业模式的扩展工具：文件与 App 内浏览器。
+            var items = [
+                TopChromeMenuItem(title: PalmiL10n.tr("browser.menu.files"), systemImage: "folder") {
+                    dismissTransientUI()
+                    onShowFiles()
+                }
+            ]
+            if let browserOperator {
+                items.append(TopChromeMenuItem(title: PalmiL10n.tr("browser.menu.browser"), systemImage: "safari") {
+                    dismissTransientUI()
+                    browserOperator.openBrowser(overview: true)
+                })
+            }
             return TopChromeButtonConfiguration(
                 systemImage: "folder",
-                accessibilityLabel: PalmiL10n.tr("evidence.section.files")
+                accessibilityLabel: PalmiL10n.tr("browser.toolbox"),
+                assetImage: "PalmiToolbox",
+                menuItems: items
             ) {
                 dismissTransientUI()
                 onShowFiles()
@@ -4640,6 +4702,10 @@ private struct ToolCallCard: View {
                 return "viewfinder"
             case .webSearch, .fetch:
                 return "globe"
+            case .browser:
+                return "safari"
+            case .askUser:
+                return "questionmark.bubble"
             case .systemTime:
                 return "clock"
             case .location:
@@ -4898,6 +4964,16 @@ private struct ComposerChip: View {
 private struct TopChromeButtonConfiguration {
     let systemImage: String
     let accessibilityLabel: String
+    var assetImage: String? = nil
+    /// 非空时点按弹出菜单，而不是直接执行 action。
+    var menuItems: [TopChromeMenuItem] = []
+    let action: () -> Void
+}
+
+private struct TopChromeMenuItem: Identifiable {
+    let id = UUID()
+    let title: String
+    let systemImage: String
     let action: () -> Void
 }
 
@@ -4943,22 +5019,26 @@ private struct LinkActionPopoverSizeReader: View {
 private struct TopChromeIconButton: View {
     let systemImage: String
     let accessibilityLabel: String
+    var assetImage: String? = nil
+    var menuItems: [TopChromeMenuItem] = []
     var unreadCount: Int = 0
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 19, weight: .semibold))
-                .foregroundStyle(Color.black.opacity(0.88))
-                .frame(width: 52, height: 52)
-                .contentShape(Circle())
-                .chatGlassSurface(
-                    cornerRadius: 26,
-                    interactive: true,
-                    backgroundOpacity: 0.26,
-                    tintOpacity: 0.32
-                )
+        Group {
+            if menuItems.isEmpty {
+                Button(action: action) { iconLabel }
+            } else {
+                Menu {
+                    ForEach(menuItems) { item in
+                        Button(action: item.action) {
+                            Label(item.title, systemImage: item.systemImage)
+                        }
+                    }
+                } label: {
+                    iconLabel
+                }
+            }
         }
         .buttonStyle(.plain)
         .overlay(alignment: .topTrailing) {
@@ -4967,6 +5047,30 @@ private struct TopChromeIconButton: View {
         .accessibilityLabel(accessibilityLabel)
         .accessibilityValue(unreadCount > 0 ? PalmiL10n.tr("chat.unread.count", unreadCount) : "")
         .contentShape(Circle())
+    }
+
+    private var iconLabel: some View {
+        Group {
+            if let assetImage {
+                Image(assetImage)
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 23, height: 23)
+            } else {
+                Image(systemName: systemImage)
+                    .font(.system(size: 19, weight: .semibold))
+            }
+        }
+        .foregroundStyle(Color.black.opacity(0.88))
+        .frame(width: 52, height: 52)
+        .contentShape(Circle())
+        .chatGlassSurface(
+            cornerRadius: 26,
+            interactive: true,
+            backgroundOpacity: 0.26,
+            tintOpacity: 0.32
+        )
     }
 }
 

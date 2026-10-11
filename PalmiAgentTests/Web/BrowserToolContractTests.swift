@@ -1,0 +1,132 @@
+import XCTest
+import JavaScriptCore
+@testable import PalmiAgent
+
+@MainActor
+final class BrowserToolContractTests: XCTestCase {
+    private func request(_ json: String) throws -> BrowserRequest {
+        try BrowserRequest(arguments: ToolArguments(jsonString: json))
+    }
+
+    func testRequiredAndExclusiveParameters() throws {
+        XCTAssertThrowsError(try request(#"{"operation":"open"}"#))
+        XCTAssertThrowsError(try request(#"{"operation":"click","ref":"e1"}"#))
+        XCTAssertThrowsError(try request(#"{"operation":"click","x":1}"#))
+        XCTAssertThrowsError(try request(#"{"operation":"click","ref":"e1","observation_id":"o1","x":1,"y":2}"#))
+        XCTAssertThrowsError(try request(#"{"operation":"observe","scope":"interactive","start":0}"#))
+        XCTAssertThrowsError(try request(#"{"operation":"scroll","direction":"left"}"#))
+        XCTAssertThrowsError(try request(#"{"operation":"scroll","direction":"down","amount":3.01}"#))
+        XCTAssertThrowsError(try request(#"{"operation":"observe","scope":"text","count":0}"#))
+        XCTAssertThrowsError(try request(#"{"operation":"observe","scope":"text","start":1.5}"#))
+        XCTAssertThrowsError(try request(#"{"operation":"click","x":true,"y":2}"#))
+        XCTAssertThrowsError(try request(#"{"operation":"type","ref":"e1","observation_id":"o1","text":"x","clear":"false"}"#))
+        XCTAssertThrowsError(try request(#"{"operation":"press","key":"Delete"}"#))
+        XCTAssertThrowsError(try request(#"{"operation":"close","unknown":1}"#))
+        let typed = try request(#"{"operation":"type","ref":"e1","observation_id":"o1","text":""}"#)
+        XCTAssertTrue(typed.clear)
+        XCTAssertFalse(typed.submit)
+        XCTAssertEqual(try request(#"{"operation":"scroll","direction":"down"}"#).amount, 0.8)
+    }
+
+    func testSchemeDownloadAndSensitiveFieldRules() throws {
+        for value in ["javascript:alert(1)", "file:///tmp/x", "data:text/html,x", "tel:123", "about:blank", "https://"] {
+            XCTAssertFalse(BrowserSafety.allowsNavigation(URL(string: value)))
+            XCTAssertThrowsError(try request("{\"operation\":\"open\",\"url\":\"\(value)\"}"))
+        }
+        XCTAssertTrue(BrowserSafety.allowsNavigation(URL(string: "HTTPS://example.com/path")))
+        XCTAssertFalse(BrowserSafety.allowsResponse(isDownload: true, canShowMIMEType: true))
+        XCTAssertFalse(BrowserSafety.allowsResponse(isDownload: false, canShowMIMEType: false))
+        XCTAssertTrue(BrowserSafety.isSensitiveField(type: "PASSWORD", autocomplete: "off"))
+        XCTAssertTrue(BrowserSafety.isSensitiveField(type: "text", autocomplete: "section-pay billing cc-number"))
+        XCTAssertTrue(BrowserSafety.isSensitiveField(type: "text", autocomplete: "cc-csc"))
+        XCTAssertFalse(BrowserSafety.isSensitiveField(type: "search", autocomplete: "off"))
+    }
+
+    func testObservationIDsExpireAndNeverRepeatAcrossSessions() throws {
+        var ledger = BrowserObservationLedger()
+        let first = ledger.issue()
+        try ledger.validate(first)
+        let second = ledger.issue()
+        XCTAssertThrowsError(try ledger.validate(first))
+        try ledger.validate(second)
+        ledger.invalidate()
+        XCTAssertThrowsError(try ledger.validate(second))
+        var other = BrowserObservationLedger()
+        XCTAssertNotEqual(other.issue(), first)
+    }
+
+    func testCSPPreservesServerNoncesWithoutAllowingJavaScriptURLs() {
+        let nonces = BrowserNavigationGuard.nonces(in: "script-src 'nonce-abc==' 'nonce-abc==' 'nonce-DEF_123' 'unsafe-inline' 'nonce-bad value'")
+        XCTAssertEqual(nonces, ["DEF_123", "abc=="])
+        let policy = BrowserNavigationGuard.scriptPolicy(nonce: "browser123", serverNonces: nonces)
+        let elementPolicy = policy.components(separatedBy: ";").first { $0.contains("script-src-elem") } ?? ""
+        XCTAssertTrue(elementPolicy.contains("'nonce-browser123'"))
+        XCTAssertTrue(elementPolicy.contains("'nonce-abc=='"))
+        XCTAssertFalse(elementPolicy.contains("'unsafe-inline'"))
+        XCTAssertFalse(elementPolicy.contains("'unsafe-hashes'"))
+        XCTAssertTrue(policy.contains("script-src-attr 'unsafe-inline'"))
+        XCTAssertTrue(policy.contains("form-action http: https:"))
+    }
+
+    func testInjectedJavaScriptHasValidSyntax() throws {
+        let context = try XCTUnwrap(JSContext())
+        let scripts = [BrowserDOMScript.body, BrowserNavigationGuard.isolatedScript(nonce: "test123", serverNonces: ["server456"]),
+                       BrowserNavigationGuard.pageScript(nonce: "test123")]
+        for script in scripts {
+            let encoded = try XCTUnwrap(String(data: JSONEncoder().encode(script), encoding: .utf8))
+            context.exception = nil
+            _ = context.evaluateScript("new (Object.getPrototypeOf(async function(){}).constructor)('request', \(encoded))")
+            XCTAssertNil(context.exception, context.exception?.toString() ?? "脚本语法错误")
+        }
+    }
+
+    func testFormattingLimitsAndTextPagination() {
+        let element = BrowserElement(ref: "e1", role: "button", label: String(repeating: "字", count: 120),
+                                     value: nil, href: nil, x: 10, y: 20, width: 30, height: 40)
+        let observation = BrowserObservation(id: "o7", url: "https://example.com", title: "标题",
+            width: 390, height: 844, scrollY: 1200, scrollHeight: 5400,
+            elements: Array(repeating: element, count: 70), offscreenCount: 23,
+            crossOriginFrameCount: 1, text: String(repeating: "文", count: 1600))
+        let result = observation.formatted()
+        XCTAssertTrue(result.hasPrefix("observation_id: o7\nurl: https://example.com   title: 标题\nviewport: 390x844  scroll: 1200/5400"))
+        XCTAssertLessThanOrEqual(result.count, BrowserOutputLimits.maxCharacters)
+        XCTAssertEqual(LLMGuardrails.compactToolDetailsForModel(result, actionID: .browserRead), result)
+        XCTAssertLessThanOrEqual(result.components(separatedBy: "[e1]").count - 1, 60)
+        XCTAssertTrue(result.contains("个元素未列出"))
+        XCTAssertEqual(observation.formatted(maxCharacters: 20_000).components(separatedBy: "[e1]").count - 1, 60)
+        XCTAssertTrue(result.contains("视口外另有 23"))
+        XCTAssertTrue(result.contains("跨域 iframe"))
+        XCTAssertTrue(result.contains("look"))
+        XCTAssertFalse(result.contains(String(repeating: "字", count: 81)))
+        XCTAssertFalse(result.contains(String(repeating: "文", count: 1501)))
+        XCTAssertEqual(BrowserTextPage(text: "甲乙丙丁", start: 1, count: 2).formatted(),
+                       "text_start: 1  next_start: 3  total: 4\ntext: 乙丙")
+        XCTAssertEqual(BrowserTextPage(text: "abc", start: 9, count: 10).nextStart, 3)
+    }
+
+    func testFacadeRoutingAndPolicyCannotBeBypassed() throws {
+        for operation in BrowserOperation.allCases {
+            let metadata = operation.actionID.policyMetadata
+            XCTAssertEqual(metadata.isIdempotent, operation.isRead)
+            XCTAssertFalse(metadata.isCacheable)
+            XCTAssertEqual(metadata.parallelPolicy, .sequential)
+            XCTAssertEqual(metadata.riskLevel, operation.isRead ? .r1PublicRead : .r5ExternalVisibleOrPersistentSystemChange)
+        }
+        let args = try ToolArguments(jsonString: #"{"operation":"click","x":10,"y":20}"#)
+        let resolved = try AgentExternalToolFacadeCatalog.resolve(toolName: "browser", arguments: args, actions: ActionCatalog.all)
+        XCTAssertEqual(resolved.action.id, .browserInteract)
+        XCTAssertThrowsError(try AgentExternalToolFacadeCatalog.resolve(toolName: "browserRead", arguments: args, actions: ActionCatalog.all))
+        XCTAssertFalse(ChatModeToolFilter.actions(for: .chat, from: ActionCatalog.all).contains { $0.id == .browserRead || $0.id == .browserInteract })
+    }
+
+    func testModelSeesOneBrowserFacadeAndCompleteSchema() throws {
+        let definitions = LLMToolDefinitionBuilder.makeToolDefinitions(for: ActionCatalog.all)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(definitions)) as? [[String: Any]])
+        let browsers = object.compactMap { $0["function"] as? [String: Any] }.filter { $0["name"] as? String == "browser" }
+        XCTAssertEqual(browsers.count, 1)
+        let schema = try XCTUnwrap(browsers.first?["parameters"] as? [String: Any])
+        let properties = try XCTUnwrap(schema["properties"] as? [String: Any])
+        XCTAssertEqual(Set(properties.keys), Set(["operation", "url", "scope", "start", "count", "ref", "observation_id", "x", "y", "text", "clear", "submit", "value", "key", "direction", "amount", "question", "reason"]))
+        XCTAssertEqual(schema["required"] as? [String], ["operation"])
+    }
+}

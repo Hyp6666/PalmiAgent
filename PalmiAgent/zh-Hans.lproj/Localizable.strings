@@ -880,6 +880,22 @@
 "tool.facade.vision" = "视觉";
 "tool.facade.webSearch" = "网页搜索";
 "tool.facade.fetch" = "网页读取";
+"tool.facade.browser" = "浏览器操控";
+"tool.action.browserRead.title" = "浏览器读取";
+"tool.action.browserRead.effect" = "在当前线程的内置浏览器读取页面与视口";
+"tool.action.browserInteract.title" = "浏览器操控";
+"tool.action.browserInteract.effect" = "在内置浏览器执行一次页面交互或交给用户接管";
+"browser.handoff.done" = "完成";
+"browser.live.collapse" = "收起";
+"browser.tabs" = "标签页";
+"browser.newTab" = "新建标签页";
+"browser.address.placeholder" = "搜索或输入网址";
+"browser.badge.busy" = "Palmi";
+"browser.toolbox" = "扩展工具";
+"browser.menu.files" = "文件";
+"browser.menu.browser" = "浏览器";
+"browser.back" = "后退";
+"browser.forward" = "前进";
 "tool.status.running" = "运行中";
 "tool.review.reviewing" = "审核中";
 "tool.review.approved" = "审核通过";
@@ -1704,3 +1720,18 @@
 // Bionic background progress
 "bionic.background.recall" = "回忆聊天记录";
 "bionic.background.professional" = "专业任务";
+
+// Ask user tool
+"tool.facade.askUser" = "询问用户";
+"askUser.placeholder" = "输入你的回答";
+"askUser.send" = "发送";
+
+// In-app browser
+"settings.section.browser" = "内置浏览器";
+"settings.browser.location" = "允许网站使用位置";
+"browser.location.title" = "允许网站使用你的位置？";
+"browser.location.message" = "内置浏览器中的网站需要定位时将自动提供，可在设置中更改。";
+"browser.location.allow" = "允许";
+"browser.location.deny" = "不允许";
+"browser.entry" = "内置浏览器";
+"browser.entry.hide" = "暂时隐藏";

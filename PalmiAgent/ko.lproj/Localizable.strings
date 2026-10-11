@@ -880,6 +880,22 @@
 "tool.facade.vision" = "비전";
 "tool.facade.webSearch" = "웹 검색";
 "tool.facade.fetch" = "가져오기";
+"tool.facade.browser" = "브라우저 조작";
+"tool.action.browserRead.title" = "브라우저 읽기";
+"tool.action.browserRead.effect" = "현재 대화의 내장 브라우저에서 페이지와 화면을 읽습니다";
+"tool.action.browserInteract.title" = "브라우저 조작";
+"tool.action.browserInteract.effect" = "페이지에서 한 번 상호작용하거나 사용자에게 브라우저를 넘깁니다";
+"browser.handoff.done" = "완료";
+"browser.live.collapse" = "접기";
+"browser.tabs" = "탭";
+"browser.newTab" = "새로운 탭";
+"browser.address.placeholder" = "검색 또는 웹 사이트 입력";
+"browser.badge.busy" = "Palmi";
+"browser.toolbox" = "도구";
+"browser.menu.files" = "파일";
+"browser.menu.browser" = "브라우저";
+"browser.back" = "뒤로";
+"browser.forward" = "앞으로";
 "tool.status.running" = "실행 중";
 "tool.review.reviewing" = "검토 중";
 "tool.review.approved" = "승인됨";
@@ -1703,3 +1719,18 @@
 // Bionic background progress
 "bionic.background.recall" = "기억 회상";
 "bionic.background.professional" = "전문 작업";
+
+// Ask user tool
+"tool.facade.askUser" = "사용자에게 질문";
+"askUser.placeholder" = "답변 입력";
+"askUser.send" = "보내기";
+
+// In-app browser
+"settings.section.browser" = "인앱 브라우저";
+"settings.browser.location" = "웹 사이트의 위치 사용 허용";
+"browser.location.title" = "웹 사이트가 위치를 사용하도록 허용하겠습니까?";
+"browser.location.message" = "인앱 브라우저의 웹 사이트에서 필요할 때 위치가 자동으로 제공됩니다. 설정에서 변경할 수 있습니다.";
+"browser.location.allow" = "허용";
+"browser.location.deny" = "허용 안 함";
+"browser.entry" = "인앱 브라우저";
+"browser.entry.hide" = "잠시 숨기기";
