@@ -22,4 +22,30 @@ final class UserQuestionPresentationRetryTests: XCTestCase {
     func testAlreadyPresentedControllerStops() {
         XCTAssertEqual(UserQuestionPresentationRetry.decision(isActive: true, matchesPrompt: true, hasController: true, attempt: 0), .stop)
     }
+    func testUnattachedTransitionRemainsPendingInsteadOfRetryingPresentation() {
+        XCTAssertEqual(UserQuestionPresentationCheck.decision(isActive: true, matchesPrompt: true,
+            isAttached: false, isTransitioning: true, attempt: 0), .pending)
+    }
+
+    func testAttachedSheetDoesNotRetryEvenBeforeCompletionCallback() {
+        XCTAssertEqual(UserQuestionPresentationCheck.decision(isActive: true, matchesPrompt: true,
+            isAttached: true, isTransitioning: true, attempt: 1), .attached)
+    }
+
+    func testRejectedPresentationCanRetryAfterDeferredCheck() {
+        XCTAssertEqual(UserQuestionPresentationCheck.decision(isActive: true, matchesPrompt: true,
+            isAttached: false, isTransitioning: false, attempt: 0), .retry)
+    }
+
+    func testDeferredCheckWaitsWhenInactiveAndFailsAtLimit() {
+        XCTAssertEqual(UserQuestionPresentationCheck.decision(isActive: false, matchesPrompt: true,
+            isAttached: false, isTransitioning: false, attempt: 10), .wait)
+        XCTAssertEqual(UserQuestionPresentationCheck.decision(isActive: true, matchesPrompt: true,
+            isAttached: false, isTransitioning: true, attempt: 10), .failed)
+    }
+
+    func testOldPromptCannotResumeDeferredPresentation() {
+        XCTAssertEqual(UserQuestionPresentationCheck.decision(isActive: true, matchesPrompt: false,
+            isAttached: true, isTransitioning: false, attempt: 0), .stop)
+    }
 }

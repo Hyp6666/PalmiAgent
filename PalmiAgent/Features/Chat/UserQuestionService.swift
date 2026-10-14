@@ -57,6 +57,19 @@ enum UserQuestionPresentationRetry {
     }
 }
 
+/// 呈现关系可能晚于 present 调用建立；转场中的弹窗不能视为拒绝。
+enum UserQuestionPresentationCheck {
+    enum Decision: Equatable, Sendable { case attached, pending, retry, wait, failed, stop }
+
+    static func decision(isActive: Bool, matchesPrompt: Bool, isAttached: Bool, isTransitioning: Bool, attempt: Int) -> Decision {
+        guard matchesPrompt else { return .stop }
+        if isAttached { return .attached }
+        guard isActive else { return .wait }
+        guard attempt < 10 else { return .failed }
+        return isTransitioning ? .pending : .retry
+    }
+}
+
 /// ask_user 工具：弹出问题、几个推荐答案和一个自由输入框，等待用户作答后把答案交还模型。
 @MainActor
 @Observable
@@ -79,6 +92,8 @@ final class UserQuestionService {
     private(set) var countdownRemainingSeconds: Int?
     @ObservationIgnored private var continuation: CheckedContinuation<Answer, Never>?
     @ObservationIgnored private var controller: UIViewController?
+    @ObservationIgnored private var isPresenting = false
+    @ObservationIgnored private var dismissalObserver: DismissalObserver?
     @ObservationIgnored private var countdown: UserQuestionCountdown?
     @ObservationIgnored private var countdownTask: Task<Void, Never>?
     @ObservationIgnored private var presentationRetryTask: Task<Void, Never>?
@@ -142,38 +157,89 @@ final class UserQuestionService {
         let keyWindow = window?.isKeyWindow ?? false
         let controllerClass = presenter.map { String(describing: type(of: $0)) } ?? "无"
         Self.logger.info("尝试呈现：attempt=\(attempt, privacy: .public)，applicationState=\(state.rawValue, privacy: .public)，windowLevel=\(level, privacy: .public)，keyWindow=\(keyWindow, privacy: .public)，顶层控制器=\(controllerClass, privacy: .public)")
-        guard prompt?.id == current.id, controller == nil else { return }
+        guard prompt?.id == current.id, !isPresenting, !isQuestionAttached else { return }
         guard state == .active else { return }
         guard let presenter, !presenter.isBeingPresented, !presenter.isBeingDismissed else {
             retryPresentation(current, attempt: attempt)
             return
         }
-        let sheet = UIHostingController(rootView: UserQuestionSheet(service: self, prompt: current))
-        sheet.modalPresentationStyle = .pageSheet
-        if let presentation = sheet.sheetPresentationController {
-            presentation.detents = [.medium(), .large()]
-            presentation.prefersGrabberVisible = true
-            presentation.preferredCornerRadius = 32
+        let sheet: UIViewController
+        if let controller { sheet = controller }
+        else {
+            let hosting = UIHostingController(rootView: UserQuestionSheet(service: self, prompt: current))
+            hosting.modalPresentationStyle = .pageSheet
+            if let presentation = hosting.sheetPresentationController {
+                presentation.detents = [.medium(), .large()]
+                presentation.prefersGrabberVisible = true
+                presentation.preferredCornerRadius = 32
+            }
+            let observer = DismissalObserver { [weak self, weak hosting] in
+                guard let self, let hosting, self.prompt?.id == current.id, self.controller === hosting else { return }
+                self.finish(.dismissed)
+            }
+            hosting.presentationController?.delegate = observer
+            dismissalObserver = observer
+            controller = hosting
+            sheet = hosting
         }
-        sheet.presentationController?.delegate = dismissalObserver
-        controller = sheet
+        // 同一问题始终持有同一张弹窗，不能因呈现关系暂未建立而丢弃它。
+        isPresenting = true
+        let promptID = current.id.uuidString
+        let sheetID = String(describing: ObjectIdentifier(sheet))
+        Self.logger.info("发起呈现：问题标识=\(promptID, privacy: .public)，弹窗标识=\(sheetID, privacy: .public)。")
         presenter.present(sheet, animated: true) { [weak self, weak sheet] in
-            Self.logger.info("问题弹窗的呈现完成回调已触发。")
-            guard let self, self.prompt?.id == current.id, let sheet, self.controller === sheet else { return }
+            Self.logger.info("呈现完成回调：问题标识=\(promptID, privacy: .public)，弹窗标识=\(sheetID, privacy: .public)。")
+            guard let sheet else { return }
+            guard let self, self.prompt?.id == current.id, self.controller === sheet else {
+                // 问题在转场完成前已结束时，收起迟到的弹窗。
+                sheet.dismiss(animated: false)
+                return
+            }
+            self.isPresenting = false
+            self.stopPresentationRetry()
             if self.countdown == nil { self.startCountdown(for: current) }
             else if self.isQuestionVisible { self.countdown?.resume(at: Date()) }
         }
-        let rejected = sheet.presentingViewController == nil
-        Self.logger.info("呈现调用返回：presentingViewController 为 nil=\(rejected, privacy: .public)。")
-        if rejected {
-            controller = nil
-            retryPresentation(current, attempt: attempt)
+        let unattached = sheet.presentingViewController == nil
+        Self.logger.info("呈现调用返回：presentingViewController 为 nil=\(unattached, privacy: .public)；稍后检查，不立即判为拒绝。")
+        if isPresenting { checkPresentation(current, sheet: sheet, attempt: attempt) }
+    }
+
+    private var isQuestionAttached: Bool {
+        controller?.presentingViewController != nil || controller?.viewIfLoaded?.window != nil
+    }
+
+    private func checkPresentation(_ current: Prompt, sheet: UIViewController, attempt: Int) {
+        stopPresentationRetry()
+        presentationRetryTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .milliseconds(500)) }
+            catch { return }
+            guard !Task.isCancelled, let self, self.prompt?.id == current.id, self.controller === sheet else { return }
+            self.presentationRetryTask = nil
+            let attached = self.isQuestionAttached
+            let transitioning = sheet.isBeingPresented || sheet.transitionCoordinator != nil
+            let decision = UserQuestionPresentationCheck.decision(isActive: UIApplication.shared.applicationState == .active,
+                matchesPrompt: self.prompt?.id == current.id, isAttached: attached, isTransitioning: transitioning, attempt: attempt)
+            let promptID = current.id.uuidString
+            let sheetID = String(describing: ObjectIdentifier(sheet))
+            Self.logger.info("呈现检查：问题标识=\(promptID, privacy: .public)，弹窗标识=\(sheetID, privacy: .public)，attempt=\(attempt, privacy: .public)，已挂载=\(attached, privacy: .public)，转场中=\(transitioning, privacy: .public)。")
+            switch decision {
+            case .attached, .wait, .stop:
+                return
+            case .pending:
+                self.checkPresentation(current, sheet: sheet, attempt: attempt + 1)
+            case .retry:
+                self.isPresenting = false
+                self.attemptPresent(current, attempt: attempt + 1)
+            case .failed:
+                self.finish(.failed(PalmiL10n.tr("askUser.presentation.failed")))
+            }
         }
     }
 
     private func retryPresentation(_ current: Prompt, attempt: Int) {
         switch UserQuestionPresentationRetry.decision(isActive: UIApplication.shared.applicationState == .active,
-            matchesPrompt: prompt?.id == current.id, hasController: controller != nil, attempt: attempt) {
+            matchesPrompt: prompt?.id == current.id, hasController: isPresenting || isQuestionAttached, attempt: attempt) {
         case .stop, .wait:
             return
         case .failed:
@@ -183,7 +249,7 @@ final class UserQuestionService {
             presentationRetryTask = Task { @MainActor [weak self] in
                 do { try await Task.sleep(for: .milliseconds(500)) }
                 catch { return }
-                guard !Task.isCancelled, let self, self.prompt?.id == current.id, self.controller == nil else { return }
+                guard !Task.isCancelled, let self, self.prompt?.id == current.id, !self.isPresenting, !self.isQuestionAttached else { return }
                 self.presentationRetryTask = nil
                 self.attemptPresent(current, attempt: attempt + 1)
             }
@@ -205,9 +271,11 @@ final class UserQuestionService {
         clearQuestionNotifications()
         notificationPosted = false
         stopPresentationRetry()
-        if let controller, controller.presentingViewController == nil { self.controller = nil }
-        if controller == nil { attemptPresent(current, attempt: 0) }
-        else if isQuestionVisible { countdown?.resume(at: Date()) }
+        if let controller, isPresenting {
+            checkPresentation(current, sheet: controller, attempt: 0)
+        } else if !isQuestionAttached {
+            attemptPresent(current, attempt: 0)
+        } else if isQuestionVisible { countdown?.resume(at: Date()) }
     }
 
     private func didEnterBackground() {
@@ -261,7 +329,8 @@ final class UserQuestionService {
         }
     }
 
-    func submit(_ text: String) {
+    func submit(_ text: String, promptID: UUID) {
+        guard prompt?.id == promptID else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         finish(.answered(trimmed))
@@ -311,12 +380,12 @@ final class UserQuestionService {
         countdownRemainingSeconds = nil
         let sheet = controller
         controller = nil
+        isPresenting = false
+        dismissalObserver = nil
         if sheet?.presentingViewController != nil { sheet?.dismiss(animated: true) }
         continuation?.resume(returning: answer)
         continuation = nil
     }
-
-    @ObservationIgnored private lazy var dismissalObserver = DismissalObserver { [weak self] in self?.finish(.dismissed) }
 
     /// 用户下滑关闭弹窗视为不回答。
     private final class DismissalObserver: NSObject, UIAdaptivePresentationControllerDelegate {
@@ -342,7 +411,7 @@ private struct UserQuestionSheet: View {
             if !prompt.options.isEmpty {
                 VStack(spacing: 10) {
                     ForEach(Array(prompt.options.enumerated()), id: \.offset) { _, option in
-                        Button { service.submit(option) } label: {
+                        Button { service.submit(option, promptID: prompt.id) } label: {
                             Text(option)
                                 .font(.system(size: 16, weight: .medium, design: .rounded))
                                 .foregroundStyle(.primary)
@@ -371,11 +440,11 @@ private struct UserQuestionSheet: View {
                     .lineLimit(1...4)
                     .focused($isEditing)
                     .submitLabel(.send)
-                    .onSubmit { service.submit(draft) }
+                    .onSubmit { service.submit(draft, promptID: prompt.id) }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                     .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 22))
-                Button { service.submit(draft) } label: {
+                Button { service.submit(draft, promptID: prompt.id) } label: {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 17, weight: .bold))
                         .foregroundStyle(.white)
