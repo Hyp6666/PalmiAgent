@@ -1724,6 +1724,7 @@
 "tool.facade.askUser" = "ユーザーに質問";
 "askUser.placeholder" = "回答を入力";
 "askUser.send" = "送信";
+"askUser.presentation.failed" = "画面の処理中のため質問を表示できません。しばらくしてから再試行してください。";
 "askUser.countdown" = "%d 秒後に最初の選択肢を自動で採用します";
 
 

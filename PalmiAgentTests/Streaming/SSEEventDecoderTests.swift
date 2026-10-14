@@ -134,6 +134,19 @@ final class SSEEventDecoderTests: XCTestCase {
         } catch { XCTFail("错误类型不符：\(error)") }
     }
 
+    func testTransportExposesStringErrorFrame() async {
+        let session = protocolFailureSession()
+        defer { session.invalidateAndCancel() }
+        do {
+            _ = try await LLMHTTPTransport.performStreaming(
+                URLRequest(url: URL(string: "https://stream.invalid/string-error")!), using: session, onDelta: { _ in })
+            XCTFail("应返回字符串形式的服务商错误")
+        } catch LLMHTTPTransportError.streamError(let message, let attempts) {
+            XCTAssertTrue(message.contains("quota exceeded"))
+            XCTAssertEqual(attempts, 1)
+        } catch { XCTFail("错误类型不符：\(error)") }
+    }
+
     func testTransportAcceptsUsageWithoutChoices() async throws {
         let session = protocolFailureSession()
         defer { session.invalidateAndCancel() }
@@ -373,6 +386,8 @@ private final class ProtocolFailureURLProtocol: URLProtocol, @unchecked Sendable
             body = "data: not-json\n\n"
         } else if url.path == "/error" {
             body = "data: {\"error\":{\"message\":\"rate limited\"}}\n\n"
+        } else if url.path == "/string-error" {
+            body = "data: {\"error\":\"quota exceeded\"}\n\n"
         } else if url.path == "/usage" {
             body = "data: {\"usage\":{\"total_tokens\":3}}\n\ndata: [DONE]\n\n"
         } else {

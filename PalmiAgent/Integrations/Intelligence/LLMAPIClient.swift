@@ -2430,7 +2430,11 @@ private struct SSEChatChunk: Decodable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         choices = try container.decodeIfPresent([SSEChoice].self, forKey: .choices) ?? []
         usage = try container.decodeIfPresent(SSEUsage.self, forKey: .usage)
-        error = try container.decodeIfPresent(SSEStreamError.self, forKey: .error)
+        if let object = try? container.decode(SSEStreamError.self, forKey: .error) {
+            error = object
+        } else if let message = try? container.decode(String.self, forKey: .error) {
+            error = SSEStreamError(message: message, code: nil, type: nil)
+        } else { error = nil }
     }
 }
 

@@ -56,10 +56,7 @@ final class BrowserGeolocation: NSObject, CLLocationManagerDelegate {
     }
 
     private static func askOnce() async -> Bool {
-        guard var presenter = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
-            .first(where: { $0.activationState == .foregroundActive })?
-            .windows.first(where: \.isKeyWindow)?.rootViewController else { return false }
-        while let presented = presenter.presentedViewController { presenter = presented }
+        guard let presenter = PresentationWindow.topController() else { return false }
         return await withCheckedContinuation { continuation in
             let alert = UIAlertController(
                 title: PalmiL10n.tr("browser.location.title"),

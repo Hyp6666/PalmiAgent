@@ -1,4 +1,5 @@
 import Observation
+import OSLog
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -45,6 +46,17 @@ struct UserQuestionCountdown: Equatable, Sendable {
     }
 }
 
+/// 纯逻辑判定：仅在前台且问题仍待呈现时进行有限重试。
+enum UserQuestionPresentationRetry {
+    enum Decision: Equatable, Sendable { case retry, wait, failed, stop }
+
+    static func decision(isActive: Bool, matchesPrompt: Bool, hasController: Bool, attempt: Int) -> Decision {
+        guard matchesPrompt, !hasController else { return .stop }
+        guard isActive else { return .wait }
+        return attempt >= 10 ? .failed : .retry
+    }
+}
+
 /// ask_user 工具：弹出问题、几个推荐答案和一个自由输入框，等待用户作答后把答案交还模型。
 @MainActor
 @Observable
@@ -58,7 +70,10 @@ final class UserQuestionService {
     enum Answer: Sendable {
         case answered(String)
         case dismissed
+        case failed(String)
     }
+
+    private static let logger = Logger(subsystem: "PalmiAgent", category: "ask_user")
 
     private(set) var prompt: Prompt?
     private(set) var countdownRemainingSeconds: Int?
@@ -66,6 +81,7 @@ final class UserQuestionService {
     @ObservationIgnored private var controller: UIViewController?
     @ObservationIgnored private var countdown: UserQuestionCountdown?
     @ObservationIgnored private var countdownTask: Task<Void, Never>?
+    @ObservationIgnored private var presentationRetryTask: Task<Void, Never>?
 
     @ObservationIgnored private let notificationService: NotificationService
     @ObservationIgnored private let center = UNUserNotificationCenter.current()
@@ -80,7 +96,10 @@ final class UserQuestionService {
         let events = NotificationCenter.default
         lifecycleObservers = [
             events.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.countdown?.suspend(at: Date()) }
+                MainActor.assumeIsolated {
+                    self?.countdown?.suspend(at: Date())
+                    self?.stopPresentationRetry()
+                }
             },
             events.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.didEnterBackground() }
@@ -100,7 +119,7 @@ final class UserQuestionService {
                 self.continuation = continuation
                 if Task.isCancelled { finish(.dismissed) }
                 else {
-                    presentIfPossible(current)
+                    attemptPresent(current, attempt: 0)
                     if UIApplication.shared.applicationState == .background { didEnterBackground() }
                 }
             }
@@ -111,12 +130,24 @@ final class UserQuestionService {
             }
         }
         try Task.checkCancellation()
+        if case .failed(let message) = answer { throw AppError.invalidState(message) }
         return answer
     }
 
-    private func presentIfPossible(_ current: Prompt) {
-        guard controller == nil, var presenter = Self.activeRootController() else { return }
-        while let presented = presenter.presentedViewController { presenter = presented }
+    private func attemptPresent(_ current: Prompt, attempt: Int) {
+        let state = UIApplication.shared.applicationState
+        let window = PresentationWindow.main()
+        let presenter = PresentationWindow.topController()
+        let level = window.map { String(describing: $0.windowLevel.rawValue) } ?? "无"
+        let keyWindow = window?.isKeyWindow ?? false
+        let controllerClass = presenter.map { String(describing: type(of: $0)) } ?? "无"
+        Self.logger.info("尝试呈现：attempt=\(attempt, privacy: .public)，applicationState=\(state.rawValue, privacy: .public)，windowLevel=\(level, privacy: .public)，keyWindow=\(keyWindow, privacy: .public)，顶层控制器=\(controllerClass, privacy: .public)")
+        guard prompt?.id == current.id, controller == nil else { return }
+        guard state == .active else { return }
+        guard let presenter, !presenter.isBeingPresented, !presenter.isBeingDismissed else {
+            retryPresentation(current, attempt: attempt)
+            return
+        }
         let sheet = UIHostingController(rootView: UserQuestionSheet(service: self, prompt: current))
         sheet.modalPresentationStyle = .pageSheet
         if let presentation = sheet.sheetPresentationController {
@@ -127,9 +158,41 @@ final class UserQuestionService {
         sheet.presentationController?.delegate = dismissalObserver
         controller = sheet
         presenter.present(sheet, animated: true) { [weak self, weak sheet] in
+            Self.logger.info("问题弹窗的呈现完成回调已触发。")
             guard let self, self.prompt?.id == current.id, let sheet, self.controller === sheet else { return }
             if self.countdown == nil { self.startCountdown(for: current) }
+            else if self.isQuestionVisible { self.countdown?.resume(at: Date()) }
         }
+        let rejected = sheet.presentingViewController == nil
+        Self.logger.info("呈现调用返回：presentingViewController 为 nil=\(rejected, privacy: .public)。")
+        if rejected {
+            controller = nil
+            retryPresentation(current, attempt: attempt)
+        }
+    }
+
+    private func retryPresentation(_ current: Prompt, attempt: Int) {
+        switch UserQuestionPresentationRetry.decision(isActive: UIApplication.shared.applicationState == .active,
+            matchesPrompt: prompt?.id == current.id, hasController: controller != nil, attempt: attempt) {
+        case .stop, .wait:
+            return
+        case .failed:
+            finish(.failed(PalmiL10n.tr("askUser.presentation.failed")))
+        case .retry:
+            stopPresentationRetry()
+            presentationRetryTask = Task { @MainActor [weak self] in
+                do { try await Task.sleep(for: .milliseconds(500)) }
+                catch { return }
+                guard !Task.isCancelled, let self, self.prompt?.id == current.id, self.controller == nil else { return }
+                self.presentationRetryTask = nil
+                self.attemptPresent(current, attempt: attempt + 1)
+            }
+        }
+    }
+
+    private func stopPresentationRetry() {
+        presentationRetryTask?.cancel()
+        presentationRetryTask = nil
     }
 
     private var isQuestionVisible: Bool {
@@ -141,7 +204,9 @@ final class UserQuestionService {
         guard let current = prompt else { return }
         clearQuestionNotifications()
         notificationPosted = false
-        if controller == nil { presentIfPossible(current) }
+        stopPresentationRetry()
+        if let controller, controller.presentingViewController == nil { self.controller = nil }
+        if controller == nil { attemptPresent(current, attempt: 0) }
         else if isQuestionVisible { countdown?.resume(at: Date()) }
     }
 
@@ -232,6 +297,9 @@ final class UserQuestionService {
 
     fileprivate func finish(_ answer: Answer) {
         guard let current = prompt else { return }
+        if case .failed = answer { Self.logger.error("问题结束：failed=true。") }
+        else { Self.logger.info("问题结束：failed=false。") }
+        stopPresentationRetry()
         clearQuestionNotifications()
         notificationService.removeCategory(id: "palmi.askUser." + current.id.uuidString)
         notificationPosted = false
@@ -249,12 +317,6 @@ final class UserQuestionService {
     }
 
     @ObservationIgnored private lazy var dismissalObserver = DismissalObserver { [weak self] in self?.finish(.dismissed) }
-
-    private static func activeRootController() -> UIViewController? {
-        UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-            .first { $0.activationState == .foregroundActive }?
-            .windows.first { $0.isKeyWindow }?.rootViewController
-    }
 
     /// 用户下滑关闭弹窗视为不回答。
     private final class DismissalObserver: NSObject, UIAdaptivePresentationControllerDelegate {

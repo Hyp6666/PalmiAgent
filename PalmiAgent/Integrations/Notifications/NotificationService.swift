@@ -71,6 +71,11 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         center.setNotificationCategories(Set(categories.values))
     }
 
+    func requestAuthorizationIfNeeded() async {
+        guard await authorizationStatus() == .notDetermined else { return }
+        _ = try? await requestAuthorization(alert: true, badge: false, sound: true)
+    }
+
     func requestAuthorization(alert: Bool = true, badge: Bool = true, sound: Bool = true,
                               provisional: Bool = false, announcement: Bool = false, carPlay: Bool = false,
                               criticalAlert: Bool = false, timeSensitive: Bool = false,

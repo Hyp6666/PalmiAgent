@@ -6,7 +6,7 @@ final class ToolActionLocalizationTests: XCTestCase {
     func testActionAndNewNotificationKeysExistInEveryLanguage() throws {
         let newKeys = ["browser.foreground.notification.title", "browser.foreground.notification.body",
                        "askUser.notification.title", "askUser.notification.reply",
-                       "tool.action.askUser.title", "tool.action.askUser.effect"]
+                       "tool.action.askUser.title", "tool.action.askUser.effect", "askUser.presentation.failed"]
         for language in ["en", "ja", "ko", "zh-Hans", "zh-Hant"] {
             let path = try XCTUnwrap(Bundle.main.path(forResource: "Localizable", ofType: "strings", inDirectory: nil, forLocalization: language))
             let dictionary = try XCTUnwrap(PropertyListSerialization.propertyList(from: Data(contentsOf: URL(fileURLWithPath: path)), format: nil) as? [String: String])

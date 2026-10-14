@@ -518,6 +518,7 @@ final class ActionExecutor {
             case .askUser:
                 let question = try arguments.requiredString("question")
                 let options = (arguments.stringArray("options") ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                if UIApplication.shared.applicationState == .active { await notificationService.requestAuthorizationIfNeeded() }
                 switch try await userQuestionService.ask(question: question, options: Array(options.prefix(4))) {
                 case .answered(let answer):
                     return success(action, "用户已回答", details: "user_answer: \(answer)",
@@ -525,6 +526,8 @@ final class ActionExecutor {
                 case .dismissed:
                     return success(action, "用户未回答", details: "user_dismissed: 用户关闭了问题，没有作答。",
                         inlineMetadata: ToolCallInlineMetadataBuilder.make(toolName: "ask_user", argumentsJSON: arguments.normalizedJSONString()))
+                case .failed(let message):
+                    throw AppError.invalidState(message)
                 }
 
             case .browser:
@@ -1484,6 +1487,7 @@ final class ActionExecutor {
         _ action: ToolAction, arguments: ToolArguments, modelOverrides: AgentModelRoleOverrides, executionID: UUID?
     ) async throws -> ToolExecutionOutcome {
         let request = try BrowserTaskRequest(arguments: arguments)
+        if UIApplication.shared.applicationState == .active { await notificationService.requestAuthorizationIfNeeded() }
         let selection = try workspaceManager.currentSelection()
         let surface = (try? workspaceManager.currentProject().surface) ?? .professional
         let configuration = BrowserRunConfiguration.current ?? BrowserRunConfiguration(

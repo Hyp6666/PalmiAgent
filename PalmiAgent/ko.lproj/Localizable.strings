@@ -1724,6 +1724,7 @@
 "tool.facade.askUser" = "사용자에게 질문";
 "askUser.placeholder" = "답변 입력";
 "askUser.send" = "보내기";
+"askUser.presentation.failed" = "화면이 다른 작업을 처리 중이라 질문을 표시할 수 없습니다. 잠시 후 다시 시도해 주세요.";
 "askUser.countdown" = "%d초 후 첫 번째 옵션을 자동으로 선택합니다";
 
 

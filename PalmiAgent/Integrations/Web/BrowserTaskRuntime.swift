@@ -179,6 +179,7 @@ final class BrowserTaskRuntime {
                                 userAnswers.append("Q: " + String(question.prefix(120)) + " → A: " + String(text.prefix(200)))
                                 output = .init(text: "user_answer: " + text, summary: "user_answer: " + text)
                             case .dismissed: output = .init(text: "user_dismissed", summary: "The user dismissed the question without answering.")
+                            case .failed(let message): throw AppError.invalidState(message)
                             }
                         default:
                             throw BrowserToolError(code: "unknown_browser_tool", message: "浏览器内部工具不存在：\(use.name)")

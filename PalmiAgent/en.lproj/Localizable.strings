@@ -1724,6 +1724,7 @@
 "tool.facade.askUser" = "Ask User";
 "askUser.placeholder" = "Type your answer";
 "askUser.send" = "Send";
+"askUser.presentation.failed" = "Unable to show the question because the interface is busy. Please try again later.";
 "askUser.countdown" = "Automatically use the first option in %d seconds";
 
 

@@ -553,11 +553,6 @@ final class BrowserOperatorService: NSObject {
         }
     }
 
-    private func activeScene() -> UIWindowScene? {
-        UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-            .first { $0.activationState == .foregroundActive }
-    }
-
     private func mountableScene() -> UIWindowScene? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         return scenes.first { $0.activationState == .foregroundActive }
@@ -565,7 +560,7 @@ final class BrowserOperatorService: NSObject {
     }
 
     private func activeWindow() -> UIWindow? {
-        activeScene()?.windows.first { $0.isKeyWindow }
+        PresentationWindow.main()
     }
 
     /// 幕后窗口：层级低于主窗口，被不透明的主界面完全遮住；对系统仍是可见窗口，网页可正常渲染与截图。

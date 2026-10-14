@@ -1725,6 +1725,7 @@
 "tool.facade.askUser" = "询问用户";
 "askUser.placeholder" = "输入你的回答";
 "askUser.send" = "发送";
+"askUser.presentation.failed" = "问题弹窗无法显示，界面正忙。请稍后重试。";
 "askUser.countdown" = "%d 秒后自动采用第一个选项";
 
 
