@@ -63,11 +63,19 @@ final class AgentToolExecutor {
         stepID: UUID,
         modelOverrides: AgentModelRoleOverrides = .empty
     ) async throws -> AgentToolExecutionResult {
-        let access: ToolExecutionAccess = prepared.action.id.policyMetadata.parallelPolicy == .parallelReadOnly
-            ? .shared
-            : .exclusive
-        let permit = try await executionCoordinator.acquire(access)
-        defer { executionCoordinator.release(permit) }
+        // 浏览器在独立运行时中按对话串行；不同对话不占用全局工具锁。
+        let permit: ToolExecutionPermit?
+        if prepared.action.id == .browser {
+            permit = nil
+        } else {
+            let access: ToolExecutionAccess = prepared.action.id.policyMetadata.parallelPolicy == .parallelReadOnly
+                ? .shared
+                : .exclusive
+            permit = try await executionCoordinator.acquire(access)
+        }
+        defer {
+            if let permit { executionCoordinator.release(permit) }
+        }
         try Task.checkCancellation()
 
         let outcome: ToolExecutionOutcome

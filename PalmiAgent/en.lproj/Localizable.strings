@@ -1724,6 +1724,8 @@
 "tool.facade.askUser" = "Ask User";
 "askUser.placeholder" = "Type your answer";
 "askUser.send" = "Send";
+"askUser.countdown" = "Automatically use the first option in %d seconds";
+
 
 // In-app browser
 "settings.section.browser" = "In-App Browser";
@@ -1733,4 +1735,44 @@
 "browser.location.allow" = "Allow";
 "browser.location.deny" = "Don't Allow";
 "browser.entry" = "In-App Browser";
-"browser.entry.hide" = "Hide for Now";
+"browser.entry.hide" = "Hide Shortcut";
+"browser.entry.collapse" = "Close Menu";
+
+// 浏览器自主任务与内部步骤
+"tool.action.browser.title" = "Browser";
+"tool.action.browser.effect" = "Complete a web task autonomously and return the result";
+"browser.foreground.notification.title" = "Palmi is waiting for you";
+"browser.foreground.notification.body" = "Return to Palmi to continue the browser task.";
+"askUser.notification.title" = "Palmi has a question for you";
+"askUser.notification.reply" = "Reply";
+"tool.action.askUser.title" = "Ask User";
+"tool.action.askUser.effect" = "Ask the user a question with suggested answers or a free-form reply";
+"browser.runtime.step" = "Step %d · %@ %@";
+"browser.runtime.steps" = "Browser steps";
+"browser.runtime.pageCompleted" = "Page action completed";
+"browser.runtime.guideRead" = "Read guide %@";
+"browser.runtime.cancelled" = "Cancelled";
+"browser.runtime.status.done" = "Browser task completed";
+"browser.runtime.status.need_input" = "Browser needs more information";
+"browser.runtime.status.failed" = "Browser task failed";
+"browser.runtime.status.cancelled" = "Browser task cancelled";
+"browser.runtime.action.open" = "Open";
+"browser.runtime.action.observe" = "Observe";
+"browser.runtime.action.click" = "Click";
+"browser.runtime.action.type" = "Type";
+"browser.runtime.action.select" = "Select";
+"browser.runtime.action.press" = "Press";
+"browser.runtime.action.scroll" = "Scroll";
+"browser.runtime.action.back" = "Back";
+"browser.runtime.action.forward" = "Forward";
+"browser.runtime.action.reload" = "Reload";
+"browser.runtime.action.look" = "Inspect visually";
+"browser.runtime.action.handoff" = "Hand over";
+"browser.runtime.action.tabs" = "List tabs";
+"browser.runtime.action.close" = "Close tab";
+"browser.runtime.action.guide" = "Read guide";
+"browser.runtime.action.web_search" = "Search web";
+"browser.runtime.action.fetch" = "Read page";
+"browser.runtime.action.ask_user" = "Ask user";
+"browser.runtime.action.finish" = "Report result";
+"browser.runtime.action.invalid" = "Invalid call";

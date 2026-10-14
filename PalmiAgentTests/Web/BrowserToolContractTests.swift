@@ -8,6 +8,11 @@ final class BrowserToolContractTests: XCTestCase {
         try BrowserRequest(arguments: ToolArguments(jsonString: json))
     }
 
+    func testForegroundErrorExplainsUnknownInterruptedOutcome() {
+        XCTAssertEqual(BrowserToolError.foreground.code, "requires_foreground")
+        XCTAssertEqual(BrowserToolError.foreground.message, "Palmi 进入后台，进行中的网页操作被中断，结果未知。请先 observe 确认页面状态。")
+    }
+
     func testRequiredAndExclusiveParameters() throws {
         XCTAssertThrowsError(try request(#"{"operation":"open"}"#))
         XCTAssertThrowsError(try request(#"{"operation":"click","ref":"e1"}"#))
@@ -90,7 +95,7 @@ final class BrowserToolContractTests: XCTestCase {
         let result = observation.formatted()
         XCTAssertTrue(result.hasPrefix("observation_id: o7\nurl: https://example.com   title: 标题\nviewport: 390x844  scroll: 1200/5400"))
         XCTAssertLessThanOrEqual(result.count, BrowserOutputLimits.maxCharacters)
-        XCTAssertEqual(LLMGuardrails.compactToolDetailsForModel(result, actionID: .browserRead), result)
+        XCTAssertEqual(LLMGuardrails.compactToolDetailsForModel(result, actionID: .browser), result)
         XCTAssertLessThanOrEqual(result.components(separatedBy: "[e1]").count - 1, 60)
         XCTAssertTrue(result.contains("个元素未列出"))
         XCTAssertEqual(observation.formatted(maxCharacters: 20_000).components(separatedBy: "[e1]").count - 1, 60)
@@ -105,18 +110,18 @@ final class BrowserToolContractTests: XCTestCase {
     }
 
     func testFacadeRoutingAndPolicyCannotBeBypassed() throws {
-        for operation in BrowserOperation.allCases {
-            let metadata = operation.actionID.policyMetadata
-            XCTAssertEqual(metadata.isIdempotent, operation.isRead)
-            XCTAssertFalse(metadata.isCacheable)
-            XCTAssertEqual(metadata.parallelPolicy, .sequential)
-            XCTAssertEqual(metadata.riskLevel, operation.isRead ? .r1PublicRead : .r5ExternalVisibleOrPersistentSystemChange)
-        }
-        let args = try ToolArguments(jsonString: #"{"operation":"click","x":10,"y":20}"#)
+        let metadata = ToolActionID.browser.policyMetadata
+        XCTAssertFalse(metadata.isIdempotent)
+        XCTAssertFalse(metadata.isCacheable)
+        XCTAssertEqual(metadata.parallelPolicy, .sequential)
+        XCTAssertEqual(metadata.confirmationPolicy, .allow)
+        let args = try ToolArguments(jsonString: #"{"task":"Find a vegetarian lunch near the station under $20."}"#)
         let resolved = try AgentExternalToolFacadeCatalog.resolve(toolName: "browser", arguments: args, actions: ActionCatalog.all)
-        XCTAssertEqual(resolved.action.id, .browserInteract)
-        XCTAssertThrowsError(try AgentExternalToolFacadeCatalog.resolve(toolName: "browserRead", arguments: args, actions: ActionCatalog.all))
-        XCTAssertFalse(ChatModeToolFilter.actions(for: .chat, from: ActionCatalog.all).contains { $0.id == .browserRead || $0.id == .browserInteract })
+        XCTAssertEqual(resolved.action.id, .browser)
+        for name in ["browserRead", "browserInteract", "page", "guide", "finish"] {
+            XCTAssertThrowsError(try AgentExternalToolFacadeCatalog.resolve(toolName: name, arguments: args, actions: ActionCatalog.all))
+        }
+        XCTAssertFalse(ChatModeToolFilter.actions(for: .chat, from: ActionCatalog.all).contains { $0.id == .browser })
     }
 
     func testModelSeesOneBrowserFacadeAndCompleteSchema() throws {
@@ -126,7 +131,28 @@ final class BrowserToolContractTests: XCTestCase {
         XCTAssertEqual(browsers.count, 1)
         let schema = try XCTUnwrap(browsers.first?["parameters"] as? [String: Any])
         let properties = try XCTUnwrap(schema["properties"] as? [String: Any])
-        XCTAssertEqual(Set(properties.keys), Set(["operation", "url", "scope", "start", "count", "ref", "observation_id", "x", "y", "text", "clear", "submit", "value", "key", "direction", "amount", "question", "reason"]))
-        XCTAssertEqual(schema["required"] as? [String], ["operation"])
+        XCTAssertEqual(Set(properties.keys), Set(["task"]))
+        XCTAssertEqual(schema["required"] as? [String], ["task"])
+        XCTAssertEqual(schema["additionalProperties"] as? Bool, false)
+        XCTAssertEqual((properties["task"] as? [String: Any])?["type"] as? String, "string")
+    }
+
+    func testTaskContractRequiresOnlyANonemptyString() throws {
+        for json in [#"{}"#, #"{"task":""}"#, #"{"task":" \n\t "}"#,
+                     #"{"task":1}"#, #"{"task":true}"#, #"{"task":null}"#,
+                     #"{"task":"Search","url":"https://example.com"}"#,
+                     #"{"operation":"observe"}"#] {
+            XCTAssertThrowsError(try BrowserTaskRequest(arguments: ToolArguments(jsonString: json)), json)
+        }
+        let task = try BrowserTaskRequest(arguments: ToolArguments(jsonString: #"{"task":"  Find vegetarian lunch.  "}"#))
+        XCTAssertEqual(task.task, "Find vegetarian lunch.")
+    }
+
+    func testInternalPageStillSupportsTabsAndNewTab() throws {
+        let opened = try request(#"{"operation":"open","url":"https://example.com","new_tab":true}"#)
+        XCTAssertTrue(opened.newTab)
+        XCTAssertEqual(try request(#"{"operation":"observe","tab":"t3"}"#).tab, "t3")
+        XCTAssertThrowsError(try request(#"{"operation":"open","url":"https://example.com","tab":"t3","new_tab":true}"#))
+        XCTAssertEqual(try request(#"{"operation":"tabs"}"#).operation, .tabs)
     }
 }

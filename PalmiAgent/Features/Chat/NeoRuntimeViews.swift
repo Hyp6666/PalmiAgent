@@ -13,8 +13,10 @@ struct NeoRuntimeCard: View {
     let streamingMessageID: UUID?
     let liveReasoningBuffer: (UUID) -> LiveReasoningBuffer?
     let onOpenRelatedThread: (UUID) -> Void
+    let selection: WorkspaceSelection?
 
     @State private var presentation: NeoRuntimePresentation?
+    @Environment(BrowserOperatorService.self) private var browser: BrowserOperatorService?
 
     private var isLive: Bool { isCurrentTurn && header.finishedAt == nil }
 
@@ -22,7 +24,8 @@ struct NeoRuntimeCard: View {
         NeoRuntimeTimeline.build(
             messages: messages, finalMessage: finalMessage, isLive: isLive,
             liveReasoningIDs: Set(messages.filter { liveReasoningBuffer($0.id) != nil }.map(\.id)),
-            streamingMessageID: streamingMessageID, completionID: headerID
+            streamingMessageID: streamingMessageID, completionID: headerID,
+            browserProgress: browser.map { Array($0.runtimeProgress.values) } ?? [], selection: selection
         )
     }
 
@@ -365,6 +368,29 @@ struct NeoRuntimeStepDetailSheet: View {
 
     @ViewBuilder
     private func toolDetail(_ card: PalmiToolCallCard) -> some View {
+        if card.toolName == "browser", let progress = step.browserProgress {
+            section(PalmiL10n.tr("neo.runtime.overview")) {
+                Text(progress.task).textSelection(.enabled)
+            }
+            section(PalmiL10n.tr("browser.runtime.steps")) {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    ForEach(progress.steps) { browserStep in
+                        Text(browserStep.historyLine)
+                            .font(.footnote)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .foregroundStyle(browserStep.failed ? Color.red : Color.primary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityLabel(browserStep.historyLine)
+                    }
+                }
+            }
+            if card.isRunning != true, !card.details.isEmpty {
+                section(PalmiL10n.tr("neo.runtime.result")) {
+                    Text(card.details).textSelection(.enabled)
+                }
+            }
+        } else {
         if !card.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             section(PalmiL10n.tr("neo.runtime.overview")) {
                 AssistantMarkdownContentView(markdown: card.summary)
@@ -393,6 +419,7 @@ struct NeoRuntimeStepDetailSheet: View {
                     .tint(.primary)
                 }
             }
+        }
         }
     }
 

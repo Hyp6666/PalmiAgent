@@ -162,7 +162,7 @@ enum ToolManagementCatalog {
             sectionID: .nonApp,
             title: "网页研究",
             subtitle: "搜索候选、网页浏览",
-            actionIDs: [.detectWebSearchProviders, .searchWeb, .fetchStaticWebPage, .openInAppBrowser, .browserRead, .browserInteract]
+            actionIDs: [.detectWebSearchProviders, .searchWeb, .fetchStaticWebPage, .openInAppBrowser, .browser]
         ),
         .init(
             id: .bionicPersonas,
@@ -180,7 +180,7 @@ enum ToolManagementCatalog {
         settingsGroup(.workspaceFiles),
         settingsGroup(.skills),
         settingsGroup(.multimodal),
-        settingsGroup(.webResearch, actionIDs: [.searchWeb, .fetchStaticWebPage, .browserRead, .browserInteract]),
+        settingsGroup(.webResearch, actionIDs: [.searchWeb, .fetchStaticWebPage, .browser]),
         settingsGroup(.bionicPersonas),
         settingsGroup(.imageGeneration)
     ]
@@ -360,6 +360,8 @@ final class ToolPermissionStore {
     private func load() {
         let rawValues = userDefaults.stringArray(forKey: defaultsKey) ?? []
         disabledActionIDs = Set(rawValues.compactMap(ToolActionID.init(rawValue:)))
+        // 两个旧浏览器开关合为单一任务开关，保留用户此前关闭浏览器的选择。
+        if rawValues.contains("browserRead") || rawValues.contains("browserInteract") { disabledActionIDs.insert(.browser) }
     }
 
     private func persist() {

@@ -84,7 +84,7 @@ enum AgentExternalToolFacadeCatalog {
         .init(name: .vision, backingActionIDs: [.scanImageWithMultimodalModel]),
         .init(name: .webSearch, backingActionIDs: [.searchWeb]),
         .init(name: .fetch, backingActionIDs: [.fetchStaticWebPage]),
-        .init(name: .browser, backingActionIDs: [.browserRead, .browserInteract]),
+        .init(name: .browser, backingActionIDs: [.browser]),
         .init(name: .systemTime, backingActionIDs: [.getCurrentDateTime]),
         .init(name: .location, backingActionIDs: [.requestLocation]),
         .init(name: .createBionicPersona, backingActionIDs: [.createBionicPersona]),
@@ -157,7 +157,8 @@ enum AgentExternalToolFacadeCatalog {
     ) throws -> ToolActionID {
         switch facade.name {
         case .browser:
-            return try BrowserRequest(arguments: arguments).operation.actionID
+            _ = try BrowserTaskRequest(arguments: arguments)
+            return .browser
         case .edit:
             switch try normalizedOperation(arguments) {
             case "write":
@@ -197,9 +198,7 @@ enum AgentExternalToolFacadeCatalog {
     ) throws {
         switch facadeName {
         case .browser:
-            guard try BrowserRequest(arguments: arguments).operation.actionID == actionID else {
-                throw BrowserToolError(code: "invalid_action", message: "browser 操作与底层风险分级不一致。")
-            }
+            _ = try BrowserTaskRequest(arguments: arguments)
         case .generateImage:
             let prompt = try arguments.requiredString("prompt")
             guard (1...6000).contains(prompt.trimmingCharacters(in: .whitespacesAndNewlines).count),

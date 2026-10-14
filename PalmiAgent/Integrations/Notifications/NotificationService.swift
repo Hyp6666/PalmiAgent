@@ -29,6 +29,8 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     private let badgeWriter = NotificationBadgeWriter { try await UNUserNotificationCenter.current().setBadgeCount($0) }
     var bionicVisibleInstance: String? { didSet { observeVisibleConversation() } }
     var bionicForeground = false { didSet { observeVisibleConversation() } }
+    var onQuestionResponse: ((UUID, String, String?) -> Void)?
+    private var categories: [String: UNNotificationCategory] = [:]
     var onBionicNotification: ((String, String, String, Bool) async -> Bool)?
     private struct PresentationVisibility {
         let instance: String
@@ -46,7 +48,29 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     override init() {
         super.init()
         center.delegate = self
+        // 进程重启后原问题与运行已不存在，清除残留分类和通知。
+        center.setNotificationCategories(Set(categories.values))
+        Task { @MainActor in
+            let pending = await center.pendingNotificationRequests().map(\.identifier)
+            let delivered = await center.deliveredNotifications().map { $0.request.identifier }
+            let activeCategoryIDs = Array(categories.keys)
+            func stale(_ id: String) -> Bool {
+                id.hasPrefix("palmi.askUser.") && !activeCategoryIDs.contains { id.hasPrefix($0 + ".") }
+            }
+            center.removePendingNotificationRequests(withIdentifiers: pending.filter(stale))
+            center.removeDeliveredNotifications(withIdentifiers: delivered.filter(stale))
+        }
     }
+    func setCategory(_ category: UNNotificationCategory) {
+        categories[category.identifier] = category
+        center.setNotificationCategories(Set(categories.values))
+    }
+
+    func removeCategory(id: String) {
+        categories.removeValue(forKey: id)
+        center.setNotificationCategories(Set(categories.values))
+    }
+
     func requestAuthorization(alert: Bool = true, badge: Bool = true, sound: Bool = true,
                               provisional: Bool = false, announcement: Bool = false, carPlay: Bool = false,
                               criticalAlert: Bool = false, timeSensitive: Bool = false,
@@ -160,7 +184,11 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
                                             withCompletionHandler completionHandler: @escaping @Sendable () -> Void) {
         let request = response.notification.request
         let opened = response.actionIdentifier == UNNotificationDefaultActionIdentifier
+        let questionID = (request.content.userInfo["palmi_question_id"] as? String).flatMap(UUID.init(uuidString:))
+        let action = response.actionIdentifier
+        let text = (response as? UNTextInputNotificationResponse)?.userText
         Task { @MainActor [weak self] in
+            if let questionID { self?.onQuestionResponse?(questionID, action, text) }
             if opened, let self, let address = self.bionicAddress(request) {
                 _ = await self.onBionicNotification?(address.instance, address.group, address.message, true)
             }

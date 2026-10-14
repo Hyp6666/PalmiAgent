@@ -1,0 +1,17 @@
+# Travel
+- Clarify origins, destinations, travel dates, date flexibility, passenger ages, rooms, budget and currency.
+- Resolve city, airport and station names before searching; distinguish nearby terminals and properties with similar names.
+- Confirm local time zones, overnight arrivals, check-in/check-out dates and the total number of nights.
+- Ask for cabin, baggage, accessibility, seat, meal, transfer and accommodation requirements when they affect selection.
+- Open the selected consumer entry and observe its current region, language, currency and account state.
+- Set route or destination, dates and party size through visible controls, then observe the result after each operation.
+- Review filters, availability, connections, journey duration, room occupancy and the exact fare or room type.
+- Compare the total payable amount including taxes, service charges, baggage and mandatory property fees.
+- Read refund, change, cancellation and no-show terms for the selected offer; note the deadline and time zone.
+- Verify operating carrier, seller, transfer conditions, boarding point, property address and check-in requirements.
+- Treat cached guide URLs as entry aids; use the current observation for navigation and interaction.
+- Use manual handoff for sign-in, verification, identity documents, sensitive passenger details and payment fields.
+- Ask the user to confirm the exact itinerary, traveler/guest details, total amount and applicable terms before booking or paying.
+- Ask for explicit confirmation before canceling, changing or submitting any irreversible reservation action.
+- After handoff or submission, observe the current reservation state before taking another action.
+- Report confirmed reservation status, reference, itinerary, amount, currency, rules and source links; distinguish an offer from a completed booking.

@@ -1,0 +1,22 @@
+# Social and community browsing
+
+- Establish whether the user wants to read, find a community, compare discussions, or publish content.
+- Identify the topic, language, region, relevant time range, and preferred community before navigating.
+- Use ask_user when the intended audience or posting account changes the task materially.
+- Confirm the consumer entry address and observe the page before choosing links or controls.
+- Check whether the page offers public browsing, an account wall, or only an App download entrance.
+- For searches, confirm the search scope, encode the query, and read the actual result titles.
+- Do not treat a board-specific search as a search of the whole community.
+- Apply available date, topic, and community filters; preserve the user's requested scope.
+- Open relevant discussions and inspect the author, publication time, replies, and linked sources.
+- Distinguish personal experiences, promotional claims, moderator notices, and independently supported facts.
+- Check whether a quoted reply belongs to the original discussion and whether its context changes the meaning.
+- Observe again after navigation, expanding replies, sorting, or switching tabs.
+- Use current observation references for every interaction; scroll to read text beyond the visible portion.
+- Hand off login, passwords, verification codes, security challenges, and private account access to the user.
+- After handoff, observe the active account and page before continuing.
+- Before posting, commenting, sending a message, following, or joining, confirm the destination and exact action with the user.
+- Show the proposed text and intended audience before submitting user-authorized content.
+- Do not enter private messages or reveal personal details without the user's explicit scope.
+- Verify visible confirmation after an authorized submission and report its resulting link when available.
+- Report findings with discussion links, dates, relevant disagreements, and any account or App limitations encountered.

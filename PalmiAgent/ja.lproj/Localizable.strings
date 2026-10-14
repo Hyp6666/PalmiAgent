@@ -1724,6 +1724,8 @@
 "tool.facade.askUser" = "ユーザーに質問";
 "askUser.placeholder" = "回答を入力";
 "askUser.send" = "送信";
+"askUser.countdown" = "%d 秒後に最初の選択肢を自動で採用します";
+
 
 // In-app browser
 "settings.section.browser" = "アプリ内ブラウザ";
@@ -1733,4 +1735,44 @@
 "browser.location.allow" = "許可";
 "browser.location.deny" = "許可しない";
 "browser.entry" = "アプリ内ブラウザ";
-"browser.entry.hide" = "一時的に非表示";
+"browser.entry.hide" = "ショートカットを隠す";
+"browser.entry.collapse" = "メニューを閉じる";
+
+// 浏览器自主任务与内部步骤
+"tool.action.browser.title" = "ブラウザ";
+"tool.action.browser.effect" = "ウェブのタスクを自律的に完了し、結果を返します";
+"browser.foreground.notification.title" = "Palmi はあなたの復帰を待っています";
+"browser.foreground.notification.body" = "Palmi に戻るとウェブ操作を続けます。";
+"askUser.notification.title" = "Palmi から質問があります";
+"askUser.notification.reply" = "返信";
+"tool.action.askUser.title" = "ユーザーに質問";
+"tool.action.askUser.effect" = "候補の回答または自由入力でユーザーに質問します";
+"browser.runtime.step" = "ステップ %d · %@ %@";
+"browser.runtime.steps" = "ブラウザの手順";
+"browser.runtime.pageCompleted" = "ページ操作が完了しました";
+"browser.runtime.guideRead" = "資料 %@ を読みました";
+"browser.runtime.cancelled" = "キャンセル済み";
+"browser.runtime.status.done" = "ブラウザのタスクが完了しました";
+"browser.runtime.status.need_input" = "ブラウザに追加情報が必要です";
+"browser.runtime.status.failed" = "ブラウザのタスクが失敗しました";
+"browser.runtime.status.cancelled" = "ブラウザのタスクをキャンセルしました";
+"browser.runtime.action.open" = "開く";
+"browser.runtime.action.observe" = "確認";
+"browser.runtime.action.click" = "クリック";
+"browser.runtime.action.type" = "入力";
+"browser.runtime.action.select" = "選択";
+"browser.runtime.action.press" = "キー入力";
+"browser.runtime.action.scroll" = "スクロール";
+"browser.runtime.action.back" = "戻る";
+"browser.runtime.action.forward" = "進む";
+"browser.runtime.action.reload" = "再読み込み";
+"browser.runtime.action.look" = "画面を確認";
+"browser.runtime.action.handoff" = "ユーザーに引き渡す";
+"browser.runtime.action.tabs" = "タブを確認";
+"browser.runtime.action.close" = "タブを閉じる";
+"browser.runtime.action.guide" = "資料を読む";
+"browser.runtime.action.web_search" = "ウェブを検索";
+"browser.runtime.action.fetch" = "ページを読む";
+"browser.runtime.action.ask_user" = "ユーザーに質問";
+"browser.runtime.action.finish" = "結果を報告";
+"browser.runtime.action.invalid" = "無効な呼び出し";

@@ -121,6 +121,27 @@ final class SSEEventDecoderTests: XCTestCase {
         XCTAssertEqual(result.totalTokens, 3)
     }
 
+    func testTransportExposesProviderErrorFrame() async {
+        let session = protocolFailureSession()
+        defer { session.invalidateAndCancel() }
+        do {
+            _ = try await LLMHTTPTransport.performStreaming(
+                URLRequest(url: URL(string: "https://stream.invalid/error")!), using: session, onDelta: { _ in })
+            XCTFail("应返回服务商错误")
+        } catch LLMHTTPTransportError.streamError(let message, let attempts) {
+            XCTAssertTrue(message.contains("rate limited"))
+            XCTAssertEqual(attempts, 1)
+        } catch { XCTFail("错误类型不符：\(error)") }
+    }
+
+    func testTransportAcceptsUsageWithoutChoices() async throws {
+        let session = protocolFailureSession()
+        defer { session.invalidateAndCancel() }
+        let result = try await LLMHTTPTransport.performStreaming(
+            URLRequest(url: URL(string: "https://stream.invalid/usage")!), using: session, onDelta: { _ in })
+        XCTAssertEqual(result.totalTokens, 3)
+    }
+
     func testTransportRejectsMalformedJSONFrame() async {
         let session = protocolFailureSession()
         defer { session.invalidateAndCancel() }
@@ -350,6 +371,10 @@ private final class ProtocolFailureURLProtocol: URLProtocol, @unchecked Sendable
         let body: String
         if url.path == "/malformed" {
             body = "data: not-json\n\n"
+        } else if url.path == "/error" {
+            body = "data: {\"error\":{\"message\":\"rate limited\"}}\n\n"
+        } else if url.path == "/usage" {
+            body = "data: {\"usage\":{\"total_tokens\":3}}\n\ndata: [DONE]\n\n"
         } else {
             body = "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"},\"finish_reason\":null}]}\n\n"
         }

@@ -708,6 +708,8 @@ final class LLMAPIClient: AgentModelRuntime {
                         attempts: attempts
                     )
                 )
+            case .streamError(let message, let attempts):
+                return .operationFailed(retryAnnotatedMessage("模型服务在流中返回错误：" + message, attempts: attempts))
             case .malformedStreamPayload(let attempts):
                 return .operationFailed(retryAnnotatedMessage("模型流包含无法解析的数据帧。", attempts: attempts))
             case .incompleteStream(let attempts):
@@ -886,6 +888,8 @@ final class LLMAPIClient: AgentModelRuntime {
                         attempts: attempts
                     )
                 )
+            case .streamError(let message, let attempts):
+                throw AppError.operationFailed(retryAnnotatedMessage("模型服务在流中返回错误：" + message, attempts: attempts))
             case .malformedStreamPayload(let attempts):
                 throw AppError.operationFailed(retryAnnotatedMessage("模型流包含无法解析的数据帧。", attempts: attempts))
             case .incompleteStream(let attempts):
@@ -1144,6 +1148,8 @@ final class LLMAPIClient: AgentModelRuntime {
                         attempts: attempts
                     )
                 )
+            case .streamError(let message, let attempts):
+                throw AppError.operationFailed(retryAnnotatedMessage("模型服务在流中返回错误：" + message, attempts: attempts))
             case .malformedStreamPayload(let attempts):
                 throw AppError.operationFailed(retryAnnotatedMessage("模型流包含无法解析的数据帧。", attempts: attempts))
             case .incompleteStream(let attempts):
@@ -1350,6 +1356,8 @@ final class LLMAPIClient: AgentModelRuntime {
                         attempts: attempts
                     )
                 )
+            case .streamError(let message, let attempts):
+                throw AppError.operationFailed(retryAnnotatedMessage("模型服务在流中返回错误：" + message, attempts: attempts))
             case .malformedStreamPayload(let attempts):
                 throw AppError.operationFailed(retryAnnotatedMessage("模型流包含无法解析的数据帧。", attempts: attempts))
             case .incompleteStream(let attempts):
@@ -1973,6 +1981,7 @@ enum LLMHTTPTransportError: Error {
     case http(statusCode: Int, data: Data, attempts: Int)
     case invalidHTTPResponse(attempts: Int)
     case transport(underlying: Error, attempts: Int)
+    case streamError(message: String, attempts: Int)
     case malformedStreamPayload(attempts: Int)
     case incompleteStream(attempts: Int)
 }
@@ -2088,6 +2097,9 @@ enum LLMHTTPTransport {
                             throw LLMHTTPTransportError.malformedStreamPayload(attempts: attempt)
                         }
 
+                        if let error = chunk.error {
+                            throw LLMHTTPTransportError.streamError(message: error.message ?? String(payload.prefix(300)), attempts: attempt)
+                        }
                         termination.observeFinishReason(chunk.choices.first?.finishReason)
 
                         if let delta = chunk.choices.first?.delta,
@@ -2410,6 +2422,22 @@ enum LLMHTTPTransport {
 private struct SSEChatChunk: Decodable {
     let choices: [SSEChoice]
     let usage: SSEUsage?
+    let error: SSEStreamError?
+
+    enum CodingKeys: String, CodingKey { case choices, usage, error }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        choices = try container.decodeIfPresent([SSEChoice].self, forKey: .choices) ?? []
+        usage = try container.decodeIfPresent(SSEUsage.self, forKey: .usage)
+        error = try container.decodeIfPresent(SSEStreamError.self, forKey: .error)
+    }
+}
+
+private struct SSEStreamError: Decodable {
+    let message: String?
+    let code: JSONRuntimeValue?
+    let type: String?
 }
 
 private struct SSEChoice: Decodable {

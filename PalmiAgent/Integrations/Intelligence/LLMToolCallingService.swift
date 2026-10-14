@@ -594,6 +594,8 @@ final class APIConnectionValidationService {
                         attempts: attempts
                     )
                 )
+            case .streamError(let message, let attempts):
+                throw AppError.operationFailed(validationRetryMessage("联通验证失败：模型服务在流中返回错误：" + message, attempts: attempts))
             case .malformedStreamPayload(let attempts):
                 throw AppError.operationFailed(validationRetryMessage("联通验证失败：模型流数据无法解析。", attempts: attempts))
             case .incompleteStream(let attempts):

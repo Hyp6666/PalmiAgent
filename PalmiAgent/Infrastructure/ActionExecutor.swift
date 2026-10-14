@@ -40,6 +40,9 @@ final class ActionExecutor {
     private let userDefaults: UserDefaults
     private let bionicStore: BionicStore?
     private let imageGeneration: PalmiImageGenerationService?
+    private lazy var browserTaskRuntime = BrowserTaskRuntime(
+        modelRuntime: modelRuntime, browser: browserOperatorService, questions: userQuestionService
+    )
 
     init(
         workspaceManager: WorkspaceManager,
@@ -88,7 +91,7 @@ final class ActionExecutor {
         self.router = router
         self.webResearchService = webResearchService
         self.browserOperatorService = browserOperatorService ?? BrowserOperatorService()
-        self.userQuestionService = userQuestionService ?? UserQuestionService()
+        self.userQuestionService = userQuestionService ?? UserQuestionService(notificationService: notificationService)
         self.remoteSearchConfigurationStore = remoteSearchConfigurationStore
         self.remoteWebSearchService = remoteWebSearchService
         self.spotlightService = spotlightService
@@ -524,8 +527,8 @@ final class ActionExecutor {
                         inlineMetadata: ToolCallInlineMetadataBuilder.make(toolName: "ask_user", argumentsJSON: arguments.normalizedJSONString()))
                 }
 
-            case .browserRead, .browserInteract:
-                return try await executeBrowser(action, arguments: arguments, modelOverrides: modelOverrides)
+            case .browser:
+                return try await executeBrowser(action, arguments: arguments, modelOverrides: modelOverrides, executionID: executionID)
 
             case .scanImageWithMultimodalModel:
                 let path = try arguments.requiredString("path")
@@ -1478,33 +1481,128 @@ final class ActionExecutor {
     }
 
     private func executeBrowser(
-        _ action: ToolAction, arguments: ToolArguments, modelOverrides: AgentModelRoleOverrides
+        _ action: ToolAction, arguments: ToolArguments, modelOverrides: AgentModelRoleOverrides, executionID: UUID?
     ) async throws -> ToolExecutionOutcome {
-        guard UIApplication.shared.applicationState == .active || arguments.string("operation") == "close" else {
-            throw BrowserToolError.foreground
-        }
-        let request = try BrowserRequest(arguments: arguments)
-        guard request.operation.actionID == action.id else {
-            throw BrowserToolError(code: "invalid_action", message: "browser 操作与底层风险分级不一致。")
-        }
-        if request.operation == .look {
-            guard case .resolved = resolvedMultimodalOverride(from: modelOverrides) else {
-                throw BrowserToolError(code: "multimodal_unavailable", message: "未配置可用的多模态角色模型，请改用 observe 阅读结构和文字。")
-            }
-        }
+        let request = try BrowserTaskRequest(arguments: arguments)
         let selection = try workspaceManager.currentSelection()
-        let reply = try await browserOperatorService.perform(request, selection: selection, saveScreenshot: { data, path in
-            _ = try self.workspaceManager.withSelection(selection) { try self.workspaceManager.writeData(data, to: path) }
-        }, askImage: { prompt, dataURL in
-            let response = try await self.scanImageWithMultimodalModel(prompt: prompt, imageDataURL: dataURL, modelOverrides: modelOverrides)
-            return response.text
-        })
-        let deltas = reply.screenshotPath.map { path in
-            [FileDelta(toolName: "browser", path: path, kind: .created, beforeByteCount: nil, afterByteCount: nil, summary: "浏览器视口标记截图已保存")]
-        } ?? []
-        return success(action, request.operation == .handoff ? "浏览器已交给用户" : "浏览器操作完成",
-            details: reply.text, fileDeltas: deltas,
-            inlineMetadata: ToolCallInlineMetadataBuilder.make(toolName: "browser", argumentsJSON: arguments.normalizedJSONString()))
+        let surface = (try? workspaceManager.currentProject().surface) ?? .professional
+        let configuration = BrowserRunConfiguration.current ?? BrowserRunConfiguration(
+            providerID: modelOverrides.primaryProviderID ?? .customOpenAI, roleOverrides: modelOverrides,
+            profile: AgentRunProfile.current(for: surface, userDefaults: userDefaults)
+        )
+        let id = executionID ?? UUID()
+        browserTaskRuntime.isAskUserEnabled = browserOperatorService.isQuestionPermissionEnabled
+        let result = try await browserTaskRuntime.run(task: request.task, selection: selection, configuration: configuration, executionID: id,
+            performPage: { page in
+                let askImage: ((String, String) async throws -> String)?
+                if case .resolved = self.resolvedMultimodalOverride(from: configuration.roleOverrides) {
+                    askImage = { prompt, dataURL in
+                        let response = try await self.scanImageWithMultimodalModel(prompt: prompt, imageDataURL: dataURL, modelOverrides: configuration.roleOverrides)
+                        return response.text
+                    }
+                } else { askImage = nil }
+                let reply = try await self.browserOperatorService.perform(page, selection: selection, saveScreenshot: { data, path in
+                    _ = try self.workspaceManager.withSelection(selection) { try self.workspaceManager.writeData(data, to: path) }
+                }, askImage: askImage)
+                let tab = self.browserOperatorService.tabID(for: selection).flatMap(self.browserOperatorService.record)
+                let deltas = reply.screenshotPath.map { path in
+                    [FileDelta(toolName: "browser", path: path, kind: .created, beforeByteCount: nil, afterByteCount: nil, summary: "浏览器视口标记截图已保存")]
+                } ?? []
+                let text: String
+                if page.operation == .look, let answer = reply.text.range(of: "answer: ") {
+                    text = self.browserOperatorService.runtimeObservationHeader(for: selection) + "\nanswer: " + String(reply.text[answer.upperBound...])
+                } else { text = reply.text }
+                return BrowserRuntimeToolResult(text: text,
+                    summary: page.operation == .look || page.operation == .tabs || page.operation == .close ? BrowserRuntimeText.line(text, limit: 2500) : PalmiL10n.tr("browser.runtime.pageCompleted"),
+                    pageObservation: ![BrowserOperation.tabs, .close].contains(page.operation),
+                    url: tab?.url ?? "", title: tab?.title ?? "", fileDeltas: deltas)
+            }, performWeb: { name, arguments in
+                try await self.performBrowserWeb(name: name, arguments: arguments, selection: selection, profile: configuration.retrieval)
+            })
+        let progress = browserOperatorService.runtimeProgress[id]
+        let savedSteps = progress?.steps.map { step in
+            BrowserRuntimeStep(id: step.id, action: step.action, target: BrowserRuntimeText.line(step.target, limit: 180),
+                result: BrowserRuntimeText.line(step.result, limit: 300), url: step.url, title: step.title,
+                completed: step.completed, failed: step.failed, cancelled: step.cancelled)
+        }
+        let metadata = ToolCallInlineMetadata(operation: result.status.rawValue,
+            targets: result.url.isEmpty ? [] : [.init(kind: .webURL, displayText: result.title.isEmpty ? result.url : result.title, value: result.url)],
+            browserExecutionID: id, browserTask: progress?.task, browserSteps: savedSteps)
+        return success(action, PalmiL10n.tr("browser.runtime.status.\(result.status.rawValue)"), details: result.text,
+            status: result.status == .failed ? .failure : [.needInput, .cancelled].contains(result.status) ? .warning : .success,
+            fileDeltas: result.fileDeltas, inlineMetadata: metadata)
+    }
+
+    func forgetBrowserConversation(_ selection: WorkspaceSelection) { browserTaskRuntime.forgetConversation(selection) }
+    func forgetBrowserProject(_ projectID: UUID) { browserTaskRuntime.forgetProject(projectID) }
+    func resetBrowserRuntime() { browserTaskRuntime.reset() }
+
+    /// 内部网页读取直接调用现有服务，独立于主工具审批和执行器路由。
+    private func performBrowserWeb(name: String, arguments: ToolArguments, selection: WorkspaceSelection,
+                                   profile: RetrievalQualityProfile) async throws -> BrowserRuntimeToolResult {
+        if name == "web_search" {
+            let query = try arguments.requiredString("query")
+            let maxResults = effectiveSearchWebMaxResults(from: arguments, profile: profile.webSearch)
+            if let configuration = remoteSearchConfigurationStore.activeConfigurationSnapshot() {
+                let apiKey = try remoteSearchConfigurationStore.apiKey(for: configuration.id)
+                let result = try await remoteWebSearchService.search(query: query, configuration: configuration, apiKey: apiKey,
+                    maxResults: maxResults, timeoutSeconds: Self.remoteSearchTimeoutSeconds)
+                try Task.checkCancellation()
+                let sources = result.sources.map { source in
+                    "title: \(source.title ?? source.url.host ?? source.url.absoluteString) | url: \(source.url.absoluteString) | snippet: \(source.snippet ?? "") | published: \(source.publishedAt ?? "")"
+                }.joined(separator: "\n")
+                let text = "query: \(query)\nanswer: \(result.answer ?? "")\n" + sources
+                return .init(text: text, summary: BrowserRuntimeText.line(text, limit: 2500),
+                    url: result.sources.first?.url.absoluteString ?? "", title: result.sources.first?.title ?? "")
+            }
+            let provider = try selectedSearchProvider(from: arguments)
+            let results = try await webResearchService.search(query: query, maxResults: maxResults,
+                providerID: provider, timeoutSeconds: profile.webSearch.timeoutSeconds)
+            try Task.checkCancellation()
+            let text = results.map { "title: \($0.title) | url: \($0.url.absoluteString) | snippet: \($0.snippet)" }.joined(separator: "\n")
+            return .init(text: text.isEmpty ? "No search results for \(query)." : text,
+                summary: BrowserRuntimeText.line(text.isEmpty ? "No search results." : text, limit: 2500),
+                url: results.first?.url.absoluteString ?? "", title: results.first?.title ?? "")
+        }
+        guard name == "fetch" else { throw BrowserToolError(code: "unknown_browser_tool", message: "浏览器内部网页工具无效。") }
+        let rawMode = arguments.string("mode")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? WebFetchMode.pageText.rawValue
+        guard let mode = WebFetchMode(rawValue: rawMode) else { throw AppError.invalidState("fetch.mode 只支持 page_text 或 full_snapshot。") }
+        let start = arguments.int("start") ?? 0
+        let end = arguments.int("end") ?? -1
+        guard start >= 0, end == -1 || end >= start else { throw AppError.invalidState("fetch 文字范围无效。") }
+        let includeLinks = arguments.bool("include_links") ?? true
+        let unique = uniqueURLs(try webPageURLs(from: arguments))
+        let urls = Array(unique.prefix(profile.webContent.fetchStaticWebPageMaxURLs))
+        let full = mode == .fullSnapshot
+        let attempts = await webResearchService.fetchSummaries(urls: urls, startCharacter: start, endCharacter: end, mode: mode,
+            includeLinks: includeLinks, maxConcurrentRequests: full ? 1 : profile.webContent.fetchStaticWebPageMaxConcurrentRequests,
+            requestTimeoutSeconds: full ? max(60, profile.webContent.fetchStaticWebPageRequestTimeoutSeconds) : profile.webContent.fetchStaticWebPageRequestTimeoutSeconds,
+            totalTimeoutSeconds: full ? max(120, profile.webContent.fetchStaticWebPageTotalTimeoutSeconds) : profile.webContent.fetchStaticWebPageTotalTimeoutSeconds)
+        try Task.checkCancellation()
+        var deltas: [FileDelta] = []
+        let snapshotRoot = "artifacts/fetch/\(UUID().uuidString.lowercased())"
+        var pages: [String] = []
+        for (index, attempt) in attempts.enumerated() {
+            guard let page = attempt.summary else {
+                pages.append("url: \(attempt.url.absoluteString) | failed: \(attempt.errorDescription ?? "Unknown fetch error.")")
+                continue
+            }
+            var lines = ["title: \(page.title)", "url: \(page.finalURL.absoluteString)",
+                "canonical: \(page.canonicalURL?.absoluteString ?? "")", "published: \(page.publishedAt ?? "")",
+                "range: [\(page.returnedStart), \(page.returnedEnd)) / \(page.totalBodyCharacterCount)"]
+            if full, page.snapshot != nil {
+                let saved = try workspaceManager.withSelection(selection) { try saveWebFetchSnapshot(page, at: "\(snapshotRoot)/\(index + 1)") }
+                deltas.append(contentsOf: saved.fileDeltas)
+                lines.append("snapshot: \(saved.directoryPath)")
+            }
+            if includeLinks { lines.append("links: " + page.links.prefix(20).map { "\($0.title): \($0.url.absoluteString)" }.joined(separator: " | ")) }
+            lines.append("text: " + page.bodyText)
+            pages.append(lines.joined(separator: "\n"))
+        }
+        let first = attempts.compactMap(\.summary).first
+        let text = pages.isEmpty ? "No fetch results." : pages.joined(separator: "\n\n")
+        return .init(text: text, summary: BrowserRuntimeText.line(text, limit: 2500),
+            url: first?.finalURL.absoluteString ?? "", title: first?.title ?? "", failed: first == nil, fileDeltas: deltas)
     }
 
     private func scanImageWithMultimodalModel(

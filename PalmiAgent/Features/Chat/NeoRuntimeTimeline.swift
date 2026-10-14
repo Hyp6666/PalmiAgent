@@ -14,6 +14,7 @@ struct NeoRuntimeStep: Identifiable {
     let kind: Kind
     let state: State
     let messages: [PalmiChatMessage]
+    var browserProgress: BrowserRuntimeProgress? = nil
 
     var title: String {
         switch kind {
@@ -27,6 +28,7 @@ struct NeoRuntimeStep: Identifiable {
     }
 
     var statusText: String {
+        if state == .running, let progress = browserProgress, let current = progress.current { return current.progressLine }
         if kind == .completion {
             return state == .running
                 ? PalmiL10n.tr("neo.runtime.outputting")
@@ -89,7 +91,9 @@ enum NeoRuntimeTimeline {
         isLive: Bool,
         liveReasoningIDs: Set<UUID>,
         streamingMessageID: UUID?,
-        completionID: UUID? = nil
+        completionID: UUID? = nil,
+        browserProgress: [BrowserRuntimeProgress] = [],
+        selection: WorkspaceSelection? = nil
     ) -> [NeoRuntimeStep] {
         var steps: [NeoRuntimeStep] = []
         for message in messages {
@@ -117,7 +121,9 @@ enum NeoRuntimeTimeline {
                     }
                     steps.append(.init(id: message.id,
                                        kind: card.cardKind == .phaseThought ? .phaseThought : .tool,
-                                       state: state, messages: [message]))
+                                       state: state, messages: [message],
+                                       browserProgress: matchingBrowserProgress(card: card, message: message,
+                                                                                progress: browserProgress, selection: selection)))
                 }
             case .contextCompaction:
                 if let notice = message.contextCompaction {
@@ -135,5 +141,23 @@ enum NeoRuntimeTimeline {
                                state: isLive ? .running : .completed, messages: [finalMessage]))
         }
         return steps
+    }
+
+    private static func matchingBrowserProgress(card: PalmiToolCallCard, message: PalmiChatMessage,
+                                               progress: [BrowserRuntimeProgress], selection: WorkspaceSelection?) -> BrowserRuntimeProgress? {
+        guard card.toolName == "browser" else { return nil }
+        if let metadata = card.inlineMetadata, let id = metadata.browserExecutionID {
+            if let current = progress.first(where: { $0.id == id }) { return current }
+            if let steps = metadata.browserSteps, let selection {
+                return BrowserRuntimeProgress(id: id, selection: selection, task: metadata.browserTask ?? "", startedAt: message.timestamp,
+                    steps: steps, status: metadata.operation.flatMap(BrowserTaskStatus.init(rawValue:)))
+            }
+            return nil
+        }
+        guard let selection, let arguments = try? ToolArguments(jsonString: card.argumentsJSON),
+              let task = try? BrowserTaskRequest(arguments: arguments).task else { return nil }
+        // 运行中的卡片尚无结果 metadata；同一对话的任务锁保证它只有一个对应的当前任务。
+        return progress.filter { $0.selection == selection && $0.task == task && $0.startedAt >= message.timestamp.addingTimeInterval(-1) }
+            .min { $0.startedAt < $1.startedAt }
     }
 }

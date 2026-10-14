@@ -97,18 +97,16 @@ enum LLMToolDefinitionBuilder {
             ]
         case .askUser:
             lines = [
-                "[交互] 向用户弹出一个问题，附最多 4 个推荐答案，用户也可以自行输入。只用于执行中必须由用户决定、且答案会改变后续做法的事项，例如在几个方案中选择、确认关键约束或补充缺失信息；能从上下文合理确定的不要问。",
-                "调用会等待用户作答，然后返回 user_answer，任务在本轮继续；用户关闭弹窗时返回 user_dismissed，此时按已知信息继续或在回复中说明。推荐答案要具体、互斥，覆盖最可能的选择。"
+                "[交互] 向用户提出简短、有引导性的问题，通常提供 2 个具体、互斥的选项，最多 4 个，用户也可以自行输入。只用于执行中必须由用户决定、且答案会改变后续做法的事项，例如选择方案、确认关键约束或补充缺失信息；能从上下文合理确定的不要问。",
+                "第一个选项是推荐的默认选项，在选项文字末尾用括号标注推荐，并与问题使用相同语言，例如中文（推荐）、英文 (Recommended)、日文（おすすめ）、韩文 (추천)。选项覆盖最可能的选择。",
+                "调用返回 user_answer 后在本轮继续；用户关闭弹窗时返回 user_dismissed，此时按已知信息继续或在回复中说明。"
             ]
         case .browser:
             lines = [
-                "[Web interaction, Pro only] Run one operation in Palmi's in-app browser. Read the web-operator skill (read_skill skill=\"web-operator\") before first use. For public information that needs no interaction, prefer fetch/web_search; use browser for search boxes, filters, pagination, signed-in pages, and dynamic content. Find a reliable URL first (web_search or fetch) instead of guessing addresses.",
-                "Tabs: the browser is app-wide and shared with the user. Each conversation has a current tab; operations without tab use it. open reuses the current tab (creating one if needed); new_tab=true opens another. tabs lists all tabs (t ids, titles, URLs, current/opened_by_palmi/busy). Pass tab to operate any listed tab; it becomes the current tab. close closes a tab; leave result pages open unless the user asks.",
-                "open loads an http/https URL and returns an observation. observe defaults to interactive (e refs in the current viewport); scope=text pages through all visible text with start/count. click/type/select/scroll take the latest ref and observation_id; stale refs are rejected. Confirm every action from the new observation it returns.",
-                "type sets the value with native setters and input/change events; clear defaults to true, submit defaults to false (true = Enter). press supports Enter/Tab/Escape. scroll takes up/down with amount 0.25-3 screens (default 0.8), or a ref to scroll into view. back/forward/reload return a new observation.",
-                "Use look(question) when the structure lacks the target or layout matters: it saves an e-labelled viewport screenshot under .files/browser/ and asks the multimodal model; it fails clearly when no multimodal model is configured, so continue with observe. Coordinate click(x,y) uses viewport CSS pixels and is a last resort.",
-                "When a page actually requires sign-in or a CAPTCHA, or a password/payment field must be filled, call handoff(reason): the browser is shown full screen to the user and the call waits until they tap Done, then returns a fresh observation so the task continues in the same turn. Do not ask for sign-in up front. Before ordering, paying, sending, posting, submitting personal data, or deleting, describe the action and get the user's explicit approval.",
-                "Non-http/https navigation and downloads are blocked. Except tabs/close, operations run only while Palmi is in the foreground; on requires_foreground, pause browser steps, finish independent work, and tell the user to return to Palmi. Never blindly retry an interrupted interaction; observe the current state first."
+                "[Autonomous browser executor, Pro only] Delegate a whole web task with the single required task string. Make it self-contained: what the user wants, known location, budget, preferences, account state and other constraints, and what to report. The executor decides which websites to visit, how many tabs to open, and how to search and click. You do not need to specify step-by-step operations and should not call it once per click.",
+                "Calling browser again in the same conversation continues in the same current tab with the previous task reports, final URLs and guides already read. Send follow-up questions, extra information, or an instruction to continue as another task.",
+                "It handles guide lookup, search, page interaction, and visual checks internally. For decisions, preferences or confirmation that require the user, it asks the user directly; for personal sign-in, verification or payment entry, it hands the browser to the user. You do not need to handle those interactions for it.",
+                "Returns a concise plain-text report with final tab/URL/title and step count: done means the task is complete; need_input means it paused for missing information and includes a question; failed means it could not complete the task; cancelled means execution was stopped. For need_input, supply the information requested in its question and call browser again to continue."
             ]
         case .systemTime:
             lines = [
@@ -230,33 +228,10 @@ enum LLMToolDefinitionBuilder {
         ], required: ["question"])
     }
 
-    private static var browserSchema: JSONValue {
-        ToolJSONSchema.object(properties: [
-            "operation": ToolJSONSchema.string(description: "Required. One action per call.", enumValues: BrowserOperation.allCases.map(\.rawValue)),
-            "tab": ToolJSONSchema.string(description: "Optional target tab id from tabs, e.g. t3. Omit to use this conversation's current tab. Not used by tabs."),
-            "new_tab": ToolJSONSchema.bool(description: "open only. true opens the URL in a new tab; default false reuses the current tab."),
-            "url": ToolJSONSchema.string(description: "Required for open. http/https URL only.", format: "uri"),
-            "scope": ToolJSONSchema.string(description: "observe only. interactive (default) lists e refs in the viewport; text pages through visible text.", enumValues: ["interactive", "text"]),
-            "start": ToolJSONSchema.integer(description: "scope=text start offset, default 0; continue with next_start."),
-            "count": ToolJSONSchema.integer(description: "scope=text maximum characters, default 1000, range 1-20000; output is paged to fit tool context, continue with next_start."),
-            "ref": ToolJSONSchema.string(description: "e ref from the latest observation; for click/type/select or scrolling to an element."),
-            "observation_id": ToolJSONSchema.string(description: "Required with ref; must match the latest observation."),
-            "x": ToolJSONSchema.number(description: "click fallback: viewport CSS pixel x, instead of ref."),
-            "y": ToolJSONSchema.number(description: "click fallback: viewport CSS pixel y, together with x."),
-            "text": ToolJSONSchema.string(description: "Required for type. Text to enter; may be empty."),
-            "clear": ToolJSONSchema.bool(description: "type: clear the field first, default true."),
-            "submit": ToolJSONSchema.bool(description: "type: press Enter afterwards, default false."),
-            "value": ToolJSONSchema.string(description: "Required for select. The option value."),
-            "key": ToolJSONSchema.string(description: "Required for press.", enumValues: ["Enter", "Tab", "Escape"]),
-            "direction": ToolJSONSchema.string(description: "Screen scrolling direction; use either direction or ref.", enumValues: ["up", "down"]),
-            "amount": .object(["type": .string("number"), "description": .string("Screens to scroll, default 0.8."), "minimum": .number(0.25), "maximum": .number(3)]),
-            "question": ToolJSONSchema.string(description: "Required for look. A visual question about the current viewport."),
-            "reason": ToolJSONSchema.string(description: "Required for handoff. Briefly state what the user needs to do, e.g. sign in.")
-        ], required: ["operation"])
-    }
+    private static var browserSchema: JSONValue { BrowserRuntimeTools.taskSchema }
 
     private static func toolDescription(for action: ToolAction) -> String {
-        if [.generateImage, .browserRead, .browserInteract].contains(action.id), let facade = AgentExternalToolFacadeCatalog.facade(backing: action.id) {
+        if [.generateImage, .browser].contains(action.id), let facade = AgentExternalToolFacadeCatalog.facade(backing: action.id) {
             return facadeDescription(for: facade, backingActions: [action])
         }
         var lines = [
@@ -322,7 +297,7 @@ enum LLMToolDefinitionBuilder {
 
     static func toolParametersSchema(for action: ToolAction) -> JSONValue {
         switch action.id {
-        case .browserRead, .browserInteract: return browserSchema
+        case .browser: return browserSchema
         case .askUser: return askUserSchema
         case .generateImage: return imageGenerationSchema
         case .createBionicPersona:

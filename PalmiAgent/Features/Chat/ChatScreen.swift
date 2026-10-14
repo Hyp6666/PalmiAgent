@@ -707,30 +707,48 @@ struct ChatScreen: View {
            !browserOperator.isPresented {
             let controlled = browserOperator.tabs.filter { browserOperator.isControlled($0.id) }
             let others = browserOperator.tabs.filter { !browserOperator.isControlled($0.id) }
+            // 每行之间一条分隔线；固定自上而下的顺序，不随按钮在屏幕底部而倒序。
             Menu {
                 ForEach(controlled) { tab in
                     Button { browserOperator.openBrowser(focus: tab.id) } label: {
-                        Text(tab.displayTitle)
-                        Text(PalmiL10n.tr("browser.badge.busy"))
+                        Label {
+                            Text(tab.displayTitle)
+                            Text(PalmiL10n.tr("browser.badge.busy"))
+                        } icon: {
+                            Image(uiImage: PalmiAIGlowPalette.symbolImage("sparkles"))
+                                .renderingMode(.original)
+                        }
                     }
+                    Divider()
                 }
                 ForEach(others) { tab in
-                    Button(tab.displayTitle) { browserOperator.openBrowser(focus: tab.id) }
+                    Button { browserOperator.openBrowser(focus: tab.id) } label: {
+                        Label(tab.displayTitle, systemImage: "globe")
+                    }
+                    Divider()
+                }
+                Button { browserOperator.hideShortcut(for: selection) } label: {
+                    Label(PalmiL10n.tr("browser.entry.hide"), systemImage: "eye.slash")
                 }
                 Divider()
-                Button(PalmiL10n.tr("browser.entry.hide")) {
-                    browserOperator.hideShortcut(for: selection)
+                // 点菜单项本身即收起菜单，无需额外动作。
+                Button { } label: {
+                    Label(PalmiL10n.tr("browser.entry.collapse"), systemImage: "chevron.down")
                 }
             } label: {
                 Label(PalmiL10n.tr("browser.entry"), systemImage: "globe")
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(Color.black.opacity(0.88))
                     .padding(.horizontal, 14)
-                    .frame(height: 38)
+                    .frame(height: 40)
+                    // 柔光垫在文字下面、玻璃上面，不再像一层雾罩在整颗按钮上。
+                    .background {
+                        PalmiAIGlowLayer(shape: Capsule(), isActive: browserOperator.isControlling(selection), lineWidth: 2)
+                    }
                     .contentShape(Capsule())
-                    .glassEffect(.regular.interactive(), in: .capsule)
-                    .palmiAIGlow(Capsule(), isActive: browserOperator.isControlling(selection), lineWidth: 2)
+                    .chatGlassSurface(cornerRadius: 20, interactive: true, backgroundOpacity: 0.26, tintOpacity: 0.32)
             }
+            .menuOrder(.fixed)
             .buttonStyle(.plain)
             .padding(.trailing, 16)
             .padding(.bottom, composerSectionHeight + 10)
@@ -892,7 +910,8 @@ struct ChatScreen: View {
                     isCurrentTurn: store.activeTurnHeaderID == headerMessage.id,
                     streamingMessageID: store.activeStreamingMessageIDValue,
                     liveReasoningBuffer: store.liveReasoningBuffer(for:),
-                    onOpenRelatedThread: openRelatedThread
+                    onOpenRelatedThread: openRelatedThread,
+                    selection: workspaceStore.selectedSelection
                 )
                 // In-turn user guidance remains visible independently of process details.
                 ForEach((turn.messagesBeforeFinal + turn.messagesAfterFinal).filter { $0.role == .user }) { message in

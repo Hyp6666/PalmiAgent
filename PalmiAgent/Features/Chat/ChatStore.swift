@@ -476,6 +476,10 @@ final class ChatStore {
         let turnActions = composerActions(for: turnSelection)
         let modelOverrides = modelRoleOverrides(for: turnSelection)
         let runProviderID = modelOverrides.primaryProviderID ?? .customOpenAI
+        let browserRunConfiguration = BrowserRunConfiguration(
+            providerID: runProviderID, roleOverrides: modelOverrides,
+            profile: turnSurface == .chat ? AgentRunProfile.profile(for: .speed) : AgentRunProfile.current(for: turnSurface)
+        )
 
         if let running = activeRuns[turnSelection] {
             guard running.loop.acceptsQueuedUserGuidance else {
@@ -596,14 +600,16 @@ final class ChatStore {
                         providerID: runProviderID,
                         modelOverrides: modelOverrides
                     )
-                    let result = try await runLoop.runTurn(
-                        userInput: modelInput,
-                        providerID: runProviderID,
-                        actions: turnActions,
-                        mode: turnMode,
-                        imagePaths: turnImagePaths,
-                        modelOverrides: modelOverrides
-                    )
+                    let result = try await BrowserRunConfiguration.$current.withValue(browserRunConfiguration) {
+                        try await runLoop.runTurn(
+                            userInput: modelInput,
+                            providerID: runProviderID,
+                            actions: turnActions,
+                            mode: turnMode,
+                            imagePaths: turnImagePaths,
+                            modelOverrides: modelOverrides
+                        )
+                    }
                     try await finishJournalEventStream(for: activeRun)
 
                     if isRunSelectionDisplayed(turnSelection) {

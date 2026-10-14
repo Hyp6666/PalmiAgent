@@ -1,12 +1,55 @@
 import Observation
 import SwiftUI
 import UIKit
+import UserNotifications
+
+/// 问题倒计时的纯值状态，便于独立验证默认选择和永久暂停规则。
+struct UserQuestionCountdown: Equatable, Sendable {
+    static let duration: TimeInterval = 60
+
+    let defaultOption: String?
+    private(set) var isPaused = false
+    private(set) var accumulated: TimeInterval = 0
+    private(set) var visibleSince: Date?
+
+    init(options: [String]) { defaultOption = options.first }
+
+    mutating func resume(at now: Date) {
+        guard !isPaused, visibleSince == nil else { return }
+        visibleSince = now
+    }
+
+    mutating func suspend(at now: Date) {
+        guard let visibleSince else { return }
+        accumulated += max(0, now.timeIntervalSince(visibleSince))
+        self.visibleSince = nil
+    }
+
+    mutating func pauseForFreeformInput(at now: Date) {
+        suspend(at: now)
+        isPaused = true
+    }
+
+    func elapsed(at now: Date) -> TimeInterval {
+        accumulated + (visibleSince.map { max(0, now.timeIntervalSince($0)) } ?? 0)
+    }
+
+    func remainingSeconds(at now: Date) -> Int? {
+        guard defaultOption != nil, !isPaused else { return nil }
+        return Int(ceil(max(0, Self.duration - elapsed(at: now))))
+    }
+
+    func defaultAnswer(at now: Date) -> String? {
+        guard remainingSeconds(at: now) == 0 else { return nil }
+        return defaultOption
+    }
+}
 
 /// ask_user 工具：弹出问题、几个推荐答案和一个自由输入框，等待用户作答后把答案交还模型。
 @MainActor
 @Observable
 final class UserQuestionService {
-    struct Prompt: Identifiable {
+    struct Prompt: Identifiable, Sendable {
         let id = UUID()
         let question: String
         let options: [String]
@@ -18,19 +61,62 @@ final class UserQuestionService {
     }
 
     private(set) var prompt: Prompt?
+    private(set) var countdownRemainingSeconds: Int?
     @ObservationIgnored private var continuation: CheckedContinuation<Answer, Never>?
     @ObservationIgnored private var controller: UIViewController?
+    @ObservationIgnored private var countdown: UserQuestionCountdown?
+    @ObservationIgnored private var countdownTask: Task<Void, Never>?
+
+    @ObservationIgnored private let notificationService: NotificationService
+    @ObservationIgnored private let center = UNUserNotificationCenter.current()
+    @ObservationIgnored private var lifecycleObservers: [NSObjectProtocol] = []
+    @ObservationIgnored private var notificationPosted = false
+    @ObservationIgnored private var notificationCategoryID: String?
+    @ObservationIgnored private var postedNotificationIDs: Set<String> = []
+    @ObservationIgnored private var currentPostToken: UUID?
+
+    init(notificationService: NotificationService? = nil) {
+        self.notificationService = notificationService ?? NotificationService()
+        let events = NotificationCenter.default
+        lifecycleObservers = [
+            events.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.countdown?.suspend(at: Date()) }
+            },
+            events.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.didEnterBackground() }
+            },
+            events.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.didBecomeActive() }
+            }
+        ]
+    }
 
     func ask(question: String, options: [String]) async throws -> Answer {
-        guard prompt == nil else {
-            throw AppError.invalidState("已有一个问题在等待用户回答。")
-        }
-        guard var presenter = Self.activeRootController() else {
-            throw AppError.invalidState("当前无法显示问题，请回到 Palmi 后重试。")
-        }
-        while let presented = presenter.presentedViewController { presenter = presented }
+        guard prompt == nil else { throw AppError.invalidState("已有一个问题在等待用户回答。") }
         let current = Prompt(question: question, options: options)
-        prompt = current
+        let answer: Answer = await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Answer, Never>) in
+                prompt = current
+                self.continuation = continuation
+                if Task.isCancelled { finish(.dismissed) }
+                else {
+                    presentIfPossible(current)
+                    if UIApplication.shared.applicationState == .background { didEnterBackground() }
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                guard self?.prompt?.id == current.id else { return }
+                self?.finish(.dismissed)
+            }
+        }
+        try Task.checkCancellation()
+        return answer
+    }
+
+    private func presentIfPossible(_ current: Prompt) {
+        guard controller == nil, var presenter = Self.activeRootController() else { return }
+        while let presented = presenter.presentedViewController { presenter = presented }
         let sheet = UIHostingController(rootView: UserQuestionSheet(service: self, prompt: current))
         sheet.modalPresentationStyle = .pageSheet
         if let presentation = sheet.sheetPresentationController {
@@ -40,17 +126,74 @@ final class UserQuestionService {
         }
         sheet.presentationController?.delegate = dismissalObserver
         controller = sheet
-        presenter.present(sheet, animated: true)
-        let answer: Answer = await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Answer, Never>) in
-                if Task.isCancelled { continuation.resume(returning: .dismissed) }
-                else { self.continuation = continuation }
-            }
-        } onCancel: {
-            Task { @MainActor [weak self] in self?.finish(Answer.dismissed) }
+        presenter.present(sheet, animated: true) { [weak self, weak sheet] in
+            guard let self, self.prompt?.id == current.id, let sheet, self.controller === sheet else { return }
+            if self.countdown == nil { self.startCountdown(for: current) }
         }
-        try Task.checkCancellation()
-        return answer
+    }
+
+    private var isQuestionVisible: Bool {
+        UIApplication.shared.applicationState == .active && controller?.viewIfLoaded?.window != nil
+            && controller?.presentedViewController == nil && controller?.isBeingDismissed == false
+    }
+
+    private func didBecomeActive() {
+        guard let current = prompt else { return }
+        clearQuestionNotifications()
+        notificationPosted = false
+        if controller == nil { presentIfPossible(current) }
+        else if isQuestionVisible { countdown?.resume(at: Date()) }
+    }
+
+    private func didEnterBackground() {
+        guard let current = prompt, !notificationPosted else { return }
+        notificationPosted = true
+        let categoryID = "palmi.askUser." + current.id.uuidString
+        if notificationCategoryID == nil {
+            var actions: [UNNotificationAction] = current.options.prefix(4).enumerated().map { index, option in
+                UNNotificationAction(identifier: "option.\(index)", title: option, options: [])
+            }
+            actions.append(UNTextInputNotificationAction(identifier: "reply", title: PalmiL10n.tr("askUser.notification.reply"), options: [],
+                textInputButtonTitle: PalmiL10n.tr("askUser.send"), textInputPlaceholder: PalmiL10n.tr("askUser.placeholder")))
+            notificationService.setCategory(UNNotificationCategory(identifier: categoryID, actions: actions, intentIdentifiers: [], options: []))
+            notificationCategoryID = categoryID
+        }
+        let content = UNMutableNotificationContent()
+        content.title = PalmiL10n.tr("askUser.notification.title")
+        content.body = current.question
+        content.userInfo["palmi_question_id"] = current.id.uuidString
+        content.categoryIdentifier = categoryID
+        content.sound = .default
+        let postToken = UUID()
+        currentPostToken = postToken
+        let id = categoryID + "." + postToken.uuidString
+        postedNotificationIDs.insert(id)
+        let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
+        Task { @MainActor in
+            try? await center.add(request)
+            // 旧发送只清理自己的通知，不能误删后来一轮的通知。
+            if prompt?.id != current.id || currentPostToken != postToken || UIApplication.shared.applicationState != .background {
+                center.removeDeliveredNotifications(withIdentifiers: [id])
+                center.removePendingNotificationRequests(withIdentifiers: [id])
+            }
+        }
+    }
+
+    private func clearQuestionNotifications() {
+        currentPostToken = nil
+        let ids = Array(postedNotificationIDs)
+        center.removeDeliveredNotifications(withIdentifiers: ids)
+        center.removePendingNotificationRequests(withIdentifiers: ids)
+        postedNotificationIDs = []
+    }
+
+    func handleNotificationResponse(promptID: UUID, actionIdentifier: String, text: String?) {
+        guard let current = prompt, current.id == promptID else { return }
+        if actionIdentifier.hasPrefix("option."), let index = Int(actionIdentifier.dropFirst("option.".count)), current.options.indices.contains(index) {
+            finish(.answered(current.options[index]))
+        } else if actionIdentifier == "reply", let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+            finish(.answered(text))
+        }
     }
 
     func submit(_ text: String) {
@@ -59,9 +202,45 @@ final class UserQuestionService {
         finish(.answered(trimmed))
     }
 
+    /// 聚焦或开始输入后永久停表，失焦和清空内容都不会重新计时。
+    func pauseForFreeformInput(promptID: UUID) {
+        guard prompt?.id == promptID else { return }
+        countdown?.pauseForFreeformInput(at: Date())
+        countdownRemainingSeconds = nil
+    }
+
+    private func startCountdown(for current: Prompt) {
+        countdown = UserQuestionCountdown(options: current.options)
+        if isQuestionVisible { countdown?.resume(at: Date()) }
+        countdownRemainingSeconds = countdown?.remainingSeconds(at: Date())
+        countdownTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.prompt?.id == current.id else { return }
+                let now = Date()
+                if self.isQuestionVisible { self.countdown?.resume(at: now) }
+                else { self.countdown?.suspend(at: now) }
+                self.countdownRemainingSeconds = self.countdown?.remainingSeconds(at: now)
+                if let option = self.countdown?.defaultAnswer(at: now) {
+                    self.finish(.answered("\(option)\n用户 60 秒内未选择，已采用默认的第一个选项。"))
+                    return
+                }
+                do { try await Task.sleep(for: .seconds(1)) }
+                catch { return }
+            }
+        }
+    }
+
     fileprivate func finish(_ answer: Answer) {
-        guard prompt != nil else { return }
+        guard let current = prompt else { return }
+        clearQuestionNotifications()
+        notificationService.removeCategory(id: "palmi.askUser." + current.id.uuidString)
+        notificationPosted = false
+        notificationCategoryID = nil
         prompt = nil
+        countdownTask?.cancel()
+        countdownTask = nil
+        countdown = nil
+        countdownRemainingSeconds = nil
         let sheet = controller
         controller = nil
         if sheet?.presentingViewController != nil { sheet?.dismiss(animated: true) }
@@ -115,6 +294,13 @@ private struct UserQuestionSheet: View {
                         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 20))
                     }
                 }
+
+                if let remaining = service.countdownRemainingSeconds {
+                    Text(PalmiL10n.tr("askUser.countdown", remaining))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
             }
 
             HStack(spacing: 10) {
@@ -144,5 +330,11 @@ private struct UserQuestionSheet: View {
         .padding(.horizontal, 22)
         .padding(.top, 28)
         .padding(.bottom, 16)
+        .onChange(of: isEditing) { _, focused in
+            if focused { service.pauseForFreeformInput(promptID: prompt.id) }
+        }
+        .onChange(of: draft) { _, _ in
+            service.pauseForFreeformInput(promptID: prompt.id)
+        }
     }
 }

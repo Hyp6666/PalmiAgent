@@ -1,0 +1,22 @@
+# Public Financial Information
+
+- Identify the requested country, currency pair, product type, issuer, exchange, and comparison date.
+- Clarify whether the user wants reference rates, cash exchange quotes, deposit rates, market prices, or payment help.
+- Use public information pages; keep this workflow confined to reading and comparing published information.
+- Open the selected entry and observe the current page before choosing a visible control.
+- Verify that the page belongs to the intended institution and contains consumer information.
+- Search with the product name, currency code, or security symbol and inspect the actual result.
+- Confirm the issuer and exchange when a security symbol has multiple matches.
+- Read the displayed publication date, time, timezone, market status, and any delay notice.
+- Record the base currency, quote currency, amount, and whether rates apply per 1, 100, or another unit.
+- Distinguish cash from spot rates and bank buying from bank selling rates.
+- For deposit comparisons, record annual rate, term, minimum balance, eligibility, tiers, and promotion dates.
+- Read public payment instructions for the user's stated country and payment method.
+- Inspect visible tables or controls with fresh observations after each interaction.
+- Use scrolling or text pagination to read disclosures and accompanying notes.
+- Ask the user to resolve missing dates, currencies, or eligibility details that change the comparison.
+- If a verification prompt prevents public browsing, hand control to the user for that prompt.
+- Keep credentials, account details, payment fields, and financial transactions outside this information workflow.
+- Compare figures only after aligning dates, currencies, units, and quote types.
+- Report the published figures, relevant conditions, source links, and retrieval date.
+- State when a page provides reference information, delayed prices, or incomplete public data.

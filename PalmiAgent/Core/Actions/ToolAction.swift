@@ -32,8 +32,7 @@ enum ToolActionID: String, CaseIterable, Codable, Hashable, Sendable {
     case detectWebSearchProviders
     case searchWeb
     case fetchStaticWebPage
-    case browserRead
-    case browserInteract
+    case browser
     case askUser
     case fetchWebBatch
     case saveWebPageToWorkspace
@@ -78,6 +77,21 @@ enum ToolActionID: String, CaseIterable, Codable, Hashable, Sendable {
     case createBionicPersona
     case generateImage
 
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        if raw == "browserRead" || raw == "browserInteract" { self = .browser; return }
+        guard let action = Self(rawValue: raw) else {
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "未知工具动作：\(raw)")
+        }
+        self = action
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+
     var modelToolName: String {
         AgentExternalToolFacadeCatalog.canonicalToolName(for: self)
     }
@@ -101,7 +115,7 @@ enum ToolActionID: String, CaseIterable, Codable, Hashable, Sendable {
              .publishHandoffActivity:
             return .action
 
-        case .browserInteract,
+        case .browser,
              .openInAppBrowser,
              .openCamera,
              .openPhotoLibrary,

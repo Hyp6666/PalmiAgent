@@ -117,6 +117,56 @@ final class NeoRuntimeTimelineTests: XCTestCase {
         XCTAssertEqual(completed.last?.messages.first?.content, final.content)
     }
 
+    func testPersistedBrowserStepsRestoreProgressWithoutMemory() throws {
+        let stored = [BrowserRuntimeStep(id: 1, action: "guide", target: "index.md", result: "已读取", completed: true)]
+        let progress = try XCTUnwrap(persistedBrowserTimeline(steps: stored).first?.browserProgress)
+        XCTAssertEqual(progress.task, "读取新闻")
+        XCTAssertEqual(progress.status, .failed)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        XCTAssertEqual(try encoder.encode(progress.steps), try encoder.encode(stored))
+    }
+
+    func testPersistedEmptyBrowserStepsRestoreDedicatedDetails() throws {
+        let progress = try XCTUnwrap(persistedBrowserTimeline(steps: []).first?.browserProgress)
+        XCTAssertTrue(progress.steps.isEmpty)
+    }
+
+    func testEmptyBrowserStepsSurviveCodableRoundTripAndReviewReplacement() throws {
+        let metadata = ToolCallInlineMetadata(browserTask: "任务", browserSteps: []).replacingReviewState(.approved)
+        let decoded = try JSONDecoder().decode(ToolCallInlineMetadata.self, from: JSONEncoder().encode(metadata))
+        XCTAssertNotNil(decoded.browserSteps)
+        XCTAssertTrue(decoded.browserSteps?.isEmpty == true)
+        XCTAssertEqual(decoded.browserTask, "任务")
+    }
+
+    func testOldMetadataDecodesAndUsesGenericDetails() throws {
+        let metadata = try JSONDecoder().decode(ToolCallInlineMetadata.self, from: Data(#"{"operation":"failed","targets":[]}"#.utf8))
+        XCTAssertNil(metadata.browserSteps)
+        XCTAssertNil(persistedBrowserTimeline(metadata: metadata).first?.browserProgress)
+    }
+
+    func testFailedBrowserUsesTerminalStatusTextDespiteProgress() throws {
+        let step = try XCTUnwrap(persistedBrowserTimeline(steps: [.init(id: 1, action: "guide", target: "index.md")]).first)
+        XCTAssertEqual(step.state, .failed)
+        XCTAssertEqual(step.statusText, PalmiL10n.tr("neo.runtime.failed", step.title))
+    }
+
+    private func persistedBrowserTimeline(steps: [BrowserRuntimeStep]) -> [NeoRuntimeStep] {
+        persistedBrowserTimeline(metadata: .init(operation: "failed", browserExecutionID: UUID(),
+                                                browserTask: "读取新闻", browserSteps: steps))
+    }
+
+    private func persistedBrowserTimeline(metadata: ToolCallInlineMetadata) -> [NeoRuntimeStep] {
+        let message = PalmiChatMessage(role: .agent, kind: .toolCall, content: "", toolCall: .init(
+            cardKind: .tool, toolTitle: "浏览器", toolName: "browser", presentationKind: .data,
+            status: .failure, summary: "失败", details: "结果", argumentsJSON: "{}",
+            requiresUserInteraction: false, isRunning: false, inlineMetadata: metadata
+        ))
+        return NeoRuntimeTimeline.build(messages: [message], finalMessage: nil, isLive: false,
+            liveReasoningIDs: [], streamingMessageID: nil, selection: .init(projectID: UUID(), threadID: UUID()))
+    }
+
     private func build(
         _ messages: [PalmiChatMessage], final: PalmiChatMessage? = nil,
         live: Bool = false, reasoningIDs: Set<UUID> = [], streamingID: UUID? = nil

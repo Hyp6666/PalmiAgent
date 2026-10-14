@@ -259,6 +259,8 @@ final class ModelCandidateValidationService {
             return AppError.operationFailed("模型服务没有返回有效 HTTP 响应。")
         case .transport(let underlying, _):
             return AppError.operationFailed("联通验证失败：\(underlying.localizedDescription)")
+        case .streamError(let message, _):
+            return AppError.operationFailed("联通验证失败：模型服务在流中返回错误：" + message)
         case .malformedStreamPayload, .incompleteStream:
             return AppError.operationFailed("模型服务返回了无法识别的响应格式。")
         }

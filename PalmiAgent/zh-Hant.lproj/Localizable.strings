@@ -1724,6 +1724,8 @@
 "tool.facade.askUser" = "詢問使用者";
 "askUser.placeholder" = "輸入你的回答";
 "askUser.send" = "傳送";
+"askUser.countdown" = "%d 秒後自動採用第一個選項";
+
 
 // In-app browser
 "settings.section.browser" = "內建瀏覽器";
@@ -1733,4 +1735,44 @@
 "browser.location.allow" = "允許";
 "browser.location.deny" = "不允許";
 "browser.entry" = "內建瀏覽器";
-"browser.entry.hide" = "暫時隱藏";
+"browser.entry.hide" = "隱藏浮窗";
+"browser.entry.collapse" = "收起選單";
+
+// 浏览器自主任务与内部步骤
+"tool.action.browser.title" = "瀏覽器";
+"tool.action.browser.effect" = "自主完成網頁任務並回報結果";
+"browser.foreground.notification.title" = "Palmi 正在等你回來";
+"browser.foreground.notification.body" = "回到 Palmi 後會繼續操作網頁。";
+"askUser.notification.title" = "Palmi 需要你回答一個問題";
+"askUser.notification.reply" = "回覆";
+"tool.action.askUser.title" = "詢問使用者";
+"tool.action.askUser.effect" = "彈出問題，讓使用者選擇推薦答案或自行輸入";
+"browser.runtime.step" = "第 %d 步 · %@ %@";
+"browser.runtime.steps" = "瀏覽器步驟";
+"browser.runtime.pageCompleted" = "頁面操作完成";
+"browser.runtime.guideRead" = "已讀取資料 %@";
+"browser.runtime.cancelled" = "已取消";
+"browser.runtime.status.done" = "瀏覽器任務完成";
+"browser.runtime.status.need_input" = "瀏覽器需要補充資訊";
+"browser.runtime.status.failed" = "瀏覽器任務失敗";
+"browser.runtime.status.cancelled" = "瀏覽器任務已取消";
+"browser.runtime.action.open" = "開啟";
+"browser.runtime.action.observe" = "觀察";
+"browser.runtime.action.click" = "點擊";
+"browser.runtime.action.type" = "輸入";
+"browser.runtime.action.select" = "選擇";
+"browser.runtime.action.press" = "按鍵";
+"browser.runtime.action.scroll" = "捲動";
+"browser.runtime.action.back" = "返回";
+"browser.runtime.action.forward" = "前進";
+"browser.runtime.action.reload" = "重新整理";
+"browser.runtime.action.look" = "查看畫面";
+"browser.runtime.action.handoff" = "交給使用者";
+"browser.runtime.action.tabs" = "查看分頁";
+"browser.runtime.action.close" = "關閉分頁";
+"browser.runtime.action.guide" = "讀取資料";
+"browser.runtime.action.web_search" = "搜尋網頁";
+"browser.runtime.action.fetch" = "讀取網頁";
+"browser.runtime.action.ask_user" = "詢問使用者";
+"browser.runtime.action.finish" = "完成回報";
+"browser.runtime.action.invalid" = "無效呼叫";

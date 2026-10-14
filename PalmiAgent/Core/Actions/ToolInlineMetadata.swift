@@ -25,19 +25,28 @@ struct ToolCallInlineMetadata: Codable, Sendable {
     let trailingCount: Int?
     let detail: String?
     let reviewState: ToolAuthorizationReviewState?
+    let browserTask: String?
+    let browserSteps: [BrowserRuntimeStep]?
+    let browserExecutionID: UUID?
 
     init(
         operation: String? = nil,
         targets: [ToolInlineTarget] = [],
         trailingCount: Int? = nil,
         detail: String? = nil,
-        reviewState: ToolAuthorizationReviewState? = nil
+        reviewState: ToolAuthorizationReviewState? = nil,
+        browserExecutionID: UUID? = nil,
+        browserTask: String? = nil,
+        browserSteps: [BrowserRuntimeStep]? = nil
     ) {
         self.operation = operation
         self.targets = targets
         self.trailingCount = trailingCount
         self.detail = detail
         self.reviewState = reviewState
+        self.browserExecutionID = browserExecutionID
+        self.browserTask = browserTask
+        self.browserSteps = browserSteps
     }
 
     func replacingReviewState(_ state: ToolAuthorizationReviewState?) -> ToolCallInlineMetadata {
@@ -46,7 +55,10 @@ struct ToolCallInlineMetadata: Codable, Sendable {
             targets: targets,
             trailingCount: trailingCount,
             detail: detail,
-            reviewState: state
+            reviewState: state,
+            browserExecutionID: browserExecutionID,
+            browserTask: browserTask,
+            browserSteps: browserSteps
         )
     }
 }
@@ -89,8 +101,7 @@ enum ToolCallInlineMetadataBuilder {
         case .askUser:
             return textMetadata(arguments.string("question"))
         case .browser:
-            let targets = arguments.string("url").flatMap { webTarget($0) }.map { [$0] } ?? []
-            return ToolCallInlineMetadata(operation: normalized(arguments.string("operation")), targets: targets)
+            return textMetadata(arguments.string("task"))
         case .fetch:
             let rawURLs = [arguments.string("url")].compactMap { $0 }
                 + (arguments.stringArray("urls") ?? [])

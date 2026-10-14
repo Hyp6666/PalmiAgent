@@ -147,14 +147,9 @@ extension ToolActionID {
                 parallelPolicy: .sequential, confirmationPolicy: .allow, mutatesWorkspace: false,
                 touchesPersonalData: false, isInteractive: true, isCacheable: false, isIdempotent: true)
 
-        case .browserRead:
-            return ToolPolicyMetadata(riskLevel: .r1PublicRead, sideEffect: .readsPublicWeb,
-                parallelPolicy: .sequential, confirmationPolicy: .allow, mutatesWorkspace: false,
-                touchesPersonalData: false, isInteractive: false, isCacheable: false, isIdempotent: true)
-
-        case .browserInteract:
+        case .browser:
             return ToolPolicyMetadata(riskLevel: .r5ExternalVisibleOrPersistentSystemChange, sideEffect: .externalVisibleSystemChange,
-                parallelPolicy: .sequential, confirmationPolicy: .always, mutatesWorkspace: false,
+                parallelPolicy: .sequential, confirmationPolicy: .allow, mutatesWorkspace: false,
                 touchesPersonalData: true, isInteractive: true, isCacheable: false, isIdempotent: false)
 
         case .detectWebSearchProviders, .searchWeb, .fetchStaticWebPage, .fetchWebBatch:

@@ -51,7 +51,7 @@ struct BrowserHubScreen: View {
                                 BrowserPointerOverlay(pointer: service.pointers[id] ?? BrowserPointer())
                             }
                         }
-                        .palmiAIGlow(Rectangle(), isActive: isLiveControlled && !isHandoff, lineWidth: 3.5)
+                        .palmiAIGlow(Rectangle(), isActive: isLiveControlled && !isHandoff, lineWidth: 6)
                     if !isHandoff {
                         bottomBar(webView: session.webView, safeAreaBottom: proxy.safeAreaInsets.bottom)
                     }
@@ -132,7 +132,7 @@ private struct BrowserTabOverview: View {
         Button { service.showTab(tab.id) } label: {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
-                    if service.isControlled(tab.id) { badge(PalmiL10n.tr("browser.badge.busy")) }
+                    if service.isControlled(tab.id) { palmiBadge }
                     Spacer(minLength: 0)
                 }
                 .frame(height: 22)
@@ -149,8 +149,13 @@ private struct BrowserTabOverview: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
-            .background(RoundedRectangle(cornerRadius: 22).fill(Color(.secondarySystemBackground)))
-            .palmiAIGlow(RoundedRectangle(cornerRadius: 22), isActive: service.isControlled(tab.id), lineWidth: 2.5)
+            // 柔光在卡片底色之上、文字之下。
+            .background {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 22).fill(Color(.secondarySystemBackground))
+                    PalmiAIGlowLayer(shape: RoundedRectangle(cornerRadius: 22), isActive: service.isControlled(tab.id), lineWidth: 4)
+                }
+            }
             .contentShape(RoundedRectangle(cornerRadius: 22))
         }
         .buttonStyle(.plain)
@@ -168,13 +173,14 @@ private struct BrowserTabOverview: View {
         }
     }
 
-    private func badge(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 11, weight: .semibold, design: .rounded))
-            .foregroundStyle(.secondary)
+    /// “Palmi 正在处理”标记：文字用柔光配色渐变。
+    private var palmiBadge: some View {
+        Text(PalmiL10n.tr("browser.badge.busy"))
+            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .foregroundStyle(LinearGradient(colors: PalmiAIGlowPalette.colors, startPoint: .leading, endPoint: .trailing))
             .padding(.horizontal, 8)
             .frame(height: 22)
-            .background(Capsule().fill(Color(.tertiarySystemFill)))
+            .background(Capsule().fill(Color(.systemBackground).opacity(0.85)))
     }
 }
 
@@ -209,26 +215,52 @@ private struct BrowserPointerOverlay: View {
     @State private var dragOffset: CGFloat = 0
     @State private var pressScale: CGFloat = 1
 
+    private enum Style {
+        static let size: CGFloat = 30
+        /// 原图向右指，逆时针转 90° 后指向上方。
+        static let rotation = Angle.degrees(-90)
+        // SVG 的 100×100 坐标中指尖为 (93.85, 42.9)；绕中心逆时针转 90° 后为 (42.9, 6.15)。
+        static let tip = UnitPoint(x: 0.429, y: 0.0615)
+        static let fill = Color.white
+        static let fillOpacity = 0.95
+        static let outline = Color(white: 0.3)
+        static let outlineOpacity = 0.95
+        static let shadow = Color.black
+        static let shadowOpacity = 0.18
+        static let ripple = Color(white: 0.4)
+        static let rippleOpacity = 0.7
+        static let ripplePeakOpacity = 0.9
+    }
+
     var body: some View {
         GeometryReader { proxy in
             let point = CGPoint(x: pointer.x * proxy.size.width, y: pointer.y * proxy.size.height)
             ZStack {
                 Circle()
-                    .stroke(Color(white: 0.4).opacity(0.7), lineWidth: 2)
+                    .stroke(Style.ripple.opacity(Style.rippleOpacity), lineWidth: 2)
                     .frame(width: 46, height: 46)
                     .scaleEffect(0.35 + rippleProgress * 1.1)
-                    .opacity(Double(1 - rippleProgress) * 0.9)
+                    .opacity(Double(1 - rippleProgress) * Style.ripplePeakOpacity)
                     .position(point)
-                Image("PalmiPointer")
-                    .renderingMode(.template)
-                    .resizable()
-                    .frame(width: 30, height: 30)
-                    .foregroundStyle(Color(white: 0.32).opacity(0.82))
-                    .shadow(color: .white.opacity(0.95), radius: 1.2)
-                    .shadow(color: .black.opacity(0.22), radius: 5, y: 2)
-                    .scaleEffect(pressScale, anchor: .top)
-                    // 指尖在图形 (12, 3) 附近：让指尖对准落点。
-                    .position(x: point.x + 2.5, y: point.y + 11 + dragOffset)
+                ZStack {
+                    Image("PalmiPointerFill")
+                        .renderingMode(.template)
+                        .resizable()
+                        .foregroundStyle(Style.fill.opacity(Style.fillOpacity))
+                    Image("PalmiPointerOutline")
+                        .renderingMode(.template)
+                        .resizable()
+                        .foregroundStyle(Style.outline.opacity(Style.outlineOpacity))
+                }
+                .frame(width: Style.size, height: Style.size)
+                .rotationEffect(Style.rotation)
+                .shadow(color: Style.shadow.opacity(Style.shadowOpacity), radius: 5, y: 2)
+                .scaleEffect(pressScale, anchor: Style.tip)
+                // 图像中心与指尖之间的偏移精确抵消，涟漪仍以真实落点为中心。
+                .position(
+                    x: point.x + Style.size * (0.5 - Style.tip.x),
+                    y: point.y + Style.size * (0.5 - Style.tip.y) + dragOffset
+                )
             }
             .animation(.spring(duration: 0.3, bounce: 0.15), value: pointer.x)
             .animation(.spring(duration: 0.3, bounce: 0.15), value: pointer.y)

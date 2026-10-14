@@ -1725,6 +1725,8 @@
 "tool.facade.askUser" = "询问用户";
 "askUser.placeholder" = "输入你的回答";
 "askUser.send" = "发送";
+"askUser.countdown" = "%d 秒后自动采用第一个选项";
+
 
 // In-app browser
 "settings.section.browser" = "内置浏览器";
@@ -1734,4 +1736,44 @@
 "browser.location.allow" = "允许";
 "browser.location.deny" = "不允许";
 "browser.entry" = "内置浏览器";
-"browser.entry.hide" = "暂时隐藏";
+"browser.entry.hide" = "隐藏浮窗";
+"browser.entry.collapse" = "收起菜单";
+
+// 浏览器自主任务与内部步骤
+"tool.action.browser.title" = "浏览器";
+"tool.action.browser.effect" = "自主完成网页任务并返回结果";
+"browser.foreground.notification.title" = "Palmi 正在等你回来";
+"browser.foreground.notification.body" = "回到 Palmi 后会继续操作网页。";
+"askUser.notification.title" = "Palmi 需要你回答一个问题";
+"askUser.notification.reply" = "回复";
+"tool.action.askUser.title" = "询问用户";
+"tool.action.askUser.effect" = "弹出问题，让用户选择推荐答案或自行输入";
+"browser.runtime.step" = "第 %d 步 · %@ %@";
+"browser.runtime.steps" = "浏览器步骤";
+"browser.runtime.pageCompleted" = "页面操作完成";
+"browser.runtime.guideRead" = "已读取资料 %@";
+"browser.runtime.cancelled" = "已取消";
+"browser.runtime.status.done" = "浏览器任务完成";
+"browser.runtime.status.need_input" = "浏览器需要补充信息";
+"browser.runtime.status.failed" = "浏览器任务失败";
+"browser.runtime.status.cancelled" = "浏览器任务已取消";
+"browser.runtime.action.open" = "打开";
+"browser.runtime.action.observe" = "观察";
+"browser.runtime.action.click" = "点击";
+"browser.runtime.action.type" = "输入";
+"browser.runtime.action.select" = "选择";
+"browser.runtime.action.press" = "按键";
+"browser.runtime.action.scroll" = "滚动";
+"browser.runtime.action.back" = "后退";
+"browser.runtime.action.forward" = "前进";
+"browser.runtime.action.reload" = "刷新";
+"browser.runtime.action.look" = "查看画面";
+"browser.runtime.action.handoff" = "交给用户";
+"browser.runtime.action.tabs" = "查看标签页";
+"browser.runtime.action.close" = "关闭标签页";
+"browser.runtime.action.guide" = "读取资料";
+"browser.runtime.action.web_search" = "搜索网页";
+"browser.runtime.action.fetch" = "读取网页";
+"browser.runtime.action.ask_user" = "询问用户";
+"browser.runtime.action.finish" = "完成汇报";
+"browser.runtime.action.invalid" = "无效调用";

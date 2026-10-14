@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		763490682F8A30B100B9CA3F /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = 76MD00022F8A000000MDUI2 /* MarkdownUI */; };
+		76BG00012FB0000000BG0001 /* PalmiAgent/Resources/BrowserGuides in Resources */ = {isa = PBXBuildFile; fileRef = 76BG00022FB0000000BG0002 /* PalmiAgent/Resources/BrowserGuides */; };
 		76OLE0002F99000000OLE002 /* OLEKit in Frameworks */ = {isa = PBXBuildFile; productRef = 76OLE0002F99000000OLE003 /* OLEKit */; };
 		76SK00012FA0000000SK0001 /* PalmiAgent/Resources/Skills in Resources */ = {isa = PBXBuildFile; fileRef = 76SK00022FA0000000SK0002 /* PalmiAgent/Resources/Skills */; };
 		76SM00012FB0000000SM0001 /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = 76SM00032FB0000000SM0003 /* SwiftMath */; };
@@ -25,6 +26,7 @@
 
 /* Begin PBXFileReference section */
 		762415DB2F89627200FBB4F0 /* PalmiAgent.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PalmiAgent.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		76BG00022FB0000000BG0002 /* PalmiAgent/Resources/BrowserGuides */ = {isa = PBXFileReference; lastKnownFileType = folder; path = PalmiAgent/Resources/BrowserGuides; sourceTree = SOURCE_ROOT; };
 		76SK00022FA0000000SK0002 /* PalmiAgent/Resources/Skills */ = {isa = PBXFileReference; lastKnownFileType = folder; path = PalmiAgent/Resources/Skills; sourceTree = SOURCE_ROOT; };
 		A10000000000000000000001 /* PalmiAgentTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PalmiAgentTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -34,9 +36,33 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				Resources/BrowserGuides/index.md,
+				Resources/BrowserGuides/patterns/finance.md,
+				"Resources/BrowserGuides/patterns/food-delivery.md",
+				"Resources/BrowserGuides/patterns/government-logistics.md",
+				"Resources/BrowserGuides/patterns/local-services.md",
+				Resources/BrowserGuides/patterns/media.md,
+				"Resources/BrowserGuides/patterns/news-reference.md",
+				Resources/BrowserGuides/patterns/shopping.md,
+				"Resources/BrowserGuides/patterns/social-community.md",
+				"Resources/BrowserGuides/patterns/tickets-entertainment.md",
+				"Resources/BrowserGuides/patterns/transport-maps.md",
+				Resources/BrowserGuides/patterns/travel.md,
+				"Resources/BrowserGuides/patterns/work-learning.md",
+				Resources/BrowserGuides/sites/finance.md,
+				"Resources/BrowserGuides/sites/food-delivery.md",
+				"Resources/BrowserGuides/sites/government-logistics.md",
+				"Resources/BrowserGuides/sites/local-services.md",
+				Resources/BrowserGuides/sites/media.md,
+				"Resources/BrowserGuides/sites/news-reference.md",
+				Resources/BrowserGuides/sites/shopping.md,
+				"Resources/BrowserGuides/sites/social-community.md",
+				"Resources/BrowserGuides/sites/tickets-entertainment.md",
+				"Resources/BrowserGuides/sites/transport-maps.md",
+				Resources/BrowserGuides/sites/travel.md,
+				"Resources/BrowserGuides/sites/work-learning.md",
 				"Resources/Skills/bionic-persona-creator/SKILL.md",
 				"Resources/Skills/skill-creator/SKILL.md",
-				"Resources/Skills/web-operator/SKILL.md",
 			);
 			target = 762415DA2F89627200FBB4F0 /* PalmiAgent */;
 		};
@@ -82,6 +108,7 @@
 		762415D22F89627200FBB4F0 = {
 			isa = PBXGroup;
 			children = (
+				76BG00022FB0000000BG0002 /* PalmiAgent/Resources/BrowserGuides */,
 				76SK00022FA0000000SK0002 /* PalmiAgent/Resources/Skills */,
 				762415DD2F89627200FBB4F0 /* PalmiAgent */,
 				A10000000000000000000002 /* PalmiAgentTests */,
@@ -203,6 +230,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				76BG00012FB0000000BG0001 /* PalmiAgent/Resources/BrowserGuides in Resources */,
 				76SK00012FA0000000SK0001 /* PalmiAgent/Resources/Skills in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

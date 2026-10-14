@@ -3,6 +3,7 @@ import Observation
 import SwiftUI
 import UIKit
 import WebKit
+import UserNotifications
 
 struct BrowserReply: Sendable {
     let text: String
@@ -50,8 +51,12 @@ final class BrowserOperatorService: NSObject {
     /// 被“暂时隐藏”的对话入口；该对话下次操作浏览器时自动恢复。
     private(set) var hiddenShortcuts: Set<String> = []
     private(set) var pointers: [String: BrowserPointer] = [:]
+    /// 浏览器内部任务只作为可观察展示状态，主运行 journal 无需映射内部步骤。
+    private(set) var runtimeProgress: [UUID: BrowserRuntimeProgress] = [:]
+    private(set) var runningRuntimeTasks: [String: UUID] = [:]
     /// 由 AppContainer 注入的只读查询：对话的任务是否仍在运行。
     @ObservationIgnored var isConversationActive: (WorkspaceSelection) -> Bool = { _ in false }
+    @ObservationIgnored var isQuestionPermissionEnabled: () -> Bool = { true }
     @ObservationIgnored private var conversationSelections: [String: WorkspaceSelection] = [:]
     @ObservationIgnored private var lastObservations: [String: BrowserObservation] = [:]
     @ObservationIgnored private var sessions: [String: BrowserSession] = [:]
@@ -60,6 +65,7 @@ final class BrowserOperatorService: NSObject {
     @ObservationIgnored private var backstageWindow: UIWindow?
     @ObservationIgnored private var hubController: UIViewController?
     @ObservationIgnored private var handoffContinuation: CheckedContinuation<Void, Never>?
+    @ObservationIgnored private var foregroundWaiters: [UUID: CheckedContinuation<Void, Error>] = [:]
     @ObservationIgnored private let defaults: UserDefaults
     private static let dataStoresKey = "palmi.browser-operator.data-stores"
     private static let tabsKey = "palmi.browser-operator.tabs"
@@ -79,13 +85,56 @@ final class BrowserOperatorService: NSObject {
         conversationTabs = defaults.dictionary(forKey: Self.conversationTabsKey) as? [String: String] ?? [:]
         nextTabNumber = max(1, defaults.integer(forKey: Self.nextTabNumberKey))
         hiddenShortcuts = Set(defaults.stringArray(forKey: Self.hiddenShortcutsKey) ?? [])
-        NotificationCenter.default.addObserver(self, selector: #selector(willLeaveForeground),
-                                               name: UIApplication.willResignActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(didEnterBackground),
+                                               name: UIApplication.didEnterBackgroundNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(resumeForegroundWaiters),
+                                               name: UIApplication.didBecomeActiveNotification, object: nil)
     }
 
-    @objc private func willLeaveForeground() {
-        // 用户接管期间可能切到其他 App 查看验证码，接管不因离开前台而中断。
+    @objc private func didEnterBackground() {
+        // 真正进入后台才中止进行中的网页操作；用户接管可继续等待。
         for session in sessions.values where session.isBusy { session.abort(BrowserToolError.foreground) }
+    }
+
+    private func waitUntilNotInBackground(selection: WorkspaceSelection) async throws {
+        if UIApplication.shared.applicationState != .background { return }
+        let token = UUID()
+        let id = "palmi.browser.foreground." + Self.conversationKey(selection) + "." + token.uuidString
+        let center = UNUserNotificationCenter.current()
+        func removeNotification() {
+            center.removeDeliveredNotifications(withIdentifiers: [id])
+            center.removePendingNotificationRequests(withIdentifiers: [id])
+        }
+        defer { removeNotification() }
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                foregroundWaiters[token] = continuation
+                // 注册和状态复查同步完成，避免漏掉前台事件或取消。
+                if Task.isCancelled { resumeWaiter(token, throwing: CancellationError()) }
+                else if UIApplication.shared.applicationState != .background { resumeWaiter(token) }
+                let content = UNMutableNotificationContent()
+                content.title = PalmiL10n.tr("browser.foreground.notification.title")
+                content.body = PalmiL10n.tr("browser.foreground.notification.body")
+                content.sound = .default
+                let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
+                Task { @MainActor in
+                    try? await center.add(request)
+                    if self.foregroundWaiters[token] == nil { removeNotification() }
+                }
+            }
+        } onCancel: {
+            Task { @MainActor in self.resumeWaiter(token, throwing: CancellationError()) }
+        }
+    }
+
+    private func resumeWaiter(_ token: UUID, throwing error: Error? = nil) {
+        guard let continuation = foregroundWaiters.removeValue(forKey: token) else { return }
+        if let error { continuation.resume(throwing: error) }
+        else { continuation.resume() }
+    }
+
+    @objc private func resumeForegroundWaiters() {
+        for token in Array(foregroundWaiters.keys) { resumeWaiter(token) }
     }
 
     static func conversationKey(_ selection: WorkspaceSelection) -> String {
@@ -98,6 +147,60 @@ final class BrowserOperatorService: NSObject {
 
     func record(_ id: String) -> BrowserTabRecord? {
         tabs.first { $0.id == id }
+    }
+
+    func beginRuntimeTask(id: UUID, task: String, selection: WorkspaceSelection) {
+        runtimeProgress[id] = .init(id: id, selection: selection, task: task, startedAt: .now)
+        runningRuntimeTasks[Self.conversationKey(selection)] = id
+    }
+
+    func appendRuntimeStep(_ step: BrowserRuntimeStep, taskID: UUID) {
+        guard runtimeProgress[taskID] != nil else { return }
+        runtimeProgress[taskID]?.steps.append(step)
+    }
+
+    func updateRuntimeStep(_ step: BrowserRuntimeStep, taskID: UUID) {
+        guard let index = runtimeProgress[taskID]?.steps.firstIndex(where: { $0.id == step.id }) else { return }
+        runtimeProgress[taskID]?.steps[index] = step
+    }
+
+    func finishRuntimeTask(id: UUID, status: BrowserTaskStatus) {
+        guard let progress = runtimeProgress[id] else { return }
+        runtimeProgress[id]?.status = status
+        if status == .cancelled, let index = progress.steps.lastIndex(where: { !$0.completed }) {
+            runtimeProgress[id]?.steps[index].cancelled = true
+            runtimeProgress[id]?.steps[index].completed = true
+            runtimeProgress[id]?.steps[index].result = PalmiL10n.tr("browser.runtime.cancelled")
+        }
+        let key = Self.conversationKey(progress.selection)
+        if runningRuntimeTasks[key] == id { runningRuntimeTasks.removeValue(forKey: key) }
+        if status == .cancelled, let tabID = conversationTabs[key] {
+            busyTabIDs.remove(tabID)
+            pointers.removeValue(forKey: tabID)
+        }
+    }
+
+    func forgetRuntimeTasks(_ selection: WorkspaceSelection) {
+        runtimeProgress = runtimeProgress.filter { $0.value.selection != selection }
+        runningRuntimeTasks.removeValue(forKey: Self.conversationKey(selection))
+    }
+
+    func runtimeTarget(arguments: ToolArguments, selection: WorkspaceSelection) -> String {
+        let id = arguments.string("tab") ?? tabID(for: selection)
+        if let ref = arguments.string("ref"), let id,
+           let element = lastObservations[id]?.elements.first(where: { $0.ref == ref }) {
+            return BrowserRuntimeText.line(element.label.isEmpty ? ref : element.label, limit: 180)
+        }
+        for key in ["url", "reason", "question", "ref", "key", "direction"] {
+            if let value = arguments.string(key) { return BrowserRuntimeText.line(value, limit: 180) }
+        }
+        if let x = arguments.double("x"), let y = arguments.double("y") { return "(\(x), \(y))" }
+        return id.flatMap(record)?.displayTitle ?? id ?? ""
+    }
+
+    func runtimeObservationHeader(for selection: WorkspaceSelection) -> String {
+        guard let id = tabID(for: selection), let observation = lastObservations[id] else { return "" }
+        return "tab: \(id)\n" + observation.header
     }
 
     /// 正在被处理的标签页：某个对话当前在用、且该对话的任务仍在运行（一次运行结束即熄灭），或正在执行操作。
@@ -183,7 +286,7 @@ final class BrowserOperatorService: NSObject {
             closeTab(id)
             return BrowserReply(text: "标签页 \(id) 已关闭。")
         }
-        guard UIApplication.shared.applicationState == .active else { throw BrowserToolError.foreground }
+        try await waitUntilNotInBackground(selection: selection)
         try Task.checkCancellation()
         if request.operation == .look, askImage == nil {
             throw BrowserToolError(code: "multimodal_unavailable", message: "未配置可用的多模态角色模型，请改用 observe 阅读结构和文字。")
@@ -213,6 +316,7 @@ final class BrowserOperatorService: NSObject {
         defer {
             session.end()
             busyTabIDs.remove(tabID)
+            if Task.isCancelled { pointers.removeValue(forKey: tabID) }
         }
         var resultPrefix = "tab: \(tabID)\n"
         do {
@@ -454,13 +558,19 @@ final class BrowserOperatorService: NSObject {
             .first { $0.activationState == .foregroundActive }
     }
 
+    private func mountableScene() -> UIWindowScene? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        return scenes.first { $0.activationState == .foregroundActive }
+            ?? scenes.first { $0.activationState == .foregroundInactive }
+    }
+
     private func activeWindow() -> UIWindow? {
         activeScene()?.windows.first { $0.isKeyWindow }
     }
 
     /// 幕后窗口：层级低于主窗口，被不透明的主界面完全遮住；对系统仍是可见窗口，网页可正常渲染与截图。
     private func backstageContainer() throws -> UIView {
-        guard let scene = activeScene() else {
+        guard let scene = mountableScene() else {
             throw BrowserToolError(code: "no_window", message: "当前没有可挂载浏览器的前台窗口。")
         }
         if let window = backstageWindow, window.windowScene === scene, let view = window.rootViewController?.view {
@@ -530,18 +640,27 @@ final class BrowserOperatorService: NSObject {
     // MARK: 生命周期
 
     func forgetConversation(_ selection: WorkspaceSelection) {
-        guard conversationTabs.removeValue(forKey: Self.conversationKey(selection)) != nil else { return }
-        saveConversationTabs()
+        let key = Self.conversationKey(selection)
+        forgetRuntimeTasks(selection)
+        conversationSelections.removeValue(forKey: key)
+        if hiddenShortcuts.remove(key) != nil { defaults.set(Array(hiddenShortcuts), forKey: Self.hiddenShortcutsKey) }
+        if conversationTabs.removeValue(forKey: key) != nil { saveConversationTabs() }
     }
 
     func forgetProject(_ projectID: UUID) {
         let prefix = projectID.uuidString + "/"
+        for selection in Set(runtimeProgress.values.map(\.selection)).union(conversationSelections.values) where selection.projectID == projectID {
+            forgetConversation(selection)
+        }
         let before = conversationTabs.count
         conversationTabs = conversationTabs.filter { !$0.key.hasPrefix(prefix) }
         if conversationTabs.count != before { saveConversationTabs() }
     }
 
     func resetPersistentData() {
+        runtimeProgress = [:]
+        runningRuntimeTasks = [:]
+        conversationSelections = [:]
         if isPresented { dismissBrowser() }
         for id in tabs.map(\.id) { closeTab(id) }
         conversationTabs = [:]

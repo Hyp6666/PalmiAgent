@@ -12,7 +12,7 @@ enum BrowserOperation: String, CaseIterable, Sendable {
         }
     }
 
-    var actionID: ToolActionID { isRead ? .browserRead : .browserInteract }
+    var actionID: ToolActionID { .browser }
 }
 
 struct BrowserToolError: LocalizedError, Sendable {
@@ -20,7 +20,7 @@ struct BrowserToolError: LocalizedError, Sendable {
     let message: String
     var errorDescription: String? { "error: \(code)\nmessage: \(message)" }
 
-    static let foreground = BrowserToolError(code: "requires_foreground", message: "请回到 Palmi 前台后继续浏览器步骤。")
+    static let foreground = BrowserToolError(code: "requires_foreground", message: "Palmi 进入后台，进行中的网页操作被中断，结果未知。请先 observe 确认页面状态。")
     static let stale = BrowserToolError(code: "stale_observation", message: "元素编号已过期，请先 observe，使用最新 observation_id 和 e 编号。")
     static let sensitive = BrowserToolError(code: "sensitive_field", message: "禁止自动输入密码或支付字段，请使用 handoff 交给用户操作。")
 }

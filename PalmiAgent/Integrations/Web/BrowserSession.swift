@@ -88,7 +88,7 @@ final class BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
 
     func checkForeground() throws {
-        guard UIApplication.shared.applicationState == .active else { throw BrowserToolError.foreground }
+        guard UIApplication.shared.applicationState != .background else { throw BrowserToolError.foreground }
         try Task.checkCancellation()
     }
 
