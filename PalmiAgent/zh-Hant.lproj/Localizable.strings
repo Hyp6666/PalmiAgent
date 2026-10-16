@@ -110,8 +110,6 @@
 "chat.queue.title" = "待傳送隊列";
 "chat.quickConfig.capability" = "能力";
 "chat.quickConfig.close" = "關閉設定";
-"chat.quickConfig.phaseThought" = "階段思考";
-"chat.quickConfig.phaseThoughtCaption" = "允许 Palmi 以階段總結形式推进任務。";
 "chat.quickConfig.thinkingCaption" = "思考能力設定需模型本身支援。";
 "chat.quickConfig.thinkingMode" = "思考模式";
 "chat.quickConfig.thinkingStrength" = "思考强度";
@@ -1727,6 +1725,10 @@
 "askUser.presentation.failed" = "問題彈窗無法顯示，介面正忙。請稍後重試。";
 "askUser.countdown" = "%d 秒後自動採用第一個選項";
 
+// 对话与协作工具
+"tool.group.conversationCollaboration.title" = "對話與協作";
+"tool.group.conversationCollaboration.subtitle" = "階段思考與詢問使用者";
+"tool.phaseThought.title" = "階段思考";
 
 // In-app browser
 "settings.section.browser" = "內建瀏覽器";
@@ -1744,7 +1746,7 @@
 "tool.action.browser.effect" = "自主完成網頁任務並回報結果";
 "browser.foreground.notification.title" = "Palmi 正在等你回來";
 "browser.foreground.notification.body" = "回到 Palmi 後會繼續操作網頁。";
-"askUser.notification.title" = "Palmi 需要你回答一個問題";
+"askUser.notification.title" = "Palmi 正在提問，請點一下或長按此訊息框";
 "askUser.notification.reply" = "回覆";
 "tool.action.askUser.title" = "詢問使用者";
 "tool.action.askUser.effect" = "彈出問題，讓使用者選擇推薦答案或自行輸入";
@@ -1777,3 +1779,17 @@
 "browser.runtime.action.ask_user" = "詢問使用者";
 "browser.runtime.action.finish" = "完成回報";
 "browser.runtime.action.invalid" = "無效呼叫";
+
+"askUser.pending" = "待回答問題";
+
+"askUser.collapse" = "收起問題";
+
+"askUser.expand" = "繼續回答";
+
+"askUser.pendingCount" = "%d 個問題待回答";
+
+"askUser.countdownPaused" = "已暫停自動選擇，請繼續輸入或選擇選項";
+
+"askUser.result.answered" = "使用者已回答";
+
+"askUser.result.timeoutDefault" = "逾時預設";

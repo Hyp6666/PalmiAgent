@@ -110,8 +110,6 @@
 "chat.queue.title" = "Pending send queue";
 "chat.quickConfig.capability" = "Capability";
 "chat.quickConfig.close" = "Close";
-"chat.quickConfig.phaseThought" = "Phase Thought";
-"chat.quickConfig.phaseThoughtCaption" = "Allow Palmi to move tasks forward with phase summaries.";
 "chat.quickConfig.thinkingCaption" = "Thinking controls require model support.";
 "chat.quickConfig.thinkingMode" = "Thinking Mode";
 "chat.quickConfig.thinkingStrength" = "Thinking Effort";
@@ -1727,6 +1725,10 @@
 "askUser.presentation.failed" = "Unable to show the question because the interface is busy. Please try again later.";
 "askUser.countdown" = "Automatically use the first option in %d seconds";
 
+// 对话与协作工具
+"tool.group.conversationCollaboration.title" = "Conversation & Collaboration";
+"tool.group.conversationCollaboration.subtitle" = "Phase thoughts and user questions";
+"tool.phaseThought.title" = "Phase Thought";
 
 // In-app browser
 "settings.section.browser" = "In-App Browser";
@@ -1744,7 +1746,7 @@
 "tool.action.browser.effect" = "Complete a web task autonomously and return the result";
 "browser.foreground.notification.title" = "Palmi is waiting for you";
 "browser.foreground.notification.body" = "Return to Palmi to continue the browser task.";
-"askUser.notification.title" = "Palmi has a question for you";
+"askUser.notification.title" = "Palmi has a question. Tap or hold this notification.";
 "askUser.notification.reply" = "Reply";
 "tool.action.askUser.title" = "Ask User";
 "tool.action.askUser.effect" = "Ask the user a question with suggested answers or a free-form reply";
@@ -1777,3 +1779,17 @@
 "browser.runtime.action.ask_user" = "Ask user";
 "browser.runtime.action.finish" = "Report result";
 "browser.runtime.action.invalid" = "Invalid call";
+
+"askUser.pending" = "Pending question";
+
+"askUser.collapse" = "Collapse question";
+
+"askUser.expand" = "Continue answering";
+
+"askUser.pendingCount" = "%d questions pending";
+
+"askUser.countdownPaused" = "Auto-selection paused. Type or choose an option.";
+
+"askUser.result.answered" = "User answered";
+
+"askUser.result.timeoutDefault" = "Timeout default";

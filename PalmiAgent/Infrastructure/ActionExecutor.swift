@@ -519,16 +519,9 @@ final class ActionExecutor {
                 let question = try arguments.requiredString("question")
                 let options = (arguments.stringArray("options") ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 if UIApplication.shared.applicationState == .active { await notificationService.requestAuthorizationIfNeeded() }
-                switch try await userQuestionService.ask(question: question, options: Array(options.prefix(4))) {
-                case .answered(let answer):
-                    return success(action, "用户已回答", details: "user_answer: \(answer)",
-                        inlineMetadata: ToolCallInlineMetadataBuilder.make(toolName: "ask_user", argumentsJSON: arguments.normalizedJSONString()))
-                case .dismissed:
-                    return success(action, "用户未回答", details: "user_dismissed: 用户关闭了问题，没有作答。",
-                        inlineMetadata: ToolCallInlineMetadataBuilder.make(toolName: "ask_user", argumentsJSON: arguments.normalizedJSONString()))
-                case .failed(let message):
-                    throw AppError.invalidState(message)
-                }
+                let answer = try await userQuestionService.ask(question: question, options: Array(options.prefix(4)))
+                return success(action, PalmiL10n.tr(answer.summaryLocalizationKey), details: answer.modelDetails,
+                    inlineMetadata: ToolCallInlineMetadataBuilder.make(toolName: "ask_user", argumentsJSON: arguments.normalizedJSONString()))
 
             case .browser:
                 return try await executeBrowser(action, arguments: arguments, modelOverrides: modelOverrides, executionID: executionID)

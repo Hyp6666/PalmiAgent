@@ -110,8 +110,6 @@
 "chat.queue.title" = "送信待ちキュー";
 "chat.quickConfig.capability" = "機能";
 "chat.quickConfig.close" = "設定を閉じる";
-"chat.quickConfig.phaseThought" = "段階思考";
-"chat.quickConfig.phaseThoughtCaption" = "Palmi が段階ごとの要約でタスクを進められるようにします。";
 "chat.quickConfig.thinkingCaption" = "思考機能の設定にはモデル側の対応が必要です。";
 "chat.quickConfig.thinkingMode" = "思考モード";
 "chat.quickConfig.thinkingStrength" = "思考強度";
@@ -1727,6 +1725,10 @@
 "askUser.presentation.failed" = "画面の処理中のため質問を表示できません。しばらくしてから再試行してください。";
 "askUser.countdown" = "%d 秒後に最初の選択肢を自動で採用します";
 
+// 对话与协作工具
+"tool.group.conversationCollaboration.title" = "会話と連携";
+"tool.group.conversationCollaboration.subtitle" = "段階思考とユーザーへの質問";
+"tool.phaseThought.title" = "段階思考";
 
 // In-app browser
 "settings.section.browser" = "アプリ内ブラウザ";
@@ -1744,7 +1746,7 @@
 "tool.action.browser.effect" = "ウェブのタスクを自律的に完了し、結果を返します";
 "browser.foreground.notification.title" = "Palmi はあなたの復帰を待っています";
 "browser.foreground.notification.body" = "Palmi に戻るとウェブ操作を続けます。";
-"askUser.notification.title" = "Palmi から質問があります";
+"askUser.notification.title" = "Palmi からの質問です。この通知をタップまたは長押ししてください";
 "askUser.notification.reply" = "返信";
 "tool.action.askUser.title" = "ユーザーに質問";
 "tool.action.askUser.effect" = "候補の回答または自由入力でユーザーに質問します";
@@ -1777,3 +1779,17 @@
 "browser.runtime.action.ask_user" = "ユーザーに質問";
 "browser.runtime.action.finish" = "結果を報告";
 "browser.runtime.action.invalid" = "無効な呼び出し";
+
+"askUser.pending" = "回答待ちの質問";
+
+"askUser.collapse" = "質問を折りたたむ";
+
+"askUser.expand" = "回答を続ける";
+
+"askUser.pendingCount" = "%d 件の質問が回答待ち";
+
+"askUser.countdownPaused" = "自動選択は一時停止中です。入力するか選択肢を選んでください";
+
+"askUser.result.answered" = "回答済み";
+
+"askUser.result.timeoutDefault" = "タイムアウトによる既定の選択";

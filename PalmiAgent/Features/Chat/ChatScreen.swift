@@ -2115,25 +2115,6 @@ struct ChatScreen: View {
     }
 
     @ViewBuilder
-    private var externalReasoningMenuContent: some View {
-        Button {
-            performQuickSettingsMutation {
-                isExternalReasoningEnabled = true
-            }
-        } label: {
-            menuSelectionLabel(PalmiL10n.tr("common.on"), isSelected: isExternalReasoningEnabled)
-        }
-
-        Button {
-            performQuickSettingsMutation {
-                isExternalReasoningEnabled = false
-            }
-        } label: {
-            menuSelectionLabel(PalmiL10n.tr("common.off"), isSelected: !isExternalReasoningEnabled)
-        }
-    }
-
-    @ViewBuilder
     private var toolAuthorizationMenuContent: some View {
         ForEach(Array(ToolAuthorizationMode.userSelectableCases.reversed())) { mode in
             Button {
@@ -2249,19 +2230,6 @@ struct ChatScreen: View {
                                     configurationCaption(PalmiL10n.tr("chat.quickConfig.toolsCaption"), isExtreme: isExtreme)
                                 }
 
-                                VStack(alignment: .leading, spacing: 10) {
-                                    configurationCard(isExtreme: isExtreme) {
-                                        configurationMenuRow(
-                                            title: PalmiL10n.tr("chat.quickConfig.phaseThought"),
-                                            value: isExternalReasoningEnabled ? PalmiL10n.tr("common.on") : PalmiL10n.tr("common.off"),
-                                            isExtreme: isExtreme
-                                        ) {
-                                            externalReasoningMenuContent
-                                        }
-                                    }
-
-                                    configurationCaption(PalmiL10n.tr("chat.quickConfig.phaseThoughtCaption"), isExtreme: isExtreme)
-                                }
                             }
 
                             VStack(alignment: .leading, spacing: 10) {

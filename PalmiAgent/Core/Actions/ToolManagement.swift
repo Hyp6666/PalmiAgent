@@ -42,6 +42,7 @@ enum ToolManagementGroupID: String, CaseIterable, Identifiable, Codable, Sendabl
     case workspaceFiles
     case skills
     case multimodal
+    case conversationCollaboration
     case webResearch
     case bionicPersonas
     case imageGeneration
@@ -158,6 +159,13 @@ enum ToolManagementCatalog {
             actionIDs: [.recognizeImageText, .scanImageWithMultimodalModel]
         ),
         .init(
+            id: .conversationCollaboration,
+            sectionID: .nonApp,
+            title: PalmiL10n.tr("tool.group.conversationCollaboration.title"),
+            subtitle: PalmiL10n.tr("tool.group.conversationCollaboration.subtitle"),
+            actionIDs: [.askUser]
+        ),
+        .init(
             id: .webResearch,
             sectionID: .nonApp,
             title: "网页研究",
@@ -180,6 +188,7 @@ enum ToolManagementCatalog {
         settingsGroup(.workspaceFiles),
         settingsGroup(.skills),
         settingsGroup(.multimodal),
+        settingsGroup(.conversationCollaboration),
         settingsGroup(.webResearch, actionIDs: [.searchWeb, .fetchStaticWebPage, .browser]),
         settingsGroup(.bionicPersonas),
         settingsGroup(.imageGeneration)
@@ -206,6 +215,8 @@ enum ToolManagementCatalog {
             names = [.readSkill, .importSkill]
         case .multimodal:
             names = [.ocr, .vision]
+        case .conversationCollaboration:
+            names = [.askUser]
         case .webResearch:
             names = [.webSearch, .fetch, .browser]
         case .bionicPersonas:

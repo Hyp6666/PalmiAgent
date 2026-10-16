@@ -174,13 +174,9 @@ final class BrowserTaskRuntime {
                             guard resolution.action.id == .askUser else { throw BrowserToolError(code: "invalid_arguments", message: "无效的问题工具。") }
                             let question = try arguments.requiredString("question")
                             let options = (arguments.stringArray("options") ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                            switch try await questions.ask(question: question, options: options) {
-                            case .answered(let text):
-                                userAnswers.append("Q: " + String(question.prefix(120)) + " → A: " + String(text.prefix(200)))
-                                output = .init(text: "user_answer: " + text, summary: "user_answer: " + text)
-                            case .dismissed: output = .init(text: "user_dismissed", summary: "The user dismissed the question without answering.")
-                            case .failed(let message): throw AppError.invalidState(message)
-                            }
+                            let answer = try await questions.ask(question: question, options: options)
+                            userAnswers.append("[answer_source: " + answer.source + "] Q: " + String(question.prefix(120)) + " → A: " + String(answer.text.prefix(200)))
+                            output = .init(text: answer.modelDetails, summary: PalmiL10n.tr(answer.summaryLocalizationKey))
                         default:
                             throw BrowserToolError(code: "unknown_browser_tool", message: "浏览器内部工具不存在：\(use.name)")
                         }

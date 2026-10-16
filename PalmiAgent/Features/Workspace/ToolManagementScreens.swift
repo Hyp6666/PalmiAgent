@@ -4,6 +4,7 @@ struct ToolManagementOverviewScreen: View {
     @Bindable var permissionStore: ToolPermissionStore
     let actions: [ToolAction]
     @State private var selectedGroup: ToolManagementGroupDefinition?
+    @AppStorage("palmi.chat.external-reasoning-enabled") private var isExternalReasoningEnabled = true
 
     var body: some View {
         ScrollView {
@@ -16,6 +17,7 @@ struct ToolManagementOverviewScreen: View {
                                 section: section,
                                 groups: groups,
                                 permissionStore: permissionStore,
+                                isExternalReasoningEnabled: $isExternalReasoningEnabled,
                                 onOpen: { group in
                                     selectedGroup = group
                                 }
@@ -44,7 +46,8 @@ struct ToolManagementOverviewScreen: View {
         .navigationDestination(item: $selectedGroup) { group in
             ToolManagementGroupScreen(
                 permissionStore: permissionStore,
-                group: group
+                group: group,
+                isExternalReasoningEnabled: $isExternalReasoningEnabled
             )
         }
     }
@@ -103,6 +106,7 @@ private struct ToolManagementSectionBlock: View {
     let section: ToolManagementSectionDefinition
     let groups: [ToolManagementGroupDefinition]
     @Bindable var permissionStore: ToolPermissionStore
+    @Binding var isExternalReasoningEnabled: Bool
     let onOpen: (ToolManagementGroupDefinition) -> Void
 
     var body: some View {
@@ -115,14 +119,16 @@ private struct ToolManagementSectionBlock: View {
 
             LazyVStack(spacing: 12) {
                 ForEach(groups) { group in
+                    let controls = ToolManagementGroupControls(
+                        permissionStore: permissionStore,
+                        groupID: group.id,
+                        isExternalReasoningEnabled: $isExternalReasoningEnabled
+                    )
                     ToolManagementGroupCard(
                         group: group,
-                        enabledCount: permissionStore.enabledCount(in: group.id),
-                        totalCount: permissionStore.actionCount(in: group.id),
-                        isOn: Binding(
-                            get: { permissionStore.isEnabled(group.id) },
-                            set: { permissionStore.setEnabled($0, for: group.id) }
-                        ),
+                        enabledCount: controls.enabledCount,
+                        totalCount: controls.totalCount,
+                        isOn: controls.isOn,
                         onOpen: { onOpen(group) }
                     )
                 }
@@ -202,9 +208,18 @@ private struct ToolManagementGroupCard: View {
 private struct ToolManagementGroupScreen: View {
     @Bindable var permissionStore: ToolPermissionStore
     let group: ToolManagementGroupDefinition
+    @Binding var isExternalReasoningEnabled: Bool
 
     private var groupFacades: [AgentExternalToolFacade] {
         ToolManagementCatalog.settingsFacades(in: group.id)
+    }
+
+    private var controls: ToolManagementGroupControls {
+        ToolManagementGroupControls(
+            permissionStore: permissionStore,
+            groupID: group.id,
+            isExternalReasoningEnabled: $isExternalReasoningEnabled
+        )
     }
 
     var body: some View {
@@ -213,13 +228,18 @@ private struct ToolManagementGroupScreen: View {
                 LazyVStack(spacing: 14) {
                     ToolManagementGroupHeaderCard(
                         group: group,
-                        enabledCount: permissionStore.enabledCount(in: group.id),
-                        totalCount: permissionStore.actionCount(in: group.id),
-                        isOn: Binding(
-                            get: { permissionStore.isEnabled(group.id) },
-                            set: { permissionStore.setEnabled($0, for: group.id) }
-                        )
+                        enabledCount: controls.enabledCount,
+                        totalCount: controls.totalCount,
+                        isOn: controls.isOn
                     )
+
+                    if group.id == .conversationCollaboration {
+                        ToolManagementToggleRow(
+                            title: PalmiL10n.tr("tool.phaseThought.title"),
+                            symbolName: "brain",
+                            isOn: $isExternalReasoningEnabled
+                        )
+                    }
 
                     ForEach(groupFacades) { facade in
                         ToolManagementFacadeRow(
@@ -248,6 +268,62 @@ private struct ToolManagementGroupScreen: View {
         }
         .navigationTitle(group.localizedSettingsTitle)
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// 阶段思考使用已有布尔配置，分组开关与计数在界面外侧合并。
+@MainActor
+private struct ToolManagementGroupControls {
+    let permissionStore: ToolPermissionStore
+    let groupID: ToolManagementGroupID
+    @Binding var isExternalReasoningEnabled: Bool
+
+    private var includesPhaseThought: Bool { groupID == .conversationCollaboration }
+
+    var enabledCount: Int {
+        permissionStore.enabledCount(in: groupID) + (includesPhaseThought && isExternalReasoningEnabled ? 1 : 0)
+    }
+
+    var totalCount: Int {
+        permissionStore.actionCount(in: groupID) + (includesPhaseThought ? 1 : 0)
+    }
+
+    var isOn: Binding<Bool> {
+        Binding(
+            get: { permissionStore.isEnabled(groupID) && (!includesPhaseThought || isExternalReasoningEnabled) },
+            set: { enabled in
+                permissionStore.setEnabled(enabled, for: groupID)
+                if includesPhaseThought { isExternalReasoningEnabled = enabled }
+            }
+        )
+    }
+}
+
+private struct ToolManagementToggleRow: View {
+    let title: String
+    let symbolName: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: symbolName)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+                .frame(width: 24, height: 24)
+
+            Text(title)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Toggle(title, isOn: $isOn)
+                .labelsHidden()
+                .tint(.green)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 22))
     }
 }
 
@@ -426,6 +502,8 @@ private struct ToolManagementGroupAppearance {
             .init(symbolName: "sparkles.rectangle.stack", tint: .indigo)
         case .multimodal:
             .init(symbolName: "viewfinder", tint: .purple)
+        case .conversationCollaboration:
+            .init(symbolName: "bubble.left.and.bubble.right", tint: .indigo)
         case .webResearch:
             .init(symbolName: "globe.americas.fill", tint: .cyan)
         case .bionicPersonas:
