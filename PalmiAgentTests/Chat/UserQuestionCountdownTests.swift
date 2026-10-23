@@ -33,15 +33,29 @@ final class UserQuestionCountdownTests: XCTestCase {
         XCTAssertEqual(countdown.defaultAnswer(at: start.addingTimeInterval(130)), "继续")
     }
 
-    func testFreeformInputPermanentlyPausesDefaultSelection() {
+    func testInputChangeWaitsFiveIdleSecondsThenResumesWithoutReset() {
         var countdown = UserQuestionCountdown(options: ["继续"])
         countdown.resume(at: start)
-        countdown.pauseForFreeformInput(at: start.addingTimeInterval(20))
-        countdown.resume(at: start.addingTimeInterval(300))
+        XCTAssertTrue(countdown.isRunning(at: start.addingTimeInterval(1)))
+        countdown.noteInputChange(at: start.addingTimeInterval(20))
         XCTAssertEqual(countdown.accumulated, 20)
-        XCTAssertNil(countdown.visibleSince)
-        XCTAssertNil(countdown.remainingSeconds(at: start.addingTimeInterval(600)))
-        XCTAssertNil(countdown.defaultAnswer(at: start.addingTimeInterval(600)))
+        XCTAssertFalse(countdown.isRunning(at: start.addingTimeInterval(24)))
+        XCTAssertEqual(countdown.remainingSeconds(at: start.addingTimeInterval(24)), 40)
+        XCTAssertTrue(countdown.isRunning(at: start.addingTimeInterval(25.5)))
+        XCTAssertEqual(countdown.remainingSeconds(at: start.addingTimeInterval(35)), 30)
+        XCTAssertEqual(countdown.defaultAnswer(at: start.addingTimeInterval(65)), "继续")
+    }
+
+    func testIdleTimeOnlyAccumulatesWhileVisible() {
+        var countdown = UserQuestionCountdown(options: ["继续"])
+        countdown.resume(at: start)
+        countdown.noteInputChange(at: start.addingTimeInterval(10))
+        countdown.suspend(at: start.addingTimeInterval(12))
+        countdown.resume(at: start.addingTimeInterval(500))
+        // 后台时间不算空闲：还差 3 秒空闲才继续走。
+        XCTAssertFalse(countdown.isRunning(at: start.addingTimeInterval(502)))
+        XCTAssertEqual(countdown.remainingSeconds(at: start.addingTimeInterval(503)), 50)
+        XCTAssertEqual(countdown.remainingSeconds(at: start.addingTimeInterval(513)), 40)
     }
 
     func testNoOptionsNeverCountsDown() {

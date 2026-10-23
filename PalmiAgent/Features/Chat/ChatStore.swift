@@ -213,6 +213,11 @@ final class ChatStore {
     let toolPermissionStore: ToolPermissionStore
     let toolAuthorizationStore: ToolAuthorizationStore
     let unreadStore: ChatUnreadStore
+    let nextPromptSuggestionService: NextPromptSuggestionService
+    /// 每个会话最近一次总结后预测的用户下一句（聊天与专业模式）。
+    private(set) var nextPromptSuggestions: [WorkspaceSelection: String] = [:]
+    @ObservationIgnored private var nextPromptSuggestionTasks: [WorkspaceSelection: Task<Void, Never>] = [:]
+    @ObservationIgnored private var nextPromptSuggestionTokens: [WorkspaceSelection: UUID] = [:]
 
     var messages: [PalmiChatMessage] = [] {
         didSet { messagesNeedPersistence = true }
@@ -438,7 +443,8 @@ final class ChatStore {
         workspaceStore: WorkspaceStore,
         toolPermissionStore: ToolPermissionStore,
         toolAuthorizationStore: ToolAuthorizationStore,
-        unreadStore: ChatUnreadStore? = nil
+        unreadStore: ChatUnreadStore? = nil,
+        nextPromptSuggestionService: NextPromptSuggestionService? = nil
     ) {
         self.actions = actions
         self.apiConfigurationStore = apiConfigurationStore
@@ -452,6 +458,8 @@ final class ChatStore {
         self.toolPermissionStore = toolPermissionStore
         self.toolAuthorizationStore = toolAuthorizationStore
         self.unreadStore = unreadStore ?? ChatUnreadStore()
+        self.nextPromptSuggestionService = nextPromptSuggestionService
+            ?? NextPromptSuggestionService(modelRuntime: conversationTitleService.modelRuntime)
         Task { [weak self] in
             await self?.reconcileStaleRunJournals()
         }
@@ -563,6 +571,7 @@ final class ChatStore {
         )
         messages.append(userMessage)
         messages.append(headerMessage)
+        clearNextPromptSuggestion(for: turnSelection)
         saveRunLedger(runLedger, for: turnSelection)
         activeSessionHeaderID = headerMessage.id
         activeToolMessageIDs = [:]
@@ -651,6 +660,14 @@ final class ChatStore {
                     continuedProcessingCoordinator.complete(
                         identifier: activeRun.continuedProcessingIdentifier,
                         success: true
+                    )
+                    triggerNextPromptSuggestion(
+                        for: turnSelection,
+                        userMessage: visibleText.isEmpty ? hiddenText : visibleText,
+                        finalReply: result.finalReply,
+                        isChatSurface: turnSurface == .chat,
+                        providerID: runProviderID,
+                        modelOverrides: modelOverrides
                     )
                     await autoCompactIfNeeded(
                         loop: runLoop,
@@ -1705,6 +1722,55 @@ final class ChatStore {
             return normalizeMessages(storedMessages).isEmpty
         } catch {
             return false
+        }
+    }
+
+    var nextPromptSuggestion: String? {
+        workspaceStore.selectedSelection.flatMap { nextPromptSuggestions[$0] }
+    }
+
+    /// 把推荐的下一句填进输入框（只在输入框为空时）。
+    func acceptNextPromptSuggestion() {
+        guard let selection = workspaceStore.selectedSelection,
+              let suggestion = nextPromptSuggestions[selection],
+              inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        inputText = suggestion
+        clearNextPromptSuggestion(for: selection)
+    }
+
+    private func clearNextPromptSuggestion(for selection: WorkspaceSelection) {
+        nextPromptSuggestionTasks.removeValue(forKey: selection)?.cancel()
+        nextPromptSuggestionTokens.removeValue(forKey: selection)
+        if nextPromptSuggestions[selection] != nil { nextPromptSuggestions.removeValue(forKey: selection) }
+    }
+
+    /// 总结完成后的独立小请求；失败静默，不影响本轮结果。
+    private func triggerNextPromptSuggestion(
+        for selection: WorkspaceSelection,
+        userMessage: String,
+        finalReply: String,
+        isChatSurface: Bool,
+        providerID: APIProviderID,
+        modelOverrides: AgentModelRoleOverrides
+    ) {
+        clearNextPromptSuggestion(for: selection)
+        guard !finalReply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              workspaceStore.thread(for: selection)?.subagentOrigin == nil else { return }
+        let token = UUID()
+        nextPromptSuggestionTokens[selection] = token
+        nextPromptSuggestionTasks[selection] = Task { [weak self] in
+            guard let self else { return }
+            let suggestion = try? await nextPromptSuggestionService.suggest(
+                userMessage: userMessage,
+                finalReply: finalReply,
+                isChatSurface: isChatSurface,
+                providerID: providerID,
+                modelOverrides: modelOverrides
+            )
+            guard !Task.isCancelled, nextPromptSuggestionTokens[selection] == token else { return }
+            nextPromptSuggestionTasks.removeValue(forKey: selection)
+            nextPromptSuggestionTokens.removeValue(forKey: selection)
+            if let suggestion { nextPromptSuggestions[selection] = suggestion }
         }
     }
 

@@ -582,6 +582,44 @@ final class WorkspaceStore {
         }
     }
 
+    func deleteNode(_ node: WorkspaceFileNode) {
+        guard hasBrowsableWorkspace else {
+            statusMessage = PalmiL10n.tr("workspace.status.selectSessionOrProject")
+            return
+        }
+        do {
+            try withActiveWorkspace {
+                try workspaceManager.removeItem(at: node.relativePath)
+            }
+            if selectedNode?.relativePath == node.relativePath { selectedNode = nil; selectedNodePreview = nil }
+            refreshCurrentThreadContents()
+            statusMessage = PalmiL10n.tr("workspace.status.itemDeleted", node.name)
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    func renameNode(_ node: WorkspaceFileNode, to rawName: String) {
+        guard hasBrowsableWorkspace else {
+            statusMessage = PalmiL10n.tr("workspace.status.selectSessionOrProject")
+            return
+        }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 重命名只改同目录下的名字，不能借机移动到别处。
+        guard !name.isEmpty, name != node.name, !name.contains("/"), name != ".", name != ".." else { return }
+        let parent = (node.relativePath as NSString).deletingLastPathComponent
+        let destination = parent.isEmpty ? name : parent + "/" + name
+        do {
+            _ = try withActiveWorkspace {
+                try workspaceManager.moveItem(from: node.relativePath, to: destination)
+            }
+            refreshCurrentThreadContents()
+            statusMessage = PalmiL10n.tr("workspace.status.itemRenamed", name)
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
     func importAttachmentsToHiddenFiles(_ attachments: [WorkspaceImportedAttachment]) throws -> WorkspaceAttachmentBatch {
         let batch = try withActiveWorkspace {
             try workspaceManager.importAttachmentsToHiddenFiles(attachments)

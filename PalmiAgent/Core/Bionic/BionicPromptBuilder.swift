@@ -76,8 +76,22 @@ enum BionicPromptBuilder {
     }
     static func personaPrefix(_ role: BionicRole, now: Date = .now) throws -> String {
         let localized = BionicPromptLocalization(nativeLanguage: role.persona.text("native_language"))
-        return localized.dailyInstructions + "\n\n" + localized.personaHeading + "\n"
-            + (try BionicCodec.string(personaData(role, now: now))) + "\n" + localized.mbtiBoundary
+        return localized.dailyInstructions + "\n\n" + (try personaModuleText(role, now: now))
+    }
+    /// 角色设定模块：强制遵守声明 + 身份/背景正文 + 完整资料，包在 <INSTRUCTIONS> 中。
+    /// 只改呈现文案，不改任何角色字段、模块顺序或 input_layout。
+    static func personaModuleText(_ role: BionicRole, now: Date) throws -> String {
+        let localized = BionicPromptLocalization(nativeLanguage: role.persona.text("native_language"))
+        var lines = [localized.personaDirective, "", "<INSTRUCTIONS>"]
+        let identity = role.persona.text("identity").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !identity.isEmpty { lines.append(localized.identityLabel + identity) }
+        let background = role.persona.text("background").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !background.isEmpty { lines.append(localized.backgroundLabel + background) }
+        lines.append(localized.personaHeading)
+        lines.append(try BionicCodec.string(personaData(role, now: now)))
+        lines.append("</INSTRUCTIONS>")
+        lines.append(localized.mbtiBoundary)
+        return lines.joined(separator: "\n")
     }
     static func clockModule(_ role: BionicRole, now: Date) throws -> BionicObject {
         var value = tail("clock", "")
@@ -245,7 +259,7 @@ enum BionicPromptBuilder {
             allowed.insert(id)
         }
         var prefix = [module("instructions", localized.dailyInstructions),
-            module("persona", localized.personaHeading + "\n" + (try BionicCodec.string(personaData(role, now: now))) + "\n" + localized.mbtiBoundary),
+            module("persona", try personaModuleText(role, now: now)),
             module("memory", localized.memoryHeading + "\n" + (try BionicCodec.string(["facts": .records(facts), "manual_corrections": .records(barriers)]))),
             module("summary", localized.summaryHeading + "\n" + (summary?.text("text") ?? ""))]
         let diaryBudget = min(1200, max(128, threshold(role.persona) / 6))

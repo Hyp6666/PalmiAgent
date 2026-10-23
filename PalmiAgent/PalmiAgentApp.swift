@@ -16,6 +16,7 @@ struct PalmiAgentApp: App {
                         skillRegistry: container.skillRegistry, chatStore: container.chatStore,
                         bionicStore: container.bionicStore)
             .environment(container.browserOperatorService)
+            .environment(container.userQuestionService)
             .task {
                 await container.bionicStore.purchases.start()
                 await container.bionicStore.bootstrap()

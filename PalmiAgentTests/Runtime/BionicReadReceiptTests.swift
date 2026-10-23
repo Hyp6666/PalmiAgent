@@ -72,7 +72,7 @@ extension BionicReadReceiptTests {
         XCTAssertEqual(rebuilt.unreadCounts[fixture.instance], 0)
     }
 
-    func testJournalWriteFailureKeepsBadgeUntilArchiveConfirmsRead() async throws {
+    func testJournalWriteFailureStillClearsBadgeAndArchiveConfirmsRead() async throws {
         let fixture = try await BionicReadFixture()
         defer { fixture.removeFiles() }
         let journal = fixture.archive.localURL(fixture.instance).appendingPathComponent("pending-read-receipts.json")
@@ -82,8 +82,11 @@ extension BionicReadReceiptTests {
         fixture.store.chatVisibility(fixture.instance, visible: true, token: page)
         fixture.store.readConversationMessages([fixture.messageID], instance: fixture.instance,
             participantID: fixture.reader, visibilityToken: page)
-        XCTAssertEqual(fixture.store.unreadCounts[fixture.instance], 1)
+        // 气泡跟随阅读立即消失；日志失败只记录错误，归档仍在后台确认。
+        XCTAssertEqual(fixture.store.unreadCounts[fixture.instance], 0)
         XCTAssertNotNil(fixture.store.errors[fixture.instance])
+        await fixture.store.refresh(changed: fixture.instance)
+        XCTAssertEqual(fixture.store.unreadCounts[fixture.instance], 0)
         try await fixture.waitUntilRead([fixture.messageID])
         for _ in 0..<20 where fixture.store.unreadCounts[fixture.instance] != 0 {
             try await Task.sleep(for: .milliseconds(50))

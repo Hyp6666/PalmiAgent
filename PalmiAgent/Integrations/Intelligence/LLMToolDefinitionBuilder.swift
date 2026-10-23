@@ -97,9 +97,9 @@ enum LLMToolDefinitionBuilder {
             ]
         case .askUser:
             lines = [
-                "[交互] 向用户提出简短、有引导性的问题，通常提供 2 个具体、互斥的选项，最多 4 个，用户也可以自行输入。只用于执行中必须由用户决定、且答案会改变后续做法的事项，例如选择方案、确认关键约束或补充缺失信息；能从上下文合理确定的不要问。",
-                "第一个选项是推荐的默认选项，在选项文字末尾用括号标注推荐，并与问题使用相同语言，例如中文（推荐）、英文 (Recommended)、日文（おすすめ）、韩文 (추천)。选项覆盖最可能的选择。",
-                "结果明细以 JSON 返回 answer 和 answer_source。answer_source=user 表示用户亲自作答；timeout_default 表示有选项且未开始输入时，前台累计 60 秒后自动采用第一项，必须明确称为超时默认，不得声称用户已确认。收起浮窗或关闭通知不结束询问，用户可从待回答问题入口继续；并发询问逐条排队。"
+                "[交互] 向用户提出简短、有引导性的问题，必须提供 1–4 个具体、互斥的选项，通常 2 个，用户也可以自行输入。只用于执行中必须由用户决定、且答案会改变后续做法的事项，例如选择方案、确认关键约束或补充缺失信息；能从上下文合理确定的不要问。",
+                "options 必填且至少 1 项，开放式问题也不例外。第一项是超时默认答案：必须选用户迟迟未答时对任务影响最小、最保守、可逆的做法（开放式问题可写“先按常规做法继续”这类保守答案），不得是不可逆或有外部影响的操作。在第一项文字末尾用括号标注推荐，并与问题使用相同语言，例如中文（推荐）、英文 (Recommended)、日文（おすすめ）、韩文 (추천)。其余选项覆盖最可能的选择。",
+                "结果明细以 JSON 返回 answer 和 answer_source。answer_source=user 表示用户亲自作答；timeout_default 表示用户未作答，前台累计 60 秒后自动采用第一项（输入框有变化时暂停，静止 5 秒后继续），必须明确称为超时默认，不得声称用户已确认。收起浮窗或关闭通知不结束询问，用户可从待回答问题入口继续；并发询问逐条排队。"
             ]
         case .browser:
             lines = [
@@ -221,11 +221,12 @@ enum LLMToolDefinitionBuilder {
             "question": ToolJSONSchema.string(description: "必填。向用户提出的一个具体问题，1–1000 字。"),
             "options": .object([
                 "type": .string("array"),
-                "description": .string("可选。最多 4 个推荐答案，每个 1–200 字；用户点选即作为回答。"),
+                "description": .string("必填。1–4 个推荐答案，每个 1–200 字；用户点选即作为回答。第一项是超时默认答案，必须是用户未作答时影响最小的保守选择。"),
+                "minItems": .number(1),
                 "maxItems": .number(4),
                 "items": .object(["type": .string("string")])
             ])
-        ], required: ["question"])
+        ], required: ["question", "options"])
     }
 
     private static var browserSchema: JSONValue { BrowserRuntimeTools.taskSchema }

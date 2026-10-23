@@ -29,20 +29,23 @@ final class UserQuestionSessionTests: XCTestCase {
         XCTAssertEqual(result1, .answered("Second"))
     }
 
-    func testDraftSurvivesCollapseAndFreeformInputPermanentlyStopsTimeout() async throws {
+    func testDraftSurvivesCollapseAndInputChangesOnlyDelayTimeout() async throws {
         let session = UserQuestionSession()
         let task = await enqueue(session)
         let id = try XCTUnwrap(session.prompt?.id)
         session.updateClock(isVisible: true, at: start)
+        XCTAssertTrue(session.isCountdownRunning)
         session.setDraft("My answer", promptID: id, at: start.addingTimeInterval(12))
+        XCTAssertFalse(session.isCountdownRunning)
         session.setExpanded(false, promptID: id)
-        session.updateClock(isVisible: true, at: start.addingTimeInterval(120))
+        session.updateClock(isVisible: true, at: start.addingTimeInterval(15))
+        XCTAssertEqual(session.countdownRemainingSeconds, 48)
+        XCTAssertFalse(session.isCountdownRunning)
+        session.updateClock(isVisible: true, at: start.addingTimeInterval(20))
+        XCTAssertEqual(session.countdownRemainingSeconds, 45)
+        XCTAssertTrue(session.isCountdownRunning)
         session.setExpanded(true, promptID: id)
         XCTAssertEqual(session.draft, "My answer")
-        XCTAssertNil(session.countdownRemainingSeconds)
-        session.setDraft("", promptID: id, at: start.addingTimeInterval(121))
-        session.updateClock(isVisible: true, at: start.addingTimeInterval(240))
-        XCTAssertNotNil(session.prompt)
         session.submit("Custom", promptID: id)
         let result2 = try await task.value
         XCTAssertEqual(result2, .answered("Custom"))

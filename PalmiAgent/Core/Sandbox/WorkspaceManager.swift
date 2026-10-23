@@ -1018,11 +1018,13 @@ final class WorkspaceManager {
             }
     }
 
+    /// 目录枚举返回 /private/var/...，工作区根是 /var/...（同一位置）。先统一解析符号链接再比较，
+    /// 否则会退回只剩文件名，子文件夹里的文件就指向根目录下不存在的路径。
     private func relativePath(for url: URL, root: URL) -> String {
-        let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
-        let path = url.path
-        if path.hasPrefix(rootPath) {
-            return String(path.dropFirst(rootPath.count))
+        let rootComponents = root.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        let components = url.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        if components.count > rootComponents.count, components.starts(with: rootComponents) {
+            return components.dropFirst(rootComponents.count).joined(separator: "/")
         }
         return url.lastPathComponent
     }

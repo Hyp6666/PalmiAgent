@@ -87,6 +87,8 @@
 "chat.history.renameMessage" = "名前はこのチャット履歴にすぐ適用されます。";
 "chat.history.title" = "チャット履歴";
 "chat.input.placeholder" = "メッセージを入力…";
+"chat.suggestion.fill" = "入力";
+"chat.suggestion.fillAccessibility" = "おすすめの次のメッセージを入力";
 "chat.link.openInPalmi" = "Palmi 内蔵ブラウザで開く";
 "chat.link.openInSafari" = "Safari で開く";
 "chat.phaseThought" = "段階思考";
@@ -748,6 +750,18 @@
 "workspace.action.renameProject" = "プロジェクト名を変更";
 "workspace.action.renameThread" = "セッション名を変更";
 "workspace.action.viewFolder" = "フォルダを表示";
+"workspace.action.addMenu" = "新規作成と参照";
+"workspace.files.allProjects" = "すべてのプロジェクトファイル";
+"workspace.files.noProjects" = "プロジェクトはまだありません";
+"workspace.files.emptyFolder" = "このフォルダは空です";
+"workspace.files.itemCount" = "%d 項目";
+"workspace.files.more" = "その他";
+"workspace.file.newName" = "新しい名前";
+"workspace.file.deleteConfirm.title" = "「%@」を削除しますか？";
+"workspace.file.deleteConfirm.message" = "削除すると元に戻せません。";
+"workspace.file.deleteConfirm.folderMessage" = "フォルダとその中のすべての内容が削除され、元に戻せません。";
+"workspace.status.itemDeleted" = "「%@」を削除しました。";
+"workspace.status.itemRenamed" = "「%@」に名前を変更しました。";
 "workspace.default.chatConversation" = "メインチャット";
 "workspace.default.professionalProject" = "デフォルトプロジェクト";
 "workspace.default.professionalThread" = "メインセッション";
@@ -1789,6 +1803,8 @@
 "askUser.pendingCount" = "%d 件の質問が回答待ち";
 
 "askUser.countdownPaused" = "自動選択は一時停止中です。入力するか選択肢を選んでください";
+"askUser.returnToConversation" = "会話に戻る";
+"askUser.countdownWaiting" = "入力中です。5 秒間変更がなければカウントダウンを再開します";
 
 "askUser.result.answered" = "回答済み";
 

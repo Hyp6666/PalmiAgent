@@ -87,6 +87,8 @@
 "chat.history.renameMessage" = "The name will be applied to this chat record immediately.";
 "chat.history.title" = "Chat history";
 "chat.input.placeholder" = "Message Palmi…";
+"chat.suggestion.fill" = "Use";
+"chat.suggestion.fillAccessibility" = "Use the suggested next message";
 "chat.link.openInPalmi" = "Open in Palmi browser";
 "chat.link.openInSafari" = "Open In Safari";
 "chat.phaseThought" = "Phase Thought";
@@ -748,6 +750,18 @@
 "workspace.action.renameProject" = "Rename Project";
 "workspace.action.renameThread" = "Rename Thread";
 "workspace.action.viewFolder" = "View Folder";
+"workspace.action.addMenu" = "New & Browse";
+"workspace.files.allProjects" = "All Project Files";
+"workspace.files.noProjects" = "No Projects Yet";
+"workspace.files.emptyFolder" = "This Folder Is Empty";
+"workspace.files.itemCount" = "%d items";
+"workspace.files.more" = "More";
+"workspace.file.newName" = "New Name";
+"workspace.file.deleteConfirm.title" = "Delete “%@”?";
+"workspace.file.deleteConfirm.message" = "This can’t be undone.";
+"workspace.file.deleteConfirm.folderMessage" = "The folder and everything in it will be deleted. This can’t be undone.";
+"workspace.status.itemDeleted" = "Deleted “%@”.";
+"workspace.status.itemRenamed" = "Renamed to “%@”.";
 "workspace.default.chatConversation" = "Main Chat";
 "workspace.default.professionalProject" = "Default Project";
 "workspace.default.professionalThread" = "Main Session";
@@ -1789,6 +1803,8 @@
 "askUser.pendingCount" = "%d questions pending";
 
 "askUser.countdownPaused" = "Auto-selection paused. Type or choose an option.";
+"askUser.returnToConversation" = "Back to Chat";
+"askUser.countdownWaiting" = "Typing — the countdown resumes after 5 seconds of no changes";
 
 "askUser.result.answered" = "User answered";
 

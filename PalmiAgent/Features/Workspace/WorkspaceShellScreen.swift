@@ -37,6 +37,7 @@ struct WorkspaceShellScreen: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var compactPath: [CompactWorkspaceRoute] = []
     @State private var isShowingWorkspaceBrowser = false
+    @State private var isShowingAllProjectFiles = false
     @State private var isShowingSettings = false
     @State private var isShowingProjectSkills = false
     @State private var isShowingModePicker = false
@@ -45,6 +46,8 @@ struct WorkspaceShellScreen: View {
     @State private var openingPalmi = false
     @State private var isShowingReleaseNotes = false
     @AppStorage(ReleaseNotesCatalog.acknowledgedKey) private var acknowledgedRelease = ""
+    @Environment(UserQuestionService.self) private var questionService: UserQuestionService?
+    @Environment(BrowserOperatorService.self) private var browserOperator: BrowserOperatorService?
 
     init(workspaceStore: WorkspaceStore, manualLabStore: ManualLabStore,
          skillRegistry: SkillRegistry, chatStore: ChatStore, bionicStore: BionicStore) {
@@ -56,7 +59,7 @@ struct WorkspaceShellScreen: View {
     }
 
     private var readingAllowed: Bool {
-        !isShowingWorkspaceBrowser && !isShowingSettings && !isShowingProjectSkills
+        !isShowingWorkspaceBrowser && !isShowingAllProjectFiles && !isShowingSettings && !isShowingProjectSkills
             && !isShowingModePicker && !isShowingOnboarding && !isShowingReleaseNotes && !bionicStore.showingPurchase
     }
     private var unreadSnapshot: PalmiUnreadSnapshot {
@@ -98,6 +101,16 @@ struct WorkspaceShellScreen: View {
             }
         ) {
             WorkspaceBrowserSheet(store: workspaceStore)
+        }
+        .sheet(
+            isPresented: $isShowingAllProjectFiles,
+            onDismiss: {
+                // 与「查看文件夹」相同：退出后解除项目锁定，回到当前会话的工作区。
+                workspaceStore.browsedProjectID = nil
+                workspaceStore.refreshCurrentThreadContents()
+            }
+        ) {
+            WorkspaceAllProjectsFilesSheet(store: workspaceStore)
         }
         .sheet(isPresented: $isShowingSettings) {
             AppSettingsScreen(
@@ -165,6 +178,10 @@ struct WorkspaceShellScreen: View {
             presentOnboardingIfNeeded()
             bionicStore.visibleMode(shellMode == .bionic && readingAllowed)
         }
+        .onChange(of: questionService?.returnRequest) { _, request in
+            guard let request else { return }
+            returnToConversation(request.source)
+        }
         .onChange(of: bionicStore.pendingNotificationRouteID) { _, routeID in
             guard routeID != nil else { return }
             selectShellMode(.bionic)
@@ -217,6 +234,32 @@ struct WorkspaceShellScreen: View {
                 selectShellMode(.bionic)
             } catch is CancellationError { return }
             catch { chatStore.errorMessage = BionicStore.errorText(error) }
+        }
+    }
+
+    /// 询问用户浮窗的「回到对话」：收起外壳层的弹出界面和浏览器，再跳到发起提问的会话。
+    private func returnToConversation(_ source: WorkspaceSelection?) {
+        isShowingWorkspaceBrowser = false
+        isShowingAllProjectFiles = false
+        isShowingSettings = false
+        isShowingProjectSkills = false
+        isShowingModePicker = false
+        // 用户正在接手网页（登录、验证）时不打断接手。
+        if let browserOperator, browserOperator.handoffTabID == nil { browserOperator.dismissBrowser() }
+        guard let source else { return }
+        if let project = workspaceStore.chatProjects.first(where: { $0.id == source.projectID }) {
+            workspaceStore.selectChatConversation(project)
+            selectShellMode(.chat)
+            chatModePath = [.conversation(project.id)]
+        } else if workspaceStore.projects.contains(where: { $0.id == source.projectID }),
+                  let thread = workspaceStore.thread(for: source) ?? {
+                      // 该项目的会话列表可能还没加载过。
+                      workspaceStore.refreshThreadMetadata(in: source.projectID)
+                      return workspaceStore.thread(for: source)
+                  }() {
+            workspaceStore.selectThread(thread)
+            selectShellMode(.professional)
+            if horizontalSizeClass == .compact { compactPath = [.chat] }
         }
     }
 
@@ -303,7 +346,8 @@ struct WorkspaceShellScreen: View {
                 onOpenSettings: { isShowingSettings = true },
                 shellMode: .professional,
                 onSelectMode: selectShellMode,
-                onBrowseProjectFiles: browseProjectFiles
+                onBrowseProjectFiles: browseProjectFiles,
+                onOpenAllProjectFiles: { isShowingAllProjectFiles = true }
             )
         } content: {
             WorkspaceBrowser(store: workspaceStore)
@@ -363,7 +407,8 @@ struct WorkspaceShellScreen: View {
                 onOpenSettings: { isShowingSettings = true },
                 shellMode: .professional,
                 onSelectMode: selectShellMode,
-                onBrowseProjectFiles: browseProjectFiles
+                onBrowseProjectFiles: browseProjectFiles,
+                onOpenAllProjectFiles: { isShowingAllProjectFiles = true }
             )
             .navigationDestination(for: CompactWorkspaceRoute.self) { route in
                 switch route {
@@ -408,6 +453,8 @@ private struct WorkspaceSidebar: View {
     let shellMode: AppShellMode
     let onSelectMode: (AppShellMode) -> Void
     let onBrowseProjectFiles: (WorkspaceProjectRecord) -> Void
+    let onOpenAllProjectFiles: () -> Void
+    @Environment(BrowserOperatorService.self) private var browserOperator: BrowserOperatorService?
     @State private var expandedProjectIDs: Set<UUID> = []
     @State private var presentedNameEditor: WorkspaceNameEditorRoute?
     @State private var nameDraft = ""
@@ -483,11 +530,16 @@ private struct WorkspaceSidebar: View {
             VStack {
                 AppShellTopBar(
                     mode: shellMode,
-                    trailingSystemName: "folder.badge.plus",
-                    trailingAccessibilityLabel: PalmiL10n.tr("workspace.action.newProject"),
+                    trailingSystemName: "plus",
+                    trailingAccessibilityLabel: PalmiL10n.tr("workspace.action.addMenu"),
                     onOpenSettings: onOpenSettings,
                     onTrailingAction: { presentedNameEditor = .createProject },
-                    onSelectMode: onSelectMode
+                    onSelectMode: onSelectMode,
+                    workspaceMenu: WorkspaceAddMenu(
+                        onNewProject: { presentedNameEditor = .createProject },
+                        onOpenBrowser: browserOperator.map { browser in { browser.openBrowser(overview: true) } },
+                        onOpenFiles: onOpenAllProjectFiles
+                    )
                 )
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
@@ -943,363 +995,6 @@ private enum WorkspaceDeletionTarget {
             return PalmiL10n.tr("workspace.delete.thread.message", thread.name)
         }
     }
-}
-
-private struct WorkspaceBrowserRoute: Hashable {
-    let relativePath: String
-}
-
-private struct WorkspaceFolderCreationContext: Identifiable, Equatable {
-    let id = UUID()
-    let basePath: String
-}
-
-private struct WorkspaceBrowser: View {
-    @Bindable var store: WorkspaceStore
-    let onClose: (() -> Void)?
-    @State private var folderCreation: WorkspaceFolderCreationContext?
-    @State private var folderNameDraft = ""
-    @State private var attachmentMenuBasePath: String?
-    @State private var attachmentPresentation: PalmiAttachmentImportPresentation?
-    @State private var navigationPath: [WorkspaceBrowserRoute] = []
-    @State private var previewedFile: WorkspacePreviewFile?
-
-    init(store: WorkspaceStore, onClose: (() -> Void)? = nil) {
-        self._store = Bindable(wrappedValue: store)
-        self.onClose = onClose
-    }
-
-    var body: some View {
-        NavigationStack(path: $navigationPath) {
-            browserContent(for: nil)
-                .task { store.refreshCurrentThreadContents() }
-                .navigationDestination(for: WorkspaceBrowserRoute.self) { route in
-                    browserContent(for: route)
-                }
-                .toolbar {
-                    if let onClose {
-                        ToolbarItem(placement: .topBarLeading) {
-                            Button(PalmiL10n.tr("common.close")) {
-                                onClose()
-                            }
-                        }
-                    }
-                }
-                .sheet(item: $store.sharePayload) { payload in
-                    ShareSheet(items: [payload.url])
-                }
-                .sheet(item: $previewedFile) { file in
-                    WorkspaceFilePreviewSheet(file: file)
-                }
-                .palmiAttachmentImporter(
-                    presentation: $attachmentPresentation,
-                    workspaceStore: store,
-                    onComplete: { _ in },
-                    onError: { store.statusMessage = $0 }
-                )
-                .overlay {
-                    attachmentMenuOverlay
-                }
-                .alert(
-                    PalmiL10n.tr("workspace.folder.new"),
-                    isPresented: Binding(
-                        get: { folderCreation != nil },
-                        set: { if !$0 { folderCreation = nil } }
-                    )
-                ) {
-                    TextField(PalmiL10n.tr("workspace.folder.name"), text: $folderNameDraft)
-                        .textInputAutocapitalization(.never)
-                    Button(PalmiL10n.tr("common.cancel"), role: .cancel) {
-                        folderCreation = nil
-                    }
-                    Button(PalmiL10n.tr("common.create")) {
-                        let trimmed = folderNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !trimmed.isEmpty else { return }
-                        createFolder(named: trimmed, basePath: folderCreation?.basePath ?? "")
-                        folderCreation = nil
-                    }
-                } message: {
-                    if let folderCreation {
-                        let trimmedBase = folderCreation.basePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                        Text(trimmedBase.isEmpty ? PalmiL10n.tr("workspace.files.title") : trimmedBase)
-                    }
-                }
-                .animation(.snappy(duration: 0.22), value: attachmentMenuBasePath)
-        }
-    }
-
-    @ViewBuilder
-    private func browserContent(for route: WorkspaceBrowserRoute?) -> some View {
-        VStack(spacing: 0) {
-            header(for: route)
-
-            if let statusMessage = store.statusMessage {
-                Text(statusMessage)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
-            }
-
-            if !store.hasBrowsableWorkspace {
-                ContentUnavailableView(PalmiL10n.tr("workspace.empty.selectSession"), systemImage: "tray")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                fileList(for: route)
-            }
-        }
-        .navigationTitle(title(for: route))
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func header(for route: WorkspaceBrowserRoute?) -> some View {
-        HStack(spacing: 10) {
-            workspaceBrowserActionButton(
-                systemName: "folder.badge.plus",
-                accessibilityLabel: PalmiL10n.tr("workspace.folder.new"),
-                iconColor: .blue
-            ) {
-                folderNameDraft = ""
-                folderCreation = WorkspaceFolderCreationContext(basePath: route?.relativePath ?? "")
-            }
-            .disabled(!store.hasBrowsableWorkspace)
-
-            workspaceBrowserActionButton(
-                systemName: "plus",
-                accessibilityLabel: PalmiL10n.tr("workspace.file.add"),
-                iconColor: .blue
-            ) {
-                attachmentMenuBasePath = route?.relativePath ?? ""
-            }
-            .disabled(!store.hasBrowsableWorkspace)
-
-            workspaceBrowserActionButton(
-                systemName: "arrow.clockwise",
-                accessibilityLabel: PalmiL10n.tr("common.refresh"),
-                iconColor: .blue
-            ) {
-                store.refreshCurrentThreadContents()
-            }
-            .disabled(!store.hasBrowsableWorkspace)
-
-            workspaceBrowserActionButton(
-                systemName: "square.and.arrow.up",
-                accessibilityLabel: PalmiL10n.tr("workspace.file.exportProject"),
-                iconColor: .blue
-            ) {
-                store.exportCurrentThread()
-            }
-            .disabled(!store.hasBrowsableWorkspace)
-
-            Spacer(minLength: 0)
-
-            workspaceBrowserActionButton(
-                systemName: store.showsHiddenFiles ? "eye" : "eye.slash",
-                accessibilityLabel: store.showsHiddenFiles ? PalmiL10n.tr("workspace.file.hideHidden") : PalmiL10n.tr("workspace.file.showHidden"),
-                iconColor: .blue
-            ) {
-                store.toggleHiddenFilesVisibility()
-            }
-            .disabled(!store.hasBrowsableWorkspace)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
-        .padding(.bottom, 10)
-    }
-
-    @ViewBuilder
-    private var attachmentMenuOverlay: some View {
-        if let attachmentMenuBasePath {
-            GeometryReader { proxy in
-                ZStack(alignment: .topLeading) {
-                    Color.black.opacity(0.001)
-                        .ignoresSafeArea()
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            self.attachmentMenuBasePath = nil
-                        }
-
-                    PalmiAttachmentMenu(
-                        showsPlanningRows: false,
-                        onCamera: {
-                            presentAttachmentImport(
-                                PalmiAttachmentActions.camera(
-                                    destination: .directory(relativePath: attachmentMenuBasePath),
-                                    allowsMultipleSelection: false
-                                )
-                            )
-                        },
-                        onPhotos: {
-                            presentAttachmentImport(
-                                PalmiAttachmentActions.photos(
-                                    destination: .directory(relativePath: attachmentMenuBasePath),
-                                    allowsMultipleSelection: false
-                                )
-                            )
-                        },
-                        onFiles: {
-                            presentAttachmentImport(
-                                PalmiAttachmentActions.files(
-                                    destination: .directory(relativePath: attachmentMenuBasePath),
-                                    allowsMultipleSelection: false
-                                )
-                            )
-                        }
-                    )
-                    .frame(width: min(proxy.size.width - 32, 360))
-                    .padding(.top, 74)
-                    .padding(.leading, 16)
-                }
-            }
-        }
-    }
-
-    private func fileList(for route: WorkspaceBrowserRoute?) -> some View {
-        List {
-            if nodes(for: route).isEmpty {
-                Text(PalmiL10n.tr("common.empty"))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(nodes(for: route)) { node in
-                    WorkspaceNodeRow(
-                        node: node,
-                        onOpen: { open(node) },
-                        onExport: { store.exportNode(node) }
-                    )
-                }
-            }
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(Color.clear)
-    }
-
-    private func nodes(for route: WorkspaceBrowserRoute?) -> [WorkspaceFileNode] {
-        guard let route else { return store.fileTree }
-        return findNode(at: route.relativePath, in: store.fileTree)?.children ?? []
-    }
-
-    private func title(for route: WorkspaceBrowserRoute?) -> String {
-        guard let route else { return PalmiL10n.tr("workspace.files.title") }
-        return URL(fileURLWithPath: route.relativePath).lastPathComponent
-    }
-
-    private func open(_ node: WorkspaceFileNode) {
-        if node.isDirectory {
-            navigationPath.append(.init(relativePath: node.relativePath))
-            return
-        }
-
-        do {
-            previewedFile = try WorkspacePreviewFileLoader.load(
-                relativePath: node.relativePath,
-                resolveURL: store.workspaceURL(for:)
-            )
-            store.statusMessage = nil
-        } catch {
-            store.statusMessage = error.localizedDescription
-        }
-    }
-
-    private func createFolder(named rawName: String, basePath: String) {
-        let rawInput = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !rawInput.isEmpty else { return }
-
-        let normalizedBasePath = basePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let relativePath = normalizedBasePath.isEmpty ? rawInput : "\(normalizedBasePath)/\(rawInput)"
-        store.createFolder(at: relativePath)
-    }
-
-    private func presentAttachmentImport(_ presentation: PalmiAttachmentImportPresentation) {
-        attachmentMenuBasePath = nil
-        attachmentPresentation = presentation
-    }
-
-    private func findNode(at relativePath: String, in nodes: [WorkspaceFileNode]) -> WorkspaceFileNode? {
-        for node in nodes {
-            if node.relativePath == relativePath {
-                return node
-            }
-            if let child = findNode(at: relativePath, in: node.children) {
-                return child
-            }
-        }
-        return nil
-    }
-}
-
-private struct WorkspaceNodeRow: View {
-    let node: WorkspaceFileNode
-    let onOpen: () -> Void
-    let onExport: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Button(action: onOpen) {
-                HStack(spacing: 10) {
-                    Image(systemName: node.isDirectory ? "folder.fill" : "doc.text")
-                        .foregroundStyle(node.isDirectory ? .blue : .secondary)
-
-                    Text(node.name)
-                        .font(.body)
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            Spacer()
-
-            Button {
-                onExport()
-            } label: {
-                Image(systemName: "square.and.arrow.up")
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.vertical, 8)
-    }
-}
-
-private struct WorkspaceBrowserSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @Bindable var store: WorkspaceStore
-
-    var body: some View {
-        WorkspaceBrowser(store: store, onClose: { dismiss() })
-    }
-}
-
-private func workspaceBrowserActionButton(
-    systemName: String,
-    accessibilityLabel: String,
-    iconColor: Color,
-    action: @escaping () -> Void
-) -> some View {
-    Button(action: action) {
-        Image(systemName: systemName)
-            .font(.system(size: 18, weight: .semibold))
-            .foregroundStyle(iconColor)
-            .frame(width: 48, height: 48)
-    }
-    .buttonStyle(.plain)
-    .background {
-        if #available(iOS 26, *) {
-            Circle()
-                .fill(.white)
-                .glassEffect(.regular.tint(.white.opacity(0.82)), in: .circle)
-                .shadow(color: .black.opacity(0.08), radius: 12, y: 6)
-        } else {
-            Circle()
-                .fill(.white)
-                .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
-        }
-    }
-    .accessibilityLabel(accessibilityLabel)
 }
 
 private enum OnboardingStep {

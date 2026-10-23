@@ -1666,6 +1666,8 @@ struct ChatScreen: View {
 
             composerModeChip
 
+            ComposerSuggestionButton(store: store, controlSize: composerControlSize)
+
             Spacer(minLength: 8)
 
             if showsContextWheel {
@@ -3443,8 +3445,36 @@ private struct ComposerTextEditor: View {
     @FocusState.Binding var isFocused: Bool
 
     var body: some View {
+        // 有推荐的下一句时，它以灰色占位字出现在输入框里。
         PalmiComposerTextEditor(text: $store.inputText, isFocused: $isFocused,
-                                placeholder: PalmiL10n.tr("chat.input.placeholder"))
+                                placeholder: store.nextPromptSuggestion ?? PalmiL10n.tr("chat.input.placeholder"))
+    }
+}
+
+// 输入框下方的「填入」：一键把推荐的下一句放进输入框。只在输入框为空时出现。
+private struct ComposerSuggestionButton: View {
+    @Bindable var store: ChatStore
+    let controlSize: CGFloat
+
+    var body: some View {
+        if store.nextPromptSuggestion != nil,
+           store.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            Button { store.acceptNextPromptSuggestion() } label: {
+                Label(PalmiL10n.tr("chat.suggestion.fill"), systemImage: "text.insert")
+                    .font(.system(size: 14, weight: .semibold))
+                    .labelStyle(.titleAndIcon)
+                    .foregroundStyle(Color.primary.opacity(0.85))
+                    .padding(.horizontal, 12)
+                    .frame(height: controlSize)
+                    .contentShape(Capsule())
+                    .glassEffect(.regular.interactive(), in: .capsule)
+            }
+            .buttonStyle(.plain)
+            .lineLimit(1)
+            .fixedSize()
+            .accessibilityLabel(PalmiL10n.tr("chat.suggestion.fillAccessibility"))
+            .accessibilityIdentifier("chat.suggestion.fill")
+        }
     }
 }
 

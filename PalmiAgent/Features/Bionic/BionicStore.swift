@@ -647,10 +647,10 @@ final class BionicStore {
             acknowledgedReads[key, default: []].formUnion(durable)
             clearReadReceiptError(instance)
         } catch {
-            // 日志失败仍可提交归档，但持久化确认前保留未读，不能谎报已保存。
+            // 气泡跟随用户的阅读立即消失；写盘只在后台进行，失败只记录错误并继续提交归档，
+            // 不再反过来让气泡留在界面上。
             readReceiptFailed(error, instance: instance)
-            scheduleReadFlush()
-            return
+            acknowledgedReads[key, default: []].formUnion(conversationUnread)
         }
         unreadSequencesByInstance[instance] = unreadSequencesByInstance[instance]?.filter {
             !conversationUnread.contains($0.key)

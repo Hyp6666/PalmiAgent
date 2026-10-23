@@ -74,6 +74,7 @@ struct AppShellTopBar: View {
     let onTrailingAction: () -> Void
     let onSelectMode: (AppShellMode) -> Void
     var bionicMenu: BionicAddMenu? = nil
+    var workspaceMenu: WorkspaceAddMenu? = nil
 
     var body: some View {
         GlassEffectContainer(spacing: 18) {
@@ -113,6 +114,13 @@ struct AppShellTopBar: View {
                 .glassEffect(.regular.tint(.white.opacity(0.14)).interactive(), in: .capsule)
                 .accessibilityLabel(trailingAccessibilityLabel)
                 .accessibilityIdentifier("bionic.addMenu")
+        } else if let workspaceMenu {
+            Menu { workspaceMenu } label: { trailingLabel }
+                .menuOrder(.fixed)
+                .buttonStyle(.plain)
+                .glassEffect(.regular.tint(.white.opacity(0.14)).interactive(), in: .capsule)
+                .accessibilityLabel(trailingAccessibilityLabel)
+                .accessibilityIdentifier("workspace.addMenu")
         } else {
             Button(action: onTrailingAction) { trailingLabel }
                 .buttonStyle(.plain)
@@ -400,5 +408,20 @@ private extension CGFloat {
     static func randomish(_ seed: CGFloat) -> CGFloat {
         let value = sin(seed * 12.9898) * 43_758.5453
         return value - floor(value)
+    }
+}
+
+/// 专业模式右上角菜单：新建项目、内置浏览器、全部项目文件。
+struct WorkspaceAddMenu: View {
+    let onNewProject: () -> Void
+    let onOpenBrowser: (() -> Void)?
+    let onOpenFiles: () -> Void
+
+    var body: some View {
+        Button(PalmiL10n.tr("workspace.action.newProject"), systemImage: "folder.badge.plus", action: onNewProject)
+        if let onOpenBrowser {
+            Button(PalmiL10n.tr("browser.menu.browser"), systemImage: "safari", action: onOpenBrowser)
+        }
+        Button(PalmiL10n.tr("browser.menu.files"), systemImage: "folder", action: onOpenFiles)
     }
 }

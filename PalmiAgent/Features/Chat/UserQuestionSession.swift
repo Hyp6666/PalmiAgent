@@ -1,39 +1,64 @@
 import Foundation
 import Observation
 
-/// 问题倒计时的纯值状态，便于独立验证默认选择和永久暂停规则。
+/// 问题倒计时的纯值状态，便于独立验证默认选择与输入暂停规则。
+/// 只在前台可见、且输入框累计 idleDelay 秒没有变化时才走；任何输入变化都会重新等待。
 struct UserQuestionCountdown: Equatable, Sendable {
     static let duration: TimeInterval = 60
+    static let idleDelay: TimeInterval = 5
 
     let defaultOption: String?
-    private(set) var isPaused = false
+    /// 已经走掉的倒计时秒数。
     private(set) var accumulated: TimeInterval = 0
+    /// 距上次输入变化已累计的可见秒数；初始视为已空闲，问题出现即开始倒计时。
+    private(set) var idle: TimeInterval = UserQuestionCountdown.idleDelay
     private(set) var visibleSince: Date?
 
     init(options: [String]) { defaultOption = options.first }
 
     mutating func resume(at now: Date) {
-        guard !isPaused, visibleSince == nil else { return }
+        guard visibleSince == nil else { return }
         visibleSince = now
     }
 
     mutating func suspend(at now: Date) {
-        guard let visibleSince else { return }
-        accumulated += max(0, now.timeIntervalSince(visibleSince))
-        self.visibleSince = nil
+        fold(at: now)
+        visibleSince = nil
     }
 
-    mutating func pauseForFreeformInput(at now: Date) {
-        suspend(at: now)
-        isPaused = true
+    /// 草稿变化或开始编辑：已走的进度保留，但要重新累计 idleDelay 秒无变化才继续走。
+    mutating func noteInputChange(at now: Date) {
+        fold(at: now)
+        idle = 0
+    }
+
+    private mutating func fold(at now: Date) {
+        guard let visibleSince else { return }
+        let (idleAfter, counted) = progress(since: visibleSince, now: now)
+        idle = idleAfter
+        accumulated += counted
+        self.visibleSince = now
+    }
+
+    private func progress(since start: Date, now: Date) -> (idle: TimeInterval, counted: TimeInterval) {
+        let span = max(0, now.timeIntervalSince(start))
+        let waiting = max(0, Self.idleDelay - idle)
+        return (idle + span, max(0, span - waiting))
     }
 
     func elapsed(at now: Date) -> TimeInterval {
-        accumulated + (visibleSince.map { max(0, now.timeIntervalSince($0)) } ?? 0)
+        accumulated + (visibleSince.map { progress(since: $0, now: now).counted } ?? 0)
+    }
+
+    /// 此刻倒计时是否真的在走（用于秒级闪烁）。
+    func isRunning(at now: Date) -> Bool {
+        guard defaultOption != nil, let visibleSince else { return false }
+        return progress(since: visibleSince, now: now).idle >= Self.idleDelay
+            && elapsed(at: now) < Self.duration
     }
 
     func remainingSeconds(at now: Date) -> Int? {
-        guard defaultOption != nil, !isPaused else { return nil }
+        guard defaultOption != nil else { return nil }
         return Int(ceil(max(0, Self.duration - elapsed(at: now))))
     }
 
@@ -86,6 +111,8 @@ final class UserQuestionSession {
         let id: UUID
         let question: String
         let options: [String]
+        /// 发起提问的会话；「回到对话」据此跳转。临时/无会话的提问为 nil。
+        var source: WorkspaceSelection? = nil
     }
 
     private struct Pending {
@@ -97,6 +124,7 @@ final class UserQuestionSession {
 
     private var pending: [Pending] = []
     private(set) var countdownRemainingSeconds: Int?
+    private(set) var isCountdownRunning = false
     @ObservationIgnored private var continuations: [UUID: CheckedContinuation<UserQuestionAnswer, Error>] = [:]
     @ObservationIgnored var onPendingChange: (() -> Void)?
 
@@ -105,7 +133,7 @@ final class UserQuestionSession {
     var draft: String { pending.first?.draft ?? "" }
     var isExpanded: Bool { pending.first?.isExpanded ?? false }
 
-    func ask(question: String, options: [String]) async throws -> UserQuestionAnswer {
+    func ask(question: String, options: [String], source: WorkspaceSelection? = nil) async throws -> UserQuestionAnswer {
         try Task.checkCancellation()
         let id = UUID()
         let answer: UserQuestionAnswer = try await withTaskCancellationHandler {
@@ -117,9 +145,12 @@ final class UserQuestionSession {
                 let options = Array(options.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                     .filter { !$0.isEmpty }.prefix(4))
                 continuations[id] = continuation
-                pending.append(Pending(prompt: Prompt(id: id, question: question, options: options),
+                pending.append(Pending(prompt: Prompt(id: id, question: question, options: options, source: source),
                                        countdown: UserQuestionCountdown(options: options)))
-                if pending.count == 1 { countdownRemainingSeconds = options.isEmpty ? nil : 60 }
+                if pending.count == 1 {
+                    countdownRemainingSeconds = options.isEmpty ? nil : Int(UserQuestionCountdown.duration)
+                    isCountdownRunning = false
+                }
                 onPendingChange?()
             }
         } onCancel: {
@@ -135,25 +166,34 @@ final class UserQuestionSession {
     }
 
     func setDraft(_ text: String, promptID: UUID, at now: Date = Date()) {
-        guard prompt?.id == promptID else { return }
+        guard prompt?.id == promptID, pending[0].draft != text else { return }
         pending[0].draft = text
-        pauseForFreeformInput(promptID: promptID, at: now)
+        noteInputChange(promptID: promptID, at: now)
     }
 
-    func pauseForFreeformInput(promptID: UUID, at now: Date = Date()) {
+    /// 输入变化（含开始编辑）只让倒计时暂停等待，不会永久停止。
+    func noteInputChange(promptID: UUID, at now: Date = Date()) {
         guard prompt?.id == promptID else { return }
-        pending[0].countdown.pauseForFreeformInput(at: now)
-        countdownRemainingSeconds = nil
+        pending[0].countdown.noteInputChange(at: now)
+        publishClock(at: now)
     }
 
     func updateClock(isVisible: Bool, at now: Date = Date()) {
         guard let current = prompt else { return }
         if isVisible { pending[0].countdown.resume(at: now) }
         else { pending[0].countdown.suspend(at: now) }
-        countdownRemainingSeconds = pending[0].countdown.remainingSeconds(at: now)
+        publishClock(at: now)
         if isVisible, let option = pending[0].countdown.defaultAnswer(at: now) {
             complete(.timeoutDefault(option), promptID: current.id)
         }
+    }
+
+    private func publishClock(at now: Date) {
+        let countdown = pending[0].countdown
+        let remaining = countdown.remainingSeconds(at: now)
+        if countdownRemainingSeconds != remaining { countdownRemainingSeconds = remaining }
+        let running = countdown.isRunning(at: now)
+        if isCountdownRunning != running { isCountdownRunning = running }
     }
 
     func submit(_ text: String, promptID: UUID) {
@@ -179,6 +219,7 @@ final class UserQuestionSession {
         pending.remove(at: index)
         if index == 0 {
             countdownRemainingSeconds = pending.first?.countdown.remainingSeconds(at: Date())
+            isCountdownRunning = false
         }
         // Update presentation before resuming a caller that can immediately enqueue again.
         onPendingChange?()

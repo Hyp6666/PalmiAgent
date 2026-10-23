@@ -228,8 +228,8 @@ enum AgentExternalToolFacadeCatalog {
                 throw AppError.invalidState("ask_user.question 必须是 1–1000 字的非空问题。")
             }
             let options = arguments.stringArray("options") ?? []
-            guard options.count <= 4, options.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.count <= 200 }) else {
-                throw AppError.invalidState("ask_user.options 最多 4 个，每个 1–200 字。")
+            guard (1...4).contains(options.count), options.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.count <= 200 }) else {
+                throw AppError.invalidState("ask_user.options 必填，1–4 个，每个 1–200 字；第一项是超时默认答案，须为用户未作答时影响最小的保守选择。")
             }
         case .readSkill:
             _ = try arguments.requiredString("skill")

@@ -37,8 +37,23 @@ final class UserQuestionService {
         ]
     }
 
+    /// 「回到对话」请求：外壳界面观察它并跳转到来源会话。
+    struct ReturnRequest: Equatable {
+        let id = UUID()
+        let source: WorkspaceSelection?
+    }
+    private(set) var returnRequest: ReturnRequest?
+
     func ask(question: String, options: [String]) async throws -> UserQuestionAnswer {
-        try await session.ask(question: question, options: options)
+        // 主会话与浏览器执行器都在会话作用域内运行，这里读到的就是发起提问的会话。
+        try await session.ask(question: question, options: options, source: WorkspaceManager.pinnedSelection)
+    }
+
+    func returnToConversation(promptID: UUID) {
+        guard let current = prompt, current.id == promptID else { return }
+        // 收起浮窗，把视野让给对话；问题本身继续等待。
+        setExpanded(false, promptID: promptID)
+        returnRequest = ReturnRequest(source: current.source)
     }
 
     private func pendingChanged() {
@@ -87,7 +102,7 @@ final class UserQuestionService {
 
     func beginEditing(promptID: UUID) {
         guard prompt?.id == promptID else { return }
-        session.pauseForFreeformInput(promptID: promptID)
+        session.noteInputChange(promptID: promptID)
         overlay?.beginEditing()
     }
 

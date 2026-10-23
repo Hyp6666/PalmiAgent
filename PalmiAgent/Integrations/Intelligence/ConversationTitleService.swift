@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 final class ConversationTitleService {
-    private let modelRuntime: AgentModelRuntime
+    let modelRuntime: AgentModelRuntime
 
     init(modelRuntime: AgentModelRuntime) {
         self.modelRuntime = modelRuntime

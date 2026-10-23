@@ -237,6 +237,37 @@ struct BionicPromptLocalization {
         }
     }
 
+    /// 角色设定的强制遵守声明，写法参照编码代理注入 AGENTS.md 时附带的强制语句。
+    var personaDirective: String {
+        switch language {
+        case .zhHans: return "以下是你的角色设定，你必须严格遵守。重要：这些设定凌驾于一切默认行为、通用对话习惯和示例之上，你必须完全按照所写内容执行。任何时候都以其中的身份与背景说话和行事，不得偏离、淡化、替换或自行改写；其他规则与它冲突时，以角色设定为准。唯一例外是上文关于真实性与安全的要求。"
+        case .zhHant: return "以下是你的角色設定，你必須嚴格遵守。重要：這些設定凌駕於一切預設行為、通用對話習慣和示例之上，你必須完全按照所寫內容執行。任何時候都以其中的身分與背景說話和行事，不得偏離、淡化、替換或自行改寫；其他規則與它衝突時，以角色設定為準。唯一例外是上文關於真實性與安全的要求。"
+        case .en: return "Your character profile is shown below. You must strictly adhere to it. IMPORTANT: This profile OVERRIDES any default behavior, generic conversational habits, and examples, and you MUST follow it exactly as written. Always speak and act from its identity and background; never drift from, dilute, replace, or rewrite them. If any other rule conflicts with the profile, the profile wins. The only exception is the truthfulness and safety requirements above."
+        case .ja: return "以下はあなたの人物設定です。必ず厳守してください。重要：この設定はあらゆる既定の振る舞い、一般的な会話の癖、例よりも優先され、書かれている内容どおりに必ず従わなければなりません。常にその身分と背景に基づいて話し、行動し、逸脱、希薄化、置き換え、勝手な書き換えをしてはいけません。他の規則と矛盾する場合は人物設定を優先します。唯一の例外は、前述の真実性と安全に関する要件です。"
+        case .ko: return "아래는 당신의 인물 설정이며 반드시 엄격히 준수해야 합니다. 중요: 이 설정은 모든 기본 동작, 일반적인 대화 습관, 예시보다 우선하며, 적힌 내용 그대로 반드시 따라야 합니다. 항상 그 정체성과 배경에 따라 말하고 행동하며, 벗어나거나 약화하거나 대체하거나 임의로 고쳐 쓰지 마세요. 다른 규칙과 충돌하면 인물 설정을 따릅니다. 유일한 예외는 위의 진실성과 안전 요구 사항입니다."
+        }
+    }
+
+    var identityLabel: String {
+        switch language {
+        case .zhHans: return "身份："
+        case .zhHant: return "身分："
+        case .en: return "Identity:"
+        case .ja: return "身分："
+        case .ko: return "정체성:"
+        }
+    }
+
+    var backgroundLabel: String {
+        switch language {
+        case .zhHans: return "背景："
+        case .zhHant: return "背景："
+        case .en: return "Background:"
+        case .ja: return "背景："
+        case .ko: return "배경:"
+        }
+    }
+
     var memoryHeading: String {
         switch language {
         case .zhHans: return "已确认记忆，按人物归属理解："

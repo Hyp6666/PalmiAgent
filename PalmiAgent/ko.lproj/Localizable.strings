@@ -87,6 +87,8 @@
 "chat.history.renameMessage" = "이름이 이 채팅 기록에 즉시 적용됩니다.";
 "chat.history.title" = "채팅 기록";
 "chat.input.placeholder" = "메시지 입력…";
+"chat.suggestion.fill" = "입력";
+"chat.suggestion.fillAccessibility" = "추천된 다음 메시지 입력";
 "chat.link.openInPalmi" = "Palmi 내장 브라우저에서 열기";
 "chat.link.openInSafari" = "Safari에서 열기";
 "chat.phaseThought" = "단계별 사고";
@@ -748,6 +750,18 @@
 "workspace.action.renameProject" = "프로젝트 이름 변경";
 "workspace.action.renameThread" = "세션 이름 변경";
 "workspace.action.viewFolder" = "폴더 보기";
+"workspace.action.addMenu" = "새로 만들기 및 탐색";
+"workspace.files.allProjects" = "모든 프로젝트 파일";
+"workspace.files.noProjects" = "아직 프로젝트가 없습니다";
+"workspace.files.emptyFolder" = "이 폴더는 비어 있습니다";
+"workspace.files.itemCount" = "%d개 항목";
+"workspace.files.more" = "더 보기";
+"workspace.file.newName" = "새 이름";
+"workspace.file.deleteConfirm.title" = "“%@”을(를) 삭제할까요?";
+"workspace.file.deleteConfirm.message" = "삭제하면 되돌릴 수 없습니다.";
+"workspace.file.deleteConfirm.folderMessage" = "폴더와 그 안의 모든 내용이 삭제되며 되돌릴 수 없습니다.";
+"workspace.status.itemDeleted" = "“%@”을(를) 삭제했습니다.";
+"workspace.status.itemRenamed" = "“%@”(으)로 이름을 변경했습니다.";
 "workspace.default.chatConversation" = "메인 채팅";
 "workspace.default.professionalProject" = "기본 프로젝트";
 "workspace.default.professionalThread" = "메인 세션";
@@ -1789,6 +1803,8 @@
 "askUser.pendingCount" = "답변 대기 질문 %d개";
 
 "askUser.countdownPaused" = "자동 선택이 일시 중지되었습니다. 입력하거나 항목을 선택하세요.";
+"askUser.returnToConversation" = "대화로 돌아가기";
+"askUser.countdownWaiting" = "입력 중입니다. 5초 동안 변경이 없으면 카운트다운이 다시 시작됩니다";
 
 "askUser.result.answered" = "사용자 답변 완료";
 

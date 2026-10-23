@@ -87,6 +87,8 @@
 "chat.history.renameMessage" = "名稱會立即應用到這則聊天記錄。";
 "chat.history.title" = "聊天記錄";
 "chat.input.placeholder" = "輸入訊息…";
+"chat.suggestion.fill" = "填入";
+"chat.suggestion.fillAccessibility" = "填入推薦的下一句";
 "chat.link.openInPalmi" = "Palmi 內建瀏覽器開啟";
 "chat.link.openInSafari" = "Safari 瀏覽器開啟";
 "chat.phaseThought" = "階段思考";
@@ -748,6 +750,18 @@
 "workspace.action.renameProject" = "重新命名專案";
 "workspace.action.renameThread" = "重新命名對話";
 "workspace.action.viewFolder" = "查看資料夾";
+"workspace.action.addMenu" = "新建與瀏覽";
+"workspace.files.allProjects" = "所有專案檔案";
+"workspace.files.noProjects" = "還沒有專案";
+"workspace.files.emptyFolder" = "此資料夾為空";
+"workspace.files.itemCount" = "%d 項";
+"workspace.files.more" = "更多";
+"workspace.file.newName" = "新名稱";
+"workspace.file.deleteConfirm.title" = "刪除「%@」？";
+"workspace.file.deleteConfirm.message" = "刪除後無法復原。";
+"workspace.file.deleteConfirm.folderMessage" = "資料夾及其中的所有內容都會被刪除，無法復原。";
+"workspace.status.itemDeleted" = "已刪除「%@」。";
+"workspace.status.itemRenamed" = "已重新命名為「%@」。";
 "workspace.default.chatConversation" = "主聊天";
 "workspace.default.professionalProject" = "預設專案";
 "workspace.default.professionalThread" = "主對話";
@@ -1789,6 +1803,8 @@
 "askUser.pendingCount" = "%d 個問題待回答";
 
 "askUser.countdownPaused" = "已暫停自動選擇，請繼續輸入或選擇選項";
+"askUser.returnToConversation" = "回到對話";
+"askUser.countdownWaiting" = "正在輸入，停頓 5 秒後繼續倒數";
 
 "askUser.result.answered" = "使用者已回答";
 

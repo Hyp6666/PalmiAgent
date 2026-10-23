@@ -22,11 +22,11 @@ struct BionicChatScreen: View {
     private var role: BionicRole? {
         store.roles.first { $0.installationID == instance }
     }
+    /// 与普通聊天软件一致：App 在前台、正停在这个会话页，就是已读。
+    /// 页内的弹窗、菜单、报错都不再阻止已读；被其他页面盖住时由 screenVisible / readingAllowed 反映。
     private var canRead: Bool {
         screenVisible && store.isForeground && unreadSnapshot.readingAllowed
-            && store.selectedID == instance && !details && !showingRoleInfo
-            && preview == nil && !composerPresented && localError == nil
-            && !store.showingPurchase
+            && store.selectedID == instance
     }
     // 箭头只依赖实际阅读位置（controller 策略输出），不依赖未读数量。
     private var showsLatestButton: Bool {

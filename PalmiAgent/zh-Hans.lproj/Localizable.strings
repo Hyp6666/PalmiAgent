@@ -87,6 +87,8 @@
 "chat.history.renameMessage" = "名称会立即应用到这条聊天记录。";
 "chat.history.title" = "聊天记录";
 "chat.input.placeholder" = "输入消息…";
+"chat.suggestion.fill" = "填入";
+"chat.suggestion.fillAccessibility" = "填入推荐的下一句";
 "chat.link.openInPalmi" = "Palmi 内置浏览器打开";
 "chat.link.openInSafari" = "Safari 浏览器打开";
 "chat.phaseThought" = "阶段思考";
@@ -748,6 +750,18 @@
 "workspace.action.renameProject" = "重命名项目";
 "workspace.action.renameThread" = "重命名会话";
 "workspace.action.viewFolder" = "查看文件夹";
+"workspace.action.addMenu" = "新建与浏览";
+"workspace.files.allProjects" = "所有项目文件";
+"workspace.files.noProjects" = "还没有项目";
+"workspace.files.emptyFolder" = "此文件夹为空";
+"workspace.files.itemCount" = "%d 项";
+"workspace.files.more" = "更多";
+"workspace.file.newName" = "新名称";
+"workspace.file.deleteConfirm.title" = "删除“%@”？";
+"workspace.file.deleteConfirm.message" = "删除后无法恢复。";
+"workspace.file.deleteConfirm.folderMessage" = "文件夹及其中的所有内容都会被删除，无法恢复。";
+"workspace.status.itemDeleted" = "已删除“%@”。";
+"workspace.status.itemRenamed" = "已重命名为“%@”。";
 "workspace.default.chatConversation" = "主聊天";
 "workspace.default.professionalProject" = "默认项目";
 "workspace.default.professionalThread" = "主会话";
@@ -1790,6 +1804,8 @@
 "askUser.pendingCount" = "%d 个问题待回答";
 
 "askUser.countdownPaused" = "已暂停自动选择，请继续输入或选择选项";
+"askUser.returnToConversation" = "回到对话";
+"askUser.countdownWaiting" = "正在输入，停顿 5 秒后继续倒计时";
 
 "askUser.result.answered" = "用户已回答";
 
