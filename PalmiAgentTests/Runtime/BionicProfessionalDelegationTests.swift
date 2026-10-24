@@ -348,7 +348,7 @@ final class BionicProfessionalDelegationTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suite)!
         addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: suite) }
         return BionicProfessionalExecutor(workspaceManager: WorkspaceManager(storageRootURL: root.appendingPathComponent("workspaces")),
-            modelPlans: ModelPlanStore(metadataDefaults: defaults, secretStore: ProfessionalTestSecrets()),
+            modelLibrary: ModelLibraryFixture().makeStore(),
             permissions: ToolPermissionStore(userDefaults: defaults), archive: archive,
             makeAgentLoop: { _ in fatalError("Receipt and authority checks must not launch a worker") })
     }
@@ -378,8 +378,3 @@ final class BionicProfessionalDelegationTests: XCTestCase {
     }
 }
 
-private final class ProfessionalTestSecrets: ModelSecretStoring {
-    func saveSecret(_ secret: String, account: String) throws {}
-    func readSecret(account: String) throws -> String? { nil }
-    func deleteSecret(account: String) throws {}
-}

@@ -112,7 +112,6 @@ final class LiveReasoningBuffer {
 final class ChatStore {
     private static let hiddenAttachmentMarker = "\u{9644}\u{4ef6}\u{ff1a}"
     private static let unknownFallback = "\u{672a}\u{77e5}"
-    private static let defaultModelPlanFallback = "\u{9ed8}\u{8ba4}"
 
     private static let toolsEnabledDefaultsKey = "palmi.chat.tools-enabled"
 
@@ -202,8 +201,7 @@ final class ChatStore {
     }
 
     let actions: [ToolAction]
-    let apiConfigurationStore: APIConfigurationStore
-    let modelPlanStore: ModelPlanStore
+    let modelLibrary: ModelLibraryStore
     let agentLoop: AgentLoop
     let makeAgentLoop: () -> AgentLoop
     let conversationTitleService: ConversationTitleService
@@ -309,12 +307,9 @@ final class ChatStore {
         }
     }
 
-    private func modelRoleOverrides(for selection: WorkspaceSelection?) -> AgentModelRoleOverrides {
-        guard let selection,
-              let thread = workspaceStore.thread(for: selection) else {
-            return modelPlanStore.roleOverrides(for: nil)
-        }
-        return modelPlanStore.roleOverrides(for: thread.modelPlanOverride)
+    /// 每次主执行入口冻结一次：会话作用域绑定 → 一个主模型 + 两个工具绑定。
+    private func modelRoleOverrides(for selection: WorkspaceSelection?) -> AgentModelBindings {
+        modelLibrary.agentModelBindings(scope: selection.map { .thread($0.threadID) })
     }
 
     private func surface(for selection: WorkspaceSelection?) -> WorkspaceProjectSurface {
@@ -433,8 +428,7 @@ final class ChatStore {
 
     init(
         actions: [ToolAction],
-        apiConfigurationStore: APIConfigurationStore,
-        modelPlanStore: ModelPlanStore,
+        modelLibrary: ModelLibraryStore,
         agentLoop: AgentLoop,
         makeAgentLoop: @escaping () -> AgentLoop,
         conversationTitleService: ConversationTitleService,
@@ -447,8 +441,7 @@ final class ChatStore {
         nextPromptSuggestionService: NextPromptSuggestionService? = nil
     ) {
         self.actions = actions
-        self.apiConfigurationStore = apiConfigurationStore
-        self.modelPlanStore = modelPlanStore
+        self.modelLibrary = modelLibrary
         self.agentLoop = agentLoop
         self.makeAgentLoop = makeAgentLoop
         self.conversationTitleService = conversationTitleService
@@ -586,12 +579,11 @@ final class ChatStore {
         errorMessage = nil
         saveVisibleComposerState()
         if let pendingAutoTitleTarget {
-            triggerAutoTitleGeneration(
-                for: pendingAutoTitleTarget,
-                firstUserMessage: visibleText.isEmpty ? hiddenText : visibleText,
-                providerID: runProviderID,
-                modelOverrides: modelOverrides
-            )
+            // 首个真实主请求成功完成后才派生标题请求；不阻塞主任务。
+            runLoop.onFirstSuccessfulRequest = { [weak self, weak runLoop] frozen in
+                runLoop?.onFirstSuccessfulRequest = nil
+                self?.triggerAutoTitleGeneration(for: pendingAutoTitleTarget, frozen: frozen, loop: runLoop)
+            }
         }
 
         activeRun.executionTask = Task {
@@ -802,7 +794,7 @@ final class ChatStore {
         parentRun: ActiveRun,
         providerID: APIProviderID,
         actions: [ToolAction],
-        modelOverrides: AgentModelRoleOverrides
+        modelOverrides: AgentModelBindings
     ) -> AgentSubagentRuntimeBridge {
         AgentSubagentRuntimeBridge(
             execute: { [weak self, weak parentRun] invocation in
@@ -850,7 +842,7 @@ final class ChatStore {
         parentRun: ActiveRun,
         providerID: APIProviderID,
         actions: [ToolAction],
-        modelOverrides: AgentModelRoleOverrides
+        modelOverrides: AgentModelBindings
     ) async -> AgentSubagentToolResult {
         let routedInvocation: AgentSubagentToolInvocation
         if invocation.toolName == SubagentToolDefinitionFactory.useAgentToolName {
@@ -918,7 +910,7 @@ final class ChatStore {
         parentRun: ActiveRun,
         providerID: APIProviderID,
         actions: [ToolAction],
-        modelOverrides: AgentModelRoleOverrides
+        modelOverrides: AgentModelBindings
     ) async -> AgentSubagentToolResult {
         let arguments: SpawnSubagentsArguments
         do {
@@ -984,12 +976,9 @@ final class ChatStore {
                     subagentOrigin: origin,
                     subagentStatus: .queued
                 )
-                if let parentOverride = workspaceStore.thread(for: parentRun.selection)?.modelPlanOverride {
-                    try? workspaceManager.updateThreadModelPlanOverride(
-                        projectID: thread.projectID,
-                        threadID: thread.id,
-                        override: parentOverride
-                    )
+                // 子任务继承父任务冻结的主模型身份，而不是重新解析当前设置。
+                if let frozen = modelOverrides.mainSnapshot {
+                    try? modelLibrary.setScopeBinding(.explicitModel(frozen.modelRecordID), scope: .thread(thread.id))
                 }
                 var record = AgentSubagentRecord(
                     groupID: groupID,
@@ -1058,7 +1047,7 @@ final class ChatStore {
         session: AgentSession,
         providerID: APIProviderID,
         actions: [ToolAction],
-        modelOverrides: AgentModelRoleOverrides
+        modelOverrides: AgentModelBindings
     ) throws {
         let selection = WorkspaceSelection(
             projectID: record.parentProjectID,
@@ -1553,8 +1542,21 @@ final class ChatStore {
         }
     }
 
+    /// 手动压缩：运行中只登记任务，由主循环在下一个安全点执行，不从界面线程直接覆盖 live session。
     func compactContextNow() {
-        guard !isLoading, !isCompactingContext else { return }
+        guard !isCompactingContext else { return }
+        if let selection = displayedSelection, let running = activeRuns[selection] {
+            do {
+                Task { @MainActor in
+                    _ = try? await running.loop.forceCompactContext(
+                        providerID: .customOpenAI, actions: composerActions(for: selection),
+                        modelOverrides: modelRoleOverrides(for: selection)
+                    )
+                }
+            }
+            return
+        }
+        guard !isLoading else { return }
 
         errorMessage = nil
         isCompactingContext = true
@@ -1645,7 +1647,7 @@ final class ChatStore {
     private func autoCompactIfNeeded(
         loop: AgentLoop? = nil,
         selection: WorkspaceSelection? = nil,
-        modelOverrides providedModelOverrides: AgentModelRoleOverrides? = nil
+        modelOverrides providedModelOverrides: AgentModelBindings? = nil
     ) async {
         guard !isCompactingContext else { return }
         let targetLoop = loop ?? displayedAgentLoop
@@ -1751,7 +1753,7 @@ final class ChatStore {
         finalReply: String,
         isChatSurface: Bool,
         providerID: APIProviderID,
-        modelOverrides: AgentModelRoleOverrides
+        modelOverrides: AgentModelBindings
     ) {
         clearNextPromptSuggestion(for: selection)
         guard !finalReply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -1776,24 +1778,18 @@ final class ChatStore {
 
     private func triggerAutoTitleGeneration(
         for target: WorkspaceAutoTitleTarget,
-        firstUserMessage: String,
-        providerID: APIProviderID,
-        modelOverrides: AgentModelRoleOverrides
+        frozen: FrozenModelRequest,
+        loop: AgentLoop?
     ) {
         Task { [weak self] in
-            guard let self else { return }
-            do {
-                guard let generatedTitle = try await conversationTitleService.generateTitle(
-                    from: firstUserMessage,
-                    providerID: providerID,
-                    modelOverrides: modelOverrides
-                ) else {
-                    return
-                }
-                workspaceStore.applyGeneratedTitle(generatedTitle, to: target)
-            } catch {
-                return
-            }
+            guard let self, let outcome = await conversationTitleService.generateTitle(target: target, frozen: frozen) else { return }
+            if let usage = outcome.usage { loop?.recordMaintenanceUsage(usage) }
+            guard let title = outcome.title else { return }
+            // 写回前由 WorkspaceStore 再次核对目标仍是默认名称；用户改名、删除或重置始终优先。
+            let before = workspaceStore.autoTitleTarget(for: WorkspaceSelection(projectID: target.projectID, threadID: target.threadID))
+            workspaceStore.applyGeneratedTitle(title, to: target)
+            let after = workspaceStore.autoTitleTarget(for: WorkspaceSelection(projectID: target.projectID, threadID: target.threadID))
+            conversationTitleService.markApplied(outcome.claim, applied: before?.threadName != after?.threadName || before?.projectName != after?.projectName)
         }
     }
 
@@ -1903,7 +1899,7 @@ final class ChatStore {
         surface: WorkspaceProjectSurface,
         selection: WorkspaceSelection,
         providerID: APIProviderID,
-        modelOverrides: AgentModelRoleOverrides
+        modelOverrides: AgentModelBindings
     ) -> String {
         if surface == .chat {
             return input
@@ -1922,14 +1918,13 @@ final class ChatStore {
         surface: WorkspaceProjectSurface,
         selection: WorkspaceSelection,
         providerID: APIProviderID,
-        modelOverrides: AgentModelRoleOverrides
+        modelOverrides: AgentModelBindings
     ) -> AgentPromptRuntimeContext {
         let modelInfo = agentModelInfo(
             providerID: providerID,
             modelOverrides: modelOverrides
         )
         return AgentPromptRuntimeContext(
-            modelPlanName: modelPlanName(for: selection),
             realModel: modelInfo.realModel,
             modelDisplayName: modelInfo.displayName,
             reasoningTier: ReasoningStrengthProfile
@@ -1940,31 +1935,16 @@ final class ChatStore {
 
     private func agentModelInfo(
         providerID: APIProviderID,
-        modelOverrides: AgentModelRoleOverrides
+        modelOverrides: AgentModelBindings
     ) -> (realModel: String, displayName: String) {
-        if case .resolved(let resolved) = modelOverrides.override(for: .reasoningModel) {
+        if case .resolved(let resolved) = modelOverrides.main {
             return (
                 realModel: normalizedModelValue(resolved.model.id, fallback: Self.unknownFallback),
                 displayName: normalizedModelValue(resolved.model.title, fallback: resolved.model.id)
             )
         }
 
-        let snapshot = apiConfigurationStore.chatModelSelectionSnapshot(for: providerID)
-        let overrideID = apiConfigurationStore.chatOverrideReasoningModelID(for: providerID)
-        let overrideModel = (!overrideID.isEmpty && overrideID != APIModelSelection.automaticID)
-            ? snapshot.selectedAccessMode.model(withID: overrideID)
-            : nil
-        let model = overrideModel ?? snapshot.configuredReasoningModel
-        return (
-            realModel: normalizedModelValue(model.id, fallback: Self.unknownFallback),
-            displayName: normalizedModelValue(model.title, fallback: model.id)
-        )
-    }
-
-    private func modelPlanName(for selection: WorkspaceSelection) -> String {
-        let thread = workspaceStore.thread(for: selection)
-        let plan = modelPlanStore.selectedPlan(for: thread?.modelPlanOverride)
-        return normalizedModelValue(plan?.name ?? "", fallback: Self.defaultModelPlanFallback)
+        return (realModel: Self.unknownFallback, displayName: Self.unknownFallback)
     }
 
     private func normalizedModelValue(_ value: String, fallback: String) -> String {

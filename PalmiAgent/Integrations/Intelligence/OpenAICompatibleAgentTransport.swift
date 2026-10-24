@@ -285,7 +285,7 @@ struct OpenAIChatMessage: Encodable {
     }
 }
 
-enum JSONRuntimeValue: Codable, Hashable, Sendable {
+nonisolated enum JSONRuntimeValue: Codable, Hashable, Sendable {
     case string(String)
     case number(Double)
     case bool(Bool)

@@ -1,11 +1,13 @@
 import SwiftUI
 struct ImageGenerationConfigurationScreen: View {
-    @Bindable var plans: ModelPlanStore
+    @Bindable var library: ModelLibraryStore
     @State private var settings = ImageGenerationConfigurationStore.shared
     @State private var account = ChatGPTAccountStore.shared
-    private var models: [ModelCandidateSnapshot] {
-        plans.libraryModels.filter { $0.isImageGenerationOnly && account.account != nil
-            && $0.connection.chatGPTAccount?.accountID == account.account?.accountID }
+    private var models: [ModelRecord] {
+        library.state.models.filter { model in
+            model.imageGenerationOnly && account.account != nil
+                && library.state.connection(model.connectionID)?.chatGPTAccount?.accountID == account.account?.accountID
+        }
     }
     var body: some View {
         List {
@@ -20,7 +22,7 @@ struct ImageGenerationConfigurationScreen: View {
                 .pickerStyle(.menu)
                 .tint(models.isEmpty ? Color.secondary : Color.accentColor)
                 if let active = account.account { LabeledContent("Codex OAuth", value: active.email.isEmpty ? active.accountID : active.email) }
-                NavigationLink { ChatGPTOAuthScreen(planStore: plans) }
+                NavigationLink { ChatGPTOAuthScreen(library: library) }
                 label: {
                     Label {
                         Text("Codex OAuth")

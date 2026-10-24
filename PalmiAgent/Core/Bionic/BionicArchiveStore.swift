@@ -367,7 +367,6 @@ actor BionicArchiveStore {
         return role
     }
     func createRole(persona: BionicObject, participant: BionicObject, assets: [String: Data], binding: BionicObject,
-                    auditRequest: BionicObject? = nil, auditResult: BionicObject? = nil,
                     installationID: String? = nil) throws -> BionicRole {
         let instance = installationID ?? BionicCodec.id()
         if instance == BionicSystemPersona.installationID {
@@ -395,12 +394,6 @@ actor BionicArchiveStore {
             let userRef = "participants/\(participant.text("participant_id")).json"
             try BionicDisk.write(staging, personaRef, persona); try BionicDisk.write(staging, userRef, participant)
             var events = [BionicRecords.event("role_created", ["persona_ref": .string(personaRef), "participant_ref": .string(userRef), "generation_id": .string(BionicCodec.id()), "timezone": .string(TimeZone.current.identifier)])]
-            // 核验暂停期间允许不带核验操作建档；带上时保持原有的请求/结果/检查点三件套。
-            if let auditRequest, let auditResult {
-                try BionicDisk.write(staging, "operations/\(auditRequest.text("operation_id"))/request.json", auditRequest)
-                try BionicDisk.write(staging, "operations/\(auditRequest.text("operation_id"))/results/\(auditResult.text("result_id")).json", auditResult)
-                events.append(BionicRecords.event("operation_checkpoint", BionicRecords.checkpoint(auditRequest, step: "root", phase: "committed", result: auditResult.text("result_id"), attempts: 1)))
-            }
             let transaction: BionicObject = ["transaction_id": .string(BionicCodec.id()), "sequence": .integer(1), "recorded_at": manifest["created_at"] ?? .null, "operation_id": .null,
                 "events": .records(events)]
             try BionicDisk.write(staging, "transactions/00000000000000000001-\(transaction.text("transaction_id")).json", transaction)
@@ -668,24 +661,14 @@ extension BionicArchiveStore {
         return try commit(instance, events: events, writes: [BionicWrite(path, m)], now: now)
     }
     @discardableResult
-    func updatePersona(_ instance: String, persona: BionicObject, validation: BionicValidation? = nil) throws -> BionicRole {
+    func updatePersona(_ instance: String, persona: BionicObject) throws -> BionicRole {
         let role = try commitDue(instance, at: .now)
         try BionicPersonaCatalog.validate(persona, existing: role.persona)
         guard persona.text("character_id") == role.characterID,
               persona.text("persona_revision_id") != role.state.personaID else { throw BionicFailure("invalidFields") }
-        let receipt = persona.object("validation_receipt")
-        // 核验暂停期间允许空回执；带核验时必须是指向当前人设指纹的通过回执。
-        if validation != nil {
-            guard receipt.flag("passed"), receipt.text("input_hash") == (try BionicPersonaCatalog.fingerprint(persona)) else { throw BionicFailure("auditRequired") }
-        }
         let path = "personas/\(persona.text("persona_revision_id")).json"
-        var writes = [BionicWrite(path, persona)]
+        let writes = [BionicWrite(path, persona)]
         var events = Self.invalidationEvents(role, reason: "persona_changed")
-        if let validation {
-            let op = validation.request.text("operation_id"), rid = validation.result.text("result_id")
-            writes += [BionicWrite("operations/\(op)/request.json", validation.request), BionicWrite("operations/\(op)/results/\(rid).json", validation.result)]
-            events.append(BionicRecords.event("operation_checkpoint", BionicRecords.checkpoint(validation.request, step: "root", phase: "committed", result: rid, attempts: 1)))
-        }
         events.append(BionicRecords.event("persona_selected", ["persona_ref": .string(path), "previous_persona_revision_id": .string(role.state.personaID), "reason": .string("manual")]))
         return try commit(instance, events: events, writes: writes)
     }

@@ -860,22 +860,22 @@ enum OpenAIResponsesTransport {
 }
 
 extension JSONRuntimeValue {
-    var objectValue: [String: JSONRuntimeValue]? {
+    nonisolated var objectValue: [String: JSONRuntimeValue]? {
         guard case .object(let value) = self else { return nil }
         return value
     }
 
-    var arrayValue: [JSONRuntimeValue]? {
+    nonisolated var arrayValue: [JSONRuntimeValue]? {
         guard case .array(let value) = self else { return nil }
         return value
     }
 
-    var stringValue: String? {
+    nonisolated var stringValue: String? {
         guard case .string(let value) = self else { return nil }
         return value
     }
 
-    var intValue: Int? {
+    nonisolated var intValue: Int? {
         guard case .number(let value) = self else { return nil }
         return Int(value)
     }

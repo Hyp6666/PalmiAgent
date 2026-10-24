@@ -19,7 +19,7 @@ final class NextPromptSuggestionService {
         finalReply: String,
         isChatSurface: Bool,
         providerID: APIProviderID,
-        modelOverrides: AgentModelRoleOverrides
+        modelOverrides: AgentModelBindings
     ) async throws -> String? {
         let user = Self.tail(userMessage)
         let reply = Self.tail(finalReply)
@@ -48,7 +48,7 @@ final class NextPromptSuggestionService {
     private func request(
         _ messages: [AgentModelMessage],
         providerID: APIProviderID,
-        modelOverrides: AgentModelRoleOverrides,
+        modelOverrides: AgentModelBindings,
         intent: AgentModelToolIntent
     ) async throws -> String? {
         let response = try await modelRuntime.complete(
@@ -57,7 +57,7 @@ final class NextPromptSuggestionService {
                     providerID: providerID,
                     modelRole: .reasoningModel,
                     reasoning: .disabled,
-                    configurationOverride: modelOverrides.override(for: .reasoningModel)
+                    configurationOverride: modelOverrides.main
                 ),
                 apiMessages: messages,
                 tools: [Self.tool],

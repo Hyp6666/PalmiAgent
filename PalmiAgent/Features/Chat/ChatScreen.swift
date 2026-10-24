@@ -133,31 +133,17 @@ struct ChatScreen: View {
     private let contextInspectorExpandedSize = CGSize(width: 244, height: 318)
     private let contextInspectorScreenMargin: CGFloat = 12
 
+    /// 当前会话的主模型意图与解析结果。只有一个主模型；没有方案、轻模型或多模态槽位。
     private struct ModelSelectionState {
-        let plans: [ModelPlanSnapshot]
-        let activePlanID: UUID?
-        let selectedPlan: ModelPlanSnapshot?
-        let sessionOverride: ModelPlanSessionOverride?
-        let primaryCandidate: ModelCandidateSnapshot?
-        let multimodalCandidate: ModelCandidateSnapshot?
-        let lightweightCandidate: ModelCandidateSnapshot?
+        let binding: ScopedMainModelBinding
+        let model: ModelRecord?
+        let connectionID: UUID?
+        let selectableModels: [ModelRecord]
+        let defaultModel: ModelRecord?
         let selectedProviderID: APIProviderID
         let selectedModel: APIModelDefinition
 
-        var isCustom: Bool {
-            sessionOverride?.hasCandidateOverrides == true
-        }
-
-        func selectedCandidate(for slot: ModelPlanSlot) -> ModelCandidateSnapshot? {
-            switch slot {
-            case .primary:
-                return primaryCandidate
-            case .multimodal:
-                return multimodalCandidate
-            case .lightweight:
-                return lightweightCandidate
-            }
-        }
+        var isExplicit: Bool { !binding.isInherit }
     }
 
     init(
@@ -246,66 +232,35 @@ struct ChatScreen: View {
     }
 
     private var computedModelSelectionState: ModelSelectionState {
-        let plans = store.modelPlanStore.plans
-        let sessionOverride = workspaceStore.selectedThread?.modelPlanOverride
-        let activePlan = store.modelPlanStore.activePlanSnapshot()
-        let selectedPlan = store.modelPlanStore.selectedPlan(for: sessionOverride)
-        let primaryCandidate = selectedPlan.map {
-            store.modelPlanStore.selectedCandidate(for: .primary, in: $0, sessionOverride: sessionOverride)
-        } ?? nil
-        let multimodalCandidate = selectedPlan.map {
-            store.modelPlanStore.selectedCandidate(for: .multimodal, in: $0, sessionOverride: sessionOverride)
-        } ?? nil
-        let lightweightCandidate = selectedPlan.map {
-            store.modelPlanStore.selectedCandidate(for: .lightweight, in: $0, sessionOverride: sessionOverride)
-        } ?? nil
-        let selectedProviderID: APIProviderID = .customOpenAI
-        let selectedModel = primaryCandidate.map {
-            apiModelDefinition(for: $0, slot: .primary)
+        let library = store.modelLibrary
+        let scope = workspaceStore.selectedSelection.map { ModelLibraryScope.thread($0.threadID) }
+        let binding = scope.map(library.scopeBinding) ?? .inherit
+        let modelID: UUID? = {
+            if case .success(let id) = library.mainModelSelection(scope: scope) { return id }
+            return nil
+        }()
+        let model = modelID.flatMap { library.state.model($0) }
+        let selectedModel = model.map {
+            APIModelDefinition(id: $0.providerModelID, title: $0.title, summary: "", traits: [.reasoningPreferred])
         } ?? APIModelDefinition(
             id: "",
             title: PalmiL10n.tr("common.notSelected"),
-            summary: PalmiL10n.tr("model.error.noUsablePlan"),
+            summary: PalmiL10n.tr("ml.mainModel.notConfigured"),
             traits: []
         )
-
         return ModelSelectionState(
-            plans: plans,
-            activePlanID: activePlan?.id,
-            selectedPlan: selectedPlan,
-            sessionOverride: sessionOverride,
-            primaryCandidate: primaryCandidate,
-            multimodalCandidate: multimodalCandidate,
-            lightweightCandidate: lightweightCandidate,
-            selectedProviderID: selectedProviderID,
+            binding: binding,
+            model: model,
+            connectionID: model?.connectionID,
+            selectableModels: library.state.models.filter { !$0.imageGenerationOnly },
+            defaultModel: library.state.defaultMainModel.modelID.flatMap { library.state.model($0) },
+            selectedProviderID: .customOpenAI,
             selectedModel: selectedModel
         )
     }
 
     private var topOrbTitle: String {
         "Palmi"
-    }
-
-    private func apiModelDefinition(
-        for candidate: ModelCandidateSnapshot,
-        slot: ModelPlanSlot
-    ) -> APIModelDefinition {
-        var traits = Set<APIModelTrait>()
-        if slot == .multimodal || candidate.capabilities.supportsVision {
-            traits.insert(.multimodal)
-        }
-        if slot == .lightweight {
-            traits.insert(.lightweight)
-        }
-        if slot == .primary {
-            traits.insert(.reasoningPreferred)
-        }
-        return APIModelDefinition(
-            id: candidate.modelName,
-            title: candidate.title,
-            summary: candidate.subtitle,
-            traits: traits
-        )
     }
 
     private var selectedReasoningTitle: String {
@@ -440,7 +395,7 @@ struct ChatScreen: View {
         Menu {
             Section(PalmiL10n.tr("chat.thinking.title")) {
                 thinkingLevelMenuContent
-                    .disabled(store.isLoading || modelSelectionState.primaryCandidate == nil)
+                    .disabled(store.isLoading || modelSelectionState.model == nil)
             }
             Divider()
             Button { presentQuickConfiguration() } label: {
@@ -2638,68 +2593,30 @@ struct ChatScreen: View {
     @ViewBuilder
     private var topModelMenuContent: some View {
         let state = modelSelectionState
+        let library = store.modelLibrary
 
-        Section(PalmiL10n.tr("chat.presetConfiguration")) {
-            Button {} label: {
-                topModelMenuSelectionLabel(PalmiL10n.tr("common.custom"), isSelected: state.isCustom)
-            }
-            .disabled(!state.isCustom)
-
-            ForEach(state.plans) { plan in
-                Button {
-                    selectModelPlan(plan)
-                } label: {
-                    topModelMenuSelectionLabel(
-                        compactTopModelMenuTitle(plan.name),
-                        isSelected: !state.isCustom && state.selectedPlan?.id == plan.id
-                    )
-                }
+        Section(PalmiL10n.tr("ml.session.mainModel")) {
+            Button {
+                selectSessionMainModel(nil)
+            } label: {
+                topModelMenuSelectionLabel(
+                    compactTopModelMenuTitle(state.defaultModel.map {
+                        PalmiL10n.tr("ml.followDefaultNamed", ModelLibraryPresentation.modelTitle($0, library: library))
+                    } ?? PalmiL10n.tr("ml.followDefault")),
+                    isSelected: !state.isExplicit
+                )
             }
         }
 
-        Divider()
-
-        topModelMenuSlotSection(.primary, state: state)
-
-        Divider()
-
-        topModelMenuSlotSection(.multimodal, state: state)
-
-        Divider()
-
-        topModelMenuSlotSection(.lightweight, state: state)
-    }
-
-    @ViewBuilder
-    private func topModelMenuSlotSection(
-        _ slot: ModelPlanSlot,
-        state: ModelSelectionState
-    ) -> some View {
-        Section(slot.localizedTitle) {
-            let candidates = state.selectedPlan?.candidates(for: slot) ?? []
-
-            if !slot.isRequired {
-                Button {
-                    selectModelCandidate(nil, slot: slot)
-                } label: {
-                    topModelMenuSelectionLabel(
-                            PalmiL10n.tr("common.none"),
-                        isSelected: state.selectedCandidate(for: slot) == nil
-                    )
-                }
-            }
-
-            if candidates.isEmpty && slot.isRequired {
-                Text(PalmiL10n.tr("common.none"))
-                    .disabled(true)
-            } else {
-                ForEach(candidates) { candidate in
+        ForEach(ModelLibraryPresentation.groups(library: library, models: state.selectableModels), id: \.connectionID) { group in
+            Section(compactTopModelMenuTitle(group.title)) {
+                ForEach(group.models) { model in
                     Button {
-                        selectModelCandidate(candidate, slot: slot)
+                        selectSessionMainModel(model.id)
                     } label: {
                         topModelMenuSelectionLabel(
-                            compactTopModelMenuTitle(candidate.title),
-                            isSelected: state.selectedCandidate(for: slot)?.id == candidate.id
+                            compactTopModelMenuTitle(model.title),
+                            isSelected: state.binding.explicitModelID == model.id
                         )
                     }
                 }
@@ -2853,47 +2770,24 @@ struct ChatScreen: View {
         }
     }
 
-    private func selectModelPlan(_ plan: ModelPlanSnapshot) {
+    /// nil 表示跟随默认主模型。修改只影响后续新请求，不改变正在执行的请求。
+    private func selectSessionMainModel(_ modelID: UUID?) {
         guard let selection = workspaceStore.selectedSelection else { return }
-        let activePlanID = store.modelPlanStore.activePlanSnapshot()?.id
-        let override = plan.id == activePlanID ? nil : ModelPlanSessionOverride(planID: plan.id)
-        workspaceStore.setModelPlanOverride(override, for: selection)
-        cachedModelSelectionState = computedModelSelectionState
-        modelReasoningRevision &+= 1
-    }
-
-    private func selectModelCandidate(_ candidate: ModelCandidateSnapshot?, slot: ModelPlanSlot) {
-        guard let selection = workspaceStore.selectedSelection,
-              let selectedPlan = modelSelectionState.selectedPlan else {
-            return
+        do {
+            try store.modelLibrary.setScopeBinding(
+                modelID.map(ScopedMainModelBinding.explicitModel) ?? .inherit,
+                scope: .thread(selection.threadID)
+            )
+        } catch {
+            store.errorMessage = error.localizedDescription
         }
-        var override = modelSelectionState.sessionOverride ?? ModelPlanSessionOverride(planID: selectedPlan.id)
-        override.planID = selectedPlan.id
-
-        let configuredCandidateID = selectedPlan.selectedCandidate(for: slot)?.id
-        let selectedCandidateID = candidate?.id
-
-        if selectedCandidateID == configuredCandidateID {
-            override.removeCandidateOverride(for: slot)
-        } else if let selectedCandidateID {
-            override.setCandidateID(selectedCandidateID, for: slot)
-        } else if configuredCandidateID == nil {
-            override.removeCandidateOverride(for: slot)
-        } else {
-            override.clearCandidate(for: slot)
-        }
-
-        let normalizedOverride = override.isEquivalentToSettings(activePlanID: modelSelectionState.activePlanID)
-            ? nil
-            : override
-        workspaceStore.setModelPlanOverride(normalizedOverride, for: selection)
         cachedModelSelectionState = computedModelSelectionState
         modelReasoningRevision &+= 1
     }
 
     private func isModelThinkingEnabled(defaultEnabled: Bool) -> Bool {
         let state = modelSelectionState
-        guard let profileID = state.primaryCandidate?.connection.id else {
+        guard let profileID = state.connectionID else {
             return defaultEnabled
         }
         return ModelNativeReasoningPreferenceStore.isThinkingEnabled(
@@ -2906,7 +2800,7 @@ struct ChatScreen: View {
 
     private func setModelThinkingEnabled(_ isEnabled: Bool) {
         let state = modelSelectionState
-        guard let profileID = state.primaryCandidate?.connection.id else { return }
+        guard let profileID = state.connectionID else { return }
         ModelNativeReasoningPreferenceStore.setThinkingEnabled(
             isEnabled,
             providerID: state.selectedProviderID,
@@ -2918,7 +2812,7 @@ struct ChatScreen: View {
 
     private func selectedModelEffort(defaultEffort: String) -> String {
         let state = modelSelectionState
-        guard let profileID = state.primaryCandidate?.connection.id else {
+        guard let profileID = state.connectionID else {
             return defaultEffort
         }
         return ModelNativeReasoningPreferenceStore.effort(
@@ -2931,7 +2825,7 @@ struct ChatScreen: View {
 
     private func setSelectedModelEffort(_ effort: String) {
         let state = modelSelectionState
-        guard let profileID = state.primaryCandidate?.connection.id else { return }
+        guard let profileID = state.connectionID else { return }
         ModelNativeReasoningPreferenceStore.setEffort(
             effort,
             providerID: state.selectedProviderID,
@@ -2982,7 +2876,6 @@ struct ChatScreen: View {
 
     private func prepareQuickSettingsMenu() {
         if isFocused { isFocused = false }
-        store.modelPlanStore.refresh()
         cachedModelSelectionState = computedModelSelectionState
         modelReasoningRevision &+= 1
         withAnimation(floatingBubbleAnimation) {
@@ -2995,7 +2888,6 @@ struct ChatScreen: View {
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            store.modelPlanStore.refresh()
             cachedModelSelectionState = computedModelSelectionState
             modelReasoningRevision &+= 1
             isShowingContextInfo = false

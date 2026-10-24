@@ -56,7 +56,6 @@ final class LLMAPIClientReasoningControlCacheTests: XCTestCase {
         let sessionConfiguration = URLSessionConfiguration.ephemeral
         sessionConfiguration.protocolClasses = [ReasoningControlCacheURLProtocol.self]
         let client = LLMAPIClient(
-            apiConfigurationStore: apiStore,
             session: URLSession(configuration: sessionConfiguration),
             userDefaults: defaults,
             wireProtocolContractStore: LLMWireProtocolContractStore(

@@ -688,6 +688,10 @@ struct APIConfigurationProfileRecord: Codable, Identifiable, Sendable {
 
 struct APIResolvedConfiguration: Sendable {
     var chatGPTOAuthAccountID: String? = nil
+    /// 连接上声明的非秘密扩展请求头。
+    var extraHeaders: [String: String] = [:]
+    /// Messages 协议是否额外发送 Bearer（旧连接显式保留原行为）。
+    var messagesSendsBearer = true
     let provider: APIProviderDefinition
     let profileID: UUID
     let profileName: String

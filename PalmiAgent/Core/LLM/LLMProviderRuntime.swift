@@ -109,7 +109,7 @@ enum LLMProviderRuntimeResolver {
             capabilities: integrationSpec.capabilities,
             preferredReasoning: preferredReasoning,
             preservesReasoningContentInToolHistory: true,
-            defaultHeaders: [:]
+            defaultHeaders: configuration.extraHeaders
         )
     }
 

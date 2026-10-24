@@ -28,14 +28,12 @@ final class ActionExecutor {
     private let webResearchService: WebResearchService
     private let browserOperatorService: BrowserOperatorService
     private let userQuestionService: UserQuestionService
-    private let remoteSearchConfigurationStore: RemoteSearchConfigurationStore
-    private let remoteWebSearchService: RemoteWebSearchService
+    private let webCapabilityService: WebCapabilityService
     private let spotlightService: SpotlightService
     private let foundationModelService: FoundationModelService
     private let currentDateTimeService: CurrentDateTimeService
     private let alarmService: AlarmService
     private let ocrService: PPocrv6TinyOCRService
-    private let modelPlanStore: ModelPlanStore
     private let modelRuntime: AgentModelRuntime
     private let userDefaults: UserDefaults
     private let bionicStore: BionicStore?
@@ -62,14 +60,12 @@ final class ActionExecutor {
         webResearchService: WebResearchService,
         browserOperatorService: BrowserOperatorService? = nil,
         userQuestionService: UserQuestionService? = nil,
-        remoteSearchConfigurationStore: RemoteSearchConfigurationStore,
-        remoteWebSearchService: RemoteWebSearchService,
+        webCapabilityService: WebCapabilityService,
         spotlightService: SpotlightService,
         foundationModelService: FoundationModelService,
         currentDateTimeService: CurrentDateTimeService,
         alarmService: AlarmService,
         ocrService: PPocrv6TinyOCRService,
-        modelPlanStore: ModelPlanStore,
         modelRuntime: AgentModelRuntime,
         userDefaults: UserDefaults = .standard,
         bionicStore: BionicStore? = nil,
@@ -92,14 +88,12 @@ final class ActionExecutor {
         self.webResearchService = webResearchService
         self.browserOperatorService = browserOperatorService ?? BrowserOperatorService()
         self.userQuestionService = userQuestionService ?? UserQuestionService(notificationService: notificationService)
-        self.remoteSearchConfigurationStore = remoteSearchConfigurationStore
-        self.remoteWebSearchService = remoteWebSearchService
+        self.webCapabilityService = webCapabilityService
         self.spotlightService = spotlightService
         self.foundationModelService = foundationModelService
         self.currentDateTimeService = currentDateTimeService
         self.alarmService = alarmService
         self.ocrService = ocrService
-        self.modelPlanStore = modelPlanStore
         self.modelRuntime = modelRuntime
         self.userDefaults = userDefaults
         self.bionicStore = bionicStore
@@ -109,7 +103,7 @@ final class ActionExecutor {
     func execute(
         _ action: ToolAction,
         arguments: ToolArguments,
-        modelOverrides: AgentModelRoleOverrides = .empty,
+        modelOverrides: AgentModelBindings = .unconfigured,
         executionID: UUID? = nil
     ) async throws -> ToolExecutionOutcome {
         do {
@@ -536,16 +530,19 @@ final class ActionExecutor {
                     modelOverrides: modelOverrides
                 )
                 let text = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                // 视觉工具返回的是观察证据：保留来源资产、问题、模型与状态，不提升为用户指令。
                 let details = """
+                kind：vision_tool_observation
                 model：\(response.modelTitle)
-                source：\(path)
-                prompt：\(prompt)
+                source_asset：\(path)
+                question：\(prompt)
+                input：\(response.inputDescription)
 
-                \(text.isEmpty ? "多模态模型没有返回文本。" : text)
+                \(text.isEmpty ? "看图模型没有返回文本。" : text)
                 """
                 return success(
                     action,
-                    text.isEmpty ? "多模态模型未返回文本" : "多模态模型已返回识别结果",
+                    text.isEmpty ? "看图模型未返回文本" : "看图模型已返回观察结果",
                     details: details,
                     status: text.isEmpty ? .warning : .success
                 )
@@ -583,50 +580,23 @@ final class ActionExecutor {
                     profile: retrievalProfile.webSearch
                 )
 
-                if let configuration = remoteSearchConfigurationStore.activeConfigurationSnapshot() {
-                    let apiKey = try remoteSearchConfigurationStore.apiKey(for: configuration.id)
-                    let remoteResult = try await remoteWebSearchService.search(
-                        query: query,
-                        configuration: configuration,
-                        apiKey: apiKey,
-                        maxResults: maxResults,
-                        timeoutSeconds: Self.remoteSearchTimeoutSeconds
+                // 搜索与抓取分别绑定；只在用户配置的后端内选择，不因为存在云端配置就强制所有网页操作走云端。
+                let backend = try webCapabilityService.resolve(.search)
+                if case .adapter = backend {
+                    let result = await webCapabilityService.execute(
+                        backend,
+                        request: WebAdapterRequest(query: query, url: nil, count: maxResults, question: nil, options: webBindingOptions(.search)),
+                        timeLimit: retrievalProfile.webSearch.timeoutSeconds
                     )
-                    let sources = remoteResult.sources.enumerated().map { index, source in
-                        let title = source.title
-                            ?? source.url.host
-                            ?? source.url.absoluteString
-                        var lines = [
-                            "[\(index + 1)] \(title)",
-                            source.url.absoluteString
-                        ]
-                        if let snippet = source.snippet {
-                            lines.append(snippet)
-                        }
-                        if let publishedAt = source.publishedAt {
-                            lines.append("发布时间：\(publishedAt)")
-                        }
-                        return lines.joined(separator: "\n")
-                    }.joined(separator: "\n\n")
+                    try Task.checkCancellation()
+                    let succeeded = [.completed, .completedEmpty].contains(result.status)
                     return success(
                         action,
-                        "远端网页搜索完成：\(remoteResult.sources.count) 个来源",
-                        details: """
-                        查询：\(query)
-                        搜索方式：远端搜索
-                        配置：\(configuration.displayName)
-                        协议：\(configuration.apiProtocol.localizedTitle)
-                        模型：\(configuration.modelName)
-                        目标结果数：\(maxResults)
-                        实际来源数：\(remoteResult.sources.count)
-                        抓取提示：若题目要求逐来源核验、精确数字、时间线或明确引用，请继续调用 fetch 读取候选网页正文。
-
-                        远端搜索摘要：
-                        \(remoteResult.answer ?? "未返回独立摘要。")
-
-                        来源：
-                        \(sources.isEmpty ? "未返回结构化来源。" : sources)
-                        """
+                        succeeded
+                            ? (result.hits.isEmpty ? "云端网页搜索完成：没有结构化来源" : "云端网页搜索完成：\(result.hits.count) 个来源")
+                            : "云端网页搜索未完成",
+                        details: WebCapabilityService.formatSearch(result, query: query, backend: backend),
+                        status: succeeded ? .success : (result.status == .partial ? .warning : .failure)
                     )
                 }
 
@@ -683,6 +653,41 @@ final class ActionExecutor {
                 let maxURLs = retrievalProfile.webContent.fetchStaticWebPageMaxURLs
                 let urls = Array(uniqueURLs.prefix(maxURLs))
                 let skippedCount = max(0, uniqueURLs.count - urls.count)
+                // full_snapshot 必须走真正能返回快照的本机实现；page_text 按用户配置的抓取绑定执行。
+                let fetchBackend = fetchMode == .fullSnapshot ? .local : try webCapabilityService.resolve(.fetch)
+                if case .adapter = fetchBackend {
+                    var combined = WebOperationResult(operation: .fetch, adapterID: "", bindingID: nil, status: .completed,
+                                                      executionEvidence: .none, sourceObservation: .present)
+                    var completedCount = 0
+                    for url in urls {
+                        try Task.checkCancellation()
+                        let result = await webCapabilityService.execute(
+                            fetchBackend,
+                            request: WebAdapterRequest(query: nil, url: url, count: 1, question: arguments.string("question"), options: webBindingOptions(.fetch)),
+                            timeLimit: retrievalProfile.webContent.fetchStaticWebPageTotalTimeoutSeconds
+                        )
+                        combined.adapterID = result.adapterID
+                        combined.executionEvidence = result.executionEvidence
+                        combined.pages += result.pages
+                        combined.errors += result.errors
+                        combined.notes += result.notes
+                        if [.completed, .completedEmpty].contains(result.status) { completedCount += 1 }
+                    }
+                    combined.status = completedCount == urls.count ? .completed : (completedCount > 0 ? .partial : .failed)
+                    return success(
+                        action,
+                        completedCount > 0 ? "已通过云端读取 \(completedCount)/\(urls.count) 个网页" : "云端网页读取失败",
+                        details: WebCapabilityService.formatFetch(combined, requested: urls, backend: fetchBackend,
+                                                                  start: startCharacter, end: endCharacter)
+                            + (skippedCount > 0 ? "\n已按工具技术上限跳过 \(skippedCount) 个 URL。" : ""),
+                        status: completedCount == urls.count ? .success : (completedCount > 0 ? .warning : .failure),
+                        inlineMetadata: combined.pages.first.map {
+                            ToolCallInlineMetadataBuilder.webMetadata(title: $0.title ?? $0.requestedURL.absoluteString,
+                                                                     url: $0.returnedURL ?? $0.requestedURL,
+                                                                     trailingCount: max(0, uniqueURLs.count - 1))
+                        }
+                    )
+                }
                 let maxConcurrentRequests = fetchMode == .fullSnapshot
                     ? 1
                     : retrievalProfile.webContent.fetchStaticWebPageMaxConcurrentRequests
@@ -1477,7 +1482,7 @@ final class ActionExecutor {
     }
 
     private func executeBrowser(
-        _ action: ToolAction, arguments: ToolArguments, modelOverrides: AgentModelRoleOverrides, executionID: UUID?
+        _ action: ToolAction, arguments: ToolArguments, modelOverrides: AgentModelBindings, executionID: UUID?
     ) async throws -> ToolExecutionOutcome {
         let request = try BrowserTaskRequest(arguments: arguments)
         if UIApplication.shared.applicationState == .active { await notificationService.requestAuthorizationIfNeeded() }
@@ -1492,7 +1497,7 @@ final class ActionExecutor {
         let result = try await browserTaskRuntime.run(task: request.task, selection: selection, configuration: configuration, executionID: id,
             performPage: { page in
                 let askImage: ((String, String) async throws -> String)?
-                if case .resolved = self.resolvedMultimodalOverride(from: configuration.roleOverrides) {
+                if case .resolved = configuration.roleOverrides.toolOverride(configuration.roleOverrides.vision) {
                     askImage = { prompt, dataURL in
                         let response = try await self.scanImageWithMultimodalModel(prompt: prompt, imageDataURL: dataURL, modelOverrides: configuration.roleOverrides)
                         return response.text
@@ -1540,17 +1545,16 @@ final class ActionExecutor {
         if name == "web_search" {
             let query = try arguments.requiredString("query")
             let maxResults = effectiveSearchWebMaxResults(from: arguments, profile: profile.webSearch)
-            if let configuration = remoteSearchConfigurationStore.activeConfigurationSnapshot() {
-                let apiKey = try remoteSearchConfigurationStore.apiKey(for: configuration.id)
-                let result = try await remoteWebSearchService.search(query: query, configuration: configuration, apiKey: apiKey,
-                    maxResults: maxResults, timeoutSeconds: Self.remoteSearchTimeoutSeconds)
+            let backend = try webCapabilityService.resolve(.search)
+            if case .adapter = backend {
+                let result = await webCapabilityService.execute(
+                    backend, request: WebAdapterRequest(query: query, url: nil, count: maxResults, question: nil, options: webBindingOptions(.search)),
+                    timeLimit: profile.webSearch.timeoutSeconds
+                )
                 try Task.checkCancellation()
-                let sources = result.sources.map { source in
-                    "title: \(source.title ?? source.url.host ?? source.url.absoluteString) | url: \(source.url.absoluteString) | snippet: \(source.snippet ?? "") | published: \(source.publishedAt ?? "")"
-                }.joined(separator: "\n")
-                let text = "query: \(query)\nanswer: \(result.answer ?? "")\n" + sources
+                let text = WebCapabilityService.formatSearch(result, query: query, backend: backend)
                 return .init(text: text, summary: BrowserRuntimeText.line(text, limit: 2500),
-                    url: result.sources.first?.url.absoluteString ?? "", title: result.sources.first?.title ?? "")
+                    url: result.hits.first?.url.absoluteString ?? "", title: result.hits.first?.title ?? "")
             }
             let provider = try selectedSearchProvider(from: arguments)
             let results = try await webResearchService.search(query: query, maxResults: maxResults,
@@ -1571,6 +1575,27 @@ final class ActionExecutor {
         let unique = uniqueURLs(try webPageURLs(from: arguments))
         let urls = Array(unique.prefix(profile.webContent.fetchStaticWebPageMaxURLs))
         let full = mode == .fullSnapshot
+        let fetchBackend = full ? .local : try webCapabilityService.resolve(.fetch)
+        if case .adapter = fetchBackend {
+            var pages: [WebFetchedContent] = []
+            var errors: [WebAdapterError] = []
+            for url in urls {
+                try Task.checkCancellation()
+                let result = await webCapabilityService.execute(
+                    fetchBackend, request: WebAdapterRequest(query: nil, url: url, count: 1, question: nil, options: webBindingOptions(.fetch)),
+                    timeLimit: profile.webContent.fetchStaticWebPageTotalTimeoutSeconds
+                )
+                pages += result.pages
+                errors += result.errors
+            }
+            var combined = WebOperationResult(operation: .fetch, adapterID: "", bindingID: nil, status: pages.isEmpty ? .failed : .completed,
+                                              executionEvidence: .typedDirectResponse, sourceObservation: .present)
+            combined.pages = pages
+            combined.errors = errors
+            let text = WebCapabilityService.formatFetch(combined, requested: urls, backend: fetchBackend, start: start, end: end)
+            return .init(text: text, summary: BrowserRuntimeText.line(text, limit: 2500),
+                url: pages.first?.requestedURL.absoluteString ?? "", title: pages.first?.title ?? "", failed: pages.isEmpty)
+        }
         let attempts = await webResearchService.fetchSummaries(urls: urls, startCharacter: start, endCharacter: end, mode: mode,
             includeLinks: includeLinks, maxConcurrentRequests: full ? 1 : profile.webContent.fetchStaticWebPageMaxConcurrentRequests,
             requestTimeoutSeconds: full ? max(60, profile.webContent.fetchStaticWebPageRequestTimeoutSeconds) : profile.webContent.fetchStaticWebPageRequestTimeoutSeconds,
@@ -1602,51 +1627,42 @@ final class ActionExecutor {
             url: first?.finalURL.absoluteString ?? "", title: first?.title ?? "", failed: first == nil, fileDeltas: deltas)
     }
 
+    /// 看图工具：使用视觉工具绑定（跟随本次冻结的主模型或直接引用模型库记录）；能力未知或不支持时返回具体错误，不改用别的模型。
     private func scanImageWithMultimodalModel(
         prompt: String,
         imageDataURL: String,
-        modelOverrides: AgentModelRoleOverrides
+        modelOverrides: AgentModelBindings
     ) async throws -> MultimodalModelScanResponse {
-        let override = resolvedMultimodalOverride(from: modelOverrides)
+        let override = modelOverrides.toolOverride(modelOverrides.vision)
         guard case .resolved(let resolved) = override else {
-            if case .unavailable(let message) = override {
-                throw AppError.invalidState(message)
-            }
-            throw AppError.invalidState("当前会话未选择可用的多模态模型。")
+            if case .unavailable(let message) = override { throw AppError.invalidState(message) }
+            throw AppError.invalidState("看图工具没有可用的模型。")
+        }
+        let snapshot = modelOverrides.toolSnapshot(modelOverrides.vision)
+        switch snapshot?.supports(.visionInput) {
+        case .supported?: break
+        case .unsupported?: throw AppError.invalidState("看图工具使用的模型「\(resolved.model.title)」不支持看图。请在设置 › 工具能力 › 看图中更换模型。")
+        default: throw AppError.invalidState("看图工具使用的模型「\(resolved.model.title)」尚未声明或验证看图能力，未发送图片。")
         }
         var userMessage = AgentModelMessage.user(prompt)
         userMessage.imageDataURLs = [imageDataURL]
         let response = try await modelRuntime.complete(
             AgentModelRequest(
-                selection: AgentModelSelection(
-                    providerID: resolved.configuration.provider.id,
-                    modelRole: .multimodalModel,
-                    reasoning: .automatic,
-                    configurationOverride: override
-                ),
+                selection: modelOverrides.toolSelection(modelOverrides.vision, reasoning: .automatic),
                 apiMessages: [
-                    .system("你是图片理解工具。根据用户的视觉问题阅读图片，只返回和图片相关的直接答案。"),
+                    .system("你是图片观察工具。根据提出的具体问题阅读图片，只返回能从图片中直接看到的内容；看不清的部分写明看不清，不要猜测。"),
                     userMessage
                 ],
                 tools: [],
                 toolIntent: .none,
             )
         )
+        guard !response.wasRefused else { throw AppError.operationFailed("看图模型拒绝了这次请求。") }
         return MultimodalModelScanResponse(
             text: response.message.textContent,
-            modelTitle: resolved.model.title
+            modelTitle: resolved.model.title,
+            inputDescription: response.outputWasTruncated ? "观察输出被截断" : "已发送 1 张图片（长边缩放至 1536 像素以内）"
         )
-    }
-
-    private func resolvedMultimodalOverride(
-        from modelOverrides: AgentModelRoleOverrides
-    ) -> AgentModelConfigurationOverride {
-        if let override = modelOverrides.override(for: .multimodalModel) {
-            return override
-        }
-        return modelPlanStore
-            .roleOverrides(for: nil)
-            .override(for: .multimodalModel) ?? .unavailable("当前会话未选择可用的多模态模型。")
     }
 
     private func multimodalToolImageDataURL(at path: String) throws -> String {
@@ -1869,6 +1885,7 @@ final class ActionExecutor {
     private struct MultimodalModelScanResponse {
         let text: String
         let modelTitle: String
+        let inputDescription: String
     }
 
     private struct WebFetchSavedSnapshot {
@@ -2085,20 +2102,15 @@ final class ActionExecutor {
                 profile: retrievalProfile.webSearch
             )
             var payload: [String: Any] = ["max_results": maxResults]
-            // Match execution routing: an active remote configuration takes precedence over source.
-            if let configuration = remoteSearchConfigurationStore.activeConfigurationSnapshot() {
-                payload["source"] = "remote"
-                payload["configuration_id"] = configuration.id.uuidString.lowercased()
-                payload["configuration"] = configuration.displayName
-                payload["protocol"] = configuration.apiProtocol.rawValue
-                payload["model"] = configuration.modelName
-                payload["timeout_seconds"] = Int(Self.remoteSearchTimeoutSeconds)
-            } else {
+            // 与执行路由一致：审批显示的后端就是执行时使用的后端。
+            let backend = (try? webCapabilityService.resolve(.search)) ?? .local
+            payload.merge(backend.normalizedArguments) { _, new in new }
+            if case .local = backend {
                 payload["source"] = (try? selectedSearchProvider(from: arguments))?.rawValue
                     ?? arguments.string("source")?.trimmingCharacters(in: .whitespacesAndNewlines)
                     ?? WebSearchProviderSettings.defaultProviderID.rawValue
-                payload["timeout_seconds"] = Int(retrievalProfile.webSearch.timeoutSeconds)
             }
+            payload["timeout_seconds"] = Int(retrievalProfile.webSearch.timeoutSeconds)
             if let query = arguments.string("query")?.trimmingCharacters(in: .whitespacesAndNewlines),
                !query.isEmpty {
                 payload["query"] = query
@@ -2127,11 +2139,18 @@ final class ActionExecutor {
             if let urls = arguments.stringArray("urls"), !urls.isEmpty {
                 payload["urls"] = urls
             }
+            let fetchBackend = isFullSnapshot ? .local : ((try? webCapabilityService.resolve(.fetch)) ?? .local)
+            payload.merge(fetchBackend.normalizedArguments) { _, new in new }
             return normalizedArgumentsJSONString(payload, fallback: arguments.normalizedJSONString())
 
         default:
             return arguments.normalizedJSONString()
         }
+    }
+
+    private func webBindingOptions(_ operation: WebOperation) -> [String: JSONRuntimeValue] {
+        guard case .adapter(let bindingID, _, _, _, _, _)? = try? webCapabilityService.resolve(operation) else { return [:] }
+        return webCapabilityService.options(for: bindingID)
     }
 
     private func currentRetrievalQualityProfile() -> RetrievalQualityProfile {

@@ -120,9 +120,9 @@ actor PalmiImageSpool {
 
 @MainActor
 final class PalmiImageGenerationService {
-    let plans: ModelPlanStore
+    let library: ModelLibraryStore
     let permissions: ToolPermissionStore
-    init(plans: ModelPlanStore, permissions: ToolPermissionStore) { self.plans = plans; self.permissions = permissions }
+    init(library: ModelLibraryStore, permissions: ToolPermissionStore) { self.library = library; self.permissions = permissions }
     var isEnabled: Bool { permissions.isEnabled(.generateImage) }
 
     /// 生成结果连同冻结指纹一起返回，供 accepted_effect 的 reference_manifest 记录。
@@ -151,9 +151,10 @@ final class PalmiImageGenerationService {
         // 换 prompt/参考集绝不能绕过 receipt。
         let key = BionicCodec.sha(Data(scope.utf8))
         guard let selected = ImageGenerationConfigurationStore.shared.selectedModelID,
-              let model = plans.libraryModels.first(where: { $0.id == selected && $0.isImageGenerationOnly }),
-              let account = model.connection.chatGPTAccount,
-              ChatGPTAccountStore.imageModelIDs.contains(model.modelName) else { throw BionicFailure("imageConfigurationMissing") }
+              let record = library.state.model(selected), record.imageGenerationOnly,
+              let account = library.state.connection(record.connectionID)?.chatGPTAccount,
+              ChatGPTAccountStore.imageModelIDs.contains(record.providerModelID) else { throw BionicFailure("imageConfigurationMissing") }
+        let model = (modelName: record.providerModelID, id: record.id)
         let fingerprint = PalmiImageRequestFingerprint(
             accountID: account.accountID, model: model.modelName, prompt: text, references: references
         ).value

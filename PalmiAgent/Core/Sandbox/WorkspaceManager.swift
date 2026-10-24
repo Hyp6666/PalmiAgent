@@ -725,6 +725,22 @@ final class WorkspaceManager {
         try writeJSON(thread, to: threadManifestURL(for: projectID, threadID: threadID))
     }
 
+    /// 模型库兼容投影的字段级 patch：只改 modelPlanOverride，不改 updatedAt 与其他字段。
+    func patchThreadModelPlanOverride(
+        projectID: UUID,
+        threadID: UUID,
+        override: ModelPlanSessionOverride?
+    ) throws {
+        let directoryURL = threadDirectoryURL(for: projectID, threadID: threadID)
+        guard fileManager.fileExists(atPath: directoryURL.path) else {
+            throw AppError.invalidState("目标会话不存在。")
+        }
+        var thread = try readThread(at: directoryURL)
+        guard thread.modelPlanOverride != override else { return }
+        thread.modelPlanOverride = override
+        try writeJSON(thread, to: threadManifestURL(for: projectID, threadID: threadID))
+    }
+
     func deleteThread(projectID: UUID, threadID: UUID) throws {
         invalidateConversation(WorkspaceSelection(projectID: projectID, threadID: threadID))
         let directoryURL = threadDirectoryURL(for: projectID, threadID: threadID)
@@ -854,6 +870,15 @@ final class WorkspaceManager {
         guard fileManager.fileExists(atPath: url.path) else { return false }
         guard let messages = try? readJSON([PalmiChatMessage].self, from: url) else { return false }
         return !messages.isEmpty
+    }
+
+    /// 当前会话的工具结果产物目录（会话私有，不在用户工作区根目录下）。
+    func toolResultArtifactsDirectoryForCurrentThread() throws -> URL {
+        let selection = try currentSelection()
+        let url = threadDirectoryURL(for: selection.projectID, threadID: selection.threadID)
+            .appendingPathComponent("tool-results", isDirectory: true)
+        try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 
     func saveAgentSessionForCurrentThread(_ session: AgentSession) throws {
@@ -1454,5 +1479,16 @@ final class WorkspaceManager {
         guard date > thread.updatedAt else { return }
         thread.updatedAt = date
         try writeJSON(thread, to: threadManifestURL(for: selection.projectID, threadID: selection.threadID))
+    }
+}
+
+extension WorkspaceManager: ModelLibraryThreadSource {
+    func modelLibraryThreads() -> [WorkspaceThreadRecord] {
+        guard let projects = try? listProjects(on: nil) else { return [] }
+        return projects.flatMap { (try? listThreads(in: $0.id)) ?? [] }
+    }
+
+    func patchModelPlanOverride(_ override: ModelPlanSessionOverride?, projectID: UUID, threadID: UUID) throws {
+        try patchThreadModelPlanOverride(projectID: projectID, threadID: threadID, override: override)
     }
 }

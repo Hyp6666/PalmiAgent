@@ -83,7 +83,7 @@ nonisolated enum BionicProfessionalPolicy {
 @MainActor
 final class BionicProfessionalExecutor: BionicProfessionalExecuting {
     private let workspaceManager: WorkspaceManager
-    private let modelPlans: ModelPlanStore
+    private let modelLibrary: ModelLibraryStore
     private let permissions: ToolPermissionStore
     private let archive: BionicArchiveStore
     private let makeAgentLoop: @MainActor (SkillRegistry) -> AgentLoop
@@ -91,14 +91,14 @@ final class BionicProfessionalExecutor: BionicProfessionalExecuting {
 
     init(
         workspaceManager: WorkspaceManager,
-        modelPlans: ModelPlanStore,
+        modelLibrary: ModelLibraryStore,
         permissions: ToolPermissionStore,
         archive: BionicArchiveStore,
         prepareRuntime: @escaping @MainActor () -> Void = {},
         makeAgentLoop: @escaping @MainActor (SkillRegistry) -> AgentLoop
     ) {
         self.workspaceManager = workspaceManager
-        self.modelPlans = modelPlans
+        self.modelLibrary = modelLibrary
         self.permissions = permissions
         self.archive = archive
         self.prepareRuntime = prepareRuntime
@@ -144,13 +144,8 @@ final class BionicProfessionalExecutor: BionicProfessionalExecuting {
             throw BionicFailure("professionalExecutionInterrupted",
                 detail: "上次专业执行未确认完成，已避免重复执行。")
         }
-        let binding = ModelPlanSessionOverride(
-            planID: request.binding.optionalText("plan_id").flatMap(UUID.init(uuidString:)),
-            primaryCandidateID: request.binding.optionalText("primary_candidate_id").flatMap(UUID.init(uuidString:)),
-            multimodalCandidateID: request.binding.optionalText("multimodal_candidate_id").flatMap(UUID.init(uuidString:)),
-            lightweightCandidateID: request.binding.optionalText("lightweight_candidate_id").flatMap(UUID.init(uuidString:))
-        )
-        let overrides = modelPlans.roleOverrides(for: binding)
+        // 子任务继承角色冻结的一个主模型身份及明确工具绑定，不是旧方案的三个槽位。
+        let overrides = modelLibrary.agentModelBindings(scope: .bionic(request.role.installationID))
         guard let providerID = overrides.primaryProviderID else { throw BionicFailure("primaryMissing") }
         let allowed = BionicProfessionalPolicy.allowedActionIDs(for: request.role)
         let actions = permissions.enabledActions(from: ActionCatalog.all).filter {

@@ -140,6 +140,8 @@ struct AgentModelResolvedConfiguration: Sendable {
     let model: APIModelDefinition
     let integrationSpec: LLMModelIntegrationSpec?
     let capabilities: LLMModelCapabilities
+    /// 连接、模型记录与认证主体组成的冻结身份。
+    var snapshotIdentity: String = ""
 }
 
 enum AgentModelConfigurationOverride: Sendable {
@@ -147,50 +149,60 @@ enum AgentModelConfigurationOverride: Sendable {
     case unavailable(String)
 }
 
-struct AgentModelRoleOverrides: Sendable {
-    let reasoningModel: AgentModelConfigurationOverride?
-    let multimodalModel: AgentModelConfigurationOverride?
-    let lightweightModel: AgentModelConfigurationOverride?
+/// 视觉与权限审核的工具模型绑定：跟随本次冻结的主模型，或直接引用模型库记录。
+enum AgentToolModelBinding: Sendable {
+    case followMainModel
+    case model(AgentModelConfigurationOverride, ResolvedModelSnapshot?)
+}
 
-    nonisolated static let empty = AgentModelRoleOverrides(
-        reasoningModel: nil,
-        multimodalModel: nil,
-        lightweightModel: nil
+/// 一次主执行入口冻结的模型绑定。只有一个主模型；工具绑定不是第二个主模型。
+struct AgentModelBindings: Sendable {
+    let main: AgentModelConfigurationOverride
+    let mainSnapshot: ResolvedModelSnapshot?
+    let permissionReview: AgentToolModelBinding
+    let vision: AgentToolModelBinding
+
+    nonisolated static let unconfigured = AgentModelBindings(
+        main: .unavailable("尚未选择主模型。请在设置 › 模型里选择一个主模型。"),
+        mainSnapshot: nil,
+        permissionReview: .followMainModel,
+        vision: .followMainModel
     )
 
     var primaryProviderID: APIProviderID? {
-        providerID(for: .reasoningModel)
+        guard case .resolved(let resolved) = main else { return nil }
+        return resolved.configuration.provider.id
     }
 
-    func selection(
-        providerID: APIProviderID,
-        role: APIModelRole = .reasoningModel,
-        reasoning: ModelReasoningRequest = .automatic
-    ) -> AgentModelSelection {
+    func mainSelection(reasoning: ModelReasoningRequest = .automatic) -> AgentModelSelection {
         AgentModelSelection(
-            providerID: providerID,
-            modelRole: role,
+            providerID: primaryProviderID ?? .customOpenAI,
+            modelRole: .reasoningModel,
             reasoning: reasoning,
-            configurationOverride: override(for: role)
+            configurationOverride: main
         )
     }
 
-    func override(for role: APIModelRole) -> AgentModelConfigurationOverride? {
-        switch role {
-        case .defaultModel, .reasoningModel:
-            return reasoningModel
-        case .multimodalModel:
-            return multimodalModel
-        case .lightweightModel:
-            return lightweightModel
+    /// 工具解析：跟随主模型时使用同一个冻结主模型身份。
+    func toolOverride(_ binding: AgentToolModelBinding) -> AgentModelConfigurationOverride {
+        switch binding {
+        case .followMainModel: return main
+        case .model(let override, _): return override
         }
     }
 
-    private func providerID(for role: APIModelRole) -> APIProviderID? {
-        guard case .resolved(let resolved) = override(for: role) else {
-            return nil
+    func toolSnapshot(_ binding: AgentToolModelBinding) -> ResolvedModelSnapshot? {
+        switch binding {
+        case .followMainModel: return mainSnapshot
+        case .model(_, let snapshot): return snapshot
         }
-        return resolved.configuration.provider.id
+    }
+
+    func toolSelection(_ binding: AgentToolModelBinding, reasoning: ModelReasoningRequest) -> AgentModelSelection {
+        let override = toolOverride(binding)
+        let providerID: APIProviderID
+        if case .resolved(let resolved) = override { providerID = resolved.configuration.provider.id } else { providerID = .customOpenAI }
+        return AgentModelSelection(providerID: providerID, modelRole: .reasoningModel, reasoning: reasoning, configurationOverride: override)
     }
 }
 
@@ -280,6 +292,8 @@ struct AgentModelTokenUsage: Codable, Sendable, Hashable {
     var uncachedInputTokens: Int?
     var reasoningOutputTokens: Int?
     var source: AgentTokenUsageSource
+    /// 缓存写入（Anthropic cache_creation）。未返回时保持未知。
+    var cacheCreationInputTokens: Int? = nil
 
     static let empty = AgentModelTokenUsage(
         inputTokens: nil,
@@ -291,6 +305,16 @@ struct AgentModelTokenUsage: Codable, Sendable, Hashable {
         source: .estimated
     )
 
+    /// 上下文占用：缓存 token 也占窗口；用于压缩阈值与窗口估计，不用展示口径。
+    var contextInputTokens: Int? { inputTokens }
+
+    /// 缓存命中率只在分子分母均可靠时计算。
+    var cacheHitRatio: Double? {
+        guard source == .api, let cachedInputTokens, let inputTokens, inputTokens > 0 else { return nil }
+        return Double(cachedInputTokens) / Double(inputTokens)
+    }
+
+    /// 计费展示口径（优先未缓存输入），不能用于窗口估计或缓存命中率分母。
     var displayedInputTokens: Int {
         if let uncachedInputTokens {
             return max(0, uncachedInputTokens)

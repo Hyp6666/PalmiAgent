@@ -519,26 +519,6 @@ final class WorkspaceStore {
         }
     }
 
-    func setModelPlanOverride(
-        _ override: ModelPlanSessionOverride?,
-        for selection: WorkspaceSelection
-    ) {
-        do {
-            try workspaceManager.updateThreadModelPlanOverride(
-                projectID: selection.projectID,
-                threadID: selection.threadID,
-                override: override
-            )
-            let refreshed = try refreshThreads(for: selection.projectID)
-            if selectedProjectID == selection.projectID {
-                threads = refreshed
-            }
-            statusMessage = nil
-        } catch {
-            statusMessage = error.localizedDescription
-        }
-    }
-
     func deleteThread(_ thread: WorkspaceThreadRecord) {
         let projectSurface = (projects + chatProjects)
             .first { $0.id == thread.projectID }?

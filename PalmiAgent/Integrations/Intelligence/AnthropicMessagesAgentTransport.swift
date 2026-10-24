@@ -30,8 +30,9 @@ struct AnthropicMessagesRequest: Encodable {
             object["system"] = .string(system)
         }
 
+        // choice=none 仍保留工具声明（tool_choice 用 none 表示），不能用“不发送 tools”偷偷改变缓存前缀。
         let normalizedChoice = toolChoice?.lowercased()
-        if !tools.isEmpty, normalizedChoice != "none" {
+        if !tools.isEmpty {
             object["tools"] = .array(tools.map(Self.toolValue))
             if let choice = Self.toolChoiceValue(normalizedChoice) {
                 object["tool_choice"] = choice
@@ -157,6 +158,7 @@ struct AnthropicMessagesRequest: Encodable {
     private static func toolChoiceValue(_ choice: String?) -> JSONRuntimeValue? {
         switch choice {
         case "required": .object(["type": .string("any")])
+        case "none": .object(["type": .string("none")])
         case "auto", nil: .object(["type": .string("auto")])
         default: .object(["type": .string("auto")])
         }
@@ -164,15 +166,19 @@ struct AnthropicMessagesRequest: Encodable {
 }
 
 enum AnthropicMessagesAdapter {
-    static func headers(apiKey: String?, acceptsStreaming: Bool) -> [String: String] {
-        var headers = [
-            "Content-Type": "application/json",
-            "Accept": acceptsStreaming ? "text/event-stream, application/json" : "application/json",
-            "anthropic-version": "2023-06-01"
-        ]
+    static func headers(
+        apiKey: String?,
+        acceptsStreaming: Bool,
+        sendsBearer: Bool = true,
+        extraHeaders: [String: String] = [:]
+    ) -> [String: String] {
+        var headers = extraHeaders
+        headers["Content-Type"] = "application/json"
+        headers["Accept"] = acceptsStreaming ? "text/event-stream, application/json" : "application/json"
+        headers["anthropic-version"] = headers["anthropic-version"] ?? "2023-06-01"
         if let key = apiKey?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty {
             headers["x-api-key"] = key
-            headers["Authorization"] = "Bearer \(key)"
+            if sendsBearer { headers["Authorization"] = "Bearer \(key)" }
         }
         return headers
     }
@@ -258,18 +264,23 @@ enum AnthropicMessagesCodec {
     fileprivate static func tokenUsage(
         from object: [String: JSONRuntimeValue]?
     ) -> AgentModelTokenUsage {
-        let input = object?["input_tokens"]?.intValue
+        // Anthropic 的 input_tokens 不含缓存：总输入 = input + cache_read + cache_creation；读写分开记录，不再从 input 中减去缓存。
+        let uncached = object?["input_tokens"]?.intValue
         let output = object?["output_tokens"]?.intValue
         let cached = object?["cache_read_input_tokens"]?.intValue
-        return AgentModelTokenUsage(
-            inputTokens: input,
+        let created = object?["cache_creation_input_tokens"]?.intValue
+        let total = uncached.map { $0 + (cached ?? 0) + (created ?? 0) }
+        var usage = AgentModelTokenUsage(
+            inputTokens: total,
             outputTokens: output,
-            totalTokens: input.flatMap { input in output.map { input + $0 } },
+            totalTokens: total.flatMap { input in output.map { input + $0 } },
             cachedInputTokens: cached,
-            uncachedInputTokens: input.map { max(0, $0 - (cached ?? 0)) },
+            uncachedInputTokens: uncached.map { $0 + (created ?? 0) },
             reasoningOutputTokens: nil,
-            source: .api
+            source: uncached == nil && output == nil ? .estimated : .api
         )
+        usage.cacheCreationInputTokens = created
+        return usage
     }
 }
 
@@ -294,6 +305,7 @@ struct AnthropicMessagesStreamAccumulator: Sendable {
     private var inputTokens: Int?
     private var outputTokens: Int?
     private var cachedInputTokens: Int?
+    private var cacheCreationInputTokens: Int?
     private(set) var sawTerminalEvent = false
 
     mutating func consume(payload: String) throws -> AnthropicMessagesStreamDelta {
@@ -383,7 +395,8 @@ struct AnthropicMessagesStreamAccumulator: Sendable {
             tokenUsage: AnthropicMessagesCodec.tokenUsage(from: [
                 "input_tokens": inputTokens.map { .number(Double($0)) } ?? .null,
                 "output_tokens": outputTokens.map { .number(Double($0)) } ?? .null,
-                "cache_read_input_tokens": cachedInputTokens.map { .number(Double($0)) } ?? .null
+                "cache_read_input_tokens": cachedInputTokens.map { .number(Double($0)) } ?? .null,
+                "cache_creation_input_tokens": cacheCreationInputTokens.map { .number(Double($0)) } ?? .null
             ])
         )
     }
@@ -397,7 +410,9 @@ struct AnthropicMessagesStreamAccumulator: Sendable {
     private mutating func mergeUsage(_ usage: [String: JSONRuntimeValue]?) {
         if let value = usage?["input_tokens"]?.intValue { inputTokens = value }
         if let value = usage?["output_tokens"]?.intValue { outputTokens = value }
+        // message_start 与 message_delta 中的累计字段按协议取最新值，不反复相加。
         if let value = usage?["cache_read_input_tokens"]?.intValue { cachedInputTokens = value }
+        if let value = usage?["cache_creation_input_tokens"]?.intValue { cacheCreationInputTokens = value }
     }
 }
 
