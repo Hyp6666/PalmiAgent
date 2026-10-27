@@ -1857,16 +1857,13 @@
 "ml.model.connectivity" = "Check Connection";
 "ml.model.delete" = "Delete Model";
 "ml.model.discoveryEmpty" = "No models returned";
-"ml.model.manualPlaceholder" = "Enter model ID";
 "ml.model.providerID" = "Model ID";
 "ml.model.setMain" = "Set as Main Model";
 "ml.session.mainModel" = "Main model for this conversation";
 "ml.tool.followMain" = "Follow Main Model";
 "ml.tool.review" = "Review Model";
 "ml.tool.title" = "Tool Configuration";
-"ml.web.adapter" = "Interface";
 "ml.web.local" = "On Device";
-"ml.web.verify" = "Check Availability";
 
 "ml.unavailable" = "Model library unavailable";
 "ml.add.model" = "Add Model";
@@ -1881,3 +1878,14 @@
 "ml.model.deleteConfirm" = "Delete “%@”?";
 "ml.review.policyDefault" = "Default";
 "ml.review.policyCustom" = "Custom";
+
+"ml.groups.title" = "Model Groups";
+"ml.add.fetch" = "Fetch Models";
+"ml.add.manual" = "Add Model Manually";
+"ml.add.import" = "Import";
+"ml.model.remove" = "Remove";
+"ml.model.checkVision" = "Check Vision";
+"ml.web.remote" = "Remote";
+"ml.web.service" = "Service";
+"ml.web.endpoint" = "Endpoint";
+"ml.web.noEndpoint" = "This interface has no default endpoint.";

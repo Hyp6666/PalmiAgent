@@ -1857,16 +1857,13 @@
 "ml.model.connectivity" = "연결 확인";
 "ml.model.delete" = "모델 삭제";
 "ml.model.discoveryEmpty" = "반환된 모델이 없음";
-"ml.model.manualPlaceholder" = "모델 ID 입력";
 "ml.model.providerID" = "모델 ID";
 "ml.model.setMain" = "주 모델로 설정";
 "ml.session.mainModel" = "이 대화의 주 모델";
 "ml.tool.followMain" = "주 모델 따르기";
 "ml.tool.review" = "검토 모델";
 "ml.tool.title" = "도구 구성";
-"ml.web.adapter" = "인터페이스";
 "ml.web.local" = "기기";
-"ml.web.verify" = "사용 가능 여부 확인";
 
 "ml.unavailable" = "모델 라이브러리를 사용할 수 없음";
 "ml.add.model" = "모델 추가";
@@ -1881,3 +1878,14 @@
 "ml.model.deleteConfirm" = "“%@”을(를) 삭제할까요?";
 "ml.review.policyDefault" = "기본";
 "ml.review.policyCustom" = "사용자 지정";
+
+"ml.groups.title" = "모델 그룹";
+"ml.add.fetch" = "모델 자동 가져오기";
+"ml.add.manual" = "모델 직접 추가";
+"ml.add.import" = "가져오기";
+"ml.model.remove" = "제거";
+"ml.model.checkVision" = "비전 확인";
+"ml.web.remote" = "원격";
+"ml.web.service" = "서비스";
+"ml.web.endpoint" = "엔드포인트";
+"ml.web.noEndpoint" = "이 인터페이스에는 기본 엔드포인트가 없습니다.";

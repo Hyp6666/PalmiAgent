@@ -52,9 +52,8 @@ final class BionicModelService {
         guard needed else { return }
         let (primary, _, resolved) = try selection(binding)
         if try await runtime.capabilities(for: primary).supportsVision { return }
+        // 软判定：明确选了视觉模型即可，不再要求它另有视觉声明。
         guard case .model = resolved.vision else { throw BionicFailure("visionMissing") }
-        let vision = resolved.toolSelection(resolved.vision, reasoning: .disabled)
-        guard try await runtime.capabilities(for: vision).supportsVision else { throw BionicFailure("visionMissing") }
     }
     private func perform(_ input: BionicModelInput, binding: BionicObject, instance: String?, kind: String,
                          prepared: (@MainActor (BionicModelInput, String) async throws -> Void)? = nil) async throws -> BionicModelAnswer {
@@ -148,7 +147,6 @@ final class BionicModelService {
                                 bindings: AgentModelBindings, instance: String) async throws -> BionicObject {
         guard case .model = bindings.vision else { throw BionicFailure("visionMissing") }
         let selection = bindings.toolSelection(bindings.vision, reasoning: .disabled)
-        guard try await runtime.capabilities(for: selection).supportsVision else { throw BionicFailure("visionMissing") }
         let modelIdentity = bindings.toolSnapshot(bindings.vision)?.identityKey ?? "unknown"
         let key = BionicCodec.sha(Data([imageSHA, question, modelIdentity, "v1"].joined(separator: "|").utf8))
         let path = "vision_evidence/\(key).json"

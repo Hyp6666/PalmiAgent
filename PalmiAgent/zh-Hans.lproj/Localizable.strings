@@ -1858,16 +1858,13 @@
 "ml.model.connectivity" = "检查连通性";
 "ml.model.delete" = "删除模型";
 "ml.model.discoveryEmpty" = "没有获取到模型";
-"ml.model.manualPlaceholder" = "输入模型 ID";
 "ml.model.providerID" = "模型 ID";
 "ml.model.setMain" = "设为主模型";
 "ml.session.mainModel" = "本会话的主模型";
 "ml.tool.followMain" = "跟随主模型";
 "ml.tool.review" = "审核模型";
 "ml.tool.title" = "工具配置";
-"ml.web.adapter" = "接口";
 "ml.web.local" = "本机";
-"ml.web.verify" = "检查可用性";
 
 "ml.unavailable" = "模型库不可用";
 "ml.add.model" = "添加模型";
@@ -1882,3 +1879,14 @@
 "ml.model.deleteConfirm" = "删除「%@」？";
 "ml.review.policyDefault" = "默认";
 "ml.review.policyCustom" = "自定义";
+
+"ml.groups.title" = "模型分组";
+"ml.add.fetch" = "自动获取模型";
+"ml.add.manual" = "手动添加模型";
+"ml.add.import" = "导入";
+"ml.model.remove" = "移除";
+"ml.model.checkVision" = "检查视觉";
+"ml.web.remote" = "远端";
+"ml.web.service" = "服务";
+"ml.web.endpoint" = "接口地址";
+"ml.web.noEndpoint" = "这个接口没有默认地址，请先在分组里配置。";

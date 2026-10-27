@@ -83,6 +83,10 @@ nonisolated struct ModelDraft: Sendable {
     var remoteDisplayName: String? = nil
     var canonicalID: String? = nil
     var ownedBy: String? = nil
+    /// nil 表示沿用来源默认协议。
+    var wireProtocol: LLMWireProtocolPreference? = nil
+    /// nil 表示不声明；true/false 写入用户的视觉声明。
+    var supportsVision: Bool? = nil
 }
 
 @MainActor
@@ -213,7 +217,8 @@ extension ModelLibraryStore {
 
     @discardableResult
     func addModels(connectionID: UUID, drafts: [ModelDraft]) throws -> [UUID] {
-        guard state.connection(connectionID) != nil else { throw ModelLibraryError.connectionMissing }
+        guard let connection = state.connection(connectionID) else { throw ModelLibraryError.connectionMissing }
+        let defaultProtocol = connection.endpoints.wireProtocolPreference
         var ids: [UUID] = []
         try commit { state in
             for draft in drafts {
@@ -230,13 +235,21 @@ extension ModelLibraryStore {
                 }
                 let id = UUID()
                 let alias = draft.userAlias?.trimmingCharacters(in: .whitespacesAndNewlines)
+                var capabilities = ModelCapabilityRecord()
+                if let vision = draft.supportsVision {
+                    capabilities.declarations[.visionInput] = ModelCapabilityEvidence(
+                        kind: .visionInput, state: vision ? .supported : .unsupported, source: .userDeclaration,
+                        evidenceKey: "declaration", observedAt: .now, note: "用户声明"
+                    )
+                }
                 state.models.append(ModelRecord(
                     id: id, connectionID: connectionID, providerModelID: providerModelID,
                     userAlias: alias?.isEmpty == false ? alias : nil, remoteDisplayName: draft.remoteDisplayName,
                     canonicalID: draft.canonicalID, ownedBy: draft.ownedBy, imageGenerationOnly: false,
-                    capabilities: ModelCapabilityRecord(), parameters: ModelParameters(),
+                    capabilities: capabilities, parameters: ModelParameters(),
                     legacyValidationStatus: .unvalidated, legacyValidationMessage: "", legacyValidatedAt: nil,
-                    createdAt: .now, updatedAt: .now
+                    createdAt: .now, updatedAt: .now,
+                    wireProtocolOverride: draft.wireProtocol.flatMap { $0 == defaultProtocol ? nil : $0 }
                 ))
                 ids.append(id)
             }

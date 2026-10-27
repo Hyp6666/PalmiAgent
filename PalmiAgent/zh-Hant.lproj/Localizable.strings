@@ -1857,16 +1857,13 @@
 "ml.model.connectivity" = "檢查連線";
 "ml.model.delete" = "刪除模型";
 "ml.model.discoveryEmpty" = "沒有取得模型";
-"ml.model.manualPlaceholder" = "輸入模型 ID";
 "ml.model.providerID" = "模型 ID";
 "ml.model.setMain" = "設為主模型";
 "ml.session.mainModel" = "本對話的主模型";
 "ml.tool.followMain" = "跟隨主模型";
 "ml.tool.review" = "審核模型";
 "ml.tool.title" = "工具配置";
-"ml.web.adapter" = "介面";
 "ml.web.local" = "本機";
-"ml.web.verify" = "檢查可用性";
 
 "ml.unavailable" = "模型庫無法使用";
 "ml.add.model" = "新增模型";
@@ -1881,3 +1878,14 @@
 "ml.model.deleteConfirm" = "刪除「%@」？";
 "ml.review.policyDefault" = "預設";
 "ml.review.policyCustom" = "自訂";
+
+"ml.groups.title" = "模型分組";
+"ml.add.fetch" = "自動取得模型";
+"ml.add.manual" = "手動新增模型";
+"ml.add.import" = "匯入";
+"ml.model.remove" = "移除";
+"ml.model.checkVision" = "檢查視覺";
+"ml.web.remote" = "遠端";
+"ml.web.service" = "服務";
+"ml.web.endpoint" = "介面位址";
+"ml.web.noEndpoint" = "這個介面沒有預設位址，請先在分組裡設定。";

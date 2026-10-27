@@ -1627,7 +1627,7 @@ final class ActionExecutor {
             url: first?.finalURL.absoluteString ?? "", title: first?.title ?? "", failed: first == nil, fileDeltas: deltas)
     }
 
-    /// 看图工具：使用视觉工具绑定（跟随本次冻结的主模型或直接引用模型库记录）；能力未知或不支持时返回具体错误，不改用别的模型。
+    /// 视觉工具：使用视觉工具绑定（跟随本次冻结的主模型或直接引用模型库记录），不改用别的模型。
     private func scanImageWithMultimodalModel(
         prompt: String,
         imageDataURL: String,
@@ -1638,11 +1638,10 @@ final class ActionExecutor {
             if case .unavailable(let message) = override { throw AppError.invalidState(message) }
             throw AppError.invalidState("看图工具没有可用的模型。")
         }
-        let snapshot = modelOverrides.toolSnapshot(modelOverrides.vision)
-        switch snapshot?.supports(.visionInput) {
-        case .supported?: break
-        case .unsupported?: throw AppError.invalidState("看图工具使用的模型「\(resolved.model.title)」不支持看图。请在设置 › 工具能力 › 看图中更换模型。")
-        default: throw AppError.invalidState("看图工具使用的模型「\(resolved.model.title)」尚未声明或验证看图能力，未发送图片。")
+        // 软判定：用户在“工具配置 › 视觉”里明确选的模型就是视觉模型，直接发图；只有跟随主模型且主模型未标记视觉时才拒绝。
+        if case .followMainModel = modelOverrides.vision,
+           modelOverrides.mainSnapshot?.supports(.visionInput) != .supported {
+            throw AppError.invalidState("视觉工具没有可用的模型：主模型未开启视觉。请在设置 › 工具配置 › 视觉中选择一个模型。")
         }
         var userMessage = AgentModelMessage.user(prompt)
         userMessage.imageDataURLs = [imageDataURL]

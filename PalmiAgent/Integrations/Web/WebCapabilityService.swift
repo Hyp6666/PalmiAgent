@@ -99,28 +99,48 @@ nonisolated enum WebAdapterCatalog {
 
     static func adapters(for operation: WebOperation) -> [WebAdapterDescriptor] { all.filter { $0.operation == operation } }
 
-    /// 某个模型可用的接口：预设来源对应的厂商接口，加上按模型协议适用的通用接口。需要手填地址的接口不在此列。
-    static func adapters(for operation: WebOperation, model: ModelRecord, connection: ConnectionRecord) -> [WebAdapterDescriptor] {
-        guard connection.chatGPTAccount == nil, !model.imageGenerationOnly else { return [] }
-        let wireProtocol = model.wireProtocol(in: connection)
+    /// 来源可用的专用接口：预设对应的厂商接口，或地址与厂商官方地址同域的接口；Gemini 原生接口需显式配置。
+    static func dedicatedAdapters(for operation: WebOperation, connection: ConnectionRecord) -> [WebAdapterDescriptor] {
+        guard connection.chatGPTAccount == nil else { return [] }
         return adapters(for: operation).filter { descriptor in
-            if let template = connection.templateID, descriptor.defaultEndpoints[template] != nil { return true }
             switch descriptor.id {
             case WebAdapterID.geminiSearch, WebAdapterID.geminiURLContext:
                 return connection.endpoints.geminiNativeBaseURL != nil
-            case WebAdapterID.genericResponsesSearch:
-                return connection.endpoints.responsesURL != nil && (wireProtocol == .responses || wireProtocol == .automatic)
-            case WebAdapterID.genericMessagesSearch:
-                return connection.endpoints.messagesURL != nil && wireProtocol == .anthropicMessages
             default:
-                return false
+                return matchedEndpoint(for: descriptor, connection: connection) != nil
             }
         }
     }
 
+    /// 通用联网接口：只依赖模型协议，任何来源都能用。
+    static func genericAdapter(for operation: WebOperation, wireProtocol: LLMWireProtocolPreference) -> WebAdapterDescriptor? {
+        guard operation == .search else { return nil }
+        switch wireProtocol {
+        case .responses, .automatic: return descriptor(WebAdapterID.genericResponsesSearch)
+        case .anthropicMessages: return descriptor(WebAdapterID.genericMessagesSearch)
+        case .chatCompletions: return nil
+        }
+    }
+
+    private static func matchedEndpoint(for descriptor: WebAdapterDescriptor, connection: ConnectionRecord) -> WebEndpoint? {
+        if let template = connection.templateID, let endpoint = descriptor.defaultEndpoints[template] { return endpoint }
+        guard let host = host(of: connection.endpoints.inputAddress) else { return nil }
+        return descriptor.defaultEndpoints.values.first { endpoint in
+            switch endpoint {
+            case .explicitURL(let raw): return Self.host(of: raw) == host
+            case .apiBasePlusRelativePath(let base, _): return Self.host(of: base) == host
+            }
+        }
+    }
+
+    private static func host(of raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return URLComponents(string: trimmed.contains("://") ? trimmed : "https://" + trimmed)?.host?.lowercased()
+    }
+
     /// 预设连接或模型服务端工具的默认端点：预设给出成对地址；服务端工具复用连接的对应协议端点。
     static func suggestedEndpoint(for descriptor: WebAdapterDescriptor, connection: ConnectionRecord) -> WebEndpoint? {
-        if let template = connection.templateID, let endpoint = descriptor.defaultEndpoints[template] { return endpoint }
+        if let endpoint = matchedEndpoint(for: descriptor, connection: connection) { return endpoint }
         switch descriptor.id {
         case WebAdapterID.geminiSearch, WebAdapterID.geminiURLContext:
             return connection.endpoints.geminiNativeBaseURL.map(WebEndpoint.explicitURL)

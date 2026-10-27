@@ -1857,16 +1857,13 @@
 "ml.model.connectivity" = "接続を確認";
 "ml.model.delete" = "モデルを削除";
 "ml.model.discoveryEmpty" = "モデルが返されませんでした";
-"ml.model.manualPlaceholder" = "モデル ID を入力";
 "ml.model.providerID" = "モデル ID";
 "ml.model.setMain" = "メインモデルに設定";
 "ml.session.mainModel" = "この会話のメインモデル";
 "ml.tool.followMain" = "メインモデルに従う";
 "ml.tool.review" = "審査モデル";
 "ml.tool.title" = "ツール設定";
-"ml.web.adapter" = "インターフェース";
 "ml.web.local" = "本機";
-"ml.web.verify" = "利用可否を確認";
 
 "ml.unavailable" = "モデルライブラリを利用できません";
 "ml.add.model" = "モデルを追加";
@@ -1881,3 +1878,14 @@
 "ml.model.deleteConfirm" = "「%@」を削除しますか？";
 "ml.review.policyDefault" = "デフォルト";
 "ml.review.policyCustom" = "カスタム";
+
+"ml.groups.title" = "モデルグループ";
+"ml.add.fetch" = "モデルを自動取得";
+"ml.add.manual" = "モデルを手動で追加";
+"ml.add.import" = "読み込む";
+"ml.model.remove" = "削除";
+"ml.model.checkVision" = "ビジョンを確認";
+"ml.web.remote" = "リモート";
+"ml.web.service" = "サービス";
+"ml.web.endpoint" = "エンドポイント";
+"ml.web.noEndpoint" = "このインターフェースには既定のエンドポイントがありません。";
