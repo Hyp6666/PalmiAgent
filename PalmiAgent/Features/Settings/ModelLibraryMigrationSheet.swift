@@ -101,12 +101,14 @@ struct ModelLibraryMigrationSheet: View {
             outcomeRow(icon: "star.fill", title: PalmiL10n.tr("ml.mainModel"),
                        value: ModelLibraryPresentation.mainModelStatus(library).title,
                        detail: sourceText)
-            outcomeRow(icon: "eye", title: PalmiL10n.tr("ml.tool.vision"), value: bindingText(library.state.toolBindings.vision),
+            outcomeRow(icon: "eye", title: PalmiL10n.tr("tool.facade.vision"), value: bindingText(library.state.toolBindings.vision),
                        detail: PalmiL10n.tr("ml.migration.visionDetail"))
             outcomeRow(icon: "checkmark.shield", title: PalmiL10n.tr("ml.tool.review"), value: bindingText(library.state.toolBindings.permissionReview),
                        detail: PalmiL10n.tr("ml.migration.reviewDetail"))
             ForEach(receipt?.notes ?? [], id: \.self) { note in
-                ModelLibraryStatusLine(text: note, isProblem: true)
+                Label(note, systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
             }
         }
         .padding(14)

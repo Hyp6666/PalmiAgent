@@ -326,7 +326,7 @@ struct WorkspaceFolderScreen: View {
     }
 }
 
-private struct WorkspaceFileRowLabel: View {
+struct WorkspaceFileRowLabel: View {
     let node: WorkspaceFileNode
 
     var body: some View {

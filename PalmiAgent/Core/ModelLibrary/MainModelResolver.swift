@@ -125,7 +125,7 @@ extension ModelLibraryStore {
             providerModelID: model.providerModelID,
             modelTitle: model.title,
             connectionDisplayName: connection.displayName,
-            wireProtocolPreference: connection.endpoints.wireProtocolPreference,
+            wireProtocolPreference: model.wireProtocol(in: connection),
             endpointFingerprint: connection.endpoints.fingerprint,
             authenticationSubject: connection.authenticationSubject,
             configurationRevision: state.revision,
@@ -138,7 +138,7 @@ extension ModelLibraryStore {
 
     /// 能力证据键：连接、模型、协议、端点修订和认证主体修订。只改备注名不失效。
     static func evidenceKey(model: ModelRecord, connection: ConnectionRecord) -> String {
-        [connection.id.uuidString, model.providerModelID, connection.endpoints.wireProtocolPreference.rawValue,
+        [connection.id.uuidString, model.providerModelID, model.wireProtocol(in: connection).rawValue,
          String(connection.endpointRevision), connection.authenticationSubject].joined(separator: "|")
     }
 
@@ -149,7 +149,8 @@ extension ModelLibraryStore {
         evidenceKey: String
     ) -> AgentModelResolvedConfiguration? {
         let e = connection.endpoints
-        let derived = try? ConnectionEndpointBuilder.build(inputAddress: e.inputAddress, preference: e.wireProtocolPreference)
+        let wireProtocol = model.wireProtocol(in: connection)
+        let derived = try? ConnectionEndpointBuilder.build(inputAddress: e.inputAddress, preference: wireProtocol)
         guard let inputURL = URL(string: e.inputAddress) ?? derived?.inputURL,
               let chatURL = e.chatCompletionsURL.flatMap(URL.init(string:)) ?? derived?.chatCompletionsURL ?? URL(string: e.responsesURL ?? e.messagesURL ?? ""),
               let responsesURL = e.responsesURL.flatMap(URL.init(string:)) ?? derived?.responsesURL ?? URL(string: e.chatCompletionsURL ?? e.messagesURL ?? ""),
@@ -180,8 +181,8 @@ extension ModelLibraryStore {
             chatCompletionsURL: chatURL,
             responsesURL: responsesURL,
             messagesURL: messagesURL,
-            explicitWireProtocol: e.wireProtocolPreference.explicitWireProtocol ?? derived?.explicitWireProtocol,
-            wireProtocolPreference: e.wireProtocolPreference,
+            explicitWireProtocol: wireProtocol.explicitWireProtocol ?? derived?.explicitWireProtocol,
+            wireProtocolPreference: wireProtocol,
             apiKey: apiKey?.isEmpty == false ? apiKey : nil,
             selectedServer: nil
         )
@@ -206,7 +207,7 @@ extension ModelLibraryStore {
             model: definition,
             integrationSpec: integrationSpec,
             capabilities: capabilities,
-            snapshotIdentity: [connection.id.uuidString, model.id.uuidString, connection.authenticationSubject].joined(separator: "|")
+            snapshotIdentity: [connection.id.uuidString, model.id.uuidString, connection.authenticationSubject, wireProtocol.rawValue].joined(separator: "|")
         )
     }
 

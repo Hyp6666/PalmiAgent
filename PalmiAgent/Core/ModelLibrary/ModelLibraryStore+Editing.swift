@@ -172,7 +172,7 @@ extension ModelLibraryStore {
         var names: [String] = []
         if state.defaultMainModel.modelID == id { names.append("默认主模型") }
         if state.toolBindings.permissionReview.modelID == id { names.append("权限自动审核") }
-        if state.toolBindings.vision.modelID == id { names.append("看图") }
+        if state.toolBindings.vision.modelID == id { names.append("视觉") }
         let sessions = state.sessionBindings.values.filter { $0.explicitModelID == id }.count
         if sessions > 0 { names.append("\(sessions) 个会话或角色") }
         let web = state.web.bindings.filter { $0.modelRecordID == id }.count
@@ -253,6 +253,93 @@ extension ModelLibraryStore {
             state.models[index].userAlias = cleanAlias?.isEmpty == false ? cleanAlias : nil
             state.models[index].providerModelID = trimmed
             state.models[index].updatedAt = .now
+        }
+    }
+
+    /// 协议属于模型。与来源默认协议相同时不另存覆盖值。
+    func setModelWireProtocol(_ id: UUID, preference: LLMWireProtocolPreference) throws {
+        try commit { state in
+            guard let index = state.models.firstIndex(where: { $0.id == id }),
+                  let connection = state.connection(state.models[index].connectionID) else { throw ModelLibraryError.modelMissing }
+            state.models[index].wireProtocolOverride = preference == connection.endpoints.wireProtocolPreference ? nil : preference
+            state.models[index].updatedAt = .now
+        }
+    }
+
+    /// 同一地址、同一凭据的来源合并为一个：旧版按协议拆出的多份连接归到一起，协议落到各自的模型上。
+    /// 模型 ID 不变，主模型、会话与工具绑定都不受影响；凭据读不出或存在冲突时不合并。
+    func mergeDuplicateConnections() throws {
+        guard state.conflicts.isEmpty else { return }
+        func addressKey(_ connection: ConnectionRecord) -> String {
+            var text = connection.endpoints.inputAddress.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            while text.hasSuffix("/") { text.removeLast() }
+            return text
+        }
+        func credentialKey(_ connection: ConnectionRecord) -> String? {
+            switch connection.authenticationKind {
+            case .chatGPTOAuth: return nil
+            case .none: return "none"
+            case .apiKey:
+                guard case .present(let key) = credentialRead(for: connection) else { return nil }
+                return "key:" + key.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        func compatible(_ lhs: String?, _ rhs: String?) -> Bool { lhs == nil || rhs == nil || lhs == rhs }
+        func mergeable(_ a: ConnectionRecord, _ b: ConnectionRecord) -> Bool {
+            let x = a.endpoints, y = b.endpoints
+            return compatible(x.chatCompletionsURL, y.chatCompletionsURL) && compatible(x.responsesURL, y.responsesURL)
+                && compatible(x.messagesURL, y.messagesURL) && compatible(x.modelsURL, y.modelsURL)
+                && compatible(x.geminiNativeBaseURL, y.geminiNativeBaseURL) && x.extraHeaders == y.extraHeaders
+                && (a.userLabel == nil || b.userLabel == nil || a.userLabel == b.userLabel)
+        }
+
+        // 先按地址分组，只有同地址的才读凭据比较，避免每次前台恢复都读一遍钥匙串。
+        let byAddress = Dictionary(grouping: state.connections.filter { $0.chatGPTAccount == nil }, by: addressKey)
+        var groups: [String: [ConnectionRecord]] = [:]
+        for (address, connections) in byAddress where connections.count > 1 {
+            for connection in connections {
+                guard let credential = credentialKey(connection) else { continue }
+                groups[address + "\u{0}" + credential, default: []].append(connection)
+            }
+        }
+        let candidates = groups.values.filter { $0.count > 1 }
+        guard !candidates.isEmpty else { return }
+
+        try commit { state in
+            for group in candidates {
+                let models = state.models
+                let modelCount = { (id: UUID) in models.filter { $0.connectionID == id }.count }
+                let ordered = group.sorted { a, b in
+                    if (a.userLabel != nil) != (b.userLabel != nil) { return a.userLabel != nil }
+                    if modelCount(a.id) != modelCount(b.id) { return modelCount(a.id) > modelCount(b.id) }
+                    return a.createdAt < b.createdAt
+                }
+                guard var survivor = ordered.first else { continue }
+                for absorbed in ordered.dropFirst() where mergeable(survivor, absorbed) {
+                    let e = absorbed.endpoints
+                    survivor.endpoints.chatCompletionsURL = survivor.endpoints.chatCompletionsURL ?? e.chatCompletionsURL
+                    survivor.endpoints.responsesURL = survivor.endpoints.responsesURL ?? e.responsesURL
+                    survivor.endpoints.messagesURL = survivor.endpoints.messagesURL ?? e.messagesURL
+                    survivor.endpoints.modelsURL = survivor.endpoints.modelsURL ?? e.modelsURL
+                    survivor.endpoints.geminiNativeBaseURL = survivor.endpoints.geminiNativeBaseURL ?? e.geminiNativeBaseURL
+                    survivor.userLabel = survivor.userLabel ?? absorbed.userLabel
+                    survivor.templateID = survivor.templateID ?? absorbed.templateID
+                    for index in state.models.indices where state.models[index].connectionID == absorbed.id {
+                        let wireProtocol = state.models[index].wireProtocol(in: absorbed)
+                        state.models[index].connectionID = survivor.id
+                        state.models[index].wireProtocolOverride = wireProtocol == survivor.endpoints.wireProtocolPreference ? nil : wireProtocol
+                    }
+                    for index in state.web.bindings.indices where state.web.bindings[index].connectionID == absorbed.id {
+                        state.web.bindings[index].connectionID = survivor.id
+                    }
+                    state.connections.removeAll { $0.id == absorbed.id }
+                }
+                if let index = state.connections.firstIndex(where: { $0.id == survivor.id }), state.connections[index] != survivor {
+                    if state.connections[index].endpoints != survivor.endpoints { survivor.endpointRevision += 1 }
+                    survivor.updatedAt = .now
+                    state.connections[index] = survivor
+                }
+            }
         }
     }
 

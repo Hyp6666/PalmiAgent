@@ -99,6 +99,25 @@ nonisolated enum WebAdapterCatalog {
 
     static func adapters(for operation: WebOperation) -> [WebAdapterDescriptor] { all.filter { $0.operation == operation } }
 
+    /// 某个模型可用的接口：预设来源对应的厂商接口，加上按模型协议适用的通用接口。需要手填地址的接口不在此列。
+    static func adapters(for operation: WebOperation, model: ModelRecord, connection: ConnectionRecord) -> [WebAdapterDescriptor] {
+        guard connection.chatGPTAccount == nil, !model.imageGenerationOnly else { return [] }
+        let wireProtocol = model.wireProtocol(in: connection)
+        return adapters(for: operation).filter { descriptor in
+            if let template = connection.templateID, descriptor.defaultEndpoints[template] != nil { return true }
+            switch descriptor.id {
+            case WebAdapterID.geminiSearch, WebAdapterID.geminiURLContext:
+                return connection.endpoints.geminiNativeBaseURL != nil
+            case WebAdapterID.genericResponsesSearch:
+                return connection.endpoints.responsesURL != nil && (wireProtocol == .responses || wireProtocol == .automatic)
+            case WebAdapterID.genericMessagesSearch:
+                return connection.endpoints.messagesURL != nil && wireProtocol == .anthropicMessages
+            default:
+                return false
+            }
+        }
+    }
+
     /// 预设连接或模型服务端工具的默认端点：预设给出成对地址；服务端工具复用连接的对应协议端点。
     static func suggestedEndpoint(for descriptor: WebAdapterDescriptor, connection: ConnectionRecord) -> WebEndpoint? {
         if let template = connection.templateID, let endpoint = descriptor.defaultEndpoints[template] { return endpoint }

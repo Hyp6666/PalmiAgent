@@ -174,10 +174,16 @@ nonisolated struct ModelRecord: Codable, Identifiable, Hashable, Sendable {
     var legacyValidatedAt: Date?
     var createdAt: Date
     var updatedAt: Date
+    /// 模型自己的协议；nil 时沿用所属来源的默认协议。协议属于模型，来源只是地址与凭据的分组。
+    var wireProtocolOverride: LLMWireProtocolPreference? = nil
 
     var title: String {
         if let userAlias, !userAlias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return userAlias }
         return remoteDisplayName ?? providerModelID
+    }
+
+    func wireProtocol(in connection: ConnectionRecord) -> LLMWireProtocolPreference {
+        wireProtocolOverride ?? connection.endpoints.wireProtocolPreference
     }
 }
 

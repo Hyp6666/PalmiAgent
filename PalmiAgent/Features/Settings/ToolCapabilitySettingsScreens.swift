@@ -1,39 +1,49 @@
 import SwiftUI
 
-/// 工具能力：看图、权限与自动审核、网页搜索、网页抓取、图片生成。每项说明它用哪个模型或连接、数据去向哪里。
+/// 工具配置：给可配置的工具选模型或服务。名称与工具管理里的工具名一致。
 struct ToolCapabilitiesScreen: View {
     @Bindable var store: ManualLabStore
+    @State private var imageSettings = ImageGenerationConfigurationStore.shared
 
     private var library: ModelLibraryStore { store.modelLibrary }
 
     var body: some View {
         List {
             Section {
-                NavigationLink { VisionSettingsScreen(store: store) } label: {
-                    capabilityRow(icon: "eye", title: PalmiL10n.tr("ml.tool.vision"), value: toolBindingTitle(library.state.toolBindings.vision))
+                NavigationLink {
+                    ModelLibraryPickerScreen(
+                        library: library,
+                        title: PalmiL10n.tr("tool.facade.vision"),
+                        followTitle: PalmiL10n.tr("ml.tool.followMain"),
+                        selectedID: library.state.toolBindings.vision.modelID,
+                        onSelect: { try library.setVisionBinding($0.map(ToolModelBinding.model) ?? .followMainModel) }
+                    )
+                } label: {
+                    row(icon: "eye", title: PalmiL10n.tr("tool.facade.vision"),
+                        value: ModelLibraryPresentation.toolBindingTitle(library.state.toolBindings.vision, library: library))
                 }
-                NavigationLink { PermissionReviewSettingsScreen(store: store) } label: {
-                    capabilityRow(icon: "checkmark.shield", title: PalmiL10n.tr("tool.authorization.title"),
-                                  value: store.toolAuthorizationStore.mode.title)
-                }
-            } footer: {
-                Text(PalmiL10n.tr("ml.tool.modelsFooter"))
             }
 
             Section {
-                NavigationLink { WebCapabilitySettingsScreen(store: store, operation: .search) } label: {
-                    capabilityRow(icon: "magnifyingglass", title: PalmiL10n.tr("ml.web.search"), value: webTitle(.search))
+                NavigationLink { WebToolSettingsScreen(store: store, operation: .search) } label: {
+                    row(icon: "magnifyingglass", title: PalmiL10n.tr("tool.facade.webSearch"), value: webTitle(.search))
                 }
-                NavigationLink { WebCapabilitySettingsScreen(store: store, operation: .fetch) } label: {
-                    capabilityRow(icon: "doc.text.magnifyingglass", title: PalmiL10n.tr("ml.web.fetch"), value: webTitle(.fetch))
+                NavigationLink { WebToolSettingsScreen(store: store, operation: .fetch) } label: {
+                    row(icon: "doc.text.magnifyingglass", title: PalmiL10n.tr("tool.facade.fetch"), value: webTitle(.fetch))
                 }
-            } footer: {
-                Text(PalmiL10n.tr("ml.web.footer"))
             }
 
             Section {
                 NavigationLink { ImageGenerationConfigurationScreen(library: library) } label: {
-                    capabilityRow(icon: "photo.badge.plus", title: PalmiL10n.tr("image.configuration"), value: "")
+                    row(icon: "photo.badge.plus", title: PalmiL10n.tr("image.generation"),
+                        value: imageSettings.selectedModelID.flatMap { library.state.model($0)?.title } ?? PalmiL10n.tr("common.notSelected"))
+                }
+            }
+
+            Section {
+                NavigationLink { ToolAuthorizationSettingsScreen(store: store) } label: {
+                    row(icon: "checkmark.shield", title: PalmiL10n.tr("tool.authorization.title"),
+                        value: store.toolAuthorizationStore.mode.localizedTitle)
                 }
             }
         }
@@ -42,18 +52,11 @@ struct ToolCapabilitiesScreen: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private func capabilityRow(icon: String, title: String, value: String) -> some View {
-        HStack {
+    private func row(icon: String, title: String, value: String) -> some View {
+        LabeledContent {
+            Text(value).lineLimit(1)
+        } label: {
             Label(title, systemImage: icon)
-            Spacer()
-            Text(value).foregroundStyle(.secondary).lineLimit(1)
-        }
-    }
-
-    private func toolBindingTitle(_ binding: ToolModelBinding) -> String {
-        switch binding {
-        case .followMainModel: PalmiL10n.tr("ml.tool.followMain")
-        case .model(let id): library.state.model(id)?.title ?? PalmiL10n.tr("ml.binding.invalid")
         }
     }
 
@@ -61,84 +64,15 @@ struct ToolCapabilitiesScreen: View {
         let web = library.state.web
         let id = operation == .search ? web.defaultSearchBindingID : web.defaultFetchBindingID
         guard let id else { return PalmiL10n.tr("ml.web.local") }
-        return web.binding(id)?.userLabel ?? web.binding(id).flatMap { WebAdapterCatalog.descriptor($0.adapterID)?.title } ?? PalmiL10n.tr("ml.binding.invalid")
+        guard let binding = web.binding(id) else { return PalmiL10n.tr("ml.binding.invalid") }
+        if let modelID = binding.modelRecordID, let model = library.state.model(modelID) { return model.title }
+        return library.state.connection(binding.connectionID)?.displayName ?? PalmiL10n.tr("ml.binding.invalid")
     }
 }
 
-/// 工具模型绑定选择：跟随本次主模型，或直接引用模型库中的一个模型。
-struct ToolModelBindingPicker: View {
-    let library: ModelLibraryStore
-    let binding: ToolModelBinding
-    let requireVision: Bool
-    let onChange: (ToolModelBinding) -> Void
-
-    var body: some View {
-        Picker(PalmiL10n.tr("ml.tool.model"), selection: Binding<UUID?>(
-            get: { binding.modelID },
-            set: { onChange($0.map(ToolModelBinding.model) ?? .followMainModel) }
-        )) {
-            Text(PalmiL10n.tr("ml.tool.followMain")).tag(Optional<UUID>.none)
-            ForEach(library.state.models.filter { !$0.imageGenerationOnly }) { model in
-                Text(ModelLibraryPresentation.modelTitle(model, library: library)).tag(Optional(model.id))
-            }
-            if let id = binding.modelID, library.state.model(id) == nil {
-                Text(PalmiL10n.tr("ml.binding.invalid")).tag(Optional(id))
-            }
-        }
-        .pickerStyle(.navigationLink)
-    }
-}
-
-struct VisionSettingsScreen: View {
+/// 工具授权：授权方式；自动审核时再选审核模型与审核规则。
+struct ToolAuthorizationSettingsScreen: View {
     @Bindable var store: ManualLabStore
-    @State private var errorMessage: String?
-
-    private var library: ModelLibraryStore { store.modelLibrary }
-
-    var body: some View {
-        List {
-            Section {
-                ToolModelBindingPicker(library: library, binding: library.state.toolBindings.vision, requireVision: true) { binding in
-                    do { try library.setVisionBinding(binding) } catch { errorMessage = error.localizedDescription }
-                }
-                status
-            } footer: {
-                Text(PalmiL10n.tr("ml.vision.footer"))
-            }
-            Section {
-                Label(PalmiL10n.tr("ml.vision.native"), systemImage: "photo.on.rectangle")
-                Label(PalmiL10n.tr("ml.vision.tool"), systemImage: "text.viewfinder")
-            } header: {
-                Text(PalmiL10n.tr("ml.vision.paths"))
-            }
-        }
-        .listStyle(.insetGrouped)
-        .navigationTitle(PalmiL10n.tr("ml.tool.vision"))
-        .navigationBarTitleDisplayMode(.inline)
-        .alert(PalmiL10n.tr("common.operationFailed"), isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-            Button(PalmiL10n.tr("common.ok"), role: .cancel) {}
-        } message: { Text(errorMessage ?? "") }
-    }
-
-    @ViewBuilder
-    private var status: some View {
-        let targetID: UUID? = library.state.toolBindings.vision.modelID ?? library.state.defaultMainModel.modelID
-        if let targetID, case .success(let resolved) = library.resolveModel(targetID, asMainModel: false) {
-            switch resolved.snapshot.supports(.visionInput) {
-            case .supported: ModelLibraryStatusLine(text: PalmiL10n.tr("ml.vision.ready", resolved.snapshot.modelTitle), isProblem: false)
-            case .unsupported: ModelLibraryStatusLine(text: PalmiL10n.tr("ml.vision.unsupported", resolved.snapshot.modelTitle), isProblem: true)
-            case .unknown: ModelLibraryStatusLine(text: PalmiL10n.tr("ml.vision.unknown", resolved.snapshot.modelTitle), isProblem: true)
-            }
-        } else {
-            ModelLibraryStatusLine(text: PalmiL10n.tr("ml.vision.noModel"), isProblem: true)
-        }
-    }
-}
-
-/// 权限模式与自动审核：审核是独立请求，使用独立指令与证据；跟随主模型只是选择用哪个模型。
-struct PermissionReviewSettingsScreen: View {
-    @Bindable var store: ManualLabStore
-    @State private var errorMessage: String?
 
     private var library: ModelLibraryStore { store.modelLibrary }
     private var authorization: ToolAuthorizationStore { store.toolAuthorizationStore }
@@ -146,347 +80,234 @@ struct PermissionReviewSettingsScreen: View {
     var body: some View {
         List {
             Section {
-                Picker(PalmiL10n.tr("tool.authorization.title"), selection: Binding(
-                    get: { authorization.mode },
-                    set: { authorization.setMode($0) }
-                )) {
-                    ForEach(ToolAuthorizationMode.userSelectableCases) { Text($0.localizedTitle).tag($0) }
-                }
-                .pickerStyle(.menu)
-            }
-
-            Section {
-                ToolModelBindingPicker(library: library, binding: library.state.toolBindings.permissionReview, requireVision: false) { binding in
-                    do { try library.setPermissionReviewBinding(binding) } catch { errorMessage = error.localizedDescription }
-                }
-                let target = library.state.toolBindings.permissionReview.modelID ?? library.state.defaultMainModel.modelID
-                if let target, case .failure(let issue) = library.resolveModel(target, asMainModel: false) {
-                    ModelLibraryStatusLine(text: issue.localizedDescription, isProblem: true)
-                } else if target == nil {
-                    ModelLibraryStatusLine(text: PalmiL10n.tr("ml.review.noModel"), isProblem: true)
-                }
-            } header: {
-                Text(PalmiL10n.tr("ml.tool.review"))
-            } footer: {
-                Text(PalmiL10n.tr("ml.review.footer"))
-            }
-
-            Section {
-                ZStack(alignment: .topLeading) {
-                    if authorization.customAutoReviewPolicy.isEmpty {
-                        Text(PalmiL10n.tr("tool.authorization.autoReviewPolicy.placeholder"))
-                            .foregroundStyle(.tertiary).padding(.horizontal, 5).padding(.vertical, 8).allowsHitTesting(false)
+                ForEach(ToolAuthorizationMode.userSelectableCases) { mode in
+                    Button { authorization.setMode(mode) } label: {
+                        HStack {
+                            Text(mode.localizedTitle).foregroundStyle(.primary)
+                            Spacer()
+                            if authorization.mode == mode { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
+                        }
+                        .contentShape(Rectangle())
                     }
-                    TextEditor(text: Binding(
-                        get: { authorization.customAutoReviewPolicy },
-                        set: { authorization.setCustomAutoReviewPolicy($0) }
-                    ))
-                    .frame(minHeight: 120)
-                    .scrollContentBackground(.hidden)
+                    .buttonStyle(.plain)
                 }
-            } header: {
-                Text(PalmiL10n.tr("tool.authorization.autoReviewPolicy.title"))
-            } footer: {
-                Text(PalmiL10n.tr("tool.authorization.autoReviewPolicy.note"))
+            }
+
+            if authorization.mode == .autoReview {
+                Section {
+                    NavigationLink {
+                        ModelLibraryPickerScreen(
+                            library: library,
+                            title: PalmiL10n.tr("ml.tool.review"),
+                            followTitle: PalmiL10n.tr("ml.tool.followMain"),
+                            selectedID: library.state.toolBindings.permissionReview.modelID,
+                            onSelect: { try library.setPermissionReviewBinding($0.map(ToolModelBinding.model) ?? .followMainModel) }
+                        )
+                    } label: {
+                        LabeledContent(PalmiL10n.tr("ml.tool.review"),
+                                       value: ModelLibraryPresentation.toolBindingTitle(library.state.toolBindings.permissionReview, library: library))
+                    }
+                    NavigationLink {
+                        AutoReviewPolicyScreen(authorization: authorization)
+                    } label: {
+                        LabeledContent(PalmiL10n.tr("tool.authorization.autoReviewPolicy.title"),
+                                       value: PalmiL10n.tr(authorization.customAutoReviewPolicy.isEmpty ? "ml.review.policyDefault" : "ml.review.policyCustom"))
+                    }
+                }
             }
         }
         .listStyle(.insetGrouped)
         .navigationTitle(PalmiL10n.tr("tool.authorization.title"))
         .navigationBarTitleDisplayMode(.inline)
-        .alert(PalmiL10n.tr("common.operationFailed"), isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-            Button(PalmiL10n.tr("common.ok"), role: .cancel) {}
-        } message: { Text(errorMessage ?? "") }
     }
 }
 
-/// 网页搜索或网页抓取：本机与云端可以并存，搜索与抓取分别选择。
-struct WebCapabilitySettingsScreen: View {
+private struct AutoReviewPolicyScreen: View {
+    @Bindable var authorization: ToolAuthorizationStore
+
+    var body: some View {
+        TextEditor(text: Binding(
+            get: { authorization.customAutoReviewPolicy },
+            set: { authorization.setCustomAutoReviewPolicy($0) }
+        ))
+        .padding(.horizontal, 12)
+        .overlay(alignment: .topLeading) {
+            if authorization.customAutoReviewPolicy.isEmpty {
+                Text(PalmiL10n.tr("tool.authorization.autoReviewPolicy.placeholder"))
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 17)
+                    .padding(.vertical, 8)
+                    .allowsHitTesting(false)
+            }
+        }
+        .navigationTitle(PalmiL10n.tr("tool.authorization.autoReviewPolicy.title"))
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// 网页搜索 / 网页读取：本机，或模型库里的一个模型。选中云端模型后可以换接口、检查可用性。
+struct WebToolSettingsScreen: View {
     @Bindable var store: ManualLabStore
     let operation: WebOperation
-    @State private var isAdding = false
+    @State private var isVerifying = false
+    @State private var verified: Bool?
     @State private var errorMessage: String?
 
     private var library: ModelLibraryStore { store.modelLibrary }
-    private var bindings: [WebCapabilityBinding] { library.state.web.bindings.filter { $0.operation == operation } }
-    private var defaultID: UUID? { operation == .search ? library.state.web.defaultSearchBindingID : library.state.web.defaultFetchBindingID }
+    private var defaultID: UUID? {
+        operation == .search ? library.state.web.defaultSearchBindingID : library.state.web.defaultFetchBindingID
+    }
+    private var current: WebCapabilityBinding? { library.state.web.binding(defaultID) }
+
+    /// 只列出有可用接口的模型。
+    private var groups: [ModelLibraryPresentation.Group] {
+        let models = library.state.models.filter { model in
+            guard let connection = library.state.connection(model.connectionID) else { return false }
+            return !WebAdapterCatalog.adapters(for: operation, model: model, connection: connection).isEmpty
+        }
+        return ModelLibraryPresentation.groups(library: library, models: models)
+    }
 
     var body: some View {
         List {
             Section {
-                Picker(PalmiL10n.tr("ml.web.current"), selection: Binding<UUID?>(
-                    get: { defaultID },
-                    set: { id in
-                        do { try library.setDefaultWebBinding(id, for: operation) } catch { errorMessage = error.localizedDescription }
-                    }
-                )) {
-                    Text(PalmiL10n.tr("ml.web.local")).tag(Optional<UUID>.none)
-                    ForEach(bindings) { binding in Text(title(binding)).tag(Optional(binding.id)) }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-                Text(destinationText).font(.footnote).foregroundStyle(.secondary)
-            } header: {
-                Text(PalmiL10n.tr("ml.web.current"))
+                choice(PalmiL10n.tr("ml.web.local"), selected: defaultID == nil) { setDefault(nil) }
             }
 
-            if operation == .search {
+            ForEach(groups) { group in
+                Section(group.title) {
+                    ForEach(group.models) { model in
+                        choice(model.title, selected: isSelected(model, in: group)) { select(model) }
+                    }
+                }
+            }
+
+            if let current {
+                currentSection(current)
+            } else if operation == .search {
                 Section {
                     NavigationLink { WebSearchProviderSettingsScreen() } label: {
-                        Label(PalmiL10n.tr("searchConfiguration.local.title"), systemImage: "magnifyingglass.circle")
+                        Text(PalmiL10n.tr("searchConfiguration.local.title"))
                     }
                 }
-            }
-
-            Section {
-                ForEach(bindings) { binding in
-                    NavigationLink { WebBindingDetailScreen(store: store, bindingID: binding.id) } label: {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(title(binding))
-                            Text(verificationText(binding)).font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                Button { isAdding = true } label: { Label(PalmiL10n.tr("ml.web.add"), systemImage: "plus.circle") }
-            } header: {
-                Text(PalmiL10n.tr("ml.web.cloud"))
-            } footer: {
-                Text(PalmiL10n.tr("ml.web.cloudFooter"))
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle(PalmiL10n.tr(operation == .search ? "ml.web.search" : "ml.web.fetch"))
+        .navigationTitle(PalmiL10n.tr(operation == .search ? "tool.facade.webSearch" : "tool.facade.fetch"))
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $isAdding) {
-            NavigationStack { WebBindingEditorScreen(store: store, operation: operation, bindingID: nil) }
-        }
-        .alert(PalmiL10n.tr("common.operationFailed"), isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-            Button(PalmiL10n.tr("common.ok"), role: .cancel) {}
-        } message: { Text(errorMessage ?? "") }
+        .modelLibraryErrorAlert($errorMessage)
+        .onChange(of: defaultID) { _, _ in verified = nil }
     }
 
-    private func title(_ binding: WebCapabilityBinding) -> String {
-        let adapter = WebAdapterCatalog.descriptor(binding.adapterID)?.title ?? binding.adapterID
-        return binding.userLabel.map { "\($0) · \(adapter)" } ?? adapter
-    }
-
-    private var destinationText: String {
-        guard let id = defaultID, let binding = library.state.web.binding(id) else {
-            return PalmiL10n.tr(operation == .search ? "ml.web.localSearchDetail" : "ml.web.localFetchDetail")
-        }
-        let host = (try? binding.endpoint.resolvedURL())?.host ?? "?"
-        return PalmiL10n.tr(operation == .search ? "ml.web.cloudSearchDetail" : "ml.web.cloudFetchDetail", host)
-    }
-
-    private func verificationText(_ binding: WebCapabilityBinding) -> String {
-        let last = library.state.web.lastRunEvidence[binding.id]
-        let success = library.state.web.lastSuccessfulEvidence[binding.id]
-        switch last?.verification {
-        case .verified?: return PalmiL10n.tr("ml.web.state.verified")
-        case .verifiedEmpty?: return PalmiL10n.tr("ml.web.state.verifiedEmpty")
-        case .notInvoked?: return PalmiL10n.tr("ml.web.state.notInvoked")
-        case .unsupported?: return PalmiL10n.tr("ml.web.state.unsupported")
-        case .failed?: return success == nil ? PalmiL10n.tr("ml.web.state.failed") : PalmiL10n.tr("ml.web.state.failedButVerified")
-        case .unverified?: return PalmiL10n.tr("ml.web.state.unverified")
-        case nil: return PalmiL10n.tr("ml.web.state.untested")
-        }
-    }
-}
-
-struct WebBindingDetailScreen: View {
-    @Bindable var store: ManualLabStore
-    let bindingID: UUID
-    @Environment(\.dismiss) private var dismiss
-    @State private var isVerifying = false
-    @State private var result: WebOperationResult?
-    @State private var isEditing = false
-    @State private var errorMessage: String?
-
-    private var library: ModelLibraryStore { store.modelLibrary }
-
-    var body: some View {
-        Group {
-            if let binding = library.state.web.binding(bindingID) {
-                List {
-                    Section {
-                        LabeledContent(PalmiL10n.tr("ml.web.adapter"), value: WebAdapterCatalog.descriptor(binding.adapterID)?.title ?? binding.adapterID)
-                        LabeledContent(PalmiL10n.tr("ml.web.connection"), value: library.state.connection(binding.connectionID)?.displayName ?? PalmiL10n.tr("ml.binding.invalid"))
-                        LabeledContent(PalmiL10n.tr("ml.web.endpoint"), value: binding.endpoint.displayValue)
-                        if let modelID = binding.modelRecordID {
-                            LabeledContent(PalmiL10n.tr("ml.tool.model"), value: library.state.model(modelID)?.title ?? PalmiL10n.tr("ml.binding.invalid"))
-                        } else {
-                            LabeledContent(PalmiL10n.tr("ml.tool.model"), value: PalmiL10n.tr("ml.web.noModelNeeded"))
-                        }
-                        if let note = WebAdapterCatalog.descriptor(binding.adapterID)?.note { Text(note).font(.footnote).foregroundStyle(.secondary) }
-                        Button(PalmiL10n.tr("ml.web.edit")) { isEditing = true }
-                    }
-                    Section {
-                        Button {
-                            Task {
-                                isVerifying = true
-                                result = await store.webCapabilityService.verify(bindingID: bindingID)
-                                isVerifying = false
-                            }
-                        } label: {
-                            HStack {
-                                Label(PalmiL10n.tr("ml.web.verify"), systemImage: "checkmark.seal")
-                                if isVerifying { Spacer(); ProgressView() }
-                            }
-                        }
-                        .disabled(isVerifying)
-                        if let result {
-                            Text(PalmiL10n.tr("ml.web.verifyResult", result.status.rawValue, result.executionEvidence.rawValue, result.hits.count + result.pages.count))
-                                .font(.footnote)
-                            ForEach(Array(result.errors.enumerated()), id: \.offset) { _, error in
-                                ModelLibraryStatusLine(text: error.localizedDescription, isProblem: true)
-                            }
-                        }
-                        if let evidence = library.state.web.lastSuccessfulEvidence[bindingID] {
-                            Text(PalmiL10n.tr("ml.web.lastSuccess", evidence.observedAt.formatted(date: .abbreviated, time: .shortened)))
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    } footer: {
-                        Text(PalmiL10n.tr("ml.web.verifyFooter"))
-                    }
-                    Section {
-                        Button(PalmiL10n.tr("ml.web.delete"), role: .destructive) {
-                            do { try library.deleteWebBinding(bindingID); dismiss() } catch { errorMessage = error.localizedDescription }
-                        }
+    @ViewBuilder
+    private func currentSection(_ binding: WebCapabilityBinding) -> some View {
+        let adapters = availableAdapters(for: binding)
+        Section {
+            if adapters.count > 1 {
+                Picker(PalmiL10n.tr("ml.web.adapter"), selection: Binding(
+                    get: { binding.adapterID },
+                    set: { changeAdapter(of: binding, to: $0) }
+                )) {
+                    ForEach(adapters) { Text($0.title).tag($0.id) }
+                }
+                .pickerStyle(.menu)
+            }
+            Button {
+                Task { await verify(binding.id) }
+            } label: {
+                HStack {
+                    Text(PalmiL10n.tr("ml.web.verify"))
+                    Spacer()
+                    if isVerifying {
+                        ProgressView()
+                    } else if let verified {
+                        Image(systemName: verified ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .foregroundStyle(verified ? Color.green : Color.red)
                     }
                 }
-                .listStyle(.insetGrouped)
-                .navigationTitle(binding.userLabel ?? WebAdapterCatalog.descriptor(binding.adapterID)?.title ?? "")
-                .sheet(isPresented: $isEditing) {
-                    NavigationStack { WebBindingEditorScreen(store: store, operation: binding.operation, bindingID: bindingID) }
-                }
-            } else {
-                ContentUnavailableView(PalmiL10n.tr("ml.binding.invalid"), systemImage: "network.slash")
             }
-        }
-        .navigationBarTitleDisplayMode(.inline)
-        .alert(PalmiL10n.tr("common.operationFailed"), isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-            Button(PalmiL10n.tr("common.ok"), role: .cancel) {}
-        } message: { Text(errorMessage ?? "") }
-    }
-}
-
-/// 添加或编辑云端网页服务：复用模型库连接（及其凭据），独立工具不需要模型。
-struct WebBindingEditorScreen: View {
-    @Bindable var store: ManualLabStore
-    let operation: WebOperation
-    let bindingID: UUID?
-    @Environment(\.dismiss) private var dismiss
-    @State private var connectionID: UUID?
-    @State private var adapterID = ""
-    @State private var endpointText = ""
-    @State private var modelID: UUID?
-    @State private var label = ""
-    @State private var loaded = false
-    @State private var errorMessage: String?
-
-    private var library: ModelLibraryStore { store.modelLibrary }
-    private var descriptor: WebAdapterDescriptor? { WebAdapterCatalog.descriptor(adapterID) }
-
-    var body: some View {
-        Form {
-            Section {
-                Picker(PalmiL10n.tr("ml.web.connection"), selection: $connectionID) {
-                    Text(PalmiL10n.tr("common.notSelected")).tag(Optional<UUID>.none)
-                    ForEach(library.state.connections.filter { $0.chatGPTAccount == nil }) { Text($0.displayName).tag(Optional($0.id)) }
-                }
-                Picker(PalmiL10n.tr("ml.web.adapter"), selection: $adapterID) {
-                    Text(PalmiL10n.tr("common.notSelected")).tag("")
-                    ForEach(WebAdapterCatalog.adapters(for: operation)) { Text($0.title).tag($0.id) }
-                }
-                if let descriptor { Text(descriptor.note).font(.footnote).foregroundStyle(.secondary) }
-            } footer: {
-                Text(PalmiL10n.tr("ml.web.editorFooter"))
-            }
-            .onChange(of: adapterID) { _, _ in suggest() }
-            .onChange(of: connectionID) { _, _ in suggest() }
-
-            Section {
-                TextField("https://", text: $endpointText)
-                    .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-            } header: {
-                Text(PalmiL10n.tr("ml.web.endpoint"))
-            } footer: {
-                Text(PalmiL10n.tr("ml.web.endpointFooter"))
-            }
-
-            if descriptor?.requiresModel == true {
-                Section {
-                    Picker(PalmiL10n.tr("ml.tool.model"), selection: $modelID) {
-                        Text(PalmiL10n.tr("common.notSelected")).tag(Optional<UUID>.none)
-                        ForEach(library.state.models.filter { $0.connectionID == connectionID }) { Text($0.title).tag(Optional($0.id)) }
-                    }
-                } footer: {
-                    Text(PalmiL10n.tr("ml.web.modelFooter"))
-                }
-            }
-
-            Section(PalmiL10n.tr("ml.connection.label")) {
-                TextField(PalmiL10n.tr("ml.connection.labelPlaceholder"), text: $label)
-            }
-        }
-        .formStyle(.grouped)
-        .navigationTitle(PalmiL10n.tr(bindingID == nil ? "ml.web.add" : "ml.web.edit"))
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) { Button(PalmiL10n.tr("common.cancel")) { dismiss() } }
-            ToolbarItem(placement: .confirmationAction) {
-                Button(PalmiL10n.tr("common.save")) { save() }
-                    .disabled(connectionID == nil || adapterID.isEmpty || endpointText.isEmpty || (descriptor?.requiresModel == true && modelID == nil))
-            }
-        }
-        .alert(PalmiL10n.tr("common.operationFailed"), isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-            Button(PalmiL10n.tr("common.ok"), role: .cancel) {}
-        } message: { Text(errorMessage ?? "") }
-        .onAppear(perform: load)
-    }
-
-    private func load() {
-        guard !loaded else { return }
-        loaded = true
-        guard let bindingID, let binding = library.state.web.binding(bindingID) else { return }
-        connectionID = binding.connectionID
-        adapterID = binding.adapterID
-        modelID = binding.modelRecordID
-        label = binding.userLabel ?? ""
-        endpointText = (try? binding.endpoint.resolvedURL().absoluteString) ?? ""
-    }
-
-    private func suggest() {
-        guard bindingID == nil, let descriptor, let connectionID, let connection = library.state.connection(connectionID),
-              let suggestion = WebAdapterCatalog.suggestedEndpoint(for: descriptor, connection: connection),
-              let url = try? suggestion.resolvedURL() else { return }
-        endpointText = url.absoluteString
-        if descriptor.requiresModel, modelID == nil {
-            modelID = library.state.models.first { $0.connectionID == connectionID && !$0.imageGenerationOnly }?.id
+            .disabled(isVerifying)
         }
     }
 
-    private func save() {
-        guard let connectionID, let descriptor else { return }
-        let existing = bindingID.flatMap { library.state.web.binding($0) }
+    private func choice(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(title).foregroundStyle(.primary)
+                Spacer()
+                if selected { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// 旧的独立接口配置没有记录模型时，选中标记落在该来源的第一个模型上。
+    private func isSelected(_ model: ModelRecord, in group: ModelLibraryPresentation.Group) -> Bool {
+        guard let current else { return false }
+        if let modelID = current.modelRecordID { return modelID == model.id }
+        return current.connectionID == model.connectionID && group.models.first?.id == model.id
+    }
+
+    private func availableAdapters(for binding: WebCapabilityBinding) -> [WebAdapterDescriptor] {
+        var adapters: [WebAdapterDescriptor] = []
+        if let modelID = binding.modelRecordID, let model = library.state.model(modelID),
+           let connection = library.state.connection(model.connectionID) {
+            adapters = WebAdapterCatalog.adapters(for: operation, model: model, connection: connection)
+        }
+        if !adapters.contains(where: { $0.id == binding.adapterID }), let own = WebAdapterCatalog.descriptor(binding.adapterID) {
+            adapters.insert(own, at: 0)
+        }
+        return adapters
+    }
+
+    private func setDefault(_ id: UUID?) {
+        do { try library.setDefaultWebBinding(id, for: operation) } catch { errorMessage = error.localizedDescription }
+    }
+
+    private func select(_ model: ModelRecord) {
+        if let existing = library.state.web.bindings.first(where: { $0.operation == operation && $0.modelRecordID == model.id }) {
+            setDefault(existing.id)
+            return
+        }
+        guard let connection = library.state.connection(model.connectionID),
+              let descriptor = WebAdapterCatalog.adapters(for: operation, model: model, connection: connection).first,
+              let endpoint = WebAdapterCatalog.suggestedEndpoint(for: descriptor, connection: connection) else { return }
         let binding = WebCapabilityBinding(
-            id: bindingID ?? UUID(),
-            operation: operation,
-            adapterID: descriptor.id,
-            executionKind: descriptor.executionKind,
-            connectionID: connectionID,
-            modelRecordID: descriptor.requiresModel ? modelID : nil,
-            endpoint: .explicitURL(endpointText.trimmingCharacters(in: .whitespacesAndNewlines)),
-            options: existing?.options ?? [:],
-            revision: existing?.revision ?? 1,
-            userLabel: label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : label,
-            createdAt: existing?.createdAt ?? .now,
-            updatedAt: .now
+            id: UUID(), operation: operation, adapterID: descriptor.id, executionKind: descriptor.executionKind,
+            connectionID: connection.id, modelRecordID: model.id, endpoint: endpoint, options: [:], revision: 1,
+            userLabel: nil, createdAt: .now, updatedAt: .now
         )
         do {
             try library.upsertWebBinding(binding)
-            dismiss()
+            try library.setDefaultWebBinding(binding.id, for: operation)
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func changeAdapter(of binding: WebCapabilityBinding, to adapterID: String) {
+        guard adapterID != binding.adapterID, let descriptor = WebAdapterCatalog.descriptor(adapterID),
+              let connection = library.state.connection(binding.connectionID),
+              let endpoint = WebAdapterCatalog.suggestedEndpoint(for: descriptor, connection: connection) else { return }
+        var updated = binding
+        updated.adapterID = descriptor.id
+        updated.executionKind = descriptor.executionKind
+        updated.endpoint = endpoint
+        updated.options = [:]
+        do { try library.upsertWebBinding(updated) } catch { errorMessage = error.localizedDescription }
+        verified = nil
+    }
+
+    private func verify(_ bindingID: UUID) async {
+        isVerifying = true
+        defer { isVerifying = false }
+        let result = await store.webCapabilityService.verify(bindingID: bindingID)
+        let ok = [.completed, .completedEmpty].contains(result.status) && result.errors.isEmpty
+        verified = ok
+        if !ok {
+            let message = result.errors.map(\.localizedDescription).joined(separator: "\n")
+            errorMessage = message.isEmpty ? result.status.rawValue : message
         }
     }
 }

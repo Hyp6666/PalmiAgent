@@ -8,7 +8,6 @@ struct BionicModelBindingFields: View {
     static let draftKey = "model_library_binding"
     @Bindable var store: BionicStore
     @Binding var binding: BionicObject
-    @State private var showsHelp = false
 
     private var library: ModelLibraryStore { store.model.library }
     private var instance: String? { binding.optionalText("installation_id") }
@@ -35,18 +34,8 @@ struct BionicModelBindingFields: View {
                 }
             }
         } header: {
-            HStack {
-                Text(PalmiL10n.tr("bionic.models"))
-                Button { showsHelp = true } label: { Image(systemName: "questionmark.circle") }
-                    .buttonStyle(.plain).foregroundStyle(.secondary)
-                    .accessibilityLabel(PalmiL10n.tr("bionic.models"))
-            }
-        } footer: {
-            Text(PalmiL10n.tr("ml.bionic.footer"))
+            Text(PalmiL10n.tr("bionic.models"))
         }
-        .alert(PalmiL10n.tr("bionic.models"), isPresented: $showsHelp) {
-            Button(PalmiL10n.tr("bionic.ok"), role: .cancel) {}
-        } message: { Text(PalmiL10n.tr("ml.bionic.help")) }
     }
 
     private var defaultTitle: String {

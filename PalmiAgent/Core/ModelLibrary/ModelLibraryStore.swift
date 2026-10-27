@@ -115,6 +115,7 @@ final class ModelLibraryStore {
         reconcileThreadScopes()
         reconcileAPIProfiles()
         reconcileRemoteSearch()
+        try? mergeDuplicateConnections()
     }
 
     private func runFirstMigration() {
