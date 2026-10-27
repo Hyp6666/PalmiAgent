@@ -948,7 +948,7 @@
 "model.connection.advanced" = "上游格式";
 "model.connection.protocol.title" = "协议";
 "model.connection.protocol.footer" = "明确选择后仅使用该格式；“自动”只在端点明确不支持时按安全顺序协商。";
-"model.connection.protocol.automatic" = "自动";
+"model.connection.protocol.automatic" = "自动（推荐）";
 "model.connection.protocol.automatic.detail" = "按照下列顺序自动协商";
 "model.connection.protocol.responses.detail" = "使用 /responses 请求与响应格式";
 "model.connection.protocol.chatCompletions.detail" = "使用 /chat/completions 请求与响应格式";
@@ -1875,12 +1875,12 @@
 "ml.connection.account" = "账号";
 "ml.connection.deleteConfirm" = "删除「%@」及其中的所有模型？";
 "ml.model.detail" = "模型详情";
-"ml.model.name" = "名称";
+"ml.model.name" = "备注名称";
 "ml.model.deleteConfirm" = "删除「%@」？";
 "ml.review.policyDefault" = "默认";
 "ml.review.policyCustom" = "自定义";
 
-"ml.groups.title" = "模型分组";
+"ml.groups.title" = "API 分组";
 "ml.add.fetch" = "自动获取模型";
 "ml.add.manual" = "手动添加模型";
 "ml.add.import" = "导入";
@@ -1890,3 +1890,12 @@
 "ml.web.service" = "服务";
 "ml.web.endpoint" = "接口地址";
 "ml.web.noEndpoint" = "这个接口没有默认地址，请先在分组里配置。";
+
+"ml.oauth.groups" = "OAuth 分组";
+"ml.model.imageInput" = "支持图片输入";
+"ml.batch.footer" = "该设置为批量设置，单个模型具体设置可导入后再修改。";
+"ml.fetch.run" = "获取";
+"ml.fetch.selectAll" = "全选";
+"ml.fetch.deselectAll" = "取消全选";
+"ml.check.start" = "检查";
+"ml.check.visionNotice" = "检查会向模型发送一张测试图片，可能消耗少量额度。检查通过后会自动开启“支持图片输入”。你也可以不检查，直接开启或关闭这个选项，但不保证实际使用效果。";

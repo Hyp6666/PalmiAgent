@@ -948,7 +948,7 @@
 "model.connection.advanced" = "上游格式";
 "model.connection.protocol.title" = "協定";
 "model.connection.protocol.footer" = "明確選擇後僅使用該格式；「自動」只會在端點明確不支援時依安全順序協商。";
-"model.connection.protocol.automatic" = "自動";
+"model.connection.protocol.automatic" = "自動（推薦）";
 "model.connection.protocol.automatic.detail" = "依照下列順序自動協商";
 "model.connection.protocol.responses.detail" = "使用 /responses 請求與回應格式";
 "model.connection.protocol.chatCompletions.detail" = "使用 /chat/completions 請求與回應格式";
@@ -1874,12 +1874,12 @@
 "ml.connection.account" = "帳號";
 "ml.connection.deleteConfirm" = "刪除「%@」及其中的所有模型？";
 "ml.model.detail" = "模型詳情";
-"ml.model.name" = "名稱";
+"ml.model.name" = "備註名稱";
 "ml.model.deleteConfirm" = "刪除「%@」？";
 "ml.review.policyDefault" = "預設";
 "ml.review.policyCustom" = "自訂";
 
-"ml.groups.title" = "模型分組";
+"ml.groups.title" = "API 分組";
 "ml.add.fetch" = "自動取得模型";
 "ml.add.manual" = "手動新增模型";
 "ml.add.import" = "匯入";
@@ -1889,3 +1889,12 @@
 "ml.web.service" = "服務";
 "ml.web.endpoint" = "介面位址";
 "ml.web.noEndpoint" = "這個介面沒有預設位址，請先在分組裡設定。";
+
+"ml.oauth.groups" = "OAuth 分組";
+"ml.model.imageInput" = "支援圖片輸入";
+"ml.batch.footer" = "此設定為批次設定，單一模型的設定可在匯入後再修改。";
+"ml.fetch.run" = "取得";
+"ml.fetch.selectAll" = "全選";
+"ml.fetch.deselectAll" = "取消全選";
+"ml.check.start" = "檢查";
+"ml.check.visionNotice" = "檢查會向模型傳送一張測試圖片，可能消耗少量額度。檢查通過後會自動開啟「支援圖片輸入」。你也可以不檢查，直接開啟或關閉此選項，但不保證實際使用效果。";

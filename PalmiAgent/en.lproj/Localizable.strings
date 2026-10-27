@@ -948,7 +948,7 @@
 "model.connection.advanced" = "Upstream Format";
 "model.connection.protocol.title" = "Protocol";
 "model.connection.protocol.footer" = "An explicit choice uses only that format. Automatic negotiation changes format only when an endpoint clearly reports that it is unsupported.";
-"model.connection.protocol.automatic" = "Automatic";
+"model.connection.protocol.automatic" = "Automatic (Recommended)";
 "model.connection.protocol.automatic.detail" = "Negotiate automatically in the order below";
 "model.connection.protocol.responses.detail" = "Use the /responses request and response format";
 "model.connection.protocol.chatCompletions.detail" = "Use the /chat/completions request and response format";
@@ -1874,12 +1874,12 @@
 "ml.connection.account" = "Account";
 "ml.connection.deleteConfirm" = "Delete “%@” and all its models?";
 "ml.model.detail" = "Model Details";
-"ml.model.name" = "Name";
+"ml.model.name" = "Note Name";
 "ml.model.deleteConfirm" = "Delete “%@”?";
 "ml.review.policyDefault" = "Default";
 "ml.review.policyCustom" = "Custom";
 
-"ml.groups.title" = "Model Groups";
+"ml.groups.title" = "API Groups";
 "ml.add.fetch" = "Fetch Models";
 "ml.add.manual" = "Add Model Manually";
 "ml.add.import" = "Import";
@@ -1889,3 +1889,12 @@
 "ml.web.service" = "Service";
 "ml.web.endpoint" = "Endpoint";
 "ml.web.noEndpoint" = "This interface has no default endpoint.";
+
+"ml.oauth.groups" = "OAuth Groups";
+"ml.model.imageInput" = "Supports Image Input";
+"ml.batch.footer" = "These settings apply to all imported models; adjust individual models after importing.";
+"ml.fetch.run" = "Fetch";
+"ml.fetch.selectAll" = "Select All";
+"ml.fetch.deselectAll" = "Deselect All";
+"ml.check.start" = "Check";
+"ml.check.visionNotice" = "This sends a test image to the model and may use a small amount of quota. If it passes, “Supports Image Input” is turned on automatically. You can also turn the option on or off without checking, but results in real use aren't guaranteed.";

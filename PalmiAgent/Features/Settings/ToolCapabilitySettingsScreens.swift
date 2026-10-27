@@ -48,7 +48,7 @@ struct ToolCapabilitiesScreen: View {
                     ModelMenuItem(title: PalmiL10n.tr("common.none"), selected: imageSettings.selectedModelID == nil) {
                         imageSettings.selectedModelID = nil
                     }
-                    Section(PalmiL10n.tr("ml.add.oauth")) {
+                    Section(PalmiL10n.tr("ml.oauth.groups")) {
                         Menu {
                             ForEach(imageModels) { model in
                                 ModelMenuItem(title: model.title, selected: imageSettings.selectedModelID == model.id) {
@@ -225,11 +225,11 @@ struct WebToolSettingsScreen: View {
 
             if !usesRemote, operation == .search {
                 Section {
-                    Picker(PalmiL10n.tr("searchConfiguration.local.title"), selection: $localEngine) {
-                        ForEach(WebSearchProviderID.allCases) { Text($0.localizedTitleForUI).tag($0) }
-                    }
-                    .pickerStyle(.menu)
-                    .onChange(of: localEngine) { _, value in WebSearchProviderSettings.setSelectedProviderID(value) }
+                    ChoiceMenuRow(
+                        title: PalmiL10n.tr("searchConfiguration.local.title"),
+                        selection: Binding(get: { localEngine }, set: { localEngine = $0; WebSearchProviderSettings.setSelectedProviderID($0) }),
+                        options: WebSearchProviderID.allCases.map { ($0, $0.localizedTitleForUI) }
+                    )
                 }
             }
 

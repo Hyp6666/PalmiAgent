@@ -948,7 +948,7 @@
 "model.connection.advanced" = "업스트림 형식";
 "model.connection.protocol.title" = "프로토콜";
 "model.connection.protocol.footer" = "명시적으로 선택하면 해당 형식만 사용합니다. 자동 협상은 엔드포인트가 미지원임을 명확히 반환한 경우에만 형식을 전환합니다.";
-"model.connection.protocol.automatic" = "자동";
+"model.connection.protocol.automatic" = "자동(권장)";
 "model.connection.protocol.automatic.detail" = "아래 순서에 따라 자동 협상";
 "model.connection.protocol.responses.detail" = "/responses 요청 및 응답 형식 사용";
 "model.connection.protocol.chatCompletions.detail" = "/chat/completions 요청 및 응답 형식 사용";
@@ -1874,12 +1874,12 @@
 "ml.connection.account" = "계정";
 "ml.connection.deleteConfirm" = "“%@” 및 모든 모델을 삭제할까요?";
 "ml.model.detail" = "모델 세부정보";
-"ml.model.name" = "이름";
+"ml.model.name" = "메모 이름";
 "ml.model.deleteConfirm" = "“%@”을(를) 삭제할까요?";
 "ml.review.policyDefault" = "기본";
 "ml.review.policyCustom" = "사용자 지정";
 
-"ml.groups.title" = "모델 그룹";
+"ml.groups.title" = "API 그룹";
 "ml.add.fetch" = "모델 자동 가져오기";
 "ml.add.manual" = "모델 직접 추가";
 "ml.add.import" = "가져오기";
@@ -1889,3 +1889,12 @@
 "ml.web.service" = "서비스";
 "ml.web.endpoint" = "엔드포인트";
 "ml.web.noEndpoint" = "이 인터페이스에는 기본 엔드포인트가 없습니다.";
+
+"ml.oauth.groups" = "OAuth 그룹";
+"ml.model.imageInput" = "이미지 입력 지원";
+"ml.batch.footer" = "이 설정은 일괄 적용됩니다. 개별 모델은 가져온 후 수정할 수 있습니다.";
+"ml.fetch.run" = "가져오기";
+"ml.fetch.selectAll" = "모두 선택";
+"ml.fetch.deselectAll" = "모두 선택 해제";
+"ml.check.start" = "확인";
+"ml.check.visionNotice" = "테스트 이미지를 모델에 보내므로 소량의 사용량이 소모될 수 있습니다. 통과하면 ‘이미지 입력 지원’이 자동으로 켜집니다. 확인하지 않고 직접 켜거나 끌 수도 있지만 실제 사용 결과는 보장되지 않습니다.";

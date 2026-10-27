@@ -948,7 +948,7 @@
 "model.connection.advanced" = "上流形式";
 "model.connection.protocol.title" = "プロトコル";
 "model.connection.protocol.footer" = "明示的に選択した場合はその形式だけを使用します。自動では、エンドポイントが未対応を明確に返した場合にのみ形式を切り替えます。";
-"model.connection.protocol.automatic" = "自動";
+"model.connection.protocol.automatic" = "自動（推奨）";
 "model.connection.protocol.automatic.detail" = "以下の順序で自動ネゴシエーション";
 "model.connection.protocol.responses.detail" = "/responses のリクエスト・レスポンス形式を使用";
 "model.connection.protocol.chatCompletions.detail" = "/chat/completions のリクエスト・レスポンス形式を使用";
@@ -1874,12 +1874,12 @@
 "ml.connection.account" = "アカウント";
 "ml.connection.deleteConfirm" = "「%@」とそのすべてのモデルを削除しますか？";
 "ml.model.detail" = "モデルの詳細";
-"ml.model.name" = "名前";
+"ml.model.name" = "メモ名";
 "ml.model.deleteConfirm" = "「%@」を削除しますか？";
 "ml.review.policyDefault" = "デフォルト";
 "ml.review.policyCustom" = "カスタム";
 
-"ml.groups.title" = "モデルグループ";
+"ml.groups.title" = "API グループ";
 "ml.add.fetch" = "モデルを自動取得";
 "ml.add.manual" = "モデルを手動で追加";
 "ml.add.import" = "読み込む";
@@ -1889,3 +1889,12 @@
 "ml.web.service" = "サービス";
 "ml.web.endpoint" = "エンドポイント";
 "ml.web.noEndpoint" = "このインターフェースには既定のエンドポイントがありません。";
+
+"ml.oauth.groups" = "OAuth グループ";
+"ml.model.imageInput" = "画像入力に対応";
+"ml.batch.footer" = "この設定は一括で適用されます。個別の設定は読み込み後に変更できます。";
+"ml.fetch.run" = "取得";
+"ml.fetch.selectAll" = "すべて選択";
+"ml.fetch.deselectAll" = "選択を解除";
+"ml.check.start" = "確認";
+"ml.check.visionNotice" = "テスト画像をモデルに送信するため、少量の利用枠を消費する場合があります。成功すると「画像入力に対応」が自動でオンになります。確認せずに直接オン／オフすることもできますが、実際の動作は保証されません。";

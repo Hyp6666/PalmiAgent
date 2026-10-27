@@ -1,7 +1,6 @@
 import SwiftUI
-import UIKit
 
-/// 模型管理：主模型（两级菜单直接选）+ 模型分组（每组一块）+ OAuth 登录。
+/// 模型管理：主模型（两级菜单直接选）+ API 分组（每组一块）+ OAuth 分组。
 struct ModelHubScreen: View {
     @Bindable var store: ManualLabStore
     @State private var isAddingConnection = false
@@ -36,7 +35,7 @@ struct ModelHubScreen: View {
                     }
                     Section(PalmiL10n.tr("ml.add.oauth")) {
                         Button { isShowingCodexOAuth = true } label: {
-                            Label("Codex OAuth", systemImage: "person.badge.key")
+                            Label { Text("Codex OAuth") } icon: { CodexOAuthLogo.menuImage() }
                         }
                     }
                 } label: {
@@ -103,11 +102,11 @@ struct ModelHubScreen: View {
                 Section {
                     connectionRow(connection, title: "Codex OAuth")
                 } header: {
-                    if index == 0 { Text(PalmiL10n.tr("ml.add.oauth")) }
+                    if index == 0 { Text(PalmiL10n.tr("ml.oauth.groups")) }
                 }
             }
             if oauthConnections.isEmpty {
-                Section(PalmiL10n.tr("ml.add.oauth")) {
+                Section(PalmiL10n.tr("ml.oauth.groups")) {
                     NavigationLink { ChatGPTOAuthScreen(library: library) } label: { Text("Codex OAuth") }
                 }
             }
@@ -130,128 +129,9 @@ struct ModelHubScreen: View {
     }
 }
 
-// MARK: - 两级菜单选模型
-
-/// 列表里的一行：左侧标题是普通文字，只有右侧的当前值是菜单按钮。
-struct ModelMenuRow<Content: View>: View {
-    let title: String
-    let value: String
-    var icon: String? = nil
-    var isProblem = false
-    @ViewBuilder let content: () -> Content
-
-    var body: some View {
-        HStack(spacing: 8) {
-            if let icon {
-                Label(title, systemImage: icon)
-            } else {
-                Text(title)
-            }
-            Spacer(minLength: 8)
-            Menu {
-                content()
-            } label: {
-                HStack(spacing: 4) {
-                    Text(value)
-                        .lineLimit(1)
-                        .foregroundStyle(isProblem ? Color.orange : Color.secondary)
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                }
-            }
-        }
-    }
-}
-
-/// 菜单内容：分组 → 模型。OAuth 分组单独放在“OAuth 登录”分节里。
-struct ModelLibraryMenuItems: View {
-    let library: ModelLibraryStore
-    var followTitle: String? = nil
-    let selectedID: UUID?
-    var include: (ModelRecord) -> Bool = { !$0.imageGenerationOnly }
-    let onSelect: (UUID?) -> Void
-
-    var body: some View {
-        if let followTitle {
-            ModelMenuItem(title: followTitle, selected: selectedID == nil) { onSelect(nil) }
-            Divider()
-        }
-        let groups = ModelLibraryPresentation.groups(library: library, models: library.state.models.filter(include))
-        let oauth = groups.filter { library.state.connection($0.connectionID)?.chatGPTAccount != nil }
-        ForEach(groups.filter { library.state.connection($0.connectionID)?.chatGPTAccount == nil }) { submenu($0, title: $0.title) }
-        if !oauth.isEmpty {
-            Section(PalmiL10n.tr("ml.add.oauth")) {
-                ForEach(oauth) { submenu($0, title: "Codex OAuth") }
-            }
-        }
-    }
-
-    private func submenu(_ group: ModelLibraryPresentation.Group, title: String) -> some View {
-        Menu {
-            ForEach(group.models) { model in
-                ModelMenuItem(title: model.title, selected: selectedID == model.id) { onSelect(model.id) }
-            }
-        } label: {
-            if group.models.contains(where: { $0.id == selectedID }) {
-                Label(title, systemImage: "checkmark")
-            } else {
-                Text(title)
-            }
-        }
-    }
-}
-
-struct ModelMenuItem: View {
-    let title: String
-    let selected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            if selected { Label(title, systemImage: "checkmark") } else { Text(title) }
-        }
-    }
-}
-
 // MARK: - 添加 / 编辑分组
 
-/// 添加时的模型草稿：保存分组时一并写入。
-struct ModelDraftItem: Identifiable, Hashable {
-    let id = UUID()
-    var providerModelID: String
-    var alias = ""
-    var remoteDisplayName: String? = nil
-    var canonicalID: String? = nil
-    var ownedBy: String? = nil
-    var wireProtocol: LLMWireProtocolPreference? = nil
-    var supportsVision = false
-
-    init(providerModelID: String, alias: String = "") {
-        self.providerModelID = providerModelID
-        self.alias = alias
-    }
-
-    init(_ model: LLMDiscoveredModel) {
-        providerModelID = model.id
-        remoteDisplayName = model.remoteDisplayName
-        canonicalID = model.canonicalID
-        ownedBy = model.ownedBy
-    }
-
-    var title: String {
-        let trimmed = alias.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? (remoteDisplayName ?? providerModelID) : trimmed
-    }
-
-    var draft: ModelDraft {
-        ModelDraft(providerModelID: providerModelID, userAlias: alias, remoteDisplayName: remoteDisplayName,
-                   canonicalID: canonicalID, ownedBy: ownedBy, wireProtocol: wireProtocol,
-                   supportsVision: supportsVision ? true : nil)
-    }
-}
-
-/// 添加或编辑一个模型分组：服务商、名称、地址、API Key；添加时一并加入模型。
+/// 添加或编辑一个 API 分组：服务商、名称、地址、API Key；添加时一并加入模型。
 struct ConnectionEditorScreen: View {
     @Bindable var store: ManualLabStore
     let connectionID: UUID?
@@ -276,16 +156,19 @@ struct ConnectionEditorScreen: View {
     private var defaultProtocol: LLMWireProtocolPreference {
         existing?.endpoints.wireProtocolPreference ?? template?.protocolPreference ?? .automatic
     }
+    private var probe: ModelProbe? {
+        (try? endpoints()).map { ModelProbe(runtime: store.modelRuntime, endpoints: $0, apiKey: apiKey) }
+    }
 
     var body: some View {
         Form {
             if connectionID == nil {
                 Section {
-                    Picker(PalmiL10n.tr("ml.connection.preset"), selection: $templateID) {
-                        Text(PalmiL10n.tr("ml.connection.custom")).tag("")
-                        ForEach(ConnectionTemplateCatalog.all) { Text($0.title).tag($0.id) }
-                    }
-                    .onChange(of: templateID) { _, _ in applyTemplate() }
+                    ChoiceMenuRow(
+                        title: PalmiL10n.tr("ml.connection.preset"),
+                        selection: Binding(get: { templateID }, set: { templateID = $0; applyTemplate() }),
+                        options: [("", PalmiL10n.tr("ml.connection.custom"))] + ConnectionTemplateCatalog.all.map { ($0.id, $0.title) }
+                    )
                 }
             }
 
@@ -320,7 +203,7 @@ struct ConnectionEditorScreen: View {
                 Section(PalmiL10n.tr("ml.connection.models")) {
                     ForEach($drafts) { $item in
                         NavigationLink {
-                            DraftModelScreen(item: $item, defaultProtocol: defaultProtocol) {
+                            DraftModelScreen(item: $item, probe: probe) {
                                 drafts.removeAll { $0.id == item.id }
                             }
                         } label: {
@@ -328,13 +211,7 @@ struct ConnectionEditorScreen: View {
                         }
                     }
                     .onDelete { drafts.remove(atOffsets: $0) }
-                    Button { isFetching = true } label: {
-                        Label(PalmiL10n.tr("ml.add.fetch"), systemImage: "arrow.down.circle")
-                    }
-                    .disabled(trimmedAddress.isEmpty)
-                    Button { isAddingManually = true } label: {
-                        Label(PalmiL10n.tr("ml.add.manual"), systemImage: "plus.circle")
-                    }
+                    AddModelButtons(fetchDisabled: trimmedAddress.isEmpty, onFetch: { isFetching = true }, onManual: { isAddingManually = true })
                 }
             }
         }
@@ -349,16 +226,16 @@ struct ConnectionEditorScreen: View {
             }
         }
         .sheet(isPresented: $isFetching) {
-            FetchModelsSheet(excludedIDs: Set(drafts.map(\.providerModelID))) {
-                try await ModelDiscovery.fetch(endpoints: try endpoints(), apiKey: apiKey)
-            } onImport: { models in
-                drafts.append(contentsOf: models.map(ModelDraftItem.init))
+            FetchModelsSheet(excludedIDs: Set(drafts.map(\.providerModelID)), defaultProtocol: defaultProtocol, probe: probe) { wireProtocol in
+                var endpoints = try endpoints()
+                endpoints.wireProtocolPreference = wireProtocol
+                return try await ModelDiscovery.fetch(endpoints: endpoints, apiKey: apiKey)
+            } onImport: { items in
+                drafts.append(contentsOf: items)
             }
         }
         .sheet(isPresented: $isAddingManually) {
-            ManualModelSheet { id, alias in
-                drafts.append(ModelDraftItem(providerModelID: id, alias: alias))
-            }
+            ManualModelSheet(probe: probe) { drafts.append($0) }
         }
         .modelLibraryErrorAlert($errorMessage)
         .onAppear(perform: load)
@@ -421,22 +298,33 @@ struct ConnectionEditorScreen: View {
     }
 }
 
-/// 添加流程中的单个模型：与模型详情同一套字段，另有移除。
+/// “自动获取模型 / 手动添加模型”两个入口；添加分组与分组详情共用。
+struct AddModelButtons: View {
+    var fetchDisabled = false
+    let onFetch: () -> Void
+    let onManual: () -> Void
+
+    var body: some View {
+        Button(action: onFetch) {
+            Label(PalmiL10n.tr("ml.add.fetch"), systemImage: "arrow.down.circle")
+        }
+        .disabled(fetchDisabled)
+        Button(action: onManual) {
+            Label(PalmiL10n.tr("ml.add.manual"), systemImage: "plus.circle")
+        }
+    }
+}
+
+/// 添加流程中的单个模型：与手动添加同一套内容，另有移除。
 struct DraftModelScreen: View {
     @Binding var item: ModelDraftItem
-    let defaultProtocol: LLMWireProtocolPreference
+    let probe: ModelProbe?
     let onRemove: () -> Void
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         List {
-            ModelFieldsSections(
-                alias: $item.alias,
-                aliasPrompt: item.remoteDisplayName ?? item.providerModelID,
-                providerModelID: $item.providerModelID,
-                wireProtocol: Binding(get: { item.wireProtocol ?? defaultProtocol }, set: { item.wireProtocol = $0 }),
-                supportsVision: $item.supportsVision
-            )
+            DraftModelForm(item: $item, probe: probe)
             Section {
                 Button(PalmiL10n.tr("ml.model.remove"), role: .destructive) {
                     onRemove()
@@ -450,135 +338,181 @@ struct DraftModelScreen: View {
     }
 }
 
-/// 模型的可编辑字段：名称、模型 ID、协议、视觉。模型详情与添加流程共用。
-struct ModelFieldsSections: View {
-    @Binding var alias: String
-    let aliasPrompt: String
-    @Binding var providerModelID: String
-    var providerIDEditable = true
-    /// nil 时不显示协议（例如 OAuth 模型）。
-    var wireProtocol: Binding<LLMWireProtocolPreference>?
-    @Binding var supportsVision: Bool
-    var onCommit: () -> Void = {}
-
-    var body: some View {
-        Section(PalmiL10n.tr("ml.model.name")) {
-            TextField(PalmiL10n.tr("ml.model.name"), text: $alias, prompt: Text(aliasPrompt))
-                .onSubmit(onCommit)
-        }
-        Section(PalmiL10n.tr("ml.model.providerID")) {
-            TextField(PalmiL10n.tr("ml.model.providerID"), text: $providerModelID)
-                .textInputAutocapitalization(.never).autocorrectionDisabled()
-                .font(.body.monospaced())
-                .onSubmit(onCommit)
-                .disabled(!providerIDEditable)
-        }
-        Section {
-            if let wireProtocol {
-                Picker(PalmiL10n.tr("model.connection.protocol.title"), selection: wireProtocol) {
-                    ForEach(LLMWireProtocolPreference.allCases) { Text(ModelLibraryPresentation.protocolTitle($0)).tag($0) }
-                }
-                .pickerStyle(.menu)
-            }
-            Toggle(PalmiL10n.tr("tool.facade.vision"), isOn: $supportsVision)
-        }
-    }
-}
-
-/// 自动获取：拉取模型列表，勾选后导入。
-struct FetchModelsSheet: View {
-    let excludedIDs: Set<String>
-    let fetch: () async throws -> [LLMDiscoveredModel]
-    let onImport: ([LLMDiscoveredModel]) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var models: [LLMDiscoveredModel] = []
-    @State private var selected: Set<String> = []
-    @State private var isLoading = true
-    @State private var errorMessage: String?
-
-    var body: some View {
-        NavigationStack {
-            Group {
-                if isLoading {
-                    ProgressView()
-                } else if models.isEmpty {
-                    ContentUnavailableView(PalmiL10n.tr("ml.model.discoveryEmpty"), systemImage: "tray")
-                } else {
-                    List(models, id: \.id) { model in
-                        Button {
-                            if selected.contains(model.id) { selected.remove(model.id) } else { selected.insert(model.id) }
-                        } label: {
-                            HStack {
-                                Text(model.remoteDisplayName ?? model.id).foregroundStyle(.primary)
-                                Spacer()
-                                if selected.contains(model.id) { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-            .navigationTitle(PalmiL10n.tr("ml.add.fetch"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button(PalmiL10n.tr("common.cancel")) { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(PalmiL10n.tr("ml.add.import")) {
-                        onImport(models.filter { selected.contains($0.id) })
-                        dismiss()
-                    }
-                    .disabled(selected.isEmpty)
-                }
-            }
-            .modelLibraryErrorAlert($errorMessage)
-            .task { await load() }
-        }
-    }
-
-    private func load() async {
-        defer { isLoading = false }
-        do {
-            models = try await fetch().filter { !excludedIDs.contains($0.id) }
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-}
-
-/// 手动添加：填模型 ID，可选名称。
+/// 手动添加：模型 ID、备注名称、协议、图片输入，可先检查再添加。
 struct ManualModelSheet: View {
-    let onAdd: (String, String) -> Void
+    let probe: ModelProbe?
+    let onAdd: (ModelDraftItem) -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var modelID = ""
-    @State private var alias = ""
+    @State private var item = ModelDraftItem()
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section(PalmiL10n.tr("ml.model.providerID")) {
-                    TextField(PalmiL10n.tr("ml.model.providerID"), text: $modelID)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .font(.body.monospaced())
-                }
-                Section(PalmiL10n.tr("ml.model.name")) {
-                    TextField(PalmiL10n.tr("ml.model.name"), text: $alias, prompt: Text(PalmiL10n.tr("ml.optional")))
-                }
+            List {
+                DraftModelForm(item: $item, probe: probe)
             }
+            .listStyle(.insetGrouped)
             .navigationTitle(PalmiL10n.tr("ml.add.manual"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button(PalmiL10n.tr("common.cancel")) { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(PalmiL10n.tr("ml.add.confirm")) {
-                        onAdd(modelID.trimmingCharacters(in: .whitespacesAndNewlines), alias.trimmingCharacters(in: .whitespacesAndNewlines))
+                        item.providerModelID = item.providerModelID.trimmingCharacters(in: .whitespacesAndNewlines)
+                        onAdd(item)
                         dismiss()
                     }
-                    .disabled(modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(item.providerModelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
         }
-        .presentationDetents([.medium])
+    }
+}
+
+/// 自动获取：先定协议与图片输入（批量）→ 获取 → 勾选（可全选）→ 可批量检查 → 导入。
+struct FetchModelsSheet: View {
+    let excludedIDs: Set<String>
+    let defaultProtocol: LLMWireProtocolPreference
+    let probe: ModelProbe?
+    let discover: (LLMWireProtocolPreference) async throws -> [LLMDiscoveredModel]
+    let onImport: ([ModelDraftItem]) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var wireProtocol: LLMWireProtocolPreference = .automatic
+    @State private var supportsVision = false
+    @State private var models: [LLMDiscoveredModel] = []
+    @State private var selected: Set<String> = []
+    @State private var isLoading = false
+    @State private var connectivityResults: [String: Bool] = [:]
+    @State private var visionResults: [String: Bool] = [:]
+    @State private var connectivity: ModelCheckState = .idle
+    @State private var vision: ModelCheckState = .idle
+    @State private var errorMessage: String?
+    @State private var loaded = false
+
+    private var allSelected: Bool { !models.isEmpty && selected.count == models.count }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ModelSettingsBlock(wireProtocol: $wireProtocol, supportsVision: $supportsVision,
+                                   footer: PalmiL10n.tr("ml.batch.footer"))
+
+                Section {
+                    Button {
+                        Task { await load() }
+                    } label: {
+                        HStack {
+                            Label(PalmiL10n.tr("ml.fetch.run"), systemImage: "arrow.down.circle")
+                            if isLoading { Spacer(); ProgressView() }
+                        }
+                    }
+                    .disabled(isLoading)
+                    Button {
+                        selected = allSelected ? [] : Set(models.map(\.id))
+                    } label: {
+                        Label(PalmiL10n.tr(allSelected ? "ml.fetch.deselectAll" : "ml.fetch.selectAll"), systemImage: "checklist")
+                    }
+                    .disabled(models.isEmpty)
+                }
+
+                ModelChecksBlock(connectivity: connectivity, vision: vision, disabled: probe == nil || selected.isEmpty) {
+                    await runChecks(vision: false)
+                } onVision: {
+                    await runChecks(vision: true)
+                }
+
+                if !models.isEmpty {
+                    Section(PalmiL10n.tr("ml.connection.models")) {
+                        ForEach(models, id: \.id) { model in
+                            row(model)
+                        }
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle(PalmiL10n.tr("ml.add.fetch"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button(PalmiL10n.tr("common.cancel")) { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(PalmiL10n.tr("ml.add.import")) {
+                        onImport(models.filter { selected.contains($0.id) }.map {
+                            ModelDraftItem($0, wireProtocol: wireProtocol, supportsVision: supportsVision || visionResults[$0.id] == true)
+                        })
+                        dismiss()
+                    }
+                    .disabled(selected.isEmpty)
+                }
+            }
+            .modelLibraryErrorAlert($errorMessage)
+            .onAppear {
+                guard !loaded else { return }
+                loaded = true
+                wireProtocol = defaultProtocol
+            }
+        }
+    }
+
+    private func row(_ model: LLMDiscoveredModel) -> some View {
+        Button {
+            if selected.contains(model.id) { selected.remove(model.id) } else { selected.insert(model.id) }
+        } label: {
+            HStack(spacing: 8) {
+                Text(model.remoteDisplayName ?? model.id).foregroundStyle(.primary)
+                Spacer()
+                resultIcon("bolt.fill", connectivityResults[model.id])
+                resultIcon("photo.fill", visionResults[model.id])
+                Image(systemName: selected.contains(model.id) ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(selected.contains(model.id) ? Color.accentColor : Color.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func resultIcon(_ symbol: String, _ passed: Bool?) -> some View {
+        if let passed {
+            Image(systemName: symbol).font(.footnote).foregroundStyle(passed ? Color.green : Color.red)
+        }
+    }
+
+    private func load() async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            models = try await discover(wireProtocol).filter { !excludedIDs.contains($0.id) }
+            selected = selected.intersection(models.map(\.id))
+            if models.isEmpty { errorMessage = PalmiL10n.tr("ml.model.discoveryEmpty") }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// 对勾选的模型逐个检查；视觉通过的模型导入时自动开启图片输入。
+    private func runChecks(vision checksVision: Bool) async {
+        guard let probe else { return }
+        if checksVision { vision = .running } else { connectivity = .running }
+        var failures: [String] = []
+        var results: [Bool] = []
+        for model in models where selected.contains(model.id) {
+            do {
+                let passed: Bool
+                if checksVision {
+                    passed = try await probe.checkVision(model.id, wireProtocol: wireProtocol)
+                } else {
+                    try await probe.checkConnectivity(model.id, wireProtocol: wireProtocol)
+                    passed = true
+                }
+                results.append(passed)
+                if checksVision { visionResults[model.id] = passed } else { connectivityResults[model.id] = passed }
+            } catch {
+                results.append(false)
+                if checksVision { visionResults[model.id] = false } else { connectivityResults[model.id] = false }
+                failures.append("\(model.id)：\(error.localizedDescription)")
+            }
+        }
+        if checksVision { vision = .aggregate(results) } else { connectivity = .aggregate(results) }
+        if !failures.isEmpty { errorMessage = failures.joined(separator: "\n") }
     }
 }
 
@@ -628,6 +562,7 @@ struct ConnectionDetailScreen: View {
         let models = library.state.models.filter { $0.connectionID == connection.id }
             .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
         let isOAuth = connection.chatGPTAccount != nil
+        let probe = ModelProbe(runtime: store.modelRuntime, connection: connection, apiKey: library.credentialRead(for: connection).value)
         return List {
             Section(PalmiL10n.tr("ml.connection.models")) {
                 ForEach(models) { model in
@@ -642,12 +577,7 @@ struct ConnectionDetailScreen: View {
                     catch { errorMessage = error.localizedDescription }
                 }
                 if !isOAuth {
-                    Button { isFetching = true } label: {
-                        Label(PalmiL10n.tr("ml.add.fetch"), systemImage: "arrow.down.circle")
-                    }
-                    Button { isAddingManually = true } label: {
-                        Label(PalmiL10n.tr("ml.add.manual"), systemImage: "plus.circle")
-                    }
+                    AddModelButtons(onFetch: { isFetching = true }, onManual: { isAddingManually = true })
                 }
             }
 
@@ -681,16 +611,17 @@ struct ConnectionDetailScreen: View {
             }
         }
         .sheet(isPresented: $isFetching) {
-            FetchModelsSheet(excludedIDs: Set(models.map(\.providerModelID))) {
-                try await ModelDiscovery.fetch(endpoints: connection.endpoints, apiKey: library.credentialRead(for: connection).value)
+            FetchModelsSheet(excludedIDs: Set(models.map(\.providerModelID)),
+                             defaultProtocol: connection.endpoints.wireProtocolPreference, probe: probe) { wireProtocol in
+                var endpoints = connection.endpoints
+                endpoints.wireProtocolPreference = wireProtocol
+                return try await ModelDiscovery.fetch(endpoints: endpoints, apiKey: library.credentialRead(for: connection).value)
             } onImport: { items in
-                add(items.map { ModelDraftItem($0).draft })
+                add(items.map(\.draft))
             }
         }
         .sheet(isPresented: $isAddingManually) {
-            ManualModelSheet { id, alias in
-                add([ModelDraftItem(providerModelID: id, alias: alias).draft])
-            }
+            ManualModelSheet(probe: probe) { add([$0.draft]) }
         }
         .confirmationDialog(PalmiL10n.tr("ml.connection.deleteConfirm", connection.displayName), isPresented: $isDeleting, titleVisibility: .visible) {
             Button(PalmiL10n.tr("common.delete"), role: .destructive) {
@@ -709,7 +640,7 @@ struct ConnectionDetailScreen: View {
 
 // MARK: - 模型详情
 
-/// 模型详情：名称、模型 ID、协议、视觉；检查连通性、检查视觉、设为主模型、删除。
+/// 模型详情：与添加时同一套字段与检查；另有设为主模型、删除。
 struct ModelDetailScreen: View {
     @Bindable var store: ManualLabStore
     let modelID: UUID
@@ -718,11 +649,9 @@ struct ModelDetailScreen: View {
     @State private var providerModelID = ""
     @State private var loaded = false
     @State private var isDeleting = false
-    @State private var connectivity: CheckState = .idle
-    @State private var vision: CheckState = .idle
+    @State private var connectivity: ModelCheckState = .idle
+    @State private var vision: ModelCheckState = .idle
     @State private var errorMessage: String?
-
-    enum CheckState: Equatable { case idle, running, passed, failed }
 
     private var library: ModelLibraryStore { store.modelLibrary }
 
@@ -743,12 +672,13 @@ struct ModelDetailScreen: View {
     private func content(_ model: ModelRecord, _ connection: ConnectionRecord) -> some View {
         let evidenceKey = ModelLibraryStore.evidenceKey(model: model, connection: connection)
         let isOAuth = connection.chatGPTAccount != nil
+        let probe = ModelProbe(runtime: store.modelRuntime, connection: connection, apiKey: library.credentialRead(for: connection).value)
         return List {
             ModelFieldsSections(
-                alias: $alias,
-                aliasPrompt: model.remoteDisplayName ?? model.providerModelID,
                 providerModelID: $providerModelID,
                 providerIDEditable: !isOAuth,
+                alias: $alias,
+                aliasPrompt: model.remoteDisplayName ?? model.providerModelID,
                 wireProtocol: isOAuth || model.imageGenerationOnly ? nil : Binding(
                     get: { model.wireProtocol(in: connection) },
                     set: { value in
@@ -758,18 +688,28 @@ struct ModelDetailScreen: View {
                 ),
                 supportsVision: Binding(
                     get: { model.capabilities.effectiveState(.visionInput, evidenceKey: evidenceKey) == .supported },
-                    set: { value in
-                        do { try library.setCapabilityDeclaration(modelID, kind: .visionInput, state: value ? .supported : .unsupported) }
-                        catch { errorMessage = error.localizedDescription }
-                    }
+                    set: { setVision($0) }
                 ),
                 onCommit: saveNames
             )
 
             if !model.imageGenerationOnly {
-                Section {
-                    checkButton(PalmiL10n.tr("ml.model.connectivity"), state: connectivity) { await checkConnectivity() }
-                    checkButton(PalmiL10n.tr("ml.model.checkVision"), state: vision) { await checkVision() }
+                ModelChecksBlock(connectivity: connectivity, vision: vision) {
+                    saveNames()
+                    connectivity = .running
+                    do { try await probe.checkConnectivity(model.providerModelID, wireProtocol: model.wireProtocol(in: connection)); connectivity = .passed }
+                    catch { connectivity = .failed; errorMessage = error.localizedDescription }
+                } onVision: {
+                    saveNames()
+                    vision = .running
+                    do {
+                        let passed = try await probe.checkVision(model.providerModelID, wireProtocol: model.wireProtocol(in: connection))
+                        vision = passed ? .passed : .failed
+                        if passed { setVision(true) }
+                    } catch {
+                        vision = .failed
+                        errorMessage = error.localizedDescription
+                    }
                 }
                 Section {
                     if library.state.defaultMainModel.modelID == modelID {
@@ -805,22 +745,9 @@ struct ModelDetailScreen: View {
         }
     }
 
-    private func checkButton(_ title: String, state: CheckState, action: @escaping () async -> Void) -> some View {
-        Button {
-            Task { await action() }
-        } label: {
-            HStack {
-                Text(title)
-                Spacer()
-                switch state {
-                case .idle: EmptyView()
-                case .running: ProgressView()
-                case .passed: Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.green)
-                case .failed: Image(systemName: "xmark.circle.fill").foregroundStyle(Color.red)
-                }
-            }
-        }
-        .disabled(state == .running)
+    private func setVision(_ value: Bool) {
+        do { try library.setCapabilityDeclaration(modelID, kind: .visionInput, state: value ? .supported : .unsupported) }
+        catch { errorMessage = error.localizedDescription }
     }
 
     private func saveNames() {
@@ -830,60 +757,6 @@ struct ModelDetailScreen: View {
         guard !trimmedID.isEmpty, trimmedAlias != (model.userAlias ?? "") || trimmedID != model.providerModelID else { return }
         do { try library.updateModel(modelID, alias: trimmedAlias, providerModelID: trimmedID) }
         catch { errorMessage = error.localizedDescription }
-    }
-
-    /// 发一条只含文字的短请求，确认地址与凭据可用。结果不影响模型的使用。
-    private func checkConnectivity() async {
-        connectivity = .running
-        let reply = await send(AgentModelMessage.user("Reply with OK only."))
-        connectivity = reply == nil ? .failed : .passed
-    }
-
-    /// 发一张纯红色图片问颜色；答对即视为能看图，并打开视觉开关。答错或报错只显示失败，不改动开关。
-    private func checkVision() async {
-        vision = .running
-        guard let image = Self.visionProbeDataURL() else { vision = .failed; return }
-        var message = AgentModelMessage.user("What color is this image? Reply with one word.")
-        message.imageDataURLs = [image]
-        guard let reply = await send(message)?.lowercased() else { vision = .failed; return }
-        if reply.contains("red") || reply.contains("红") {
-            vision = .passed
-            try? library.setCapabilityDeclaration(modelID, kind: .visionInput, state: .supported)
-        } else {
-            vision = .failed
-            errorMessage = reply
-        }
-    }
-
-    private func send(_ message: AgentModelMessage) async -> String? {
-        saveNames()
-        switch library.resolveModel(modelID, asMainModel: false) {
-        case .failure(let issue):
-            errorMessage = issue.localizedDescription
-            return nil
-        case .success(let resolved):
-            do {
-                let response = try await store.modelRuntime.complete(AgentModelRequest(
-                    selection: AgentModelSelection(providerID: .customOpenAI, modelRole: .reasoningModel, reasoning: .disabled,
-                                                   configurationOverride: .resolved(resolved.configuration)),
-                    apiMessages: [message],
-                    tools: [], toolIntent: .none
-                ))
-                return response.message.textContent
-            } catch {
-                errorMessage = error.localizedDescription
-                return nil
-            }
-        }
-    }
-
-    private static func visionProbeDataURL() -> String? {
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 64))
-        let image = renderer.image { context in
-            UIColor.red.setFill()
-            context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
-        }
-        return image.jpegData(compressionQuality: 0.9).map { "data:image/jpeg;base64,\($0.base64EncodedString())" }
     }
 }
 
@@ -911,13 +784,5 @@ struct ModelLibraryConflictsScreen: View {
 
     private func resolve(_ conflict: ModelLibraryConflict, keepCurrent: Bool) {
         do { try library.resolveConflict(conflict.id, keepCurrent: keepCurrent) } catch { errorMessage = error.localizedDescription }
-    }
-}
-
-extension View {
-    func modelLibraryErrorAlert(_ message: Binding<String?>) -> some View {
-        alert(PalmiL10n.tr("common.operationFailed"), isPresented: Binding(get: { message.wrappedValue != nil }, set: { if !$0 { message.wrappedValue = nil } })) {
-            Button(PalmiL10n.tr("common.ok"), role: .cancel) {}
-        } message: { Text(message.wrappedValue ?? "") }
     }
 }
