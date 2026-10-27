@@ -132,7 +132,7 @@ struct ModelHubScreen: View {
 
 // MARK: - 两级菜单选模型
 
-/// 列表里的一行，点开就是菜单；右侧显示当前值。
+/// 列表里的一行：左侧标题是普通文字，只有右侧的当前值是菜单按钮。
 struct ModelMenuRow<Content: View>: View {
     let title: String
     let value: String
@@ -141,28 +141,25 @@ struct ModelMenuRow<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        Menu {
-            content()
-        } label: {
-            HStack(spacing: 8) {
-                if let icon {
-                    Label {
-                        Text(title).foregroundStyle(.primary)
-                    } icon: {
-                        Image(systemName: icon).foregroundStyle(Color.accentColor)
-                    }
-                } else {
-                    Text(title).foregroundStyle(.primary)
-                }
-                Spacer(minLength: 8)
-                Text(value)
-                    .lineLimit(1)
-                    .foregroundStyle(isProblem ? Color.orange : Color.secondary)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.tertiary)
+        HStack(spacing: 8) {
+            if let icon {
+                Label(title, systemImage: icon)
+            } else {
+                Text(title)
             }
-            .contentShape(Rectangle())
+            Spacer(minLength: 8)
+            Menu {
+                content()
+            } label: {
+                HStack(spacing: 4) {
+                    Text(value)
+                        .lineLimit(1)
+                        .foregroundStyle(isProblem ? Color.orange : Color.secondary)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
         }
     }
 }
