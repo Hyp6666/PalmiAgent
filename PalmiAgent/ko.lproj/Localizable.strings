@@ -1721,8 +1721,8 @@
 "neo.runtime.elapsed.minutesSeconds" = "경과 %d분 %d초";
 "neo.runtime.reasoning" = "추론";
 "neo.runtime.explanation" = "설명";
-"neo.runtime.overview" = "개요";
-"neo.runtime.result" = "결과";
+"neo.runtime.toolInput" = "도구 입력";
+"neo.runtime.toolOutput" = "도구 출력";
 "neo.runtime.awaitingResult" = "도구 결과를 기다리는 중…";
 
 // Bionic background progress

@@ -1721,8 +1721,8 @@
 "neo.runtime.elapsed.minutesSeconds" = "経過 %d分 %d秒";
 "neo.runtime.reasoning" = "推論";
 "neo.runtime.explanation" = "説明";
-"neo.runtime.overview" = "概要";
-"neo.runtime.result" = "結果";
+"neo.runtime.toolInput" = "ツール入力";
+"neo.runtime.toolOutput" = "ツール出力";
 "neo.runtime.awaitingResult" = "ツールの結果を待っています…";
 
 // Bionic background progress

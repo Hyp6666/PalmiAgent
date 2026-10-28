@@ -1721,8 +1721,8 @@
 "neo.runtime.elapsed.minutesSeconds" = "Elapsed %dm %ds";
 "neo.runtime.reasoning" = "Reasoning";
 "neo.runtime.explanation" = "Explanation";
-"neo.runtime.overview" = "Overview";
-"neo.runtime.result" = "Result";
+"neo.runtime.toolInput" = "Tool Input";
+"neo.runtime.toolOutput" = "Tool Output";
 "neo.runtime.awaitingResult" = "Waiting for the tool result…";
 
 // Bionic background progress

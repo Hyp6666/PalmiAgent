@@ -131,13 +131,14 @@ final class AgentToolExecutor {
 
     func skippedByUser(
         _ prepared: AgentPreparedToolExecution,
-        stepID: UUID
+        stepID: UUID,
+        reviewDenial: String? = nil
     ) -> AgentToolExecutionResult {
         let result = ToolResult(
             status: .warning,
             title: prepared.action.title,
-            summary: "用户未批准执行",
-            details: "本次工具调用已跳过。",
+            summary: reviewDenial == nil ? "用户未批准执行" : "自动审核未通过",
+            details: reviewDenial.map { "审核理由：\($0)\n本次工具调用已跳过。" } ?? "本次工具调用已跳过。",
             actionID: prepared.action.id,
             createdAt: .now
         )

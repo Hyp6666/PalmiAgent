@@ -391,8 +391,9 @@ struct NeoRuntimeStepDetailSheet: View {
 
     @ViewBuilder
     private func toolDetail(_ card: PalmiToolCallCard) -> some View {
+        // 顺序：工具输入 → （浏览器步骤）→ 工具输出。
         if card.toolName == "browser", let progress = step.browserProgress {
-            section(PalmiL10n.tr("neo.runtime.overview")) {
+            section(PalmiL10n.tr("neo.runtime.toolInput")) {
                 Text(progress.task).textSelection(.enabled)
             }
             section(PalmiL10n.tr("browser.runtime.steps")) {
@@ -409,28 +410,23 @@ struct NeoRuntimeStepDetailSheet: View {
                 }
             }
             if card.isRunning != true, !card.details.isEmpty {
-                section(PalmiL10n.tr("neo.runtime.result")) {
+                section(PalmiL10n.tr("neo.runtime.toolOutput")) {
                     Text(card.details).textSelection(.enabled)
                 }
             }
         } else {
-        if !card.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            section(PalmiL10n.tr("neo.runtime.overview")) {
-                AssistantMarkdownContentView(markdown: card.summary)
+        if !card.argumentsJSON.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            section(PalmiL10n.tr("neo.runtime.toolInput")) {
+                SelectablePlainTextView(text: card.argumentsJSON)
             }
         }
         if !card.details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            section(PalmiL10n.tr("neo.runtime.result")) {
+            section(PalmiL10n.tr("neo.runtime.toolOutput")) {
                 AssistantMarkdownContentView(markdown: card.details)
             }
         } else if step.state == .running {
             Text(PalmiL10n.tr("neo.runtime.awaitingResult"))
                 .font(.subheadline).foregroundStyle(.secondary)
-        }
-        if !card.argumentsJSON.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            section(PalmiL10n.tr("tool.approval.arguments")) {
-                SelectablePlainTextView(text: card.argumentsJSON)
-            }
         }
         if let threadIDs = card.relatedThreadIDs, !threadIDs.isEmpty {
             section(PalmiL10n.tr("subagent.relatedThreads")) {

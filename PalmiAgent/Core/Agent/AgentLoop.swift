@@ -69,6 +69,8 @@ final class AgentLoop {
     private(set) var firstSuccessfulRequestOfTurn: FrozenModelRequest?
     /// 同一动作与证据已被拒绝时的有限节流。
     private var deniedReviewDigests: [String: String] = [:]
+    /// 自动审核拒绝的理由（按 stepID），用于把“审核未通过”与“用户拒绝”区分开回传给模型与界面。
+    private var reviewDenials: [UUID: String] = [:]
 
     // 目标 / 深度研究模式：当前一轮的注入态。runTurn 进入时置位、退出时（defer）清回。
     // 这些动态内容只追加到本轮隐藏 user 文本，不改变稳定 system prompt，也不重复保存完整用户输入。
@@ -1017,7 +1019,7 @@ final class AgentLoop {
                                     continue
                                 }
                                 if permit == nil {
-                                    let execution = toolExecutor.skippedByUser(prepared, stepID: stepID)
+                                    let execution = toolExecutor.skippedByUser(prepared, stepID: stepID, reviewDenial: reviewDenials.removeValue(forKey: stepID))
                                     executedSteps.append(execution.step)
                                     toolAuditStore.append(
                                         ToolAuditRecord(
@@ -1393,7 +1395,7 @@ final class AgentLoop {
                             }
                             if permit == nil {
                                 taskStateRuntime.recordNonTaskProgress()
-                                let execution = toolExecutor.skippedByUser(prepared, stepID: stepID)
+                                let execution = toolExecutor.skippedByUser(prepared, stepID: stepID, reviewDenial: reviewDenials.removeValue(forKey: stepID))
                                 executedSteps.append(execution.step)
                                 toolAuditStore.append(
                                     ToolAuditRecord(
@@ -1853,7 +1855,7 @@ final class AgentLoop {
                 return
             }
         } else {
-            execution = toolExecutor.skippedByUser(prepared, stepID: stepID)
+            execution = toolExecutor.skippedByUser(prepared, stepID: stepID, reviewDenial: reviewDenials.removeValue(forKey: stepID))
         }
         guard session.id == expectedSessionID, generationEpoch == expectedEpoch else { throw CancellationError() }
         // Commit a returned outcome before observing cancellation: never lose a completed side effect.
@@ -2205,8 +2207,9 @@ final class AgentLoop {
         _ = providerID
         _ = userGoal
         let record = preparedActionRecord(prepared, toolUse: toolUse, stepID: stepID, turnID: turnID, policy: policy)
-        if policy.confirmationPolicy == .allow,
-           toolAuthorizationStore.mode != .autoReview {
+        // 无需确认的工具（公开/本地只读、取时间等）在任何授权模式下都直接执行。
+        // 自动审核只代替人工确认，不给本来无需确认的工具额外加一道模型判定。
+        if policy.confirmationPolicy == .allow {
             return ExecutionPermit(action: record)
         }
 
@@ -2302,6 +2305,7 @@ final class AgentLoop {
                 return ExecutionPermit(action: record)
             case .deny(let summary, let reasonCode):
                 deniedReviewDigests[record.digest] = evidenceDigest
+                reviewDenials[stepID] = summary
                 emit(.toolReviewResolved(stepID: stepID, state: .rejected))
                 recordApprovalResolution(
                     request: request,
