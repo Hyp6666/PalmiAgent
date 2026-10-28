@@ -80,9 +80,6 @@ enum PalmiUITone {
         }
     }
 
-    /// 未指定颜色的多系列/多类别数据按这组明快的色相依次着色，避免整屏单一蓝色。
-    static let palette: [Color] = [.pink, .orange, .yellow, .green, .mint, .teal, .cyan, .blue, .indigo, .purple]
-
     static func defaultIcon(_ tone: String?) -> String {
         switch tone?.lowercased() {
         case "positive", "success", "correct", "green", "mint": "checkmark.circle.fill"
@@ -131,7 +128,20 @@ private struct PalmiUIArtifactContent: View {
     private var isHTML: Bool { session.validated.artifact.kind == .html }
 
     var body: some View {
-        Group {
+        VStack(alignment: .trailing, spacing: 4) {
+            // 展开图标单独占一行放在内容上方，不压在交互内容上。
+            if isHTML {
+                Button { captureAnd { expanded = true } } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(PalmiL10n.tr("ui.expand"))
+                .disabled(!canCapture || expanded)
+            }
             if expanded {
                 Color.clear.frame(height: 120)
             } else {
@@ -139,21 +149,6 @@ private struct PalmiUIArtifactContent: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .topTrailing) {
-            if isHTML && !expanded {
-                Button { captureAnd { expanded = true } } label: {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 32, height: 32)
-                        .background(.ultraThinMaterial, in: Circle())
-                }
-                .buttonStyle(.plain)
-                .padding(4)
-                .accessibilityLabel(PalmiL10n.tr("ui.expand"))
-                .disabled(!canCapture)
-            }
-        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(session.validated.artifact.title)
         .onDisappear { session.flush(); previewChanged(false) }
@@ -349,19 +344,18 @@ private struct PalmiNativeUINodeView: View {
     private var chart: some View {
         let points = Array((node.points ?? []).enumerated())
         let isBar = node.chartStyle == "bar"
-        // 用 id 字节和取色：同一图表每次启动颜色稳定（hashValue 每次启动随机）。
-        let lineTint = tone ?? PalmiUITone.palette[node.id.utf8.reduce(0) { $0 + Int($1) } % PalmiUITone.palette.count]
+        // 颜色完全由模型给出的 tone 决定；未给出时使用系统默认强调色，不做任何自动配色。
+        let lineTint = tone ?? .accentColor
         return VStack(alignment: .leading, spacing: 8) {
             if let label = node.label, !label.isEmpty {
                 Text(label).font(.subheadline.weight(.semibold))
             }
             Chart {
-                ForEach(points, id: \.offset) { index, point in
+                ForEach(points, id: \.offset) { _, point in
                     if let value = point.value.evaluate(in: session.state) {
                         if isBar {
                             BarMark(x: .value("Category", point.label), y: .value("Value", value))
-                                .foregroundStyle(PalmiUITone.color(point.tone) ?? tone
-                                                 ?? PalmiUITone.palette[index % PalmiUITone.palette.count])
+                                .foregroundStyle(PalmiUITone.color(point.tone) ?? lineTint)
                                 .cornerRadius(6)
                         } else {
                             AreaMark(x: .value("Category", point.label), y: .value("Value", value))

@@ -904,49 +904,41 @@ struct ChatScreen: View {
         }
     }
 
+    /// 聊天模式：与专业模式一致，过程卡片只在本轮头部出现一次，汇总所有工具与思考过程；
+    /// 各阶段公开正文按顺序连成同一篇回答显示在卡片下方，不被过程打断。
     @ViewBuilder
     private func progressiveTurnView(_ turn: ChatTurn, readTargets: [UUID: UUID]) -> some View {
-        let header = turn.headerMessage?.sessionHeader
-        let timeline = PalmiProgressiveTimeline.build(
-            messages: turn.orderedInTurnMessages, finishedAt: header?.finishedAt
-        )
-        let isCurrent = store.isLoading && store.activeTurnHeaderID == turn.headerMessage?.id
+        let ordered = turn.orderedInTurnMessages
+        let answers = ordered.filter {
+            $0.role == .agent && ($0.kind == .normal || $0.kind == .summary)
+                && (!$0.content.isEmpty || !$0.attachments.isEmpty)
+        }
+        let guidance = ordered.filter { $0.role == .user }
+        let process = ordered.filter { $0.kind == .toolCall || $0.kind == .contextCompaction }
         VStack(alignment: .leading, spacing: 16) {
             if let userMessage = turn.userMessage { userBubble(userMessage) }
-            if timeline.isEmpty, isCurrent, let header, let headerID = turn.headerMessage?.id {
+            if let headerMessage = turn.headerMessage, let header = headerMessage.sessionHeader {
                 NeoRuntimeCard(
-                    headerID: headerID, header: header, messages: [], finalMessage: nil,
-                    isCurrentTurn: true, streamingMessageID: nil,
+                    headerID: headerMessage.id, header: header, messages: process, finalMessage: nil,
+                    isCurrentTurn: store.activeTurnHeaderID == headerMessage.id,
+                    streamingMessageID: store.activeStreamingMessageIDValue,
                     liveReasoningBuffer: store.liveReasoningBuffer(for:),
                     onOpenRelatedThread: openRelatedThread, selection: workspaceStore.selectedSelection
                 )
             }
-            ForEach(timeline) { item in
-                switch item.content {
-                case .answer(let message):
-                    assistantMarkdown(for: message)
-                        .id("unread-" + (readTargets[message.id] ?? message.id).uuidString)
-                case .user(let message):
-                    userBubble(message)
-                case .process(let messages, let boundary):
-                    let live = isCurrent && header?.finishedAt == nil && timeline.last?.id == item.id
-                    let traceHeader = PalmiChatSessionHeader(
-                        startedAt: messages.first?.timestamp ?? header?.startedAt ?? .distantPast,
-                        finishedAt: live ? nil : (boundary ?? header?.finishedAt ?? messages.last?.timestamp),
-                        responsePresentation: .progressive
-                    )
-                    NeoRuntimeCard(
-                        headerID: item.id, header: traceHeader, messages: messages, finalMessage: nil,
-                        isCurrentTurn: live, streamingMessageID: store.activeStreamingMessageIDValue,
-                        liveReasoningBuffer: store.liveReasoningBuffer(for:),
-                        onOpenRelatedThread: openRelatedThread, selection: workspaceStore.selectedSelection
-                    )
+            ForEach(guidance) { message in
+                userBubble(message)
+            }
+            if !answers.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(answers) { message in
+                        assistantMarkdown(for: message)
+                            .id("unread-" + (readTargets[message.id] ?? message.id).uuidString)
+                    }
                 }
             }
-            if header?.finishedAt != nil {
-                if let lastAnswer = turn.publicAnswerMessages.last {
-                    finalAnswerCompletionRow(for: turn, finalMessage: lastAnswer)
-                }
+            if turn.headerMessage?.sessionHeader?.finishedAt != nil, let lastAnswer = answers.last {
+                finalAnswerCompletionRow(for: turn, finalMessage: lastAnswer)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

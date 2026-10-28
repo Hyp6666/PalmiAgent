@@ -18,40 +18,43 @@ struct ChatHistoryHomeScreen: View {
             List {
                 chatHeaderSpacer
 
-                if store.chatProjects.isEmpty {
-                    Text(PalmiL10n.tr("common.empty"))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 32)
-                        .sidebarListRow()
-                } else {
-                    ForEach(store.chatProjects) { project in
-                        let threads = store.threads(for: project.id)
-                        let runningBadgeText = threads.lazy.compactMap {
-                            chatStore.runningBadgeText(
-                                for: WorkspaceSelection(projectID: project.id, threadID: $0.id)
+                Section {
+                    if store.chatProjects.isEmpty {
+                        Text(PalmiL10n.tr("common.empty"))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 32)
+                            .sidebarListRow()
+                    } else {
+                        ForEach(store.chatProjects) { project in
+                            let threads = store.threads(for: project.id)
+                            let runningBadgeText = threads.lazy.compactMap {
+                                chatStore.runningBadgeText(
+                                    for: WorkspaceSelection(projectID: project.id, threadID: $0.id)
+                                )
+                            }.first
+                            ChatHistoryCard(
+                                project: project,
+                                runningBadgeText: runningBadgeText,
+                                unreadCount: threads.reduce(0) { count, thread in
+                                    count + (thread.subagentOrigin == nil ? chatStore.unreadStore.count(for:
+                                        WorkspaceSelection(projectID: project.id, threadID: thread.id)) : 0)
+                                },
+                                onOpen: { onOpenConversation(project) },
+                                onRename: {
+                                    chatNameDraft = project.name
+                                    presentedEditor = .rename(project)
+                                },
+                                onDelete: { pendingDeletion = project }
                             )
-                        }.first
-                        ChatHistoryCard(
-                            project: project,
-                            runningBadgeText: runningBadgeText,
-                            unreadCount: threads.reduce(0) { count, thread in
-                                count + (thread.subagentOrigin == nil ? chatStore.unreadStore.count(for:
-                                    WorkspaceSelection(projectID: project.id, threadID: thread.id)) : 0)
-                            },
-                            onOpen: { onOpenConversation(project) },
-                            onRename: {
-                                chatNameDraft = project.name
-                                presentedEditor = .rename(project)
-                            },
-                            onDelete: { pendingDeletion = project }
-                        )
-                        .sidebarListRow()
+                            .sidebarListRow()
+                        }
                     }
                 }
             }
-            .listStyle(.plain)
+            .listStyle(.insetGrouped)
+            .listSectionSpacing(0)
             .scrollContentBackground(.hidden)
             .background(Color.clear)
             .scrollDismissesKeyboard(.interactively)
@@ -147,7 +150,7 @@ struct ChatHistoryHomeScreen: View {
 
     private var chatHeaderSpacer: some View {
         Color.clear
-            .frame(height: 72)
+            .frame(height: 84)
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)

@@ -468,55 +468,58 @@ private struct WorkspaceSidebar: View {
             List {
                 sidebarHeaderSpacer
 
-                if store.projects.isEmpty {
-                    Text(PalmiL10n.tr("common.empty"))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 32)
-                        .sidebarListRow()
-                } else {
-                    ForEach(store.projects) { project in
-                        let isExpanded = expandedProjectIDs.contains(project.id)
-                        WorkspaceProjectRow(
-                            project: project,
-                            isExpanded: isExpanded,
-                            unreadCount: store.threads(for: project.id).reduce(0) { count, thread in
-                                count + (thread.subagentOrigin == nil ? chatStore.unreadStore.count(for:
-                                    WorkspaceSelection(projectID: project.id, threadID: thread.id)) : 0)
-                            },
-                            onToggleProject: { toggleProject(project) },
-                            onCreateThread: { presentThreadCreation(for: project) },
-                            onRenameProject: { presentedNameEditor = .renameProject(project) },
-                            onDeleteProject: { pendingDeletion = .project(project) },
-                            onBrowseFiles: { onBrowseProjectFiles(project) }
-                        )
-                        .sidebarListRow()
+                Section {
+                    if store.projects.isEmpty {
+                        Text(PalmiL10n.tr("common.empty"))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 32)
+                            .sidebarListRow()
+                    } else {
+                        ForEach(store.projects) { project in
+                            let isExpanded = expandedProjectIDs.contains(project.id)
+                            WorkspaceProjectRow(
+                                project: project,
+                                isExpanded: isExpanded,
+                                unreadCount: store.threads(for: project.id).reduce(0) { count, thread in
+                                    count + (thread.subagentOrigin == nil ? chatStore.unreadStore.count(for:
+                                        WorkspaceSelection(projectID: project.id, threadID: thread.id)) : 0)
+                                },
+                                onToggleProject: { toggleProject(project) },
+                                onCreateThread: { presentThreadCreation(for: project) },
+                                onRenameProject: { presentedNameEditor = .renameProject(project) },
+                                onDeleteProject: { pendingDeletion = .project(project) },
+                                onBrowseFiles: { onBrowseProjectFiles(project) }
+                            )
+                            .sidebarListRow()
 
-                        // 每个会话都是独立的列表行，长按只作用于这一个会话。
-                        if isExpanded {
-                            ForEach(WorkspaceProjectRow.orderedThreads(store.threads(for: project.id))) { thread in
-                                WorkspaceThreadRow(
-                                    thread: thread,
-                                    runningBadgeText: chatStore.runningBadgeText(
-                                        for: WorkspaceSelection(projectID: project.id, threadID: thread.id)
-                                    ),
-                                    unreadCount: thread.subagentOrigin == nil ? chatStore.unreadStore.count(for:
-                                        WorkspaceSelection(projectID: project.id, threadID: thread.id)) : 0,
-                                    onSelect: {
-                                        store.selectThread(thread)
-                                        onSelectThread()
-                                    },
-                                    onRename: { presentedNameEditor = .renameThread(thread) },
-                                    onDelete: { pendingDeletion = .thread(thread) }
-                                )
-                                .sidebarListRow(leading: thread.subagentOrigin == nil ? 58 : 76)
+                            // 每个会话都是独立的列表行，长按只作用于这一个会话。
+                            if isExpanded {
+                                ForEach(WorkspaceProjectRow.orderedThreads(store.threads(for: project.id))) { thread in
+                                    WorkspaceThreadRow(
+                                        thread: thread,
+                                        runningBadgeText: chatStore.runningBadgeText(
+                                            for: WorkspaceSelection(projectID: project.id, threadID: thread.id)
+                                        ),
+                                        unreadCount: thread.subagentOrigin == nil ? chatStore.unreadStore.count(for:
+                                            WorkspaceSelection(projectID: project.id, threadID: thread.id)) : 0,
+                                        onSelect: {
+                                            store.selectThread(thread)
+                                            onSelectThread()
+                                        },
+                                        onRename: { presentedNameEditor = .renameThread(thread) },
+                                        onDelete: { pendingDeletion = .thread(thread) }
+                                    )
+                                    .sidebarListRow(leading: thread.subagentOrigin == nil ? 54 : 72)
+                                }
                             }
                         }
                     }
                 }
             }
-            .listStyle(.plain)
+            .listStyle(.insetGrouped)
+            .listSectionSpacing(0)
             .scrollContentBackground(.hidden)
             .background(Color.clear)
             .scrollDismissesKeyboard(.interactively)
@@ -609,7 +612,7 @@ private struct WorkspaceSidebar: View {
 
     private var sidebarHeaderSpacer: some View {
         Color.clear
-            .frame(height: 72)
+            .frame(height: 84)
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
@@ -750,10 +753,10 @@ private struct WorkspaceProjectRow: View {
 }
 
 extension View {
-    /// 类 ChatGPT 的侧栏列表行：无分隔线、透明背景、宽松的上下间距。
-    func sidebarListRow(leading: CGFloat = 20) -> some View {
-        listRowInsets(EdgeInsets(top: 14, leading: leading, bottom: 14, trailing: 20))
-            .listRowBackground(Color.clear)
+    /// 会话列表行：放在留出左右边距的圆角卡片里，无分隔线、宽松的上下间距。
+    func sidebarListRow(leading: CGFloat = 16) -> some View {
+        listRowInsets(EdgeInsets(top: 14, leading: leading, bottom: 14, trailing: 16))
+            .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
             .listRowSeparator(.hidden)
     }
 }
