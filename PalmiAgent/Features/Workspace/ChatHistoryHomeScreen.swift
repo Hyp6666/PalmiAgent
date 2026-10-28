@@ -18,46 +18,41 @@ struct ChatHistoryHomeScreen: View {
             List {
                 chatHeaderSpacer
 
-                Section(PalmiL10n.tr("chat.history.title")) {
-                    if store.chatProjects.isEmpty {
-                        HStack {
-                            Text(PalmiL10n.tr("common.empty"))
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity)
-                        }
+                if store.chatProjects.isEmpty {
+                    Text(PalmiL10n.tr("common.empty"))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
                         .padding(.vertical, 32)
-                    } else {
-                        ForEach(store.chatProjects) { project in
-                            let threads = store.threads(for: project.id)
-                            let runningBadgeText = threads.lazy.compactMap {
-                                chatStore.runningBadgeText(
-                                    for: WorkspaceSelection(projectID: project.id, threadID: $0.id)
-                                )
-                            }.first
-                            ChatHistoryCard(
-                                project: project,
-                                runningBadgeText: runningBadgeText,
-                                unreadCount: threads.reduce(0) { count, thread in
-                                    count + (thread.subagentOrigin == nil ? chatStore.unreadStore.count(for:
-                                        WorkspaceSelection(projectID: project.id, threadID: thread.id)) : 0)
-                                },
-                                onOpen: {
-                                    onOpenConversation(project)
-                                },
-                                onRename: {
+                        .sidebarListRow()
+                } else {
+                    ForEach(store.chatProjects) { project in
+                        let threads = store.threads(for: project.id)
+                        let runningBadgeText = threads.lazy.compactMap {
+                            chatStore.runningBadgeText(
+                                for: WorkspaceSelection(projectID: project.id, threadID: $0.id)
+                            )
+                        }.first
+                        ChatHistoryCard(
+                            project: project,
+                            runningBadgeText: runningBadgeText,
+                            unreadCount: threads.reduce(0) { count, thread in
+                                count + (thread.subagentOrigin == nil ? chatStore.unreadStore.count(for:
+                                    WorkspaceSelection(projectID: project.id, threadID: thread.id)) : 0)
+                            },
+                            onOpen: { onOpenConversation(project) },
+                            onRename: {
                                 chatNameDraft = project.name
                                 presentedEditor = .rename(project)
                             },
-                                onDelete: { pendingDeletion = project }
-                            )
-                            .listRowInsets(EdgeInsets(top: 9, leading: 20, bottom: 9, trailing: 20))
-                        }
+                            onDelete: { pendingDeletion = project }
+                        )
+                        .sidebarListRow()
                     }
                 }
             }
+            .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .environment(\.defaultMinListRowHeight, 40)
             .background(Color.clear)
             .scrollDismissesKeyboard(.interactively)
 
@@ -172,7 +167,7 @@ private struct ChatHistoryCard: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(project.name)
-                        .font(.body.weight(.semibold))
+                        .font(.body)
                         .foregroundStyle(.primary)
                         .lineLimit(1)
 

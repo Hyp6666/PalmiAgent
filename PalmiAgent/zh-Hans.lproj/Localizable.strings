@@ -85,7 +85,6 @@
 "chat.history.new" = "新增聊天";
 "chat.history.rename" = "重命名聊天";
 "chat.history.renameMessage" = "名称会立即应用到这条聊天记录。";
-"chat.history.title" = "聊天记录";
 "chat.input.placeholder" = "输入消息…";
 "chat.suggestion.fill" = "填入";
 "chat.suggestion.fillAccessibility" = "填入推荐的下一句";
@@ -778,7 +777,6 @@
 "workspace.nameEditor.message" = "名称会立即应用到当前项目或会话。";
 "workspace.placeholder.projectName" = "项目名称";
 "workspace.placeholder.threadName" = "会话名称";
-"workspace.sidebar.section.projects" = "项目工作区";
 "workspace.status.attachmentsAdded" = "已添加 %d 个附件。";
 "workspace.status.chatBelongsToOtherMode" = "该聊天不属于当前模式。";
 "workspace.status.chatCreated" = "已创建聊天“%@”。";

@@ -85,7 +85,6 @@
 "chat.history.new" = "새 채팅";
 "chat.history.rename" = "채팅 이름 변경";
 "chat.history.renameMessage" = "이름이 이 채팅 기록에 즉시 적용됩니다.";
-"chat.history.title" = "채팅 기록";
 "chat.input.placeholder" = "메시지 입력…";
 "chat.suggestion.fill" = "입력";
 "chat.suggestion.fillAccessibility" = "추천된 다음 메시지 입력";
@@ -778,7 +777,6 @@
 "workspace.nameEditor.message" = "이름이 현재 프로젝트 또는 세션에 즉시 적용됩니다.";
 "workspace.placeholder.projectName" = "프로젝트 이름";
 "workspace.placeholder.threadName" = "세션 이름";
-"workspace.sidebar.section.projects" = "프로젝트 작업 공간";
 "workspace.status.attachmentsAdded" = "첨부 파일 %d개를 추가했습니다.";
 "workspace.status.chatBelongsToOtherMode" = "이 채팅은 현재 모드에 속하지 않습니다.";
 "workspace.status.chatCreated" = "채팅 “%@”을(를) 만들었습니다.";

@@ -89,8 +89,11 @@ final class BionicStore {
     @ObservationIgnored private var chatPageID: String?
     @ObservationIgnored private var chatVisibleID: String?
     @ObservationIgnored private var chatVisibilityToken: UUID?
-    /// 当前打开着的会话页。唯一的已读规则：会话页开着且 App 在前台，该会话未读恒为 0。
+    /// 当前打开着的会话页。唯一的已读规则：点开会话即全部已读。
     @ObservationIgnored private var openConversationID: String?
+    /// 已读下限（消息序号）：点开会话时记下当前最新序号，此后任何投影都不能让不大于它的消息重新变成未读。
+    /// 不依赖持久化是否成功、可见性、前后台或参与者。
+    @ObservationIgnored private var readFloors: [String: Int] = [:]
     @ObservationIgnored private var bootstrapped = false
     @ObservationIgnored private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     @ObservationIgnored private var backgroundFinishTask: Task<Void, Never>?
@@ -229,12 +232,15 @@ final class BionicStore {
     func conversationClosed(_ instance: String) {
         if openConversationID == instance { openConversationID = nil }
     }
-    /// 界面计数立即清零；持久化推进已读水位线，并同步系统通知与角标。
-    private func markConversationRead(_ instance: String) {
-        guard !resetting, isForeground, openConversationID == instance else { return }
+    /// 无条件：界面计数立即归零并抬高已读下限；随后持久化已读水位线，同步系统通知与角标。
+    func markConversationRead(_ instance: String) {
+        let latest = max(unreadSequencesByInstance[instance]?.values.max() ?? 0,
+                         roles.first { $0.installationID == instance }?.state.lastMessageSequence ?? 0)
+        readFloors[instance] = max(readFloors[instance] ?? 0, latest)
         if unreadSequencesByInstance[instance]?.isEmpty == false { unreadSequencesByInstance[instance] = [:] }
+        let floor = readFloors[instance] ?? 0
         Task { @MainActor [weak self] in
-            guard let self, (try? await self.archive.markAllRead(instance)) == true else { return }
+            guard let self, (try? await self.archive.markAllRead(instance, through: floor)) == true else { return }
             await self.notifications.reconcile()
         }
     }
@@ -278,6 +284,7 @@ final class BionicStore {
         readReceiptErrors.removeAll()
         readProjectionSequences.removeAll()
         unreadSequencesByInstance.removeAll()
+        readFloors.removeAll()
         await notifications.removeAll()
         do { try await archive.resetAll() }
         catch {
@@ -330,9 +337,11 @@ final class BionicStore {
         if unconfirmed.isEmpty { acknowledgedReads.removeValue(forKey: key) }
         else { acknowledgedReads[key] = unconfirmed }
         notifications.setPendingReadIDs(id, ids: unconfirmed)
-        var unread = projection.unreadSequences.filter { !unconfirmed.contains($0.key) }
-        if isForeground, openConversationID == id {
-            if !unread.isEmpty { markConversationRead(id) }
+        let floor = readFloors[id] ?? -1
+        var unread = projection.unreadSequences.filter { !unconfirmed.contains($0.key) && $0.value > floor }
+        // 会话页开着时，新到的消息也直接已读。
+        if isForeground, openConversationID == id, !unread.isEmpty {
+            markConversationRead(id)
             unread = [:]
         }
         if unreadSequencesByInstance[id] != unread {

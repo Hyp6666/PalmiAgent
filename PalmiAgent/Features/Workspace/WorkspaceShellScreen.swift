@@ -468,52 +468,55 @@ private struct WorkspaceSidebar: View {
             List {
                 sidebarHeaderSpacer
 
-                Section(PalmiL10n.tr("workspace.sidebar.section.projects")) {
-                    if store.projects.isEmpty {
-                        HStack {
-                            Text(PalmiL10n.tr("common.empty"))
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity)
-                        }
+                if store.projects.isEmpty {
+                    Text(PalmiL10n.tr("common.empty"))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
                         .padding(.vertical, 32)
-                    } else {
-                        ForEach(store.projects) { project in
-                            WorkspaceProjectRow(
-                                project: project,
-                                isSelected: store.selectedProjectID == project.id,
-                                isExpanded: expandedProjectIDs.contains(project.id),
-                                threads: expandedProjectIDs.contains(project.id) ? store.threads(for: project.id) : [],
-                                selectedThreadID: store.selectedThreadID,
-                                unreadCount: store.threads(for: project.id).reduce(0) { count, thread in
-                                    count + (thread.subagentOrigin == nil ? chatStore.unreadStore.count(for:
-                                        WorkspaceSelection(projectID: project.id, threadID: thread.id)) : 0)
-                                },
-                                unreadForThread: { thread in
-                                    thread.subagentOrigin == nil ? chatStore.unreadStore.count(for:
-                                        WorkspaceSelection(projectID: project.id, threadID: thread.id)) : 0
-                                },
-                                onToggleProject: { toggleProject(project) },
-                                onCreateThread: { presentThreadCreation(for: project) },
-                                onRenameProject: { presentedNameEditor = .renameProject(project) },
-                                onDeleteProject: { pendingDeletion = .project(project) },
-                                onBrowseFiles: { onBrowseProjectFiles(project) },
-                                runningBadgeText: { thread in
-                                    chatStore.runningBadgeText(
+                        .sidebarListRow()
+                } else {
+                    ForEach(store.projects) { project in
+                        let isExpanded = expandedProjectIDs.contains(project.id)
+                        WorkspaceProjectRow(
+                            project: project,
+                            isExpanded: isExpanded,
+                            unreadCount: store.threads(for: project.id).reduce(0) { count, thread in
+                                count + (thread.subagentOrigin == nil ? chatStore.unreadStore.count(for:
+                                    WorkspaceSelection(projectID: project.id, threadID: thread.id)) : 0)
+                            },
+                            onToggleProject: { toggleProject(project) },
+                            onCreateThread: { presentThreadCreation(for: project) },
+                            onRenameProject: { presentedNameEditor = .renameProject(project) },
+                            onDeleteProject: { pendingDeletion = .project(project) },
+                            onBrowseFiles: { onBrowseProjectFiles(project) }
+                        )
+                        .sidebarListRow()
+
+                        // 每个会话都是独立的列表行，长按只作用于这一个会话。
+                        if isExpanded {
+                            ForEach(WorkspaceProjectRow.orderedThreads(store.threads(for: project.id))) { thread in
+                                WorkspaceThreadRow(
+                                    thread: thread,
+                                    runningBadgeText: chatStore.runningBadgeText(
                                         for: WorkspaceSelection(projectID: project.id, threadID: thread.id)
-                                    )
-                                },
-                                onSelectThread: { thread in
-                                    store.selectThread(thread)
-                                    onSelectThread()
-                                },
-                                onRenameThread: { presentedNameEditor = .renameThread($0) },
-                                onDeleteThread: { pendingDeletion = .thread($0) }
-                            )
+                                    ),
+                                    unreadCount: thread.subagentOrigin == nil ? chatStore.unreadStore.count(for:
+                                        WorkspaceSelection(projectID: project.id, threadID: thread.id)) : 0,
+                                    onSelect: {
+                                        store.selectThread(thread)
+                                        onSelectThread()
+                                    },
+                                    onRename: { presentedNameEditor = .renameThread(thread) },
+                                    onDelete: { pendingDeletion = .thread(thread) }
+                                )
+                                .sidebarListRow(leading: thread.subagentOrigin == nil ? 58 : 76)
+                            }
                         }
                     }
                 }
             }
+            .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(Color.clear)
             .scrollDismissesKeyboard(.interactively)
@@ -684,23 +687,15 @@ private struct WorkspaceSidebar: View {
 
 private struct WorkspaceProjectRow: View {
     let project: WorkspaceProjectRecord
-    let isSelected: Bool
     let isExpanded: Bool
-    let threads: [WorkspaceThreadRecord]
-    let selectedThreadID: UUID?
     let unreadCount: Int
-    let unreadForThread: (WorkspaceThreadRecord) -> Int
     let onToggleProject: () -> Void
     let onCreateThread: () -> Void
     let onRenameProject: () -> Void
     let onDeleteProject: () -> Void
     let onBrowseFiles: () -> Void
-    let runningBadgeText: (WorkspaceThreadRecord) -> String?
-    let onSelectThread: (WorkspaceThreadRecord) -> Void
-    let onRenameThread: (WorkspaceThreadRecord) -> Void
-    let onDeleteThread: (WorkspaceThreadRecord) -> Void
 
-    private var orderedThreads: [WorkspaceThreadRecord] {
+    static func orderedThreads(_ threads: [WorkspaceThreadRecord]) -> [WorkspaceThreadRecord] {
         let IDs = Set(threads.map(\.id))
         let roots = threads.filter {
             guard let parentID = $0.subagentOrigin?.parentThreadID else { return true }
@@ -717,69 +712,54 @@ private struct WorkspaceProjectRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: isExpanded ? 10 : 0) {
-            HStack(spacing: 12) {
-                Button(action: onToggleProject) {
-                    HStack(spacing: 12) {
-                        PalmiFileIcon(name: project.name, isDirectory: true, size: 26)
-                            .opacity(isExpanded ? 1 : 0.78)
+        HStack(spacing: 12) {
+            Button(action: onToggleProject) {
+                HStack(spacing: 12) {
+                    PalmiFileIcon(name: project.name, isDirectory: true, size: 26)
+                        .opacity(isExpanded ? 1 : 0.78)
 
-                        Text(project.name)
-                            .font(.body.weight(isExpanded ? .semibold : .regular))
-                            .foregroundStyle(isExpanded ? .blue : .primary)
-                            .lineLimit(1)
+                    Text(project.name)
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
 
-                        Spacer()
-                        PalmiUnreadBadge(count: unreadCount)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .padding(.vertical, 4)
+                    Spacer()
+                    PalmiUnreadBadge(count: unreadCount)
                 }
-                .buttonStyle(.plain)
-                .contextMenu {
-                    Button(PalmiL10n.tr("workspace.action.viewFolder"), systemImage: "folder") { onBrowseFiles() }
-                    Button(PalmiL10n.tr("common.rename"), systemImage: "pencil") { onRenameProject() }
-                    Button(PalmiL10n.tr("common.delete"), systemImage: "trash", role: .destructive) { onDeleteProject() }
-                }
-
-                if isExpanded {
-                    Button(action: onCreateThread) {
-                        Image(systemName: "plus.bubble")
-                            .font(.title3)
-                            .foregroundStyle(.blue)
-                            .frame(width: 28, height: 28)
-                    }
-                    .buttonStyle(.plain)
-                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
 
             if isExpanded {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(orderedThreads) { thread in
-                        WorkspaceThreadRow(
-                            thread: thread,
-                            isSelected: selectedThreadID == thread.id,
-                            runningBadgeText: runningBadgeText(thread),
-                            unreadCount: unreadForThread(thread),
-                            onSelect: { onSelectThread(thread) },
-                            onRename: { onRenameThread(thread) },
-                            onDelete: { onDeleteThread(thread) }
-                        )
-                        .padding(.leading, thread.subagentOrigin == nil ? 0 : 18)
-                    }
+                Button(action: onCreateThread) {
+                    Image(systemName: "plus.bubble")
+                        .font(.title3)
+                        .foregroundStyle(.blue)
+                        .frame(width: 28, height: 28)
                 }
-                .padding(.leading, 28)
-                .padding(.top, 2)
+                .buttonStyle(.plain)
             }
         }
-        .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+        .contextMenu {
+            Button(PalmiL10n.tr("workspace.action.viewFolder"), systemImage: "folder") { onBrowseFiles() }
+            Button(PalmiL10n.tr("common.rename"), systemImage: "pencil") { onRenameProject() }
+            Button(PalmiL10n.tr("common.delete"), systemImage: "trash", role: .destructive) { onDeleteProject() }
+        }
+    }
+}
+
+extension View {
+    /// 类 ChatGPT 的侧栏列表行：无分隔线、透明背景、宽松的上下间距。
+    func sidebarListRow(leading: CGFloat = 20) -> some View {
+        listRowInsets(EdgeInsets(top: 14, leading: leading, bottom: 14, trailing: 20))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
     }
 }
 
 private struct WorkspaceThreadRow: View {
     let thread: WorkspaceThreadRecord
-    let isSelected: Bool
     let runningBadgeText: String?
     let unreadCount: Int
     let onSelect: () -> Void
@@ -790,7 +770,7 @@ private struct WorkspaceThreadRow: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(thread.name)
-                    .font(.body.weight(isSelected ? .semibold : .regular))
+                    .font(.body)
                     .lineLimit(1)
 
                 if thread.subagentOrigin != nil {
@@ -814,7 +794,6 @@ private struct WorkspaceThreadRow: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
-        .padding(.vertical, 3)
         .onTapGesture {
             onSelect()
         }

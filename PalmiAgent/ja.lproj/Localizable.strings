@@ -85,7 +85,6 @@
 "chat.history.new" = "新規チャット";
 "chat.history.rename" = "チャット名を変更";
 "chat.history.renameMessage" = "名前はこのチャット履歴にすぐ適用されます。";
-"chat.history.title" = "チャット履歴";
 "chat.input.placeholder" = "メッセージを入力…";
 "chat.suggestion.fill" = "入力";
 "chat.suggestion.fillAccessibility" = "おすすめの次のメッセージを入力";
@@ -778,7 +777,6 @@
 "workspace.nameEditor.message" = "名前は現在のプロジェクトまたはセッションにすぐ適用されます。";
 "workspace.placeholder.projectName" = "プロジェクト名";
 "workspace.placeholder.threadName" = "セッション名";
-"workspace.sidebar.section.projects" = "プロジェクトワークスペース";
 "workspace.status.attachmentsAdded" = "添付ファイルを %d 個追加しました。";
 "workspace.status.chatBelongsToOtherMode" = "このチャットは現在のモードに属していません。";
 "workspace.status.chatCreated" = "チャット “%@” を作成しました。";

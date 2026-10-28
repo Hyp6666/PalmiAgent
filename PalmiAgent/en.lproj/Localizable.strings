@@ -85,7 +85,6 @@
 "chat.history.new" = "New";
 "chat.history.rename" = "Rename";
 "chat.history.renameMessage" = "The name will be applied to this chat record immediately.";
-"chat.history.title" = "Chat history";
 "chat.input.placeholder" = "Message Palmi…";
 "chat.suggestion.fill" = "Use";
 "chat.suggestion.fillAccessibility" = "Use the suggested next message";
@@ -778,7 +777,6 @@
 "workspace.nameEditor.message" = "The name will be applied to the current project or session immediately.";
 "workspace.placeholder.projectName" = "Project Name";
 "workspace.placeholder.threadName" = "Thread Name";
-"workspace.sidebar.section.projects" = "Projects";
 "workspace.status.attachmentsAdded" = "Added %d attachments.";
 "workspace.status.chatBelongsToOtherMode" = "This chat does not belong to the current mode.";
 "workspace.status.chatCreated" = "Created chat “%@”.";
