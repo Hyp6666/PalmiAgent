@@ -158,7 +158,7 @@ extension BionicRoleLimitTests {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let store = BionicStore(modelRuntime: QuotaOfflineRuntime(),
-            modelPlanStore: ModelPlanStore(metadataDefaults: defaults, secretStore: QuotaSecrets()),
+            modelLibrary: ModelLibraryFixture().makeStore(),
             notificationService: NotificationService(), archive: archive)
         let valid = ToolArguments(dictionary: ["nickname": "Another", "identity": "A test character", "birth_date": "2000-01-01"])
         do {
@@ -179,9 +179,4 @@ extension BionicRoleLimitTests {
     func complete(_ request: AgentModelRequest) async throws -> AgentModelResponse { throw CancellationError() }
     func stream(_ request: AgentModelStreamingRequest) async throws -> AgentModelResponse { throw CancellationError() }
     func capabilities(for selection: AgentModelSelection) async throws -> LLMModelCapabilities { throw CancellationError() }
-}
-private final class QuotaSecrets: ModelSecretStoring {
-    func saveSecret(_ secret: String, account: String) throws {}
-    func readSecret(account: String) throws -> String? { nil }
-    func deleteSecret(account: String) throws {}
 }

@@ -30,6 +30,8 @@ struct PalmiAgentApp: App {
     private func handleScenePhaseChange(_ phase: ScenePhase) {
         switch phase {
         case .active:
+            // 吸收旧版本在后台期间的配置修改；钥匙串锁定导致的迁移推迟也在此重试。
+            container.modelLibraryStore.reconcileAllSources()
             Task {
                 await container.bionicStore.activate()
                 await container.bionicStore.purchases.refreshEntitlements()

@@ -133,31 +133,17 @@ struct ChatScreen: View {
     private let contextInspectorExpandedSize = CGSize(width: 244, height: 318)
     private let contextInspectorScreenMargin: CGFloat = 12
 
+    /// 当前会话的主模型意图与解析结果。只有一个主模型；没有方案、轻模型或多模态槽位。
     private struct ModelSelectionState {
-        let plans: [ModelPlanSnapshot]
-        let activePlanID: UUID?
-        let selectedPlan: ModelPlanSnapshot?
-        let sessionOverride: ModelPlanSessionOverride?
-        let primaryCandidate: ModelCandidateSnapshot?
-        let multimodalCandidate: ModelCandidateSnapshot?
-        let lightweightCandidate: ModelCandidateSnapshot?
+        let binding: ScopedMainModelBinding
+        let model: ModelRecord?
+        let connectionID: UUID?
+        let selectableModels: [ModelRecord]
+        let defaultModel: ModelRecord?
         let selectedProviderID: APIProviderID
         let selectedModel: APIModelDefinition
 
-        var isCustom: Bool {
-            sessionOverride?.hasCandidateOverrides == true
-        }
-
-        func selectedCandidate(for slot: ModelPlanSlot) -> ModelCandidateSnapshot? {
-            switch slot {
-            case .primary:
-                return primaryCandidate
-            case .multimodal:
-                return multimodalCandidate
-            case .lightweight:
-                return lightweightCandidate
-            }
-        }
+        var isExplicit: Bool { !binding.isInherit }
     }
 
     init(
@@ -196,6 +182,8 @@ struct ChatScreen: View {
             && !isShowingModeInfo && !showingMarkdownImage
     }
     @State private var openBionicAfterSuggestion = false
+    /// 长会话只渲染最近若干轮；滚到最早一轮时再逐批展开。按会话记忆，切换会话自动回到默认窗口。
+    @State private var turnWindow = ChatTurnWindow()
 
     private struct BionicSuggestionPresentationKey: Equatable {
         let ticket: BionicSuggestionTicket?
@@ -231,7 +219,7 @@ struct ChatScreen: View {
     }
 
     private func shouldHideCompletedChatDetails(for turn: ChatTurn) -> Bool {
-        guard isChatSurface,
+        guard !turn.isProgressive, isChatSurface,
               turn.finalMessage != nil,
               let header = turn.headerMessage?.sessionHeader,
               header.finishedAt != nil else {
@@ -246,66 +234,35 @@ struct ChatScreen: View {
     }
 
     private var computedModelSelectionState: ModelSelectionState {
-        let plans = store.modelPlanStore.plans
-        let sessionOverride = workspaceStore.selectedThread?.modelPlanOverride
-        let activePlan = store.modelPlanStore.activePlanSnapshot()
-        let selectedPlan = store.modelPlanStore.selectedPlan(for: sessionOverride)
-        let primaryCandidate = selectedPlan.map {
-            store.modelPlanStore.selectedCandidate(for: .primary, in: $0, sessionOverride: sessionOverride)
-        } ?? nil
-        let multimodalCandidate = selectedPlan.map {
-            store.modelPlanStore.selectedCandidate(for: .multimodal, in: $0, sessionOverride: sessionOverride)
-        } ?? nil
-        let lightweightCandidate = selectedPlan.map {
-            store.modelPlanStore.selectedCandidate(for: .lightweight, in: $0, sessionOverride: sessionOverride)
-        } ?? nil
-        let selectedProviderID: APIProviderID = .customOpenAI
-        let selectedModel = primaryCandidate.map {
-            apiModelDefinition(for: $0, slot: .primary)
+        let library = store.modelLibrary
+        let scope = workspaceStore.selectedSelection.map { ModelLibraryScope.thread($0.threadID) }
+        let binding = scope.map(library.scopeBinding) ?? .inherit
+        let modelID: UUID? = {
+            if case .success(let id) = library.mainModelSelection(scope: scope) { return id }
+            return nil
+        }()
+        let model = modelID.flatMap { library.state.model($0) }
+        let selectedModel = model.map {
+            APIModelDefinition(id: $0.providerModelID, title: $0.title, summary: "", traits: [.reasoningPreferred])
         } ?? APIModelDefinition(
             id: "",
             title: PalmiL10n.tr("common.notSelected"),
-            summary: PalmiL10n.tr("model.error.noUsablePlan"),
+            summary: PalmiL10n.tr("ml.mainModel.notConfigured"),
             traits: []
         )
-
         return ModelSelectionState(
-            plans: plans,
-            activePlanID: activePlan?.id,
-            selectedPlan: selectedPlan,
-            sessionOverride: sessionOverride,
-            primaryCandidate: primaryCandidate,
-            multimodalCandidate: multimodalCandidate,
-            lightweightCandidate: lightweightCandidate,
-            selectedProviderID: selectedProviderID,
+            binding: binding,
+            model: model,
+            connectionID: model?.connectionID,
+            selectableModels: library.state.models.filter { !$0.imageGenerationOnly },
+            defaultModel: library.state.defaultMainModel.modelID.flatMap { library.state.model($0) },
+            selectedProviderID: .customOpenAI,
             selectedModel: selectedModel
         )
     }
 
     private var topOrbTitle: String {
         "Palmi"
-    }
-
-    private func apiModelDefinition(
-        for candidate: ModelCandidateSnapshot,
-        slot: ModelPlanSlot
-    ) -> APIModelDefinition {
-        var traits = Set<APIModelTrait>()
-        if slot == .multimodal || candidate.capabilities.supportsVision {
-            traits.insert(.multimodal)
-        }
-        if slot == .lightweight {
-            traits.insert(.lightweight)
-        }
-        if slot == .primary {
-            traits.insert(.reasoningPreferred)
-        }
-        return APIModelDefinition(
-            id: candidate.modelName,
-            title: candidate.title,
-            summary: candidate.subtitle,
-            traits: traits
-        )
     }
 
     private var selectedReasoningTitle: String {
@@ -440,7 +397,7 @@ struct ChatScreen: View {
         Menu {
             Section(PalmiL10n.tr("chat.thinking.title")) {
                 thinkingLevelMenuContent
-                    .disabled(store.isLoading || modelSelectionState.primaryCandidate == nil)
+                    .disabled(store.isLoading || modelSelectionState.model == nil)
             }
             Divider()
             Button { presentQuickConfiguration() } label: {
@@ -771,6 +728,8 @@ struct ChatScreen: View {
     private var messageList: some View {
         let readTargets = ChatUnreadStore.readTargets(in: store.messages)
         let readSelection = workspaceStore.selectedSelection
+        let allTurns = turns
+        let shownTurns = windowedTurns(allTurns)
         return ScrollViewReader { proxy in
             // GeometryReader 自身忽略顶部安全区以从屏幕顶部铺开，于是它上报的
             // safeAreaInsets.top 即为被忽略的状态栏高度，用于下方顶部让位 spacer。
@@ -783,11 +742,21 @@ struct ChatScreen: View {
                         Color.clear
                             .frame(height: geometry.safeAreaInsets.top + topChromeReservedHeight)
 
-                        if turns.isEmpty {
+                        if allTurns.isEmpty {
                             emptyState
                         }
 
-                        ForEach(turns) { turn in
+                        if shownTurns.count < allTurns.count, let firstShown = shownTurns.first {
+                            // 只在用户亲手滚到这里时展开，避免首帧布局误触发。
+                            Color.clear
+                                .frame(height: 1)
+                                .task(id: messageScrollIsInteracting) {
+                                    guard messageScrollIsInteracting else { return }
+                                    revealEarlierTurns(keeping: firstShown.id, proxy: proxy)
+                                }
+                        }
+
+                        ForEach(shownTurns) { turn in
                             runtimeTurnView(turn, readTargets: readTargets)
                                 .id(turn.id)
                         }
@@ -809,6 +778,7 @@ struct ChatScreen: View {
                     store.unreadStore.markRead(Set(ids.compactMap(UUID.init(uuidString:))), selection: selection)
                 }
                 .scrollDismissesKeyboard(.interactively)
+                .defaultScrollAnchor(.bottom, for: .initialOffset)
                 .onScrollPhaseChange { _, phase in
                     messageScrollIsInteracting = phase == .interacting || phase == .decelerating
                 }
@@ -896,7 +866,9 @@ struct ChatScreen: View {
 
     @ViewBuilder
     private func runtimeTurnView(_ turn: ChatTurn, readTargets: [UUID: UUID]) -> some View {
-        if PalmiReasoningUIStyle.resolve(reasoningUIStyleRaw).applies(to: shellMode),
+        if turn.isProgressive {
+            progressiveTurnView(turn, readTargets: readTargets)
+        } else if PalmiReasoningUIStyle.resolve(reasoningUIStyleRaw).applies(to: shellMode),
            let headerMessage = turn.headerMessage,
            let header = headerMessage.sessionHeader {
             VStack(alignment: .leading, spacing: 16) {
@@ -930,6 +902,46 @@ struct ChatScreen: View {
         } else {
             turnView(turn, readTargets: readTargets)
         }
+    }
+
+    /// 聊天模式：与专业模式一致，过程卡片只在本轮头部出现一次，汇总所有工具与思考过程；
+    /// 各阶段公开正文按顺序连成同一篇回答显示在卡片下方，不被过程打断。
+    @ViewBuilder
+    private func progressiveTurnView(_ turn: ChatTurn, readTargets: [UUID: UUID]) -> some View {
+        let ordered = turn.orderedInTurnMessages
+        let answers = ordered.filter {
+            $0.role == .agent && ($0.kind == .normal || $0.kind == .summary)
+                && (!$0.content.isEmpty || !$0.attachments.isEmpty)
+        }
+        let guidance = ordered.filter { $0.role == .user }
+        let process = ordered.filter { $0.kind == .toolCall || $0.kind == .contextCompaction }
+        VStack(alignment: .leading, spacing: 16) {
+            if let userMessage = turn.userMessage { userBubble(userMessage) }
+            if let headerMessage = turn.headerMessage, let header = headerMessage.sessionHeader {
+                NeoRuntimeCard(
+                    headerID: headerMessage.id, header: header, messages: process, finalMessage: nil,
+                    isCurrentTurn: store.activeTurnHeaderID == headerMessage.id,
+                    streamingMessageID: store.activeStreamingMessageIDValue,
+                    liveReasoningBuffer: store.liveReasoningBuffer(for:),
+                    onOpenRelatedThread: openRelatedThread, selection: workspaceStore.selectedSelection
+                )
+            }
+            ForEach(guidance) { message in
+                userBubble(message)
+            }
+            if !answers.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(answers) { message in
+                        assistantMarkdown(for: message)
+                            .id("unread-" + (readTargets[message.id] ?? message.id).uuidString)
+                    }
+                }
+            }
+            if turn.headerMessage?.sessionHeader?.finishedAt != nil, let lastAnswer = answers.last {
+                finalAnswerCompletionRow(for: turn, finalMessage: lastAnswer)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -1137,13 +1149,36 @@ struct ChatScreen: View {
 
     @ViewBuilder
     private func assistantMarkdown(for message: PalmiChatMessage) -> some View {
-        let isStreamingMessage = store.activeStreamingMessageIDValue == message.id
-        let source = isStreamingMessage
-            ? stabilizedStreamingMarkdown(from: message.content)
-            : message.content
-
-        assistantBody(for: source)
+        let isStreamingMessage = message.responseSegment?.status == .streaming
+            || store.activeStreamingMessageIDValue == message.id
+        let capturedSelection = workspaceStore.selectedSelection
+        if message.role == .agent, message.richContentVersion == 1,
+           let workspaceURL = workspaceStore.currentWorkspaceURL {
+            // The rich parser must receive real provider bytes. Never synthesize a closing fence.
+            AssistantMessageContentView(
+                messageID: message.id, source: message.content,
+                isStreaming: isStreamingMessage, richContentVersion: message.richContentVersion,
+                workspaceURL: workspaceURL,
+                markdownTransform: { renderableMarkdown(from: isStreamingMessage ? stabilizedStreamingMarkdown(from: $0) : $0) },
+                onRequestFollowUp: { draft in
+                    guard let capturedSelection, workspaceStore.selectedSelection == capturedSelection,
+                          draft.utf8.count <= 32_768 else { return }
+                    if store.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        store.inputText = draft
+                    } else {
+                        store.inputText += "\n\n" + draft
+                    }
+                    isFocused = true
+                }
+            )
             .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            let source = isStreamingMessage
+                ? stabilizedStreamingMarkdown(from: message.content)
+                : message.content
+            assistantBody(for: source, isStreaming: isStreamingMessage)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     private func finalAnswerCompletionRow(
@@ -1272,13 +1307,25 @@ struct ChatScreen: View {
         fullTurn: Bool,
         markdown: Bool
     ) -> String {
+        if turn.isProgressive {
+            let source = PalmiProgressiveTimeline.publicAnswerMarkdown(in: turn.orderedInTurnMessages)
+            if markdown { return source }
+            // Block ids are unique within each message, not across the whole turn.
+            let plainSource = turn.publicAnswerMessages.map { message in
+                message.richContentVersion == 1
+                    ? PalmiRichContentExport.plainText(message.content)
+                    : message.content
+            }.joined(separator: "\n\n")
+            return Self.plainText(fromMarkdown: plainSource)
+        }
         let markdownText = fullTurn
-            ? Self.completeTurnMarkdown(for: turn, finalMessage: finalMessage)
+            ? Self.completeTurnMarkdown(for: turn, finalMessage: finalMessage, richAsPlain: !markdown)
             : finalMessage.content.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        return markdown
-            ? markdownText
-            : Self.plainText(fromMarkdown: markdownText)
+        if markdown { return markdownText }
+        let exportSource = !fullTurn && finalMessage.richContentVersion == 1
+            ? PalmiRichContentExport.plainText(markdownText)
+            : markdownText
+        return Self.plainText(fromMarkdown: exportSource)
     }
 
     private func writeTemporaryAnswerFile(
@@ -1319,7 +1366,8 @@ struct ChatScreen: View {
 
     private static func completeTurnMarkdown(
         for turn: ChatTurn,
-        finalMessage: PalmiChatMessage
+        finalMessage: PalmiChatMessage,
+        richAsPlain: Bool = false
     ) -> String {
         var orderedMessages: [PalmiChatMessage] = []
         if let userMessage = turn.userMessage {
@@ -1331,12 +1379,12 @@ struct ChatScreen: View {
 
         return orderedMessages
             .compactMap { message in
-                Self.exportableMarkdown(for: message)
+                Self.exportableMarkdown(for: message, richAsPlain: richAsPlain)
             }
             .joined(separator: "\n\n")
     }
 
-    private static func exportableMarkdown(for message: PalmiChatMessage) -> String? {
+    private static func exportableMarkdown(for message: PalmiChatMessage, richAsPlain: Bool = false) -> String? {
         if message.role == .user {
             return exportableUserQuestionMarkdown(for: message)
         }
@@ -1345,7 +1393,10 @@ struct ChatScreen: View {
 
         switch message.kind {
         case .normal, .summary:
-            return nonEmptyTrimmed(message.content)
+            let source = richAsPlain && message.richContentVersion == 1
+                ? PalmiRichContentExport.plainText(message.content)
+                : message.content
+            return nonEmptyTrimmed(source)
         case .toolCall:
             guard let toolCall = message.toolCall else {
                 return nonEmptyTrimmed(message.content)
@@ -1928,27 +1979,21 @@ struct ChatScreen: View {
         }
     }
 
-    // 附件横向滚动条：圆角方块，图片=缩略图、文件=带色块+文件名，点开预览。
+    // Images use a three-column gallery; document attachments use the shared file cards.
     private var composerAttachmentTiles: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                ForEach(store.pendingAttachments) { attachment in
-                    ComposerAttachmentTile(
-                        attachment: attachment,
-                        resolvedURL: try? workspaceStore.workspaceURL(for: attachment.relativePath),
-                        onTap: { previewAttachment(attachment) },
-                        onRemove: { store.removePendingAttachment(attachment) }
-                    )
+        PalmiAttachmentGallery(
+            attachments: store.pendingAttachments.map(\.chatAttachment),
+            presentation: .composer,
+            composerIsFocused: isFocused,
+            resolvedURL: { try? workspaceStore.workspaceURL(for: $0.relativePath) },
+            onTap: { previewSessionAttachment($0) },
+            onRemove: { attachment in
+                guard let pending = store.pendingAttachments.first(where: { $0.id == attachment.id }) else {
+                    return
                 }
+                store.removePendingAttachment(pending)
             }
-            .padding(.horizontal, 2)
-            .padding(.vertical, 3)
-        }
-        .frame(height: 66)
-    }
-
-    private func previewAttachment(_ attachment: ChatStore.PendingAttachment) {
-        previewSessionAttachment(attachment.chatAttachment)
+        )
     }
 
     @ViewBuilder
@@ -2638,73 +2683,54 @@ struct ChatScreen: View {
     @ViewBuilder
     private var topModelMenuContent: some View {
         let state = modelSelectionState
+        let library = store.modelLibrary
 
-        Section(PalmiL10n.tr("chat.presetConfiguration")) {
-            Button {} label: {
-                topModelMenuSelectionLabel(PalmiL10n.tr("common.custom"), isSelected: state.isCustom)
+        Section(PalmiL10n.tr("ml.session.currentModel")) {
+            Text(compactTopModelMenuTitle(state.model?.title ?? PalmiL10n.tr("ml.mainModel.notConfigured")))
+                .lineLimit(1)
+                .frame(width: topModelMenuExpandedItemWidth, alignment: .leading)
+        }
+
+        Section(PalmiL10n.tr("ml.session.defaultModel")) {
+            Button {
+                selectSessionMainModel(nil)
+            } label: {
+                topModelMenuSelectionLabel(
+                    compactTopModelMenuTitle(state.defaultModel?.title ?? PalmiL10n.tr("ml.mainModel.notConfigured")),
+                    isSelected: !state.isExplicit
+                )
             }
-            .disabled(!state.isCustom)
+        }
 
-            ForEach(state.plans) { plan in
-                Button {
-                    selectModelPlan(plan)
+        // 其他模型按来源分组，每组是一个二级菜单。
+        Section(PalmiL10n.tr("ml.session.otherModels")) {
+            ForEach(ModelLibraryPresentation.groups(library: library, models: state.selectableModels), id: \.connectionID) { group in
+                Menu {
+                    ForEach(group.models) { model in
+                        Button {
+                            selectSessionMainModel(model.id)
+                        } label: {
+                            topModelMenuSelectionLabel(
+                                compactTopModelMenuTitle(model.title),
+                                isSelected: state.binding.explicitModelID == model.id
+                            )
+                        }
+                    }
                 } label: {
                     topModelMenuSelectionLabel(
-                        compactTopModelMenuTitle(plan.name),
-                        isSelected: !state.isCustom && state.selectedPlan?.id == plan.id
+                        compactTopModelMenuTitle(topModelMenuGroupTitle(group, library: library)),
+                        isSelected: group.models.contains { state.binding.explicitModelID == $0.id }
                     )
                 }
             }
         }
-
-        Divider()
-
-        topModelMenuSlotSection(.primary, state: state)
-
-        Divider()
-
-        topModelMenuSlotSection(.multimodal, state: state)
-
-        Divider()
-
-        topModelMenuSlotSection(.lightweight, state: state)
     }
 
-    @ViewBuilder
-    private func topModelMenuSlotSection(
-        _ slot: ModelPlanSlot,
-        state: ModelSelectionState
-    ) -> some View {
-        Section(slot.localizedTitle) {
-            let candidates = state.selectedPlan?.candidates(for: slot) ?? []
-
-            if !slot.isRequired {
-                Button {
-                    selectModelCandidate(nil, slot: slot)
-                } label: {
-                    topModelMenuSelectionLabel(
-                            PalmiL10n.tr("common.none"),
-                        isSelected: state.selectedCandidate(for: slot) == nil
-                    )
-                }
-            }
-
-            if candidates.isEmpty && slot.isRequired {
-                Text(PalmiL10n.tr("common.none"))
-                    .disabled(true)
-            } else {
-                ForEach(candidates) { candidate in
-                    Button {
-                        selectModelCandidate(candidate, slot: slot)
-                    } label: {
-                        topModelMenuSelectionLabel(
-                            compactTopModelMenuTitle(candidate.title),
-                            isSelected: state.selectedCandidate(for: slot)?.id == candidate.id
-                        )
-                    }
-                }
-            }
-        }
+    /// Codex OAuth 来源在菜单里只显示来源名，不拼接账号邮箱；用户自己备注过的来源照常显示备注。
+    private func topModelMenuGroupTitle(_ group: ModelLibraryPresentation.Group, library: ModelLibraryStore) -> String {
+        guard let connection = library.state.connection(group.connectionID),
+              connection.userLabel == nil, connection.chatGPTAccount != nil else { return group.title }
+        return "Codex OAuth"
     }
 
     @ViewBuilder
@@ -2853,47 +2879,24 @@ struct ChatScreen: View {
         }
     }
 
-    private func selectModelPlan(_ plan: ModelPlanSnapshot) {
+    /// nil 表示跟随默认主模型。修改只影响后续新请求，不改变正在执行的请求。
+    private func selectSessionMainModel(_ modelID: UUID?) {
         guard let selection = workspaceStore.selectedSelection else { return }
-        let activePlanID = store.modelPlanStore.activePlanSnapshot()?.id
-        let override = plan.id == activePlanID ? nil : ModelPlanSessionOverride(planID: plan.id)
-        workspaceStore.setModelPlanOverride(override, for: selection)
-        cachedModelSelectionState = computedModelSelectionState
-        modelReasoningRevision &+= 1
-    }
-
-    private func selectModelCandidate(_ candidate: ModelCandidateSnapshot?, slot: ModelPlanSlot) {
-        guard let selection = workspaceStore.selectedSelection,
-              let selectedPlan = modelSelectionState.selectedPlan else {
-            return
+        do {
+            try store.modelLibrary.setScopeBinding(
+                modelID.map(ScopedMainModelBinding.explicitModel) ?? .inherit,
+                scope: .thread(selection.threadID)
+            )
+        } catch {
+            store.errorMessage = error.localizedDescription
         }
-        var override = modelSelectionState.sessionOverride ?? ModelPlanSessionOverride(planID: selectedPlan.id)
-        override.planID = selectedPlan.id
-
-        let configuredCandidateID = selectedPlan.selectedCandidate(for: slot)?.id
-        let selectedCandidateID = candidate?.id
-
-        if selectedCandidateID == configuredCandidateID {
-            override.removeCandidateOverride(for: slot)
-        } else if let selectedCandidateID {
-            override.setCandidateID(selectedCandidateID, for: slot)
-        } else if configuredCandidateID == nil {
-            override.removeCandidateOverride(for: slot)
-        } else {
-            override.clearCandidate(for: slot)
-        }
-
-        let normalizedOverride = override.isEquivalentToSettings(activePlanID: modelSelectionState.activePlanID)
-            ? nil
-            : override
-        workspaceStore.setModelPlanOverride(normalizedOverride, for: selection)
         cachedModelSelectionState = computedModelSelectionState
         modelReasoningRevision &+= 1
     }
 
     private func isModelThinkingEnabled(defaultEnabled: Bool) -> Bool {
         let state = modelSelectionState
-        guard let profileID = state.primaryCandidate?.connection.id else {
+        guard let profileID = state.connectionID else {
             return defaultEnabled
         }
         return ModelNativeReasoningPreferenceStore.isThinkingEnabled(
@@ -2906,7 +2909,7 @@ struct ChatScreen: View {
 
     private func setModelThinkingEnabled(_ isEnabled: Bool) {
         let state = modelSelectionState
-        guard let profileID = state.primaryCandidate?.connection.id else { return }
+        guard let profileID = state.connectionID else { return }
         ModelNativeReasoningPreferenceStore.setThinkingEnabled(
             isEnabled,
             providerID: state.selectedProviderID,
@@ -2918,7 +2921,7 @@ struct ChatScreen: View {
 
     private func selectedModelEffort(defaultEffort: String) -> String {
         let state = modelSelectionState
-        guard let profileID = state.primaryCandidate?.connection.id else {
+        guard let profileID = state.connectionID else {
             return defaultEffort
         }
         return ModelNativeReasoningPreferenceStore.effort(
@@ -2931,7 +2934,7 @@ struct ChatScreen: View {
 
     private func setSelectedModelEffort(_ effort: String) {
         let state = modelSelectionState
-        guard let profileID = state.primaryCandidate?.connection.id else { return }
+        guard let profileID = state.connectionID else { return }
         ModelNativeReasoningPreferenceStore.setEffort(
             effort,
             providerID: state.selectedProviderID,
@@ -2982,7 +2985,6 @@ struct ChatScreen: View {
 
     private func prepareQuickSettingsMenu() {
         if isFocused { isFocused = false }
-        store.modelPlanStore.refresh()
         cachedModelSelectionState = computedModelSelectionState
         modelReasoningRevision &+= 1
         withAnimation(floatingBubbleAnimation) {
@@ -2995,7 +2997,6 @@ struct ChatScreen: View {
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            store.modelPlanStore.refresh()
             cachedModelSelectionState = computedModelSelectionState
             modelReasoningRevision &+= 1
             isShowingContextInfo = false
@@ -3062,6 +3063,29 @@ struct ChatScreen: View {
         pendingAutoCollapseTurnID = nil
         withAnimation(.easeInOut(duration: 0.16)) {
             _ = collapsedTurnIDs.insert(completedTurn.id)
+        }
+    }
+
+    private func windowedTurns(_ all: [ChatTurn]) -> [ChatTurn] {
+        let key = workspaceStore.selectedSelection.map(ChatUnreadStore.key)
+        var limit = turnWindow.selectionKey == key ? turnWindow.limit : ChatTurnWindow.initialLimit
+        // 首个未读回答必须在窗口内，才能定位过去。
+        if let target = initialUnreadTarget,
+           let index = all.firstIndex(where: { $0.contains(messageID: target) }) {
+            limit = max(limit, all.count - index)
+        }
+        return all.count > limit ? Array(all.suffix(limit)) : all
+    }
+
+    private func revealEarlierTurns(keeping anchorID: UUID, proxy: ScrollViewProxy) {
+        let key = workspaceStore.selectedSelection.map(ChatUnreadStore.key)
+        let current = turnWindow.selectionKey == key ? turnWindow.limit : ChatTurnWindow.initialLimit
+        turnWindow = ChatTurnWindow(selectionKey: key, limit: current + ChatTurnWindow.step)
+        isMessageAutoFollowEnabled = false
+        // 在顶部插入更早的轮次后，保持原先最上面那一轮的位置不跳动。
+        Task { @MainActor in
+            await Task.yield()
+            proxy.scrollTo(anchorID, anchor: .top)
         }
     }
 
@@ -3350,8 +3374,9 @@ struct ChatScreen: View {
     }
 
     @ViewBuilder
-    private func assistantBody(for content: String) -> some View {
-        if shouldUseNativeSelectableText(for: content) {
+    private func assistantBody(for content: String, isStreaming: Bool = false) -> some View {
+        // 流式输出期间固定用 Markdown 视图，避免内容一出现 Markdown 记号就在两种视图间切换。
+        if !isStreaming && shouldUseNativeSelectableText(for: content) {
             AssistantPlainTextBlock(text: content).equatable()
         } else {
             AssistantMarkdownBlock(markdown: renderableMarkdown(from: content)).equatable()
@@ -3369,6 +3394,14 @@ struct ChatScreen: View {
         let inlineBackticks = normalized.replacingOccurrences(of: "```", with: "").filter { $0 == "`" }.count
         if inlineBackticks % 2 == 1 {
             normalized += "`"
+        }
+
+        // 未闭合的粗体先按闭合渲染，避免 “**” 先以原文出现、闭合后才变粗。
+        let boldParts = normalized.components(separatedBy: "**")
+        if fencedSections % 2 == 0, boldParts.count % 2 == 0,
+           let tail = boldParts.last, !tail.isEmpty, !tail.contains("\n"),
+           tail.first?.isWhitespace == false, tail.last?.isWhitespace == false {
+            normalized += "**"
         }
 
         let openingBrackets = normalized.filter { $0 == "[" }.count
@@ -5191,253 +5224,12 @@ private struct ChatAttachmentStack: View {
     let onTap: (PalmiChatAttachment) -> Void
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: 8) {
-            ForEach(attachments) { attachment in
-                ChatAttachmentRow(
-                    attachment: attachment,
-                    resolvedURL: resolvedURL(attachment),
-                    onTap: { onTap(attachment) }
-                )
-            }
-        }
-    }
-}
-
-private struct ChatAttachmentRow: View {
-    let attachment: PalmiChatAttachment
-    let resolvedURL: URL?
-    let onTap: () -> Void
-
-    @State private var thumbnail: UIImage?
-
-    private static let previewSize = CGSize(width: 78, height: 58)
-
-    private var isImage: Bool {
-        if attachment.source != .filePicker { return true }
-        let ext = (attachment.name as NSString).pathExtension.lowercased()
-        return ["jpg", "jpeg", "png", "heic", "heif", "gif", "webp", "bmp", "tiff"].contains(ext)
-    }
-
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 10) {
-                preview
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(attachment.source.localizedTitle)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-
-                    Text(displayName)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                        .multilineTextAlignment(.leading)
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.white.opacity(0.86))
-                    .shadow(color: .black.opacity(0.06), radius: 10, y: 4)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .task(id: attachment.id) { await loadThumbnail() }
-        .accessibilityLabel(PalmiL10n.tr("attachment.accessibility.item", attachment.source.localizedTitle, displayName))
-    }
-
-    @ViewBuilder
-    private var preview: some View {
-        if isImage {
-            if let thumbnail {
-                Image(uiImage: thumbnail)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: Self.previewSize.width, height: Self.previewSize.height)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            } else {
-                placeholderPreview(systemImage: "photo")
-            }
-        } else {
-            placeholderPreview(systemImage: "doc.fill")
-        }
-    }
-
-    private func placeholderPreview(systemImage: String) -> some View {
-        ZStack {
-            fileTint.opacity(isImage ? 0.14 : 1)
-            Image(systemName: systemImage)
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(isImage ? Color.secondary : Color.white)
-        }
-        .frame(width: Self.previewSize.width, height: Self.previewSize.height)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    private var displayName: String {
-        (attachment.name as NSString).lastPathComponent
-    }
-
-    private var fileTint: Color {
-        switch (attachment.name as NSString).pathExtension.lowercased() {
-        case "pdf": return Color(red: 0.86, green: 0.27, blue: 0.24)
-        case "doc", "docx": return Color(red: 0.18, green: 0.42, blue: 0.86)
-        case "xls", "xlsx", "csv": return Color(red: 0.16, green: 0.60, blue: 0.36)
-        case "ppt", "pptx": return Color(red: 0.86, green: 0.45, blue: 0.18)
-        case "zip", "rar", "7z", "gz", "tar": return Color(red: 0.55, green: 0.45, blue: 0.30)
-        case "md", "markdown", "txt": return Color(red: 0.36, green: 0.40, blue: 0.48)
-        default: return Color(red: 0.40, green: 0.46, blue: 0.56)
-        }
-    }
-
-    private func loadThumbnail() async {
-        guard isImage, thumbnail == nil, let url = resolvedURL else { return }
-        let maxPixel = max(Self.previewSize.width, Self.previewSize.height) * 3
-        let image = await Task.detached(priority: .utility) {
-            ComposerAttachmentTile.downsample(url: url, maxPixel: maxPixel)
-        }.value
-        guard let image else { return }
-        await MainActor.run { thumbnail = image }
-    }
-}
-
-// 统一的附件方块：等大圆角矩形。图片=缩略图（点开看大图）；文件=带色方块+文件名（点开预览）。
-// 右上角内嵌删除按钮。最多 15 个由 ChatStore.addPendingAttachments 兜底。
-private struct ComposerAttachmentTile: View {
-    let attachment: ChatStore.PendingAttachment
-    let resolvedURL: URL?
-    let onTap: () -> Void
-    let onRemove: () -> Void
-
-    @State private var thumbnail: UIImage?
-
-    private static let side: CGFloat = 56
-    private static let corner: CGFloat = 14
-
-    private var isImage: Bool {
-        if attachment.source != .filePicker { return true }
-        let ext = (attachment.name as NSString).pathExtension.lowercased()
-        return ["jpg", "jpeg", "png", "heic", "heif", "gif", "webp", "bmp", "tiff"].contains(ext)
-    }
-
-    var body: some View {
-        Button(action: onTap) {
-            tileContent
-                .frame(width: Self.side, height: Self.side)
-                .clipShape(RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Self.corner, style: .continuous)
-                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
-                )
-                .contentShape(RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .overlay(alignment: .topTrailing) {
-            removeButton.padding(4)
-        }
-        .task(id: attachment.id) { await loadThumbnail() }
-    }
-
-    @ViewBuilder
-    private var tileContent: some View {
-        if isImage {
-            if let thumbnail {
-                Image(uiImage: thumbnail)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                ZStack {
-                    Color.black.opacity(0.04)
-                    Image(systemName: "photo")
-                        .font(.system(size: 20, weight: .regular))
-                        .foregroundStyle(.secondary)
-                }
-            }
-        } else {
-            ZStack {
-                fileTint
-                VStack(spacing: 3) {
-                    Image(systemName: "doc.fill")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.white)
-
-                    Text(displayName)
-                        .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.95))
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-                        .truncationMode(.middle)
-                        .padding(.horizontal, 4)
-                }
-            }
-        }
-    }
-
-    private var removeButton: some View {
-        Button(action: onRemove) {
-            Image(systemName: "xmark")
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 18, height: 18)
-                .background(Circle().fill(Color.black.opacity(0.55)))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(PalmiL10n.tr("attachment.remove"))
-    }
-
-    private var displayName: String {
-        (attachment.name as NSString).lastPathComponent
-    }
-
-    private var fileTint: Color {
-        switch (attachment.name as NSString).pathExtension.lowercased() {
-        case "pdf": return Color(red: 0.86, green: 0.27, blue: 0.24)
-        case "doc", "docx": return Color(red: 0.18, green: 0.42, blue: 0.86)
-        case "xls", "xlsx", "csv": return Color(red: 0.16, green: 0.60, blue: 0.36)
-        case "ppt", "pptx": return Color(red: 0.86, green: 0.45, blue: 0.18)
-        case "zip", "rar", "7z", "gz", "tar": return Color(red: 0.55, green: 0.45, blue: 0.30)
-        case "md", "markdown", "txt": return Color(red: 0.36, green: 0.40, blue: 0.48)
-        default: return Color(red: 0.40, green: 0.46, blue: 0.56)
-        }
-    }
-
-    private func loadThumbnail() async {
-        guard isImage, thumbnail == nil, let url = resolvedURL else { return }
-        let maxPixel = Self.side * 3  // @3x，足够清晰且省内存
-        let image = await Task.detached(priority: .utility) {
-            ComposerAttachmentTile.downsample(url: url, maxPixel: maxPixel)
-        }.value
-        guard let image else { return }
-        await MainActor.run { thumbnail = image }
-    }
-
-    nonisolated static func downsample(url: URL, maxPixel: CGFloat) -> UIImage? {
-        guard let source = CGImageSourceCreateWithURL(
-            url as CFURL,
-            [kCGImageSourceShouldCache: false] as CFDictionary
-        ) else {
-            return nil
-        }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixel)
-        ]
-        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-            return nil
-        }
-        return UIImage(cgImage: cgImage)
+        PalmiAttachmentGallery(
+            attachments: attachments,
+            presentation: .message,
+            resolvedURL: resolvedURL,
+            onTap: onTap
+        )
     }
 }
 
@@ -5875,6 +5667,13 @@ private extension PalmiChatMessage {
     }
 }
 
+private struct ChatTurnWindow {
+    static let initialLimit = 12
+    static let step = 12
+    var selectionKey: String?
+    var limit = initialLimit
+}
+
 private struct ChatTurn: Identifiable {
     let id: UUID
     let userMessage: PalmiChatMessage?
@@ -5882,6 +5681,29 @@ private struct ChatTurn: Identifiable {
     let messagesBeforeFinal: [PalmiChatMessage]
     let finalMessage: PalmiChatMessage?
     let messagesAfterFinal: [PalmiChatMessage]
+
+    var orderedInTurnMessages: [PalmiChatMessage] {
+        messagesBeforeFinal + (finalMessage.map { [$0] } ?? []) + messagesAfterFinal
+    }
+
+    func contains(messageID: UUID) -> Bool {
+        id == messageID || userMessage?.id == messageID || headerMessage?.id == messageID
+            || finalMessage?.id == messageID
+            || messagesBeforeFinal.contains { $0.id == messageID }
+            || messagesAfterFinal.contains { $0.id == messageID }
+    }
+
+    var isProgressive: Bool {
+        headerMessage?.sessionHeader?.responsePresentation == .progressive
+            || orderedInTurnMessages.contains { $0.responseSegment != nil }
+    }
+
+    var publicAnswerMessages: [PalmiChatMessage] {
+        orderedInTurnMessages.filter {
+            $0.role == .agent && ($0.kind == .normal || $0.kind == .summary)
+                && !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
 
     static func build(from messages: [PalmiChatMessage]) -> [ChatTurn] {
         var turns: [ChatTurn] = []

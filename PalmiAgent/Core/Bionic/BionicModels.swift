@@ -311,7 +311,7 @@ nonisolated enum BionicRecords {
                 "generation_id": .string(role.state.generationID), "frozen_from_cursor": from.json, "frozen_to_cursor": to.json,
                 "input_message_ids": .strings(ids), "input_refs": .strings(["personas/\(role.state.personaID).json"]),
                 "input_hash": .string(try BionicCodec.hash(inputObject)),
-                "model_role": .string(kind == "audit" ? "lightweight" : ((kind == "export" || kind == "import") ? "none" : "primary")),
+                "model_role": .string((kind == "export" || kind == "import") ? "none" : "primary"),
                 "model_label": .null, "model_input": .object(inputObject), "control": .object(control)]
     }
 }

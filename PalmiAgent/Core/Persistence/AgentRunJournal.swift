@@ -26,6 +26,8 @@ nonisolated extension AgentRunJournalEvent: Codable {}
 
 enum AgentRunJournalPayload: Equatable, Sendable {
     case runStarted
+    case responseSegmentStarted(PalmiResponseSegment)
+    case responseSegmentFinished(segment: PalmiResponseSegment, source: String)
     case modelRequestStarted(requestID: UUID)
     case streamDraft(requestID: UUID, content: String, reasoning: String?)
     case modelCompleted(requestID: UUID)
@@ -71,22 +73,33 @@ enum AgentRunRecoveryStatus: Sendable {
 }
 nonisolated extension AgentRunRecoveryStatus: Equatable {}
 
+nonisolated struct AgentRecoveredResponseSegment: Equatable, Sendable {
+    var segment: PalmiResponseSegment
+    var source: String
+}
+
 struct AgentRunRecoveryState: Sendable {
     var status: AgentRunRecoveryStatus
     var latestDraft: AgentRecoveredDraft?
     var completedToolResults: [String: AgentRecoveredToolResult]
     var retryableToolCallIDs: Set<String>
+    var responseSegments: [AgentRecoveredResponseSegment]
+    var activeResponseSegment: PalmiResponseSegment?
 
     nonisolated init(
         status: AgentRunRecoveryStatus = .empty,
         latestDraft: AgentRecoveredDraft? = nil,
         completedToolResults: [String: AgentRecoveredToolResult] = [:],
-        retryableToolCallIDs: Set<String> = []
+        retryableToolCallIDs: Set<String> = [],
+        responseSegments: [AgentRecoveredResponseSegment] = [],
+        activeResponseSegment: PalmiResponseSegment? = nil
     ) {
         self.status = status
         self.latestDraft = latestDraft
         self.completedToolResults = completedToolResults
         self.retryableToolCallIDs = retryableToolCallIDs
+        self.responseSegments = responseSegments
+        self.activeResponseSegment = activeResponseSegment
     }
 }
 nonisolated extension AgentRunRecoveryState: Equatable {}
@@ -115,9 +128,29 @@ enum AgentRunRecoveryReducer {
             }
 
             switch event.payload {
+            case .responseSegmentStarted(let segment):
+                state.activeResponseSegment = segment
+                state.latestDraft = nil
+                state.status = .running
+            case let .responseSegmentFinished(segment, source):
+                let recovered = AgentRecoveredResponseSegment(segment: segment, source: source)
+                if let index = state.responseSegments.firstIndex(where: { $0.segment.id == segment.id }) {
+                    if source.hasPrefix(state.responseSegments[index].source) { state.responseSegments[index] = recovered }
+                    else { state.responseSegments[index].segment = segment }
+                } else { state.responseSegments.append(recovered) }
+                if state.activeResponseSegment?.id == segment.id {
+                    state.activeResponseSegment = nil
+                    state.latestDraft = nil
+                }
             case .runStarted, .modelRequestStarted, .modelCompleted:
                 state.status = .running
             case let .streamDraft(requestID, content, reasoning):
+                if let segment = state.activeResponseSegment, segment.id == requestID {
+                    let recovered = AgentRecoveredResponseSegment(segment: segment, source: content)
+                    if let index = state.responseSegments.firstIndex(where: { $0.segment.id == segment.id }) {
+                        if content.hasPrefix(state.responseSegments[index].source) { state.responseSegments[index] = recovered }
+                    } else { state.responseSegments.append(recovered) }
+                }
                 state.latestDraft = AgentRecoveredDraft(
                     requestID: requestID,
                     content: content,

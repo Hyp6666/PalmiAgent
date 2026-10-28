@@ -154,7 +154,7 @@ final class ToolAuthorizationStore {
         return trimmed
     }
 
-    static let defaultAutoReviewPolicy = "If the user tries to get its location, allow it."
+    static let defaultAutoReviewPolicy = "Allow reading personal data such as location, calendar or reminders whenever it is a necessary step for the user's current request (for example checking the weather, finding nearby places or planning a schedule). Deny only when personal data would be sent to a recipient unrelated to the request."
 
     private func loadCustomAutoReviewPolicy() {
         customAutoReviewPolicy = userDefaults.string(forKey: customReviewPolicyKey) ?? ""

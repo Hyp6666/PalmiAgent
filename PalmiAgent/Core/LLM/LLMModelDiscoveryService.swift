@@ -300,6 +300,62 @@ final class LLMModelDiscoveryService: Sendable {
         )
     }
 
+    /// 使用连接上明确的模型列表地址发现模型；不在失败后扫描其他域名或路径。
+    func fetchModels(
+        modelsURL: URL,
+        apiKey: String?,
+        wireProtocol: LLMWireProtocol?
+    ) async throws -> LLMModelDiscoveryResult {
+        let trimmedKey = apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var cursor: String?
+        var seenCursors = Set<String>()
+        var discoveredByID: [String: LLMDiscoveredModel] = [:]
+        for _ in 0..<20 {
+            var request = URLRequest(url: Self.pageURL(modelsURL, afterID: cursor), timeoutInterval: 15)
+            request.httpMethod = "GET"
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            if !trimmedKey.isEmpty {
+                if wireProtocol == .anthropicMessages {
+                    request.setValue(trimmedKey, forHTTPHeaderField: "x-api-key")
+                    request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+                } else {
+                    request.setValue("Bearer \(trimmedKey)", forHTTPHeaderField: "Authorization")
+                }
+            }
+            let data: Data
+            let response: URLResponse
+            do { (data, response) = try await session.data(for: request) }
+            catch { throw AppError.operationFailed(PalmiL10n.tr("model.discovery.error.network")) }
+            guard let http = response as? HTTPURLResponse else {
+                throw AppError.operationFailed(PalmiL10n.tr("model.discovery.error.invalidResponse"))
+            }
+            switch http.statusCode {
+            case 200..<300: break
+            case 401, 403: throw AppError.operationFailed(PalmiL10n.tr("model.discovery.error.unauthorized"))
+            case 404, 405: throw AppError.operationFailed(PalmiL10n.tr("model.discovery.error.unsupportedModelsEndpoint"))
+            default: throw AppError.operationFailed(PalmiL10n.tr("model.discovery.error.http", http.statusCode))
+            }
+            guard let envelope = try? JSONDecoder().decode(OpenAIModelsEnvelope.self, from: data) else {
+                throw AppError.operationFailed(PalmiL10n.tr("model.discovery.error.parse"))
+            }
+            for entry in envelope.data {
+                discoveredByID[entry.id] = LLMDiscoveredModel(
+                    id: entry.id, ownedBy: entry.ownedBy,
+                    remoteDisplayName: entry.preferredDisplayName, canonicalID: entry.canonicalSlug
+                )
+            }
+            guard envelope.hasMore == true else { break }
+            guard let next = envelope.lastID?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !next.isEmpty, seenCursors.insert(next).inserted else {
+                throw AppError.operationFailed(PalmiL10n.tr("model.discovery.error.parse"))
+            }
+            cursor = next
+        }
+        let models = discoveredByID.values.sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }
+        // 空列表是合法状态：仍可手动填写模型标识。
+        return LLMModelDiscoveryResult(endpoint: modelsURL, models: models)
+    }
+
     private static func pageURL(_ endpoint: URL, afterID: String?) -> URL {
         guard let afterID,
               var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {

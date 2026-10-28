@@ -24,6 +24,10 @@ enum PalmiReasoningUIStyle: String, CaseIterable, Identifiable {
     }
 
     func applies(to mode: AppShellMode?) -> Bool {
-        self == .neo && (mode == .professional || mode == .chat)
+        switch mode {
+        case .chat: return true
+        case .professional: return self == .neo
+        default: return false
+        }
     }
 }

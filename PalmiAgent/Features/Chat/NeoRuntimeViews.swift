@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 private struct NeoRuntimePresentation: Identifiable {
     let id: UUID
@@ -115,6 +116,8 @@ struct NeoRuntimeTimelineSheet: View {
                 .padding(.horizontal, 24)
                 .padding(.top, 10)
                 .padding(.bottom, 28)
+                // 撑满宽度：否则半屏时内容按自身宽度居中，只露出中间一条白底。
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .background(Color(uiColor: .systemBackground))
             .navigationTitle(PalmiL10n.tr("neo.runtime.title"))
@@ -310,8 +313,41 @@ struct NeoRuntimeStepDetailSheet: View {
     let onOpenRelatedThread: (UUID) -> Void
     @Environment(\.dismiss) private var dismiss
 
+    /// 纯思考步骤：整页使用原生滚动文本视图，长思维链只排版可见部分，打开和滚动都不卡。
+    private var reasoningOnlyMessage: PalmiChatMessage? {
+        guard step.messages.count == 1, let message = step.messages.first,
+              message.toolCall?.cardKind == .modelThink else { return nil }
+        return message
+    }
+
     var body: some View {
         NavigationStack {
+            Group {
+                if let message = reasoningOnlyMessage, let card = message.toolCall {
+                    NeoReasoningScrollText(
+                        messageID: message.id,
+                        staticText: card.details.isEmpty ? card.summary : card.details,
+                        liveBuffer: liveReasoningBuffer(message.id)
+                    )
+                    .ignoresSafeArea(edges: .bottom)
+                } else {
+                    detailScroll
+                }
+            }
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle(step.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(PalmiL10n.tr("common.close"), systemImage: "xmark") { dismiss() }
+                        .labelStyle(.iconOnly)
+                        .tint(.primary)
+                }
+            }
+        }
+    }
+
+    private var detailScroll: some View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     HStack(spacing: 12) {
@@ -325,18 +361,8 @@ struct NeoRuntimeStepDetailSheet: View {
                     }
                 }
                 .padding(24)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle(step.title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(PalmiL10n.tr("common.close"), systemImage: "xmark") { dismiss() }
-                        .labelStyle(.iconOnly)
-                        .tint(.primary)
-                }
-            }
-        }
     }
 
     @ViewBuilder
@@ -368,8 +394,9 @@ struct NeoRuntimeStepDetailSheet: View {
 
     @ViewBuilder
     private func toolDetail(_ card: PalmiToolCallCard) -> some View {
+        // 顺序：工具输入 → （浏览器步骤）→ 工具输出。
         if card.toolName == "browser", let progress = step.browserProgress {
-            section(PalmiL10n.tr("neo.runtime.overview")) {
+            section(PalmiL10n.tr("neo.runtime.toolInput")) {
                 Text(progress.task).textSelection(.enabled)
             }
             section(PalmiL10n.tr("browser.runtime.steps")) {
@@ -386,28 +413,23 @@ struct NeoRuntimeStepDetailSheet: View {
                 }
             }
             if card.isRunning != true, !card.details.isEmpty {
-                section(PalmiL10n.tr("neo.runtime.result")) {
+                section(PalmiL10n.tr("neo.runtime.toolOutput")) {
                     Text(card.details).textSelection(.enabled)
                 }
             }
         } else {
-        if !card.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            section(PalmiL10n.tr("neo.runtime.overview")) {
-                AssistantMarkdownContentView(markdown: card.summary)
+        if !card.argumentsJSON.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            section(PalmiL10n.tr("neo.runtime.toolInput")) {
+                SelectablePlainTextView(text: card.argumentsJSON)
             }
         }
         if !card.details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            section(PalmiL10n.tr("neo.runtime.result")) {
+            section(PalmiL10n.tr("neo.runtime.toolOutput")) {
                 AssistantMarkdownContentView(markdown: card.details)
             }
         } else if step.state == .running {
             Text(PalmiL10n.tr("neo.runtime.awaitingResult"))
                 .font(.subheadline).foregroundStyle(.secondary)
-        }
-        if !card.argumentsJSON.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            section(PalmiL10n.tr("tool.approval.arguments")) {
-                SelectablePlainTextView(text: card.argumentsJSON)
-            }
         }
         if let threadIDs = card.relatedThreadIDs, !threadIDs.isEmpty {
             section(PalmiL10n.tr("subagent.relatedThreads")) {
@@ -432,5 +454,100 @@ struct NeoRuntimeStepDetailSheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(uiColor: .secondarySystemGroupedBackground),
                     in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+}
+
+/// 思维链全文：自身可滚动的 TextKit 1 文本视图，开启非连续排版；
+/// 实时思考只追加新增片段，用户停在底部时自动跟随。
+struct NeoReasoningScrollText: View {
+    let messageID: UUID
+    let staticText: String
+    let liveBuffer: LiveReasoningBuffer?
+
+    var body: some View {
+        NeoReasoningScrollTextView(messageID: messageID, staticText: staticText,
+                                   liveBuffer: liveBuffer, revision: liveBuffer?.revision ?? 0)
+    }
+}
+
+private struct NeoReasoningScrollTextView: UIViewRepresentable {
+    let messageID: UUID
+    let staticText: String
+    let liveBuffer: LiveReasoningBuffer?
+    let revision: Int
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView(usingTextLayoutManager: false)
+        view.isEditable = false
+        view.isSelectable = true
+        view.isScrollEnabled = true
+        view.alwaysBounceVertical = true
+        view.backgroundColor = .clear
+        view.adjustsFontForContentSizeCategory = true
+        view.textContainerInset = UIEdgeInsets(top: 20, left: 20, bottom: 40, right: 20)
+        view.textContainer.lineFragmentPadding = 0
+        view.layoutManager.allowsNonContiguousLayout = true
+        view.dataDetectorTypes = []
+        context.coordinator.apply(to: view, owner: self)
+        return view
+    }
+
+    func updateUIView(_ uiView: UITextView, context: Context) {
+        context.coordinator.apply(to: uiView, owner: self)
+    }
+
+    @MainActor final class Coordinator {
+        private var streamID: UUID?
+        private var consumedChunks = 0
+        private var wasLive = false
+        private var appliedStatic: String?
+
+        private var attributes: [NSAttributedString.Key: Any] {
+            let style = NSMutableParagraphStyle()
+            style.lineSpacing = 4
+            return [.font: UIFont.preferredFont(forTextStyle: .body), .foregroundColor: UIColor.label, .paragraphStyle: style]
+        }
+
+        func apply(to view: UITextView, owner: NeoReasoningScrollTextView) {
+            if streamID != owner.messageID {
+                streamID = owner.messageID
+                replace(view, text: owner.liveBuffer?.snapshot() ?? owner.staticText)
+                appliedStatic = owner.liveBuffer == nil ? owner.staticText : nil
+                consumedChunks = owner.liveBuffer?.chunkCount ?? 0
+                wasLive = owner.liveBuffer != nil
+                return
+            }
+            if let buffer = owner.liveBuffer {
+                let chunks = buffer.chunks(from: consumedChunks)
+                consumedChunks = buffer.chunkCount
+                wasLive = true
+                guard !chunks.isEmpty else { return }
+                let following = isNearBottom(view)
+                view.textStorage.beginEditing()
+                for chunk in chunks { view.textStorage.append(NSAttributedString(string: chunk, attributes: attributes)) }
+                view.textStorage.endEditing()
+                if following { scrollToBottom(view) }
+            } else if appliedStatic != owner.staticText {
+                // 实时缓冲结束后以持久化全文为准；内容一致时不重排。
+                wasLive = false
+                appliedStatic = owner.staticText
+                if view.textStorage.string != owner.staticText { replace(view, text: owner.staticText) }
+            }
+        }
+
+        private func replace(_ view: UITextView, text: String) {
+            view.textStorage.setAttributedString(NSAttributedString(string: text, attributes: attributes))
+        }
+
+        private func isNearBottom(_ view: UITextView) -> Bool {
+            view.contentOffset.y + view.bounds.height >= view.contentSize.height - 80
+        }
+
+        private func scrollToBottom(_ view: UITextView) {
+            let y = max(-view.adjustedContentInset.top, view.contentSize.height - view.bounds.height + view.adjustedContentInset.bottom)
+            view.setContentOffset(CGPoint(x: 0, y: y), animated: false)
+        }
     }
 }

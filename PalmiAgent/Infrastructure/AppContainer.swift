@@ -4,20 +4,23 @@ import Foundation
 final class AppContainer {
     let bionicPurchases = BionicPurchaseStore()
     lazy var bionicStore: BionicStore = {
-        let store = BionicStore(modelRuntime: llmAPIClient, modelPlanStore: modelPlanStore,
+        let store = BionicStore(modelRuntime: llmAPIClient, modelLibrary: modelLibraryStore,
             notificationService: notificationService, purchases: bionicPurchases,
             imageGeneration: imageGenerationService)
         store.coordinator.professionalExecutor = BionicProfessionalExecutor(
-            workspaceManager: workspaceManager, modelPlans: modelPlanStore,
+            workspaceManager: workspaceManager, modelLibrary: modelLibraryStore,
             permissions: toolPermissionStore, archive: store.archive,
             prepareRuntime: { [unowned self] in _ = self.agentToolExecutor },
             makeAgentLoop: { [unowned self] skills in self.makeAgentLoop(skillRegistry: skills) }
         )
         return store
     }()
-    lazy var imageGenerationService = PalmiImageGenerationService(plans: modelPlanStore, permissions: toolPermissionStore)
+    lazy var imageGenerationService = PalmiImageGenerationService(library: modelLibraryStore, permissions: toolPermissionStore)
 
     init() {
+        // 模型库是唯一事实源：先只读盘点并迁移/reconcile 旧来源，再允许任何模型调用与配置写入。
+        modelLibraryStore.threadSource = workspaceManager
+        modelLibraryStore.bootstrap()
         notificationService.onQuestionResponse = { [weak userQuestionService] id, action, text in
             userQuestionService?.handleNotificationResponse(promptID: id, actionIdentifier: action, text: text)
         }
@@ -51,30 +54,18 @@ final class AppContainer {
     let workspaceManager = WorkspaceManager()
     let chatUnreadStore = ChatUnreadStore()
     lazy var workspaceStore = WorkspaceStore(workspaceManager: workspaceManager)
-    let apiConfigurationStore = APIConfigurationStore()
-    let modelPlanStore = ModelPlanStore()
-    let remoteSearchConfigurationStore = RemoteSearchConfigurationStore()
+    let modelLibraryStore = ModelLibraryStore()
+    lazy var webCapabilityService = WebCapabilityService(library: modelLibraryStore)
     let toolPermissionStore = ToolPermissionStore()
     let toolAuthorizationStore = ToolAuthorizationStore()
     lazy var skillRegistry = SkillRegistry(workspaceManager: workspaceManager)
     let llmSession = URLSession.palmiLLM
     lazy var remoteWebSearchService = RemoteWebSearchService(session: llmSession)
     lazy var lmStudioDiscoveryService = LMStudioDiscoveryService(session: llmSession)
-    lazy var llmToolCallingService = LLMToolCallingService(
-        apiConfigurationStore: apiConfigurationStore,
-        modelRuntime: llmAPIClient
-    )
     lazy var llmAPIClient = LLMAPIClient(
-        apiConfigurationStore: apiConfigurationStore,
         session: llmSession,
         lmStudioDiscoveryService: lmStudioDiscoveryService
     )
-    lazy var apiConnectionValidationService = APIConnectionValidationService(
-        apiConfigurationStore: apiConfigurationStore,
-        session: llmSession,
-        lmStudioDiscoveryService: lmStudioDiscoveryService
-    )
-    lazy var modelCandidateValidationService = ModelCandidateValidationService()
     lazy var workspaceReadService = WorkspaceReadService(workspaceManager: workspaceManager)
     lazy var rawTextReadService = RawTextReadService(workspaceManager: workspaceManager)
     lazy var documentBreakdownService = DocumentBreakdownService(workspaceManager: workspaceManager)
@@ -116,14 +107,12 @@ final class AppContainer {
         webResearchService: webResearchService,
         browserOperatorService: browserOperatorService,
         userQuestionService: userQuestionService,
-        remoteSearchConfigurationStore: remoteSearchConfigurationStore,
-        remoteWebSearchService: remoteWebSearchService,
+        webCapabilityService: webCapabilityService,
         spotlightService: spotlightService,
         foundationModelService: foundationModelService,
         currentDateTimeService: currentDateTimeService,
         alarmService: alarmService,
         ocrService: ocrService,
-        modelPlanStore: modelPlanStore,
         modelRuntime: llmAPIClient,
         bionicStore: bionicStore, imageGeneration: imageGenerationService
     )
@@ -131,7 +120,8 @@ final class AppContainer {
     let toolExecutionCoordinator = ToolExecutionCoordinator()
     lazy var agentToolExecutor = AgentToolExecutor(
         actionExecutor: executor,
-        executionCoordinator: toolExecutionCoordinator
+        executionCoordinator: toolExecutionCoordinator,
+        artifactStore: ToolResultArtifactStore(workspaceManager: workspaceManager)
     )
     lazy var promptComposer = PromptComposer()
     let toolContextProjector = ToolContextProjector()
@@ -143,7 +133,6 @@ final class AppContainer {
         researchStateAssembler: researchStateAssembler,
         taskContextProjector: taskContextProjector
     )
-    lazy var toolArtifactPipeline = ToolArtifactPipeline(modelRuntime: llmAPIClient)
     lazy var contextCompactor = ContextCompactor(
         modelRuntime: llmAPIClient,
         toolContextProjector: toolContextProjector
@@ -158,7 +147,6 @@ final class AppContainer {
             workspaceManager: workspaceManager,
             contextAssembler: contextAssembler,
             contextCompactor: contextCompactor,
-            toolArtifactPipeline: toolArtifactPipeline,
             toolContextProjector: toolContextProjector,
             configuration: .default
         )
@@ -170,14 +158,10 @@ final class AppContainer {
     lazy var store = ManualLabStore(
         actions: ActionCatalog.all,
         executor: executor,
-        apiConfigurationStore: apiConfigurationStore,
-        modelPlanStore: modelPlanStore,
-        remoteSearchConfigurationStore: remoteSearchConfigurationStore,
+        modelLibrary: modelLibraryStore,
+        modelRuntime: llmAPIClient,
         remoteWebSearchService: remoteWebSearchService,
-        llmToolCallingService: llmToolCallingService,
-        apiConnectionValidationService: apiConnectionValidationService,
-        modelCandidateValidationService: modelCandidateValidationService,
-        lmStudioDiscoveryService: lmStudioDiscoveryService,
+        webCapabilityService: webCapabilityService,
         workspaceStore: workspaceStore,
         toolPermissionStore: toolPermissionStore,
         toolAuthorizationStore: toolAuthorizationStore
@@ -197,8 +181,7 @@ final class AppContainer {
         }
         return ChatStore(
             actions: ActionCatalog.all,
-            apiConfigurationStore: apiConfigurationStore,
-            modelPlanStore: modelPlanStore,
+            modelLibrary: modelLibraryStore,
             agentLoop: agentLoop,
             makeAgentLoop: { [unowned self] in self.makeAgentLoop() },
             conversationTitleService: conversationTitleService,

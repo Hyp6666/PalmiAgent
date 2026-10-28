@@ -243,13 +243,13 @@ struct BionicPersonaEditor: View {
     private func save() async {
         busy = true; defer { busy = false }
         do {
-            if let instance { try await store.update(instance, persona: persona, assets: assets, binding: binding, audit: nil) }
+            if let instance { try await store.update(instance, persona: persona, assets: assets, binding: binding) }
             else {
                 var p = participant
                 let trimmed = participant.text("display_name").trimmingCharacters(in: .whitespacesAndNewlines)
                 p["display_name"] = .string(trimmed.isEmpty ? PalmiL10n.tr("bionic.me") : trimmed)
                 guard (1...40).contains(p.text("display_name").count) else { throw BionicFailure("invalidFields") }
-                try await store.create(persona: persona, participant: p, assets: assets, binding: binding, audit: nil)
+                try await store.create(persona: persona, participant: p, assets: assets, binding: binding)
             }
             dismiss()
         } catch { errorText = BionicStore.errorText(error) }

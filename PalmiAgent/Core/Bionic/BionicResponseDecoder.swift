@@ -128,7 +128,7 @@ enum BionicResponseDecoder {
                 evidence["final_content"] = .string(text)
                 let raw = try object(text)
                 let expected: String
-                if input.toolNames.isEmpty { expected = kind == "audit" ? "audit" : "planning" }
+                if input.toolNames.isEmpty { expected = "planning" }
                 else if input.toolNames.count == 1 { expected = input.toolNames[0] }
                 else if input.toolNames.contains("speak"), raw["messages"] != nil { expected = "speak" }
                 else if input.toolNames.contains("recall"), raw["query"] != nil || raw["message_ids"] != nil { expected = "recall" }
@@ -138,7 +138,7 @@ enum BionicResponseDecoder {
                 callID = name == nil ? nil : "local_" + BionicCodec.id()
                 notes.append("complete_structured_json_adapted")
             }
-            let schemaName = name ?? (kind == "audit" ? "audit" : "planning")
+            let schemaName = name ?? "planning"
             try BionicToolbox.validate(payload, name: schemaName)
 
             func checkedMessages(_ rows: [BionicObject]) -> [BionicObject] {

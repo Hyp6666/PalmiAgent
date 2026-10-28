@@ -6,19 +6,22 @@ struct PalmiChatSessionHeader: Codable, Sendable {
     let outputTokens: Int
     var tokenUsage: PalmiTokenUsageSnapshot?
     var taskProgress: PalmiTaskProgressSnapshot?
+    var responsePresentation: PalmiResponsePresentation?
 
     init(
         startedAt: Date,
         finishedAt: Date? = nil,
         outputTokens: Int = 0,
         tokenUsage: PalmiTokenUsageSnapshot? = nil,
-        taskProgress: PalmiTaskProgressSnapshot? = nil
+        taskProgress: PalmiTaskProgressSnapshot? = nil,
+        responsePresentation: PalmiResponsePresentation? = nil
     ) {
         self.startedAt = startedAt
         self.finishedAt = finishedAt
         self.outputTokens = outputTokens
         self.tokenUsage = tokenUsage
         self.taskProgress = taskProgress
+        self.responsePresentation = responsePresentation
     }
 }
 
@@ -247,6 +250,8 @@ struct PalmiChatMessage: Identifiable, Codable, Sendable {
     let attachments: [PalmiChatAttachment]
     let turnPlacement: PalmiChatTurnPlacement
     let foldBehavior: PalmiChatFoldBehavior
+    let responseSegment: PalmiResponseSegment?
+    let richContentVersion: Int?
     let timestamp: Date
 
     init(
@@ -260,6 +265,8 @@ struct PalmiChatMessage: Identifiable, Codable, Sendable {
         attachments: [PalmiChatAttachment] = [],
         turnPlacement: PalmiChatTurnPlacement? = nil,
         foldBehavior: PalmiChatFoldBehavior? = nil,
+        responseSegment: PalmiResponseSegment? = nil,
+        richContentVersion: Int? = nil,
         timestamp: Date = Date()
     ) {
         self.id = id
@@ -272,6 +279,8 @@ struct PalmiChatMessage: Identifiable, Codable, Sendable {
         self.attachments = attachments
         self.turnPlacement = turnPlacement ?? Self.defaultTurnPlacement(for: role, kind: kind)
         self.foldBehavior = foldBehavior ?? Self.defaultFoldBehavior(for: role, kind: kind)
+        self.responseSegment = responseSegment
+        self.richContentVersion = richContentVersion
         self.timestamp = timestamp
     }
 
@@ -286,6 +295,8 @@ struct PalmiChatMessage: Identifiable, Codable, Sendable {
         case attachments
         case turnPlacement
         case foldBehavior
+        case responseSegment
+        case richContentVersion
         case timestamp
     }
 
@@ -326,6 +337,8 @@ struct PalmiChatMessage: Identifiable, Codable, Sendable {
             attachments: attachments,
             turnPlacement: turnPlacement,
             foldBehavior: foldBehavior,
+            responseSegment: try container.decodeIfPresent(PalmiResponseSegment.self, forKey: .responseSegment),
+            richContentVersion: try container.decodeIfPresent(Int.self, forKey: .richContentVersion),
             timestamp: timestamp
         )
     }

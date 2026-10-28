@@ -85,7 +85,6 @@
 "chat.history.new" = "新增聊天";
 "chat.history.rename" = "重新命名聊天";
 "chat.history.renameMessage" = "名稱會立即應用到這則聊天記錄。";
-"chat.history.title" = "聊天記錄";
 "chat.input.placeholder" = "輸入訊息…";
 "chat.suggestion.fill" = "填入";
 "chat.suggestion.fillAccessibility" = "填入推薦的下一句";
@@ -664,7 +663,7 @@
 "tool.authorization.autoReviewPolicy.empty" = "未設定";
 "tool.authorization.autoReviewPolicy.note" = "審查策略僅在選擇「自動審查」時生效。";
 "tool.authorization.autoReviewPolicy.placeholder" = "輸入你的自訂審查策略（可選）。";
-"tool.authorization.autoReviewPolicy.title" = "自訂審查策略";
+"tool.authorization.autoReviewPolicy.title" = "審核規則";
 "tool.authorization.title" = "工具授權";
 "tool.confirmation.allow" = "允许";
 "tool.confirmation.always" = "每次确認";
@@ -778,8 +777,6 @@
 "workspace.nameEditor.message" = "名稱會立即應用到目前專案或對話。";
 "workspace.placeholder.projectName" = "專案名稱";
 "workspace.placeholder.threadName" = "對話名稱";
-"workspace.project.threadCount" = "%d 個對話";
-"workspace.sidebar.section.projects" = "專案工作區";
 "workspace.status.attachmentsAdded" = "已加入 %d 個附件。";
 "workspace.status.chatBelongsToOtherMode" = "該聊天不屬于目前模式。";
 "workspace.status.chatCreated" = "已建立聊天“%@”。";
@@ -946,9 +943,9 @@
 "model.connection.placeholder" = "https://example.com/v1";
 "model.connection.title" = "API";
 "model.connection.advanced" = "上游格式";
-"model.connection.protocol.title" = "上游 API 格式";
+"model.connection.protocol.title" = "協定";
 "model.connection.protocol.footer" = "明確選擇後僅使用該格式；「自動」只會在端點明確不支援時依安全順序協商。";
-"model.connection.protocol.automatic" = "自動（建議）";
+"model.connection.protocol.automatic" = "自動（推薦）";
 "model.connection.protocol.automatic.detail" = "依照下列順序自動協商";
 "model.connection.protocol.responses.detail" = "使用 /responses 請求與回應格式";
 "model.connection.protocol.chatCompletions.detail" = "使用 /chat/completions 請求與回應格式";
@@ -960,7 +957,7 @@
 "model.apiKey.placeholder" = "例如 sk-........";
 "model.apiKey.show" = "顯示 API Key";
 "model.discovery.deselectAll" = "取消全選";
-"model.discovery.fetch" = "取得模型";
+"model.discovery.fetch" = "取得模型列表";
 "model.discovery.importCount" = "匯入（%d）";
 "model.discovery.loading" = "正在取得模型清單…";
 "model.discovery.notSelected" = "未選取";
@@ -968,7 +965,7 @@
 "model.discovery.selected" = "已選取";
 "model.discovery.title" = "可用模型";
 "model.error.loadFailed" = "模型設定讀取失敗：%@";
-"model.error.noUsablePlan" = "目前沒有可用的模型方案，請先匯入模型並選擇主模型。";
+"model.error.noUsablePlan" = "目前沒有可用的模型方案，請先匯入模型並選擇預設模型。";
 "model.error.unresolvedReferences" = "模型設定中有 %d 個引用找不到對應的全域模型。";
 "model.library.deleteGlobalMessage" = "這會從全域模型庫刪除該模型，並清除所有方案中的對應引用。";
 "model.library.deleteGlobalTitle" = "刪除全域模型？";
@@ -999,7 +996,7 @@
 "searchConfiguration.mode.local" = "本地搜尋";
 "searchConfiguration.mode.remote" = "遠端搜尋";
 "searchConfiguration.section" = "搜尋設定";
-"searchConfiguration.local.title" = "本地搜尋";
+"searchConfiguration.local.title" = "搜尋引擎";
 "searchConfiguration.remote.title" = "遠端搜尋";
 "searchConfiguration.remote.required" = "請先新增一個可用的遠端搜尋設定。";
 "remoteSearch.title" = "遠端搜尋";
@@ -1724,8 +1721,8 @@
 "neo.runtime.elapsed.minutesSeconds" = "用時 %d 分 %d 秒";
 "neo.runtime.reasoning" = "思維鏈";
 "neo.runtime.explanation" = "簡要說明";
-"neo.runtime.overview" = "概覽";
-"neo.runtime.result" = "結果";
+"neo.runtime.toolInput" = "工具輸入";
+"neo.runtime.toolOutput" = "工具輸出";
 "neo.runtime.awaitingResult" = "等待工具傳回結果…";
 
 // Bionic background progress
@@ -1809,3 +1806,108 @@
 "askUser.result.answered" = "使用者已回答";
 
 "askUser.result.timeoutDefault" = "逾時預設";
+
+/* 模型库与工具能力 */
+"ml.binding.invalid" = "已失效";
+"ml.capability.text" = "文字生成";
+"ml.capability.toolImages" = "工具結果圖片";
+"ml.capability.tools" = "工具呼叫";
+"ml.conflicts.count" = "%d 處衝突";
+"ml.conflicts.current" = "新版";
+"ml.conflicts.deleted" = "已刪除";
+"ml.conflicts.keepCurrent" = "保留新版";
+"ml.conflicts.legacy" = "舊版";
+"ml.conflicts.title" = "衝突";
+"ml.conflicts.useLegacy" = "採用舊版";
+"ml.connection.custom" = "自訂";
+"ml.connection.label" = "名稱";
+"ml.connection.missing" = "已不存在";
+"ml.connection.modelCount" = "%d 個模型";
+"ml.connection.models" = "模型";
+"ml.connection.preset" = "服務商";
+"ml.credential.failed" = "讀取失敗";
+"ml.credential.locked" = "暫時無法讀取";
+"ml.credential.missing" = "缺少 API Key";
+"ml.credential.none" = "未設定";
+"ml.credential.saved" = "已儲存";
+"ml.delete.references" = "仍在使用：%@";
+"ml.followDefault" = "跟隨預設模型";
+"ml.followDefaultNamed" = "跟隨預設（%@）";
+"ml.library.title" = "模型庫";
+"ml.mainModel" = "預設模型";
+"ml.mainModel.notConfigured" = "尚未選擇預設模型";
+"ml.migration.compatibility" = "退回舊版仍能讀取這些設定；你在任一邊做的修改都會保留。";
+"ml.migration.headline" = "「方案」已整理進模型庫";
+"ml.migration.naming" = "給分組取個名字（選填）";
+"ml.migration.namingDetail" = "不填時顯示介面位址。之後隨時可以在模型庫裡修改。";
+"ml.migration.noPlans" = "沒有舊方案";
+"ml.migration.oldPlans" = "原來的方案";
+"ml.migration.reviewDetail" = "原「輕模型」只保留給權限自動審核，可在工具能力中更改。";
+"ml.migration.source.apiProfile" = "來自更早的 API 設定";
+"ml.migration.source.none" = "原設定裡沒有已選的預設模型";
+"ml.migration.source.plan" = "來自原來的目前方案";
+"ml.migration.source.preV2" = "來自更早版本的方案";
+"ml.migration.subtitle" = "所有模型、連線和金鑰都保留了。現在只需要一個預設模型；看圖和權限審核成了可單獨設定的工具。";
+"ml.migration.title" = "模型設定已升級";
+"ml.migration.visionDetail" = "原「多模態模型」成為看圖工具使用的模型；預設模型能看圖時會直接看圖。";
+"ml.migration.wasActive" = "當時正在使用";
+"ml.model.connectivity" = "檢查連線";
+"ml.model.delete" = "刪除模型";
+"ml.model.discoveryEmpty" = "沒有取得模型";
+"ml.model.providerID" = "模型 ID";
+"ml.model.setMain" = "設為預設模型";
+"ml.session.currentModel" = "目前模型";
+"ml.session.defaultModel" = "預設模型";
+"ml.session.otherModels" = "選擇其他模型";
+"ml.tool.followMain" = "跟隨預設模型";
+"ml.tool.review" = "審核模型";
+"ml.tool.title" = "工具配置";
+"ml.web.local" = "本機";
+
+"ml.unavailable" = "模型庫無法使用";
+"ml.add.model" = "新增模型";
+"ml.add.oauth" = "OAuth 登入";
+"ml.add.confirm" = "新增";
+"ml.optional" = "選填";
+"ml.connection.address" = "位址";
+"ml.connection.account" = "帳號";
+"ml.connection.deleteConfirm" = "刪除「%@」及其中的所有模型？";
+"ml.model.detail" = "模型詳情";
+"ml.model.name" = "備註名稱";
+"ml.model.deleteConfirm" = "刪除「%@」？";
+"ml.review.policyDefault" = "預設";
+"ml.review.policyCustom" = "自訂";
+
+"ml.groups.title" = "API 分組";
+"ml.add.fetch" = "自動取得模型";
+"ml.add.manual" = "手動新增模型";
+"ml.add.import" = "匯入";
+"ml.model.remove" = "移除";
+"ml.model.checkVision" = "檢查視覺";
+"ml.web.remote" = "遠端";
+"ml.web.service" = "服務";
+"ml.web.endpoint" = "介面位址";
+"ml.web.noEndpoint" = "這個介面沒有預設位址，請先在分組裡設定。";
+
+"ml.oauth.groups" = "OAuth 分組";
+"ml.model.imageInput" = "支援圖片輸入";
+"ml.batch.footer" = "此設定為批次設定，單一模型的設定可在匯入後再修改。";
+"ml.fetch.run" = "取得";
+"ml.fetch.selectAll" = "全選";
+"ml.fetch.deselectAll" = "取消全選";
+"ml.check.start" = "檢查";
+"ml.check.visionNotice" = "檢查會向模型傳送一張測試圖片，可能消耗少量額度。檢查通過後會自動開啟「支援圖片輸入」。你也可以不檢查，直接開啟或關閉此選項，但不保證實際使用效果。";
+
+// Interactive answer content
+"ui.expand" = "展開";
+"ui.close" = "關閉";
+"ui.followUp" = "依目前內容繼續";
+"ui.retry" = "重新載入";
+
+"attachment.openOriginal" = "檢視原圖：%@";
+"attachment.previewUnavailable" = "無法預覽";
+
+// Progressive conversation presentation
+"settings.runtime.professionalStyle" = "專業模式的執行過程";
+"settings.runtime.progressiveScope" = "聊天模式一律使用 Neo 顯示過程，回答會持續保留。此處選擇僅影響專業模式。";
+"chat.runtime.notice" = "執行提示";

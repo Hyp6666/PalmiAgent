@@ -85,7 +85,6 @@
 "chat.history.new" = "新規チャット";
 "chat.history.rename" = "チャット名を変更";
 "chat.history.renameMessage" = "名前はこのチャット履歴にすぐ適用されます。";
-"chat.history.title" = "チャット履歴";
 "chat.input.placeholder" = "メッセージを入力…";
 "chat.suggestion.fill" = "入力";
 "chat.suggestion.fillAccessibility" = "おすすめの次のメッセージを入力";
@@ -664,7 +663,7 @@
 "tool.authorization.autoReviewPolicy.empty" = "未設定";
 "tool.authorization.autoReviewPolicy.note" = "審査方針は「自動審査」を選択した場合のみ有効です。";
 "tool.authorization.autoReviewPolicy.placeholder" = "独自の審査方針を入力（任意）。";
-"tool.authorization.autoReviewPolicy.title" = "カスタム審査方針";
+"tool.authorization.autoReviewPolicy.title" = "審査ルール";
 "tool.authorization.title" = "ツール権限";
 "tool.confirmation.allow" = "許可";
 "tool.confirmation.always" = "毎回確認";
@@ -778,8 +777,6 @@
 "workspace.nameEditor.message" = "名前は現在のプロジェクトまたはセッションにすぐ適用されます。";
 "workspace.placeholder.projectName" = "プロジェクト名";
 "workspace.placeholder.threadName" = "セッション名";
-"workspace.project.threadCount" = "%d 件のセッション";
-"workspace.sidebar.section.projects" = "プロジェクトワークスペース";
 "workspace.status.attachmentsAdded" = "添付ファイルを %d 個追加しました。";
 "workspace.status.chatBelongsToOtherMode" = "このチャットは現在のモードに属していません。";
 "workspace.status.chatCreated" = "チャット “%@” を作成しました。";
@@ -946,7 +943,7 @@
 "model.connection.placeholder" = "https://example.com/v1";
 "model.connection.title" = "API";
 "model.connection.advanced" = "上流形式";
-"model.connection.protocol.title" = "上流 API 形式";
+"model.connection.protocol.title" = "プロトコル";
 "model.connection.protocol.footer" = "明示的に選択した場合はその形式だけを使用します。自動では、エンドポイントが未対応を明確に返した場合にのみ形式を切り替えます。";
 "model.connection.protocol.automatic" = "自動（推奨）";
 "model.connection.protocol.automatic.detail" = "以下の順序で自動ネゴシエーション";
@@ -960,7 +957,7 @@
 "model.apiKey.placeholder" = "例：sk-........";
 "model.apiKey.show" = "API Key を表示";
 "model.discovery.deselectAll" = "選択をすべて解除";
-"model.discovery.fetch" = "モデルを取得";
+"model.discovery.fetch" = "モデル一覧を取得";
 "model.discovery.importCount" = "読み込む（%d）";
 "model.discovery.loading" = "モデル一覧を取得中…";
 "model.discovery.notSelected" = "未選択";
@@ -968,7 +965,7 @@
 "model.discovery.selected" = "選択済み";
 "model.discovery.title" = "利用可能なモデル";
 "model.error.loadFailed" = "モデル設定を読み込めませんでした: %@";
-"model.error.noUsablePlan" = "利用可能なモデルプランがありません。モデルを読み込み、主モデルを選択してください。";
+"model.error.noUsablePlan" = "利用可能なモデルプランがありません。モデルを読み込み、既定のモデルを選択してください。";
 "model.error.unresolvedReferences" = "%d 件の参照に対応するグローバルモデルがありません。";
 "model.library.deleteGlobalMessage" = "グローバルライブラリからモデルを削除し、すべてのプランの参照も解除します。";
 "model.library.deleteGlobalTitle" = "グローバルモデルを削除しますか？";
@@ -999,7 +996,7 @@
 "searchConfiguration.mode.local" = "ローカル検索";
 "searchConfiguration.mode.remote" = "リモート検索";
 "searchConfiguration.section" = "検索設定";
-"searchConfiguration.local.title" = "ローカル検索";
+"searchConfiguration.local.title" = "検索エンジン";
 "searchConfiguration.remote.title" = "リモート検索";
 "searchConfiguration.remote.required" = "先に使用可能なリモート検索設定を追加してください。";
 "remoteSearch.title" = "リモート検索";
@@ -1724,8 +1721,8 @@
 "neo.runtime.elapsed.minutesSeconds" = "経過 %d分 %d秒";
 "neo.runtime.reasoning" = "推論";
 "neo.runtime.explanation" = "説明";
-"neo.runtime.overview" = "概要";
-"neo.runtime.result" = "結果";
+"neo.runtime.toolInput" = "ツール入力";
+"neo.runtime.toolOutput" = "ツール出力";
 "neo.runtime.awaitingResult" = "ツールの結果を待っています…";
 
 // Bionic background progress
@@ -1809,3 +1806,108 @@
 "askUser.result.answered" = "回答済み";
 
 "askUser.result.timeoutDefault" = "タイムアウトによる既定の選択";
+
+/* 模型库与工具能力 */
+"ml.binding.invalid" = "無効";
+"ml.capability.text" = "テキスト生成";
+"ml.capability.toolImages" = "ツール結果の画像";
+"ml.capability.tools" = "ツール呼び出し";
+"ml.conflicts.count" = "%d 件の競合";
+"ml.conflicts.current" = "新バージョン";
+"ml.conflicts.deleted" = "削除済み";
+"ml.conflicts.keepCurrent" = "新バージョンを残す";
+"ml.conflicts.legacy" = "旧バージョン";
+"ml.conflicts.title" = "競合";
+"ml.conflicts.useLegacy" = "旧バージョンを使う";
+"ml.connection.custom" = "カスタム";
+"ml.connection.label" = "名前";
+"ml.connection.missing" = "存在しません";
+"ml.connection.modelCount" = "%d 個のモデル";
+"ml.connection.models" = "モデル";
+"ml.connection.preset" = "プロバイダ";
+"ml.credential.failed" = "読み取りに失敗";
+"ml.credential.locked" = "一時的に読み取れません";
+"ml.credential.missing" = "API キーがありません";
+"ml.credential.none" = "未設定";
+"ml.credential.saved" = "保存済み";
+"ml.delete.references" = "使用中：%@";
+"ml.followDefault" = "既定のモデルに従う";
+"ml.followDefaultNamed" = "既定に従う（%@）";
+"ml.library.title" = "モデルライブラリ";
+"ml.mainModel" = "既定のモデル";
+"ml.mainModel.notConfigured" = "既定のモデル未選択";
+"ml.migration.compatibility" = "旧バージョンでもこの設定を読めます。どちらで変更しても保持されます。";
+"ml.migration.headline" = "「プラン」はモデルライブラリに統合されました";
+"ml.migration.naming" = "グループに名前を付ける（任意）";
+"ml.migration.namingDetail" = "未入力ならアドレスを表示します。後からいつでも変更できます。";
+"ml.migration.noPlans" = "以前のプランはありません";
+"ml.migration.oldPlans" = "以前のプラン";
+"ml.migration.reviewDetail" = "以前の軽量モデルは権限の自動審査にのみ残り、ツール機能で変更できます。";
+"ml.migration.source.apiProfile" = "以前の API 設定から";
+"ml.migration.source.none" = "以前の設定では既定のモデル未選択";
+"ml.migration.source.plan" = "以前の使用中プランから";
+"ml.migration.source.preV2" = "以前のバージョンのプランから";
+"ml.migration.subtitle" = "モデル、接続、キーはすべて保持されました。既定のモデルは1つだけになり、画像理解と権限審査は個別に設定できるツールになりました。";
+"ml.migration.title" = "モデル設定を更新しました";
+"ml.migration.visionDetail" = "以前のマルチモーダルモデルは画像理解ツールのモデルになりました。既定のモデルが画像を読めるなら直接読みます。";
+"ml.migration.wasActive" = "使用中でした";
+"ml.model.connectivity" = "接続を確認";
+"ml.model.delete" = "モデルを削除";
+"ml.model.discoveryEmpty" = "モデルが返されませんでした";
+"ml.model.providerID" = "モデル ID";
+"ml.model.setMain" = "既定のモデルに設定";
+"ml.session.currentModel" = "現在のモデル";
+"ml.session.defaultModel" = "既定のモデル";
+"ml.session.otherModels" = "ほかのモデルを選択";
+"ml.tool.followMain" = "既定のモデルに従う";
+"ml.tool.review" = "審査モデル";
+"ml.tool.title" = "ツール設定";
+"ml.web.local" = "本機";
+
+"ml.unavailable" = "モデルライブラリを利用できません";
+"ml.add.model" = "モデルを追加";
+"ml.add.oauth" = "OAuth ログイン";
+"ml.add.confirm" = "追加";
+"ml.optional" = "任意";
+"ml.connection.address" = "URL";
+"ml.connection.account" = "アカウント";
+"ml.connection.deleteConfirm" = "「%@」とそのすべてのモデルを削除しますか？";
+"ml.model.detail" = "モデルの詳細";
+"ml.model.name" = "メモ名";
+"ml.model.deleteConfirm" = "「%@」を削除しますか？";
+"ml.review.policyDefault" = "デフォルト";
+"ml.review.policyCustom" = "カスタム";
+
+"ml.groups.title" = "API グループ";
+"ml.add.fetch" = "モデルを自動取得";
+"ml.add.manual" = "モデルを手動で追加";
+"ml.add.import" = "読み込む";
+"ml.model.remove" = "削除";
+"ml.model.checkVision" = "ビジョンを確認";
+"ml.web.remote" = "リモート";
+"ml.web.service" = "サービス";
+"ml.web.endpoint" = "エンドポイント";
+"ml.web.noEndpoint" = "このインターフェースには既定のエンドポイントがありません。";
+
+"ml.oauth.groups" = "OAuth グループ";
+"ml.model.imageInput" = "画像入力に対応";
+"ml.batch.footer" = "この設定は一括で適用されます。個別の設定は読み込み後に変更できます。";
+"ml.fetch.run" = "取得";
+"ml.fetch.selectAll" = "すべて選択";
+"ml.fetch.deselectAll" = "選択を解除";
+"ml.check.start" = "確認";
+"ml.check.visionNotice" = "テスト画像をモデルに送信するため、少量の利用枠を消費する場合があります。成功すると「画像入力に対応」が自動でオンになります。確認せずに直接オン／オフすることもできますが、実際の動作は保証されません。";
+
+// Interactive answer content
+"ui.expand" = "展開";
+"ui.close" = "閉じる";
+"ui.followUp" = "この内容で続ける";
+"ui.retry" = "再読み込み";
+
+"attachment.openOriginal" = "元の画像を表示：%@";
+"attachment.previewUnavailable" = "プレビューできません";
+
+// Progressive conversation presentation
+"settings.runtime.professionalStyle" = "プロモードの実行表示";
+"settings.runtime.progressiveScope" = "チャットでは常に Neo を使用し、各段階の回答を表示したままにします。この設定はプロモードにのみ適用されます。";
+"chat.runtime.notice" = "実行状況";

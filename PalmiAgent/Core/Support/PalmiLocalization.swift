@@ -85,29 +85,6 @@ enum PalmiL10n {
     }
 }
 
-extension ModelPlanSlot {
-    var localizedTitle: String {
-        switch self {
-        case .primary:
-            PalmiL10n.tr("model.slot.primary")
-        case .multimodal:
-            PalmiL10n.tr("model.slot.multimodal")
-        case .lightweight:
-            PalmiL10n.tr("model.slot.lightweight")
-        }
-    }
-
-    var localizedListTitle: String {
-        switch self {
-        case .primary:
-            PalmiL10n.tr("model.slot.primaryCandidates")
-        case .multimodal:
-            PalmiL10n.tr("model.slot.multimodalCandidates")
-        case .lightweight:
-            PalmiL10n.tr("model.slot.lightweightCandidates")
-        }
-    }
-}
 
 extension WorkspaceAttachmentSource {
     var localizedTitle: String {

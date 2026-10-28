@@ -74,7 +74,8 @@ final class NeoRuntimeTimelineTests: XCTestCase {
         XCTAssertTrue(PalmiReasoningUIStyle.neo.applies(to: .chat))
         XCTAssertTrue(PalmiReasoningUIStyle.neo.applies(to: .professional))
         XCTAssertFalse(PalmiReasoningUIStyle.neo.applies(to: .bionic))
-        XCTAssertFalse(PalmiReasoningUIStyle.hardcore.applies(to: .chat))
+        XCTAssertTrue(PalmiReasoningUIStyle.hardcore.applies(to: .chat))
+        XCTAssertFalse(PalmiReasoningUIStyle.hardcore.applies(to: .professional))
     }
 
     func testThoughtFailuresAndPhaseThoughtFailuresUseTerminalFailureState() {

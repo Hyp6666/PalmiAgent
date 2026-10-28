@@ -173,6 +173,8 @@ struct OpenAIResponsesDecodedResult: Sendable {
     let toolCalls: [OpenAIResponsesToolCall]
     let tokenUsage: AgentModelTokenUsage
     let appliedReasoningEffort: String?
+    var outputWasTruncated: Bool = false
+    var wasRefused: Bool = false
 }
 
 enum OpenAIResponsesCodecError: Error, Equatable {
@@ -199,6 +201,9 @@ enum OpenAIResponsesCodec {
             || object["object"]?.stringValue == "response"
         guard hasResponsesEnvelope else {
             throw OpenAIResponsesCodecError.invalidEnvelope
+        }
+        if ["failed", "cancelled"].contains(object["status"]?.stringValue ?? "") {
+            throw OpenAIResponsesCodecError.remoteFailure(object["error"]?.objectValue?["message"]?.stringValue)
         }
         let output = object["output"]?.arrayValue ?? []
         var textParts: [String] = []
@@ -245,7 +250,12 @@ enum OpenAIResponsesCodec {
             reasoningDetails: reasoningItems.isEmpty ? nil : .array(reasoningItems),
             toolCalls: toolCalls,
             tokenUsage: usage,
-            appliedReasoningEffort: object["reasoning"]?.objectValue?["effort"]?.stringValue
+            appliedReasoningEffort: object["reasoning"]?.objectValue?["effort"]?.stringValue,
+            outputWasTruncated: object["status"]?.stringValue == "incomplete",
+            wasRefused: object["incomplete_details"]?.objectValue?["reason"]?.stringValue == "content_filter"
+                || output.contains { item in
+                    (item.objectValue?["content"]?.arrayValue ?? []).contains { $0.objectValue?["type"]?.stringValue == "refusal" }
+                }
         )
     }
 
@@ -270,6 +280,7 @@ enum OpenAIResponsesCodec {
                   let type = object["type"]?.stringValue,
                   acceptedTypes.contains(type) else { return nil }
             return object["text"]?.stringValue
+                ?? (type == "refusal" ? object["refusal"]?.stringValue : nil)
         }
     }
 
@@ -318,6 +329,8 @@ struct OpenAIResponsesStreamAccumulator: Sendable {
     private var tools: [String: ToolAccumulator] = [:]
     private var tokenUsage = AgentModelTokenUsage.empty
     private var appliedReasoningEffort: String?
+    private var outputWasTruncated = false
+    private var wasRefused = false
     private(set) var sawTerminalEvent = false
 
     mutating func consume(payload: String) throws -> OpenAIResponsesStreamDelta {
@@ -332,6 +345,7 @@ struct OpenAIResponsesStreamAccumulator: Sendable {
 
         switch type {
         case "response.output_text.delta", "response.refusal.delta":
+            if type == "response.refusal.delta" { wasRefused = true }
             let delta = object["delta"]?.stringValue ?? ""
             text += delta
             return OpenAIResponsesStreamDelta(text: delta.isEmpty ? nil : delta, reasoningText: nil)
@@ -373,6 +387,7 @@ struct OpenAIResponsesStreamAccumulator: Sendable {
                 }
             }
         case "response.completed", "response.incomplete":
+            if type == "response.incomplete" { outputWasTruncated = true }
             sawTerminalEvent = true
             if let response = object["response"] {
                 merge(try OpenAIResponsesCodec.decodeResponse(response))
@@ -411,12 +426,15 @@ struct OpenAIResponsesStreamAccumulator: Sendable {
             reasoningDetails: reasoningItems.isEmpty ? nil : .array(reasoningItems),
             toolCalls: calls,
             tokenUsage: tokenUsage,
-            appliedReasoningEffort: appliedReasoningEffort
+            appliedReasoningEffort: appliedReasoningEffort,
+            outputWasTruncated: outputWasTruncated, wasRefused: wasRefused
         )
     }
 
     private mutating func merge(_ result: OpenAIResponsesDecodedResult) {
-        if text.isEmpty { text = result.text }
+        outputWasTruncated = outputWasTruncated || result.outputWasTruncated
+        wasRefused = wasRefused || result.wasRefused
+        if !result.text.isEmpty { text = result.text }
         if reasoningText.isEmpty { reasoningText = result.reasoningText ?? "" }
         if case .array(let values) = result.reasoningDetails {
             values.forEach { appendReasoningItem($0) }
@@ -860,22 +878,22 @@ enum OpenAIResponsesTransport {
 }
 
 extension JSONRuntimeValue {
-    var objectValue: [String: JSONRuntimeValue]? {
+    nonisolated var objectValue: [String: JSONRuntimeValue]? {
         guard case .object(let value) = self else { return nil }
         return value
     }
 
-    var arrayValue: [JSONRuntimeValue]? {
+    nonisolated var arrayValue: [JSONRuntimeValue]? {
         guard case .array(let value) = self else { return nil }
         return value
     }
 
-    var stringValue: String? {
+    nonisolated var stringValue: String? {
         guard case .string(let value) = self else { return nil }
         return value
     }
 
-    var intValue: Int? {
+    nonisolated var intValue: Int? {
         guard case .number(let value) = self else { return nil }
         return Int(value)
     }

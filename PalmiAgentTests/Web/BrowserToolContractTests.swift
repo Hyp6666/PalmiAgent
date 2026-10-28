@@ -95,7 +95,7 @@ final class BrowserToolContractTests: XCTestCase {
         let result = observation.formatted()
         XCTAssertTrue(result.hasPrefix("observation_id: o7\nurl: https://example.com   title: 标题\nviewport: 390x844  scroll: 1200/5400"))
         XCTAssertLessThanOrEqual(result.count, BrowserOutputLimits.maxCharacters)
-        XCTAssertEqual(LLMGuardrails.compactToolDetailsForModel(result, actionID: .browser), result)
+        XCTAssertLessThanOrEqual(result.utf8.count, ToolResultBudget.byteBudget(for: .browser) ?? .max)
         XCTAssertLessThanOrEqual(result.components(separatedBy: "[e1]").count - 1, 60)
         XCTAssertTrue(result.contains("个元素未列出"))
         XCTAssertEqual(observation.formatted(maxCharacters: 20_000).components(separatedBy: "[e1]").count - 1, 60)

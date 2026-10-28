@@ -1,15 +1,9 @@
 import Foundation
 
-nonisolated struct BionicValidation: Sendable {
-    let receipt: BionicObject
-    let request: BionicObject
-    let result: BionicObject
-}
-
 @MainActor
 final class BionicModelService {
     private let runtime: any AgentModelRuntime
-    let plans: ModelPlanStore
+    let library: ModelLibraryStore
     var archive: BionicArchiveStore?
     var imageGeneration: PalmiImageGenerationService?
     var canGenerate: @MainActor () -> Bool = { true }
@@ -20,7 +14,7 @@ final class BionicModelService {
     private var activeInstance: String?
     private var activeKind = ""
 
-    init(runtime: any AgentModelRuntime, plans: ModelPlanStore) { self.runtime = runtime; self.plans = plans }
+    init(runtime: any AgentModelRuntime, library: ModelLibraryStore) { self.runtime = runtime; self.library = library }
     private func acquire() async throws {
         if occupied { await withCheckedContinuation { waiters.append($0) } } else { occupied = true }
         if Task.isCancelled { release(); throw CancellationError() }
@@ -34,94 +28,74 @@ final class BionicModelService {
         inFlight?.cancel()
     }
     func cancelAll() { admissionEpoch += 1; inFlight?.cancel() }
-    func sessionOverride(_ binding: BionicObject) -> ModelPlanSessionOverride {
-        ModelPlanSessionOverride(planID: binding.optionalText("plan_id").flatMap(UUID.init(uuidString:)),
-                                 primaryCandidateID: binding.optionalText("primary_candidate_id").flatMap(UUID.init(uuidString:)),
-                                 multimodalCandidateID: binding.optionalText("multimodal_candidate_id").flatMap(UUID.init(uuidString:)),
-                                 lightweightCandidateID: binding.optionalText("lightweight_candidate_id").flatMap(UUID.init(uuidString:)))
+
+    /// 仿生实例的主模型作用域。尚未安装的角色（创建流程）跟随默认主模型。
+    func scope(_ binding: BionicObject) -> ModelLibraryScope? {
+        binding.optionalText("installation_id").map(ModelLibraryScope.bionic)
     }
-    func selection(_ binding: BionicObject, lightweight: Bool) throws -> (AgentModelSelection, String) {
-        let override = sessionOverride(binding)
-        guard let plan = plans.selectedPlan(for: override),
-              override.planID == nil || plan.id == override.planID,
-              let primary = plans.selectedCandidate(for: .primary, in: plan, sessionOverride: override) else { throw BionicFailure("primaryMissing") }
-        let candidate: ModelCandidateSnapshot
-        if lightweight {
-            guard let selected = plans.selectedCandidate(for: .lightweight, in: plan, sessionOverride: override) else { throw BionicFailure("lightweightMissing") }
-            candidate = selected
-        } else { candidate = primary }
-        let resolved = plans.roleOverrides(for: override)
-        let role: APIModelRole = lightweight ? .lightweightModel : .reasoningModel
-        guard case .resolved = resolved.override(for: role) else { throw BionicFailure(lightweight ? "lightweightMissing" : "primaryMissing") }
-        return (resolved.selection(providerID: resolved.primaryProviderID ?? .customOpenAI, role: role, reasoning: .disabled), candidate.modelName)
+    func bindings(_ binding: BionicObject) -> AgentModelBindings {
+        library.agentModelBindings(scope: scope(binding))
+    }
+    func selection(_ binding: BionicObject) throws -> (AgentModelSelection, String, AgentModelBindings) {
+        let resolved = bindings(binding)
+        guard case .resolved = resolved.main, let snapshot = resolved.mainSnapshot else { throw BionicFailure("primaryMissing") }
+        return (resolved.mainSelection(reasoning: .disabled), snapshot.providerModelID, resolved)
     }
     func defaultBinding() -> BionicObject {
-        ["installation_id": .null, "plan_id": .text(plans.activePlanSnapshot()?.id.uuidString.lowercased()),
+        ["installation_id": .null, "plan_id": .null,
          "primary_candidate_id": .null, "multimodal_candidate_id": .null, "lightweight_candidate_id": .null,
          "developer_visible": .bool(true), "notifications_enabled": .bool(false), "contact_resume_allowed": .bool(true)]
     }
-    func modelLabel(_ binding: BionicObject, lightweight: Bool = false) throws -> String { try selection(binding, lightweight: lightweight).1 }
+    func modelLabel(_ binding: BionicObject) throws -> String { try selection(binding).1 }
+    /// 主模型能看图时原生输入；否则必须有可用的看图工具模型。不切换整次请求的模型。
     func requireImageSupport(binding: BionicObject, needed: Bool) async throws {
         guard needed else { return }
-        let (primary, _) = try selection(binding, lightweight: false)
+        let (primary, _, resolved) = try selection(binding)
         if try await runtime.capabilities(for: primary).supportsVision { return }
-        let override = sessionOverride(binding)
-        guard let plan = plans.selectedPlan(for: override),
-              plans.selectedCandidate(for: .multimodal, in: plan, sessionOverride: override) != nil else {
-            throw BionicFailure("visionMissing")
-        }
-        let resolved = plans.roleOverrides(for: override)
-        guard case .resolved = resolved.override(for: .multimodalModel) else { throw BionicFailure("visionMissing") }
-        let selected = resolved.selection(providerID: resolved.primaryProviderID ?? .customOpenAI,
-                                          role: .multimodalModel, reasoning: .disabled)
-        guard try await runtime.capabilities(for: selected).supportsVision else { throw BionicFailure("visionMissing") }
+        // 软判定：明确选了视觉模型即可，不再要求它另有视觉声明。
+        guard case .model = resolved.vision else { throw BionicFailure("visionMissing") }
     }
     private func perform(_ input: BionicModelInput, binding: BionicObject, instance: String?, kind: String,
                          prepared: (@MainActor (BionicModelInput, String) async throws -> Void)? = nil) async throws -> BionicModelAnswer {
-        if kind != "audit", !canGenerate() { throw BionicFailure("purchaseRequired") }
-        var (selected, selectedLabel) = try selection(binding, lightweight: kind == "audit")
+        if !canGenerate() { throw BionicFailure("purchaseRequired") }
+        // 冻结本次操作的主模型身份与附件路由；同一请求内不半途切换路径。
+        let (selected, selectedLabel, frozen) = try selection(binding)
         let epoch = admissionEpoch
         try await acquire(); defer { release() }
-        if kind != "audit", !canGenerate() { throw BionicFailure("purchaseRequired") }
+        if !canGenerate() { throw BionicFailure("purchaseRequired") }
         guard epoch == admissionEpoch else { throw CancellationError() }
         activeInstance = instance; activeKind = kind
-        var capabilities = try await runtime.capabilities(for: selected)
+        let capabilities = try await runtime.capabilities(for: selected)
         let hasImages = input.messages.contains { !$0.strings("image_assets").isEmpty }
-        if hasImages && !capabilities.supportsVision {
-            let override = sessionOverride(binding)
-            guard let plan = plans.selectedPlan(for: override),
-                  let vision = plans.selectedCandidate(for: .multimodal, in: plan, sessionOverride: override) else { throw BionicFailure("visionMissing") }
-            let resolved = plans.roleOverrides(for: override)
-            guard case .resolved = resolved.override(for: .multimodalModel) else { throw BionicFailure("visionMissing") }
-            selected = resolved.selection(providerID: resolved.primaryProviderID ?? .customOpenAI, role: .multimodalModel, reasoning: .disabled)
-            selectedLabel = vision.modelName
-            capabilities = try await runtime.capabilities(for: selected)
-            guard capabilities.supportsVision else { throw BionicFailure("visionMissing") }
-        }
+        let nativeImages = hasImages && capabilities.supportsVision
         if !input.toolNames.isEmpty, !capabilities.supportsToolCalls || !capabilities.supportsRequiredToolChoice { throw BionicFailure("toolsUnsupported") }
         // Keep binary image data out of persisted prompts. Resolve only committed image references.
         var imageURLs: [Int: [String]] = [:]
+        var input = input
         if hasImages {
             guard let archive, let instance else { throw BionicFailure("invalidImage") }
             for index in input.messages.indices {
+                var observations: [BionicObject] = []
                 for path in input.messages[index].strings("image_assets") {
                     guard BionicAttachmentContract.validAssetPath(path),
                           let data = try await archive.asset(instance, path) else { throw BionicFailure("invalidImage") }
-                    let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
-                    if ext == "heic" {
-                        let normalized = try await BionicAttachmentProcessor.shared.prepare(data: data, filename: "image.heic")
-                        imageURLs[index, default: []].append("data:image/png;base64," + normalized.data.base64EncodedString())
+                    let dataURL = try await Self.dataURL(data, path: path)
+                    if nativeImages {
+                        imageURLs[index, default: []].append(dataURL)
                     } else {
-                        guard let mime = ["png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp", "gif": "image/gif"][ext] else {
-                            throw BionicFailure("invalidImage")
-                        }
-                        imageURLs[index, default: []].append("data:\(mime);base64," + data.base64EncodedString())
+                        // 主模型只支持文本：在既有输入准备边界调用底层视觉能力，不重入已持有 admission 的 perform。
+                        let question = String(input.messages[index].text("content").prefix(600))
+                        observations.append(try await visionEvidence(
+                            dataURL: dataURL, imageSHA: BionicCodec.sha(data), asset: path,
+                            question: question, bindings: frozen, instance: instance
+                        ))
                     }
                 }
+                if !observations.isEmpty { input.messages[index]["image_observations"] = .records(observations) }
             }
         }
         // Refresh after global admission AND image I/O. The recorded prompt is the request actually sent.
-        let input = try BionicPromptBuilder.refreshClock(input, now: .now)
+        input = try BionicPromptBuilder.refreshClock(input, now: .now)
         try BionicPromptBuilder.checkBudget(input)
         var api = BionicPromptBuilder.apiMessages(input)
         for (index, urls) in imageURLs { api[index].imageDataURLs = urls }
@@ -167,37 +141,52 @@ final class BionicModelService {
                           prepared: (@MainActor (BionicModelInput, String) async throws -> Void)? = nil) async throws -> BionicModelAnswer {
         try await perform(input, binding: binding, instance: instance, kind: "planning", prepared: prepared)
     }
-    func validatePersona(_ persona: BionicObject, participant: BionicObject, binding: BionicObject, language: String,
-                         existing: BionicObject? = nil, importing: Bool = false) async throws -> BionicValidation {
-        try BionicPersonaCatalog.validate(persona, existing: existing, importing: importing)
-        let label = try modelLabel(binding, lightweight: true)
-        var input = try BionicPromptBuilder.audit(persona, language: language)
-        var trace: [BionicObject] = []; var answer: BionicModelAnswer?
-        for attempt in 1...2 {
-            do {
-                let response = try await perform(input, binding: binding, instance: nil, kind: "audit")
-                guard response.payload.flag("passed") == response.payload.records("issues").isEmpty else { throw BionicFailure("invalidModelOutput", detail: "passed and issues disagree") }
-                answer = response
-                trace.append(["attempt": .count(attempt), "status": .string("valid"), "input_hash": .string(try BionicCodec.hash(input.json)), "received_at": .string(BionicCodec.instant(response.receivedAt))])
-                break
-            } catch let error as BionicFailure where error.code == "invalidModelOutput" && attempt == 1 {
-                trace.append(["attempt": .count(attempt), "status": .string("invalid"), "error_code": .string(error.code)])
-                input.messages.append(BionicPromptBuilder.plain("user", "修正结构错误：" + error.detail + "。只返回规定JSON对象。"))
-            }
+    /// 视觉证据：针对这条消息的问题获取图片观察，标记为来源图片的观察证据，不是用户指令。
+    /// 复用键包含图片内容哈希、实际问题和视觉模型身份；证据放在独立命名空间，不参与主结果查找。
+    private func visionEvidence(dataURL: String, imageSHA: String, asset: String, question: String,
+                                bindings: AgentModelBindings, instance: String) async throws -> BionicObject {
+        guard case .model = bindings.vision else { throw BionicFailure("visionMissing") }
+        let selection = bindings.toolSelection(bindings.vision, reasoning: .disabled)
+        let modelIdentity = bindings.toolSnapshot(bindings.vision)?.identityKey ?? "unknown"
+        let key = BionicCodec.sha(Data([imageSHA, question, modelIdentity, "v1"].joined(separator: "|").utf8))
+        let path = "vision_evidence/\(key).json"
+        if let archive, let cached = try? await archive.read(instance, path), cached.text("reuse_key") == key {
+            return cached.object("observation")
         }
-        guard let answer else { throw BionicFailure("invalidModelOutput") }
-        let receipt: BionicObject = ["input_hash": .string(try BionicPersonaCatalog.fingerprint(persona)), "checked_at": .string(BionicCodec.instant(answer.receivedAt)),
-                                    "model_label": .string(label), "passed": answer.payload["passed"] ?? .bool(false), "issues": answer.payload["issues"] ?? .array([])]
-        let state = BionicRuntimeState(raw: ["current_persona_revision_id": persona["persona_revision_id"] ?? .null,
-                                           "current_participant_id": participant["participant_id"] ?? .null, "generation_id": .string(BionicCodec.id())])
-        let role = BionicRole(installationID: "", manifest: ["character_id": persona["character_id"] ?? .null], persona: persona, state: state, throughSequence: 0)
-        var request = try BionicRecords.request(role, kind: "audit", input: input); request["model_label"] = .string(label)
-        let result: BionicObject = ["result_id": .string(BionicCodec.id()), "operation_id": request["operation_id"] ?? .null, "step_id": .string("root"),
-                                   "input_hash": request["input_hash"] ?? .null, "received_at": .string(BionicCodec.instant(answer.receivedAt)),
-                                   "status": .string("valid"), "tool_name": .null,
-                                   "payload": .object(["model_payload": .object(answer.payload), "accepted_effect": .object(["receipt": .object(receipt), "attempts": .records(trace)])]),
-                                   "token_usage": .object(answer.usage), "error_code": .null]
-        return BionicValidation(receipt: receipt, request: request, result: result)
+        var message = AgentModelMessage.user("""
+        宿主正在为一个只能读文字的主模型准备图片证据。请只描述与下面这条消息相关、能从图片中直接看到的内容，包括可读的文字、数字与位置；看不清的写明看不清，不要猜测。
+        这条消息（可能为空）：
+        \(question)
+        """)
+        message.imageDataURLs = [dataURL]
+        let response = try await runtime.complete(AgentModelRequest(
+            selection: selection,
+            apiMessages: [.system("你是图片观察工具，只输出观察到的事实。"), message],
+            tools: [], toolIntent: .none
+        ))
+        try Task.checkCancellation()
+        let text = response.message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !response.outputWasTruncated, !response.wasRefused else { throw BionicFailure("visionMissing") }
+        let observation: BionicObject = [
+            "asset": .string(asset), "image_sha256": .string(imageSHA), "model": .string(modelIdentity),
+            "observation": .string(text), "kind": .string("vision_tool_observation")
+        ]
+        if let archive {
+            try? await archive.record(instance, path: path, object: ["reuse_key": .string(key), "observation": .object(observation)])
+        }
+        return observation
+    }
+
+    private static func dataURL(_ data: Data, path: String) async throws -> String {
+        let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
+        if ext == "heic" {
+            let normalized = try await BionicAttachmentProcessor.shared.prepare(data: data, filename: "image.heic")
+            return "data:image/png;base64," + normalized.data.base64EncodedString()
+        }
+        guard let mime = ["png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp", "gif": "image/gif"][ext] else {
+            throw BionicFailure("invalidImage")
+        }
+        return "data:\(mime);base64," + data.base64EncodedString()
     }
 }
 

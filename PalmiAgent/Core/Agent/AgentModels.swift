@@ -86,20 +86,26 @@ struct AgentMessage: Identifiable, Codable, Sendable {
     let blocks: [AgentContentBlock]
     let nativeReasoning: AgentNativeReasoningPayload?
     let timestamp: Date
+    /// 用户图片的稳定资产引用（工作区相对路径）。可选字段：旧读取器忽略，不改动必解码的内容块枚举。
+    let attachedImagePaths: [String]?
 
     init(
         id: UUID = UUID(),
         role: AgentMessageRole,
         blocks: [AgentContentBlock],
         nativeReasoning: AgentNativeReasoningPayload? = nil,
-        timestamp: Date = .now
+        timestamp: Date = .now,
+        attachedImagePaths: [String]? = nil
     ) {
         self.id = id
         self.role = role
         self.blocks = blocks
         self.nativeReasoning = nativeReasoning
         self.timestamp = timestamp
+        self.attachedImagePaths = attachedImagePaths
     }
+
+    var imageAssetPaths: [String] { attachedImagePaths ?? [] }
 
     var textContent: String {
         blocks.compactMap { block in
@@ -143,8 +149,8 @@ struct AgentMessage: Identifiable, Codable, Sendable {
         }
     }
 
-    static func user(text: String) -> AgentMessage {
-        AgentMessage(role: .user, blocks: [.text(text)])
+    static func user(text: String, imagePaths: [String] = []) -> AgentMessage {
+        AgentMessage(role: .user, blocks: [.text(text)], attachedImagePaths: imagePaths.isEmpty ? nil : imagePaths)
     }
 
     static func assistant(
@@ -196,6 +202,8 @@ struct AgentSession: Codable, Sendable {
     var fileDeltas: [FileDelta]
     var eventLogEntries: [AgentEventLogEntry]
     var taskStateSnapshot: AgentTaskStateSnapshot?
+    /// 维护请求（压缩、标题）的真实耗用，无论结果是否采用都归集。
+    var maintenanceUsage: [MaintenanceUsageRecord] = []
 
     init(
         id: UUID = UUID(),
@@ -235,6 +243,7 @@ struct AgentSession: Codable, Sendable {
         case fileDeltas
         case eventLogEntries
         case taskStateSnapshot
+        case maintenanceUsage
     }
 
     init(from decoder: Decoder) throws {
@@ -250,6 +259,7 @@ struct AgentSession: Codable, Sendable {
         fileDeltas = try container.decodeIfPresent([FileDelta].self, forKey: .fileDeltas) ?? []
         eventLogEntries = try container.decodeIfPresent([AgentEventLogEntry].self, forKey: .eventLogEntries) ?? []
         taskStateSnapshot = try container.decodeIfPresent(AgentTaskStateSnapshot.self, forKey: .taskStateSnapshot)
+        maintenanceUsage = try container.decodeIfPresent([MaintenanceUsageRecord].self, forKey: .maintenanceUsage) ?? []
     }
 
     func encode(to encoder: Encoder) throws {
@@ -265,6 +275,7 @@ struct AgentSession: Codable, Sendable {
         try container.encode(fileDeltas, forKey: .fileDeltas)
         try container.encode(eventLogEntries, forKey: .eventLogEntries)
         try container.encodeIfPresent(taskStateSnapshot, forKey: .taskStateSnapshot)
+        if !maintenanceUsage.isEmpty { try container.encode(maintenanceUsage, forKey: .maintenanceUsage) }
     }
 
     mutating func append(_ message: AgentMessage) {
@@ -334,6 +345,17 @@ struct AgentHiddenContextSummary: Codable, Sendable {
     let createdAt: Date
     let approximateTokens: Int
     let compactionCount: Int?
+    /// 压缩区间内但仍需在投影中保留一次的消息（最新真实用户请求）。
+    var pinnedMessageIDs: [UUID]? = nil
+    var sourceMessageIDs: [UUID]? = nil
+    var operationID: UUID? = nil
+
+    func pinnedMessages(in session: AgentSession) -> [AgentMessage] {
+        let ids = pinnedMessageIDs ?? []
+        guard !ids.isEmpty else { return [] }
+        let prefix = session.messages.prefix(compactedMessageCount)
+        return ids.compactMap { id in prefix.first { $0.id == id } }
+    }
 }
 
 enum AgentState: Sendable {
@@ -401,6 +423,8 @@ struct AgentApprovalRequest: Identifiable, Equatable, Sendable {
 }
 
 enum AgentEvent: Sendable {
+    case responseSegmentStarted(PalmiResponseSegment)
+    case responseSegmentFinished(segment: PalmiResponseSegment, source: String)
     case assistantText(String)
     case modelNotice(AgentModelNotice)
     case thoughtCard(AgentThoughtCard)
@@ -433,16 +457,19 @@ struct AgentTurnResult: Sendable {
     let outputTokens: Int
     let iterations: Int
     let tokenUsage: AgentModelTokenUsage
+    let outputDisposition: AgentOutputDisposition
 
     init(
         finalReply: String,
         outputTokens: Int,
         iterations: Int,
-        tokenUsage: AgentModelTokenUsage = .empty
+        tokenUsage: AgentModelTokenUsage = .empty,
+        outputDisposition: AgentOutputDisposition = .legacyFinalReply
     ) {
         self.finalReply = finalReply
         self.outputTokens = outputTokens
         self.iterations = iterations
         self.tokenUsage = tokenUsage
+        self.outputDisposition = outputDisposition
     }
 }

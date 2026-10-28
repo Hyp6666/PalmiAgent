@@ -85,7 +85,6 @@
 "chat.history.new" = "New";
 "chat.history.rename" = "Rename";
 "chat.history.renameMessage" = "The name will be applied to this chat record immediately.";
-"chat.history.title" = "Chat history";
 "chat.input.placeholder" = "Message Palmi…";
 "chat.suggestion.fill" = "Use";
 "chat.suggestion.fillAccessibility" = "Use the suggested next message";
@@ -664,7 +663,7 @@
 "tool.authorization.autoReviewPolicy.empty" = "Not Set";
 "tool.authorization.autoReviewPolicy.note" = "The review policy applies only when Auto Review is selected.";
 "tool.authorization.autoReviewPolicy.placeholder" = "Describe your own review policy (optional).";
-"tool.authorization.autoReviewPolicy.title" = "Custom Review Policy";
+"tool.authorization.autoReviewPolicy.title" = "Review Rules";
 "tool.authorization.title" = "Tool authorization";
 "tool.confirmation.allow" = "Allow";
 "tool.confirmation.always" = "Every Time";
@@ -778,8 +777,6 @@
 "workspace.nameEditor.message" = "The name will be applied to the current project or session immediately.";
 "workspace.placeholder.projectName" = "Project Name";
 "workspace.placeholder.threadName" = "Thread Name";
-"workspace.project.threadCount" = "%d sessions";
-"workspace.sidebar.section.projects" = "Projects";
 "workspace.status.attachmentsAdded" = "Added %d attachments.";
 "workspace.status.chatBelongsToOtherMode" = "This chat does not belong to the current mode.";
 "workspace.status.chatCreated" = "Created chat “%@”.";
@@ -946,7 +943,7 @@
 "model.connection.placeholder" = "https://example.com/v1";
 "model.connection.title" = "API";
 "model.connection.advanced" = "Upstream Format";
-"model.connection.protocol.title" = "Upstream API Format";
+"model.connection.protocol.title" = "Protocol";
 "model.connection.protocol.footer" = "An explicit choice uses only that format. Automatic negotiation changes format only when an endpoint clearly reports that it is unsupported.";
 "model.connection.protocol.automatic" = "Automatic (Recommended)";
 "model.connection.protocol.automatic.detail" = "Negotiate automatically in the order below";
@@ -960,7 +957,7 @@
 "model.apiKey.placeholder" = "e.g. sk-........";
 "model.apiKey.show" = "Show API Key";
 "model.discovery.deselectAll" = "Deselect All";
-"model.discovery.fetch" = "Fetch Models";
+"model.discovery.fetch" = "Fetch Model List";
 "model.discovery.importCount" = "Import (%d)";
 "model.discovery.loading" = "Fetching models…";
 "model.discovery.notSelected" = "Not selected";
@@ -968,7 +965,7 @@
 "model.discovery.selected" = "Selected";
 "model.discovery.title" = "Available Models";
 "model.error.loadFailed" = "Could not load model configuration: %@";
-"model.error.noUsablePlan" = "No usable model plan is configured. Import a model and select a primary model first.";
+"model.error.noUsablePlan" = "No usable model plan is configured. Import a model and select a default model first.";
 "model.error.unresolvedReferences" = "%d model references do not resolve to a global model.";
 "model.library.deleteGlobalMessage" = "This removes the model from the global library and clears its references from every plan.";
 "model.library.deleteGlobalTitle" = "Delete Global Model?";
@@ -999,7 +996,7 @@
 "searchConfiguration.mode.local" = "Local Search";
 "searchConfiguration.mode.remote" = "Remote Search";
 "searchConfiguration.section" = "Search Configuration";
-"searchConfiguration.local.title" = "Local Search";
+"searchConfiguration.local.title" = "Search Engines";
 "searchConfiguration.remote.title" = "Remote Search";
 "searchConfiguration.remote.required" = "Add a usable remote search configuration first.";
 "remoteSearch.title" = "Remote Search";
@@ -1724,8 +1721,8 @@
 "neo.runtime.elapsed.minutesSeconds" = "Elapsed %dm %ds";
 "neo.runtime.reasoning" = "Reasoning";
 "neo.runtime.explanation" = "Explanation";
-"neo.runtime.overview" = "Overview";
-"neo.runtime.result" = "Result";
+"neo.runtime.toolInput" = "Tool Input";
+"neo.runtime.toolOutput" = "Tool Output";
 "neo.runtime.awaitingResult" = "Waiting for the tool result…";
 
 // Bionic background progress
@@ -1809,3 +1806,108 @@
 "askUser.result.answered" = "User answered";
 
 "askUser.result.timeoutDefault" = "Timeout default";
+
+/* 模型库与工具能力 */
+"ml.binding.invalid" = "Unavailable";
+"ml.capability.text" = "Text generation";
+"ml.capability.toolImages" = "Images in tool results";
+"ml.capability.tools" = "Tool Calls";
+"ml.conflicts.count" = "%d conflicts";
+"ml.conflicts.current" = "New version";
+"ml.conflicts.deleted" = "Deleted";
+"ml.conflicts.keepCurrent" = "Keep New";
+"ml.conflicts.legacy" = "Old version";
+"ml.conflicts.title" = "Conflicts";
+"ml.conflicts.useLegacy" = "Use Old";
+"ml.connection.custom" = "Custom";
+"ml.connection.label" = "Name";
+"ml.connection.missing" = "No longer exists";
+"ml.connection.modelCount" = "%d models";
+"ml.connection.models" = "Models";
+"ml.connection.preset" = "Provider";
+"ml.credential.failed" = "Read failed";
+"ml.credential.locked" = "Temporarily unavailable";
+"ml.credential.missing" = "API key missing";
+"ml.credential.none" = "Not set";
+"ml.credential.saved" = "Saved";
+"ml.delete.references" = "Still used by: %@";
+"ml.followDefault" = "Follow default model";
+"ml.followDefaultNamed" = "Follow default (%@)";
+"ml.library.title" = "Model Library";
+"ml.mainModel" = "Default Model";
+"ml.mainModel.notConfigured" = "No default model selected";
+"ml.migration.compatibility" = "An earlier version can still read this configuration, and changes you make on either side are kept.";
+"ml.migration.headline" = "Plans are now part of the model library";
+"ml.migration.naming" = "Name your groups (optional)";
+"ml.migration.namingDetail" = "Without a name the address is shown. You can rename any time in the model library.";
+"ml.migration.noPlans" = "No earlier plans";
+"ml.migration.oldPlans" = "Earlier plans";
+"ml.migration.reviewDetail" = "The former lightweight model is kept only for permission auto-review; change it in Tool Capabilities.";
+"ml.migration.source.apiProfile" = "From an earlier API configuration";
+"ml.migration.source.none" = "No default model was selected before";
+"ml.migration.source.plan" = "From your previous active plan";
+"ml.migration.source.preV2" = "From an earlier version's plan";
+"ml.migration.subtitle" = "All models, connections and keys were kept. You now choose one default model; vision and permission review became separately configurable tools.";
+"ml.migration.title" = "Model settings upgraded";
+"ml.migration.visionDetail" = "The former multimodal model became the vision tool's model; a default model that can read images reads them directly.";
+"ml.migration.wasActive" = "Was active";
+"ml.model.connectivity" = "Check Connection";
+"ml.model.delete" = "Delete Model";
+"ml.model.discoveryEmpty" = "No models returned";
+"ml.model.providerID" = "Model ID";
+"ml.model.setMain" = "Set as Default Model";
+"ml.session.currentModel" = "Current Model";
+"ml.session.defaultModel" = "Default Model";
+"ml.session.otherModels" = "Choose Another Model";
+"ml.tool.followMain" = "Follow Default Model";
+"ml.tool.review" = "Review Model";
+"ml.tool.title" = "Tool Configuration";
+"ml.web.local" = "On Device";
+
+"ml.unavailable" = "Model library unavailable";
+"ml.add.model" = "Add Model";
+"ml.add.oauth" = "OAuth Sign-in";
+"ml.add.confirm" = "Add";
+"ml.optional" = "Optional";
+"ml.connection.address" = "URL";
+"ml.connection.account" = "Account";
+"ml.connection.deleteConfirm" = "Delete “%@” and all its models?";
+"ml.model.detail" = "Model Details";
+"ml.model.name" = "Note Name";
+"ml.model.deleteConfirm" = "Delete “%@”?";
+"ml.review.policyDefault" = "Default";
+"ml.review.policyCustom" = "Custom";
+
+"ml.groups.title" = "API Groups";
+"ml.add.fetch" = "Fetch Models";
+"ml.add.manual" = "Add Model Manually";
+"ml.add.import" = "Import";
+"ml.model.remove" = "Remove";
+"ml.model.checkVision" = "Check Vision";
+"ml.web.remote" = "Remote";
+"ml.web.service" = "Service";
+"ml.web.endpoint" = "Endpoint";
+"ml.web.noEndpoint" = "This interface has no default endpoint.";
+
+"ml.oauth.groups" = "OAuth Groups";
+"ml.model.imageInput" = "Supports Image Input";
+"ml.batch.footer" = "These settings apply to all imported models; adjust individual models after importing.";
+"ml.fetch.run" = "Fetch";
+"ml.fetch.selectAll" = "Select All";
+"ml.fetch.deselectAll" = "Deselect All";
+"ml.check.start" = "Check";
+"ml.check.visionNotice" = "This sends a test image to the model and may use a small amount of quota. If it passes, “Supports Image Input” is turned on automatically. You can also turn the option on or off without checking, but results in real use aren't guaranteed.";
+
+// Interactive answer content
+"ui.expand" = "Expand";
+"ui.close" = "Close";
+"ui.followUp" = "Continue with this";
+"ui.retry" = "Reload";
+
+"attachment.openOriginal" = "View original image: %@";
+"attachment.previewUnavailable" = "Preview unavailable";
+
+// Progressive conversation presentation
+"settings.runtime.professionalStyle" = "Professional mode activity";
+"settings.runtime.progressiveScope" = "Chat always uses Neo for activity and keeps every answer segment visible. This preference applies only to Professional mode.";
+"chat.runtime.notice" = "Run status";

@@ -17,9 +17,13 @@ private struct PalmiConversationReadModifier: ViewModifier {
     let onRead: (Set<String>) -> Void
 
     func body(content: Content) -> some View {
-        content.task(id: state) { @MainActor in
-            guard !Task.isCancelled, !state.receipt.isEmpty else { return }
-            onRead(state.receipt)
+        let receipt = state.receipt
+        return content.task(id: state) { @MainActor [receipt, onRead] in
+            // Coalesce arrivals outside the current render frame. A receipt changes
+            // its own task identity; synchronous mutation can hit SwiftUI's frame limit.
+            do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
+            guard !Task.isCancelled, !receipt.isEmpty else { return }
+            onRead(receipt)
         }
     }
 }

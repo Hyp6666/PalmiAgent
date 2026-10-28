@@ -89,6 +89,11 @@ final class BionicStore {
     @ObservationIgnored private var chatPageID: String?
     @ObservationIgnored private var chatVisibleID: String?
     @ObservationIgnored private var chatVisibilityToken: UUID?
+    /// 当前打开着的会话页。唯一的已读规则：点开会话即全部已读。
+    @ObservationIgnored private var openConversationID: String?
+    /// 已读下限（消息序号）：点开会话时记下当前最新序号，此后任何投影都不能让不大于它的消息重新变成未读。
+    /// 不依赖持久化是否成功、可见性、前后台或参与者。
+    @ObservationIgnored private var readFloors: [String: Int] = [:]
     @ObservationIgnored private var bootstrapped = false
     @ObservationIgnored private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     @ObservationIgnored private var backgroundFinishTask: Task<Void, Never>?
@@ -103,12 +108,12 @@ final class BionicStore {
     @ObservationIgnored private var backgroundAllowanceExpired = false
     var selectedRole: BionicRole? { roles.first { $0.installationID == selectedID } }
 
-    init(modelRuntime: any AgentModelRuntime, modelPlanStore: ModelPlanStore,
+    init(modelRuntime: any AgentModelRuntime, modelLibrary: ModelLibraryStore,
          notificationService: NotificationService, purchases: BionicPurchaseStore? = nil,
          imageGeneration: PalmiImageGenerationService? = nil,
          archive: BionicArchiveStore? = nil,
          professionalExecutor: (any BionicProfessionalExecuting)? = nil) {
-        let model = BionicModelService(runtime: modelRuntime, plans: modelPlanStore)
+        let model = BionicModelService(runtime: modelRuntime, library: modelLibrary)
         model.imageGeneration = imageGeneration
         let purchaseStore = purchases ?? BionicPurchaseStore(access: archive?.access ?? BionicAccessState())
         let archive = archive ?? BionicArchiveStore(access: purchaseStore.access)
@@ -171,8 +176,9 @@ final class BionicStore {
         backgroundFinishTask = nil
         endBackgroundAllowance()
         isForeground = true
+        if let openConversationID { markConversationRead(openConversationID) }
         notifications.setVisible(modeVisible ? chatVisibleID : nil, foreground: modeVisible)
-        await refresh(); await coordinator.activate(); await notifications.reconcile()
+        await refresh(); await syncModelBindings(); await coordinator.activate(); await notifications.reconcile()
         scheduleReadFlush(retry: true)
     }
     func pause() {
@@ -219,6 +225,25 @@ final class BionicStore {
     func visibleMode(_ visible: Bool) {
         modeVisible = visible; notifications.setVisible(visible ? chatVisibleID : nil, foreground: isForeground && visible)
     }
+    func conversationOpened(_ instance: String) {
+        openConversationID = instance
+        markConversationRead(instance)
+    }
+    func conversationClosed(_ instance: String) {
+        if openConversationID == instance { openConversationID = nil }
+    }
+    /// 无条件：界面计数立即归零并抬高已读下限；随后持久化已读水位线，同步系统通知与角标。
+    func markConversationRead(_ instance: String) {
+        let latest = max(unreadSequencesByInstance[instance]?.values.max() ?? 0,
+                         roles.first { $0.installationID == instance }?.state.lastMessageSequence ?? 0)
+        readFloors[instance] = max(readFloors[instance] ?? 0, latest)
+        if unreadSequencesByInstance[instance]?.isEmpty == false { unreadSequencesByInstance[instance] = [:] }
+        let floor = readFloors[instance] ?? 0
+        Task { @MainActor [weak self] in
+            guard let self, (try? await self.archive.markAllRead(instance, through: floor)) == true else { return }
+            await self.notifications.reconcile()
+        }
+    }
     func chatAppeared(_ instance: String, token: UUID) {
         guard !resetting else { return }
         chatPageID = instance
@@ -251,7 +276,7 @@ final class BionicStore {
         endBackgroundAllowance()
         invalidationToken += 1; openTicket += 1; windowTicket += 1
         // 在首次 await 前撤销旧页面，禁止它在重置中重新写入回执日志。
-        selectedID = nil; chatPageID = nil; chatVisibleID = nil; chatVisibilityToken = nil
+        selectedID = nil; chatPageID = nil; chatVisibleID = nil; chatVisibilityToken = nil; openConversationID = nil
         path = []; messages = []; quotedMessages = [:]
         notifications.setVisible(nil, foreground: false)
         coordinator.stopForReset(); readTask?.cancel(); readTask = nil; readTaskID = nil; pendingReads.removeAll()
@@ -259,6 +284,7 @@ final class BionicStore {
         readReceiptErrors.removeAll()
         readProjectionSequences.removeAll()
         unreadSequencesByInstance.removeAll()
+        readFloors.removeAll()
         await notifications.removeAll()
         do { try await archive.resetAll() }
         catch {
@@ -311,7 +337,13 @@ final class BionicStore {
         if unconfirmed.isEmpty { acknowledgedReads.removeValue(forKey: key) }
         else { acknowledgedReads[key] = unconfirmed }
         notifications.setPendingReadIDs(id, ids: unconfirmed)
-        let unread = projection.unreadSequences.filter { !unconfirmed.contains($0.key) }
+        let floor = readFloors[id] ?? -1
+        var unread = projection.unreadSequences.filter { !unconfirmed.contains($0.key) && $0.value > floor }
+        // 会话页开着时，新到的消息也直接已读。
+        if isForeground, openConversationID == id, !unread.isEmpty {
+            markConversationRead(id)
+            unread = [:]
+        }
         if unreadSequencesByInstance[id] != unread {
             unreadSequencesByInstance[id] = unread
         }
@@ -321,6 +353,50 @@ final class BionicStore {
         }
         scheduleReadFlush()
     }
+    /// 仿生本机绑定与模型库作用域绑定的兼容同步：旧字段只按字段级 patch 写回 plan_id 与 primary_candidate_id。
+    func syncModelBindings() async {
+        var legacy: [ModelLibraryStore.BionicLegacyBinding] = []
+        for role in await archive.roles() {
+            guard let binding = try? await archive.binding(role.installationID) else { continue }
+            legacy.append(.init(
+                installationID: role.installationID,
+                planID: binding.optionalText("plan_id"),
+                primaryCandidateID: binding.optionalText("primary_candidate_id"),
+                multimodalCandidateID: binding.optionalText("multimodal_candidate_id"),
+                lightweightCandidateID: binding.optionalText("lightweight_candidate_id")
+            ))
+        }
+        let patches = model.library.reconcileBionicBindings(legacy)
+        for (instance, fields) in patches {
+            do {
+                try await archive.updateBinding(instance, changes: [
+                    "plan_id": .text(fields.planID), "primary_candidate_id": .text(fields.primaryCandidateID)
+                ])
+                let saved = try await archive.binding(instance)
+                model.library.confirmBionicProjection(
+                    installationID: instance, planID: saved.optionalText("plan_id"),
+                    primaryCandidateID: saved.optionalText("primary_candidate_id"),
+                    multimodal: saved.optionalText("multimodal_candidate_id"),
+                    lightweight: saved.optionalText("lightweight_candidate_id")
+                )
+            } catch {
+                globalError = Self.errorText(error)
+            }
+        }
+    }
+
+    /// 把编辑草稿中的主模型选择写入模型库，并剔除草稿键，避免写进角色存档。
+    private func applyDraftedModelBinding(_ binding: inout BionicObject, instance: String) async throws {
+        let drafted = BionicModelBindingFields.drafted(binding)
+        binding.removeValue(forKey: BionicModelBindingFields.draftKey)
+        guard let drafted else { return }
+        let scope = ModelLibraryScope.bionic(instance)
+        guard !model.library.scopeBinding(scope).semanticallyEquals(drafted) else { return }
+        try model.library.setScopeBinding(drafted, scope: scope)
+        coordinator.changed(instance)
+        await syncModelBindings()
+    }
+
     func refresh(changed: String? = nil) async {
         guard !resetting else { return }
         restoreReadReceipts()
@@ -820,17 +896,21 @@ final class BionicStore {
     }
     @discardableResult
     func create(persona: BionicObject, participant: BionicObject, assets: [String: Data],
-                binding: BionicObject, audit: BionicValidation?,
+                binding: BionicObject,
                 openAfterCreation: Bool = true) async throws -> BionicRole {
         try await archive.requireRoleCapacity()
         try BionicPersonaCatalog.validate(persona)
-        if let audit {
-            guard audit.receipt.flag("passed"), audit.receipt.text("input_hash") == (try BionicPersonaCatalog.fingerprint(persona)) else { throw BionicFailure("auditRequired") }
-        }
-        var value = persona; value["validation_receipt"] = audit.map { .object($0.receipt) } ?? .null
+        // 新角色不再生成审核回执；本地格式校验仍在 validate 中执行。
+        var value = persona; value["validation_receipt"] = .null
         let profile = BionicUserProfileStore.shared.participantSnapshot(id: participant.text("participant_id"))
         let creationAssets = assets.merging(profile.assets) { _, new in new }
-        let role = try await archive.createRole(persona: value, participant: profile.participant, assets: creationAssets, binding: binding, auditRequest: audit?.request, auditResult: audit?.result)
+        let drafted = BionicModelBindingFields.drafted(binding)
+        var archivedBinding = binding; archivedBinding.removeValue(forKey: BionicModelBindingFields.draftKey)
+        let role = try await archive.createRole(persona: value, participant: profile.participant, assets: creationAssets, binding: archivedBinding)
+        if let drafted, !drafted.isInherit {
+            try model.library.setScopeBinding(drafted, scope: .bionic(role.installationID))
+            await syncModelBindings()
+        }
         if binding.flag("notifications_enabled") {
             do { try await notifications.enable(role.installationID, enabled: true) }
             catch { globalError = Self.errorText(error) }
@@ -881,27 +961,30 @@ final class BionicStore {
         var binding = model.defaultBinding()
         binding["notifications_enabled"] = .bool(false)
         binding["contact_resume_allowed"] = persona["proactive_enabled"] ?? .bool(false)
-        _ = try model.selection(binding, lightweight: false)
+        _ = try model.selection(binding)
         let role = try await create(
             persona: persona, participant: draft.participant,
-            assets: assets, binding: binding, audit: nil, openAfterCreation: false
+            assets: assets, binding: binding, openAfterCreation: false
         )
         return ["created": .bool(true), "already_created": .bool(false),
                 "installation_id": .string(role.installationID),
                 "character_id": .string(role.characterID), "nickname": .string(role.name)]
     }
-    func update(_ instance: String, persona: BionicObject, assets: [String: Data], binding: BionicObject, audit: BionicValidation?) async throws {
+    func update(_ instance: String, persona: BionicObject, assets: [String: Data], binding: BionicObject) async throws {
+        var binding = binding
+        try await applyDraftedModelBinding(&binding, instance: instance)
         for data in assets.values { _ = try await archive.saveAsset(instance, data) }
         let old = try await archive.loadRole(instance)
         var value = persona; value["persona_revision_id"] = .string(BionicCodec.id()); value["recorded_at"] = .string(BionicCodec.instant())
         if value["baseline_traits"] != old.persona["baseline_traits"] { value["current_traits"] = value["baseline_traits"] }
         else { value["current_traits"] = old.persona["current_traits"] }
-        if let audit { value["validation_receipt"] = .object(audit.receipt) }
-        else if try BionicPersonaCatalog.fingerprint(value) == BionicPersonaCatalog.fingerprint(old.persona) {
+        // 已有历史回执只在人设未变时随修订保留；不生成新的审核回执。
+        if try BionicPersonaCatalog.fingerprint(value) == BionicPersonaCatalog.fingerprint(old.persona) {
             value["validation_receipt"] = old.persona["validation_receipt"] ?? .null
         } else { value["validation_receipt"] = .null }
         try BionicPersonaCatalog.validate(value, existing: old.persona)
-        _ = try model.selection(binding, lightweight: false)
+        var scopedBinding = binding; scopedBinding["installation_id"] = .string(instance)
+        _ = try model.selection(scopedBinding)
         let previousBinding = try await archive.binding(instance)
         var previousComparable = old.persona
         var nextComparable = value
@@ -916,21 +999,18 @@ final class BionicStore {
         if onlyTiming {
             _ = try await archive.updateReplyTiming(instance, timing: BionicReplyTiming.resolve(value))
         } else if !samePersona {
-            _ = try await archive.updatePersona(instance, persona: value, validation: audit)
+            _ = try await archive.updatePersona(instance, persona: value)
         }
         var changes: BionicObject = [:]
-        for key in ["plan_id", "primary_candidate_id", "multimodal_candidate_id", "lightweight_candidate_id",
-                    "developer_visible", "notifications_enabled"] {
+        // 主模型选择只经模型库作用域绑定写入；旧字段由兼容投影维护，这里不直接改写。
+        for key in ["developer_visible", "notifications_enabled"] {
             if let item = binding[key] { changes[key] = item }
         }
         if old.persona.flag("proactive_enabled") != value.flag("proactive_enabled") {
             changes["contact_resume_allowed"] = value["proactive_enabled"] ?? .bool(false)
         }
         try await archive.updateBinding(instance, changes: changes)
-        let changedModelBinding = ["plan_id", "primary_candidate_id", "multimodal_candidate_id", "lightweight_candidate_id"].contains {
-            (changes[$0] ?? previousBinding[$0]) != previousBinding[$0]
-        }
-        if !samePersona || changedModelBinding { coordinator.changed(instance) }
+        if !samePersona { coordinator.changed(instance) }
         await refresh(changed: instance)
         if changes.flag("notifications_enabled") && !previousBinding.flag("notifications_enabled") {
             try await notifications.enable(instance, enabled: true)
@@ -940,7 +1020,7 @@ final class BionicStore {
         let role = try await archive.loadRole(instance); var persona = role.persona
         persona["proactive_enabled"] = .bool(proactive); persona["evolution_enabled"] = .bool(evolution)
         persona["context_limit"] = .count(context); persona["output_limit"] = .count(output)
-        try await update(instance, persona: persona, assets: [:], binding: binding, audit: nil)
+        try await update(instance, persona: persona, assets: [:], binding: binding)
     }
     func delete(_ instance: String) async throws {
         guard !BionicSystemPersona.isProtected(instance) else {

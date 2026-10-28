@@ -37,7 +37,6 @@ struct LLMRejectedReasoningControlCache {
 
 @MainActor
 final class LLMAPIClient: AgentModelRuntime {
-    private let apiConfigurationStore: APIConfigurationStore
     private let session: URLSession
     private let userDefaults: UserDefaults
     private let lmStudioDiscoveryService: LMStudioDiscoveryService
@@ -63,13 +62,11 @@ final class LLMAPIClient: AgentModelRuntime {
     }
 
     init(
-        apiConfigurationStore: APIConfigurationStore,
         session: URLSession = .palmiLLM,
         userDefaults: UserDefaults = .standard,
         lmStudioDiscoveryService: LMStudioDiscoveryService = .init(),
         wireProtocolContractStore: LLMWireProtocolContractStore? = nil
     ) {
-        self.apiConfigurationStore = apiConfigurationStore
         self.session = session
         self.userDefaults = userDefaults
         self.lmStudioDiscoveryService = lmStudioDiscoveryService
@@ -506,7 +503,9 @@ final class LLMAPIClient: AgentModelRuntime {
         applyHeaders(
             AnthropicMessagesAdapter.headers(
                 apiKey: context.configuration.apiKey,
-                acceptsStreaming: stream
+                acceptsStreaming: stream,
+                sendsBearer: context.configuration.messagesSendsBearer,
+                extraHeaders: context.configuration.extraHeaders
             ),
             to: &request
         )
@@ -545,7 +544,9 @@ final class LLMAPIClient: AgentModelRuntime {
             ),
             totalTokens: decoded.tokenUsage.totalTokens ?? 0,
             tokenUsage: decoded.tokenUsage,
-            notices: []
+            notices: [],
+            outputWasTruncated: ["max_tokens", "model_context_window_exceeded", "pause_turn"].contains(decoded.stopReason ?? ""),
+            wasRefused: decoded.stopReason == "refusal"
         )
     }
 
@@ -644,7 +645,8 @@ final class LLMAPIClient: AgentModelRuntime {
                 ),
                 observedReasoning: observedReasoning,
                 appliedEffort: decoded.appliedReasoningEffort
-            )
+            ),
+            outputWasTruncated: decoded.outputWasTruncated, wasRefused: decoded.wasRefused
         )
     }
 
@@ -745,12 +747,7 @@ final class LLMAPIClient: AgentModelRuntime {
             integrationSpecOverride: override?.integrationSpec,
             capabilitiesOverride: override?.capabilities
         )
-        var capabilities = runtimeSelection.runtimeProfile.capabilities
-        if override == nil, selection.providerID == .customOpenAI {
-            capabilities.supportsVision = await apiConfigurationStore
-                .liveChatReasoningModelSupportsMultimodal(for: selection.providerID)
-        }
-        return capabilities
+        return runtimeSelection.runtimeProfile.capabilities
     }
 
     func createChatCompletion(
@@ -1120,7 +1117,8 @@ final class LLMAPIClient: AgentModelRuntime {
                         || ReasoningControlEvidenceEvaluator.containsInlineReasoning(in: result.fullContent),
                     appliedEffort: nil,
                     effortIsRepresentable: reasoningEffortIsRepresentable(in: runtimeProfile)
-                )
+                ),
+                outputWasTruncated: result.finishReason == "length", wasRefused: result.wasRefused
             )
         } catch let error as LLMHTTPTransportError {
             if preservesTransportErrors { throw error }
@@ -1328,7 +1326,8 @@ final class LLMAPIClient: AgentModelRuntime {
                         || ReasoningControlEvidenceEvaluator.containsInlineReasoning(in: result.fullContent),
                     appliedEffort: nil,
                     effortIsRepresentable: reasoningEffortIsRepresentable(in: resolvedRuntimeProfile)
-                )
+                ),
+                outputWasTruncated: result.finishReason == "length", wasRefused: result.wasRefused
             )
         } catch let error as LLMHTTPTransportError {
             if preservesTransportErrors { throw error }
@@ -1619,10 +1618,12 @@ final class LLMAPIClient: AgentModelRuntime {
         for providerID: APIProviderID,
         override: AgentModelResolvedConfiguration?
     ) throws -> APIResolvedConfiguration {
-        if let override {
-            return override.configuration
+        // 唯一来源是模型库解析出的冻结配置；缺失即配置错误，不再旁路读取旧 API 配置。
+        _ = providerID
+        guard let override else {
+            throw AppError.invalidState("尚未选择主模型。请在设置 › 模型里选择一个主模型。")
         }
-        return try apiConfigurationStore.resolvedConfiguration(for: providerID)
+        return override.configuration
     }
 
     private func resolvedRequestModel(
@@ -2008,6 +2009,8 @@ enum LLMHTTPTransport {
         let tokenUsage: AgentModelTokenUsage
         let response: HTTPURLResponse
         let optionalControlFallbackIntent: LLMOptionalControlIntent?
+        var finishReason: String? = nil
+        var wasRefused: Bool = false
     }
 
     /// Perform a streaming SSE request. Calls `onDelta` for each text chunk received.
@@ -2073,6 +2076,7 @@ enum LLMHTTPTransport {
                 }
 
                 var fullContent = ""
+                var wasRefused = false
                 var reasoningContent = ""
                 var reasoningDetails: JSONRuntimeValue?
                 var totalTokens = 0
@@ -2110,6 +2114,12 @@ enum LLMHTTPTransport {
                         }
 
                         if let delta = chunk.choices.first?.delta {
+                            if let refusal = delta.refusal, !refusal.isEmpty {
+                                wasRefused = true
+                                emittedAnyDelta = true
+                                fullContent += refusal
+                                await onDelta(refusal)
+                            }
                             if let text = delta.reasoningContent, !text.isEmpty {
                                 emittedAnyDelta = true
                                 reasoningContent += text
@@ -2206,7 +2216,9 @@ enum LLMHTTPTransport {
                     totalTokens: totalTokens,
                     tokenUsage: LLMAPIClient.modelTokenUsage(from: finalUsage),
                     response: httpResponse,
-                    optionalControlFallbackIntent: optionalControlFallbackIntent
+                    optionalControlFallbackIntent: optionalControlFallbackIntent,
+                    finishReason: termination.finishReason,
+                    wasRefused: wasRefused || termination.finishReason == "content_filter"
                 )
             } catch {
                 if isCancellation(error) {
@@ -2455,6 +2467,7 @@ private struct SSEChoice: Decodable {
 }
 
 private struct SSEDelta: Decodable {
+    let refusal: String?
     let content: String?
     let role: String?
     let reasoningContent: String?
@@ -2465,6 +2478,7 @@ private struct SSEDelta: Decodable {
 
     enum CodingKeys: String, CodingKey {
         case content
+        case refusal
         case role
         case reasoningContent = "reasoning_content"
         case reasoning

@@ -107,7 +107,8 @@ private final class ChatReadFixture {
             unread.ingest(messages, selection: selection, isChat: surface == .chat)
         }
         let runtime = ChatReadOfflineRuntime()
-        let plans = ModelPlanStore(metadataDefaults: defaults, secretStore: ChatReadSecrets())
+        let library = ModelLibraryFixture().makeStore()
+        library.bootstrap()
         let permissions = ToolPermissionStore(userDefaults: defaults)
         let authorization = ToolAuthorizationStore(userDefaults: defaults)
         let executor = ActionExecutor(
@@ -120,11 +121,10 @@ private final class ChatReadFixture {
             contactsService: ContactsService(), locationService: LocationService(),
             photoLibraryService: PhotoLibraryService(), notificationService: NotificationService(),
             speechService: SpeechService(), router: SystemRouter(), webResearchService: WebResearchService(),
-            remoteSearchConfigurationStore: RemoteSearchConfigurationStore(metadataDefaults: defaults,
-                secretStore: ChatReadSecrets()), remoteWebSearchService: RemoteWebSearchService(),
+            webCapabilityService: WebCapabilityService(library: library),
             spotlightService: SpotlightService(), foundationModelService: FoundationModelService(),
             currentDateTimeService: CurrentDateTimeService(), alarmService: AlarmService(),
-            ocrService: PPocrv6TinyOCRService(workspaceManager: manager), modelPlanStore: plans,
+            ocrService: PPocrv6TinyOCRService(workspaceManager: manager),
             modelRuntime: runtime, userDefaults: defaults)
         let toolExecutor = AgentToolExecutor(actionExecutor: executor, executionCoordinator: ToolExecutionCoordinator())
         let contexts = ContextAssembler(promptComposer: PromptComposer(userDefaults: defaults),
@@ -135,11 +135,9 @@ private final class ChatReadFixture {
                 toolAuthorizationStore: authorization, promptBuilder: AgentPromptBuilder(),
                 skillRegistry: registry, workspaceManager: manager, contextAssembler: contexts,
                 contextCompactor: ContextCompactor(modelRuntime: runtime),
-                toolArtifactPipeline: ToolArtifactPipeline(modelRuntime: runtime),
                 toolContextProjector: ToolContextProjector(), configuration: .default)
         }
-        store = ChatStore(actions: [], apiConfigurationStore: APIConfigurationStore(metadataDefaults: defaults,
-                secretStore: KeychainSecretStore(service: suite)), modelPlanStore: plans,
+        store = ChatStore(actions: [], modelLibrary: library,
             agentLoop: makeLoop(), makeAgentLoop: makeLoop,
             conversationTitleService: ConversationTitleService(modelRuntime: runtime),
             skillRegistry: registry, workspaceManager: manager, workspaceStore: workspace,
@@ -175,8 +173,3 @@ private final class ChatReadFixture {
     func capabilities(for selection: AgentModelSelection) async throws -> LLMModelCapabilities { throw CancellationError() }
 }
 
-private final class ChatReadSecrets: ModelSecretStoring, RemoteSearchSecretStoring {
-    func saveSecret(_ secret: String, account: String) throws {}
-    func readSecret(account: String) throws -> String? { nil }
-    func deleteSecret(account: String) throws {}
-}

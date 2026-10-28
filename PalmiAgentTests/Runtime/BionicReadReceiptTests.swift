@@ -39,11 +39,6 @@ final class BionicReadReceiptTests: XCTestCase {
     func stream(_ request: AgentModelStreamingRequest) async throws -> AgentModelResponse { throw CancellationError() }
     func capabilities(for selection: AgentModelSelection) async throws -> LLMModelCapabilities { throw CancellationError() }
 }
-private final class ReadTestSecrets: ModelSecretStoring {
-    func saveSecret(_ secret: String, account: String) throws {}
-    func readSecret(account: String) throws -> String? { nil }
-    func deleteSecret(account: String) throws {}
-}
 
 extension BionicReadReceiptTests {
     func testRebuiltStoreRestoresAcknowledgedReceiptsBeforeArchiveCommit() async throws {
@@ -60,7 +55,7 @@ extension BionicReadReceiptTests {
         let durable = try BionicReadReceiptLedger(root: fixture.root).load()
         XCTAssertEqual(durable[key], [fixture.messageID])
         let rebuilt = BionicStore(modelRuntime: OfflineReadRuntime(),
-            modelPlanStore: ModelPlanStore(metadataDefaults: fixture.defaults, secretStore: ReadTestSecrets()),
+            modelLibrary: ModelLibraryFixture().makeStore(),
             notificationService: NotificationService(), archive: fixture.archive)
         await rebuilt.refresh()
         XCTAssertEqual(rebuilt.unreadCounts[fixture.instance], 0)
@@ -289,7 +284,7 @@ private final class BionicReadFixture {
             "message_ref": .string(path), "message_sequence": .count(1)
         ])], writes: [BionicWrite(path, message)])
         store = BionicStore(modelRuntime: OfflineReadRuntime(),
-            modelPlanStore: ModelPlanStore(metadataDefaults: defaults, secretStore: ReadTestSecrets()),
+            modelLibrary: ModelLibraryFixture().makeStore(),
             notificationService: NotificationService(), archive: archive)
         await store.refresh()
         store.selectedID = role.installationID

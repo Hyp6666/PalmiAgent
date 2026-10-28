@@ -83,7 +83,6 @@ final class LLMAPIClientWireProtocolTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [RuntimeWireURLProtocol.self]
         return LLMAPIClient(
-            apiConfigurationStore: APIConfigurationStore(metadataDefaults: defaults),
             session: URLSession(configuration: configuration),
             userDefaults: defaults,
             wireProtocolContractStore: LLMWireProtocolContractStore(

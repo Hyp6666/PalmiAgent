@@ -32,9 +32,9 @@ struct RuntimeExperienceSettingsScreen: View {
                     .accessibilityAddTraits(PalmiReasoningUIStyle.resolve(styleRaw) == style ? .isSelected : [])
                 }
             } header: {
-                Text(PalmiL10n.tr("settings.runtime.reasoningStyle"))
+                Text(PalmiL10n.tr("settings.runtime.professionalStyle"))
             } footer: {
-                Text(PalmiL10n.tr("settings.runtime.scope"))
+                Text(PalmiL10n.tr("settings.runtime.progressiveScope"))
             }
         }
         .listStyle(.insetGrouped)

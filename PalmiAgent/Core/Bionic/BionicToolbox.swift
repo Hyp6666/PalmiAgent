@@ -56,7 +56,6 @@ enum BionicToolbox {
             "source_message_ids": array(text, minimum: 1), "primary_source_message_id": text
         ]))]),
         "evolve_personality": object(["changes": array(object(["dimension": choice(BionicPersonaCatalog.dimensions), "target_level": integer(1, 5), "source_message_ids": array(text, minimum: 1)]))]),
-        "audit": object(["passed": boolean, "issues": array(object(["field": choice(BionicPersonaCatalog.fingerprintKeys), "rule_code": choice(["P01", "P02", "P03", "P04", "P05", "P06"]), "explanation": text]))]),
         "planning": object(["groups": array(object([
             "delay_minutes": integer(2, 4320),
             "messages": array(messageSchema, minimum: 1, maximum: 30)

@@ -48,14 +48,14 @@ struct BrowserFinishRequest: Sendable {
 /// 在发起主运行时捕获配置；子任务继承 TaskLocal，不从当前界面重新选择模型。
 struct BrowserRunConfiguration: Sendable {
     let modelSelection: AgentModelSelection
-    let roleOverrides: AgentModelRoleOverrides
+    let roleOverrides: AgentModelBindings
     let contextWindowTokens: Int
     let retrieval: RetrievalQualityProfile
 
     @TaskLocal static var current: BrowserRunConfiguration?
 
-    init(providerID: APIProviderID, roleOverrides: AgentModelRoleOverrides, profile: AgentRunProfile) {
-        modelSelection = roleOverrides.selection(providerID: providerID, role: .reasoningModel, reasoning: profile.modelReasoningRequest)
+    init(providerID: APIProviderID, roleOverrides: AgentModelBindings, profile: AgentRunProfile) {
+        modelSelection = roleOverrides.mainSelection(reasoning: profile.modelReasoningRequest)
         self.roleOverrides = roleOverrides
         contextWindowTokens = profile.contextCompaction.maximumContextTokenCount
         retrieval = profile.retrieval

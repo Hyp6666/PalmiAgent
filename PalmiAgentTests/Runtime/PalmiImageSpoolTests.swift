@@ -49,7 +49,7 @@ extension PalmiImageSpoolTests {
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let service = PalmiImageGenerationService(
-            plans: ModelPlanStore(metadataDefaults: defaults, secretStore: ImageTestSecrets()),
+            library: ModelLibraryFixture().makeStore(),
             permissions: ToolPermissionStore(userDefaults: defaults))
         var calls = 0
         var release: CheckedContinuation<Void, Never>?
@@ -89,8 +89,3 @@ extension PalmiImageSpoolTests {
     }
 }
 
-private final class ImageTestSecrets: ModelSecretStoring {
-    func saveSecret(_ secret: String, account: String) throws {}
-    func readSecret(account: String) throws -> String? { nil }
-    func deleteSecret(account: String) throws {}
-}

@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import Security
 
-nonisolated struct ChatGPTAccountReference: Codable, Equatable, Sendable {
+nonisolated struct ChatGPTAccountReference: Codable, Hashable, Sendable {
     let accountID: String
     let email: String
 }

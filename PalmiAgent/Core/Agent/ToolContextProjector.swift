@@ -1,5 +1,6 @@
 import Foundation
 
+/// 工具结果进入模型上下文的投影。原始材料可追溯；必要截断明确标注；不再读取隐藏摘要产物。
 struct ToolContextProjector: Sendable {
     nonisolated init() {}
 
@@ -7,15 +8,8 @@ struct ToolContextProjector: Sendable {
         for result: AgentToolResultRecord,
         session: AgentSession
     ) -> String {
-        if let selection = session.hiddenArtifacts?.latestSearchSelection(for: result.toolUseID) {
-            return render(selection)
-        }
-
-        if let digest = session.hiddenArtifacts?.latestSourceDigest(for: result.toolUseID) {
-            return render(digest)
-        }
-
-        return LLMGuardrails.compactToolPayloadForModel(result.output)
+        _ = session
+        return Self.boundedPayload(result.output)
     }
 
     func projectedToolTranscriptEntry(
@@ -26,102 +20,44 @@ struct ToolContextProjector: Sendable {
         return "[tool_result:\(result.toolName):\(marker)]\n\(projectedToolContent(for: result, session: session))"
     }
 
-    private func render(_ artifact: SearchSelectionArtifact) -> String {
-        var lines: [String] = [
-            "[search_selection]",
-            "查询目标：\(artifact.queryGoal)"
+    /// 新结果在生成时已按预算分页；旧历史中超出预算的结果按 canonical action_id 做确定性首段截取，并标明范围。
+    nonisolated static func boundedPayload(_ payload: String) -> String {
+        let trimmed = payload.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let data = trimmed.data(using: .utf8),
+              var json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let details = json["details"] as? String else {
+            return boundedText(trimmed, budget: ToolResultBudget.byteBudget(for: nil))
+        }
+        guard json["result_artifact"] == nil else { return trimmed }
+        let actionID = (json["action_id"] as? String).flatMap(ToolActionID.init(rawValue:))
+        guard let budget = ToolResultBudget.byteBudget(for: actionID), details.utf8.count > budget else { return trimmed }
+        let bytes = [UInt8](details.utf8)
+        let range = UTF8Range.page(bytes, start: 0, maxBytes: budget, preferredBreak: actionID == .searchWeb ? Array("\n\n".utf8) : nil)
+        json["details"] = String(decoding: bytes[range], as: UTF8.self)
+        json["result_artifact"] = [
+            "artifact_id": NSNull(), "total_bytes": bytes.count, "start": range.lowerBound, "end": range.upperBound,
+            "note": "历史结果未归档为产物，超出部分不可恢复；需要时请重新调用原工具。"
         ]
-
-        if !artifact.recommendedSources.isEmpty {
-            lines.append("推荐精读来源：")
-            lines.append(
-                artifact.recommendedSources.enumerated().map { index, source in
-                    """
-                    \(index + 1). \(source.title)
-                    \(source.url)
-                    优先级：\(source.priority)
-                    原因：\(source.whySelected)
-                    预期价值：\(source.expectedValue)
-                    """
-                }.joined(separator: "\n\n")
-            )
-        }
-
-        if !artifact.coverageGaps.isEmpty {
-            lines.append("覆盖缺口：")
-            lines.append(artifact.coverageGaps.map { "- \($0)" }.joined(separator: "\n"))
-        }
-
-        return lines.joined(separator: "\n")
+        guard let encoded = try? JSONSerialization.data(withJSONObject: json, options: [.sortedKeys]),
+              let text = String(data: encoded, encoding: .utf8) else { return trimmed }
+        return text
     }
 
-    private func render(_ artifact: SourceDigestArtifact) -> String {
-        var lines: [String] = [
-            "[source_digest:\(artifact.sourceType)]",
-            "标题：\(artifact.title)",
-            "摘要：\(artifact.summary)"
-        ]
-
-        if !artifact.salientPoints.isEmpty {
-            lines.append("关键点：")
-            lines.append(artifact.salientPoints.map { "- \($0)" }.joined(separator: "\n"))
-        }
-
-        if !artifact.keepLiterals.isEmpty {
-            lines.append("必须保留的字面值：")
-            lines.append(artifact.keepLiterals.map { "- \($0)" }.joined(separator: "\n"))
-        }
-
-        if !artifact.openQuestions.isEmpty {
-            lines.append("待确认：")
-            lines.append(artifact.openQuestions.map { "- \($0)" }.joined(separator: "\n"))
-        }
-
-        if !artifact.followupReads.isEmpty {
-            lines.append("建议继续读：")
-            lines.append(artifact.followupReads.map { "- \($0)" }.joined(separator: "\n"))
-        }
-
-        return lines.joined(separator: "\n")
+    nonisolated private static func boundedText(_ text: String, budget: Int?) -> String {
+        guard let budget, text.utf8.count > budget else { return text }
+        let bytes = [UInt8](text.utf8)
+        let range = UTF8Range.page(bytes, start: 0, maxBytes: budget)
+        return String(decoding: bytes[range], as: UTF8.self)
+            + "\n[已截断：显示 UTF-8 字节 \(range.lowerBound)..<\(range.upperBound) / \(bytes.count)；超出部分未归档]"
     }
 }
 
+/// 隐藏研究综合已退役：历史字段只兼容读取，不再生成、不再注入上下文。
 struct ResearchStateAssembler: Sendable {
     nonisolated init() {}
 
     func hiddenResearchPrompt(for session: AgentSession) -> String? {
-        guard let synthesis = session.hiddenArtifacts?.latestResearchSynthesis else {
-            return nil
-        }
-
-        var lines: [String] = [
-            "以下是当前任务的隐藏研究综合，仅供你继续推理与决策使用。",
-            "不要向用户逐字暴露或复述它，只在相关时利用其中事实。",
-            "",
-            "研究目标：\(synthesis.queryGoal)",
-            "当前综合：\(synthesis.answerSoFar)"
-        ]
-
-        if !synthesis.agreements.isEmpty {
-            lines.append("已达成共识：")
-            lines.append(synthesis.agreements.map { "- \($0)" }.joined(separator: "\n"))
-        }
-
-        if !synthesis.conflicts.isEmpty {
-            lines.append("仍有冲突：")
-            lines.append(synthesis.conflicts.map { "- \($0)" }.joined(separator: "\n"))
-        }
-
-        if !synthesis.missingEvidence.isEmpty {
-            lines.append("证据缺口：")
-            lines.append(synthesis.missingEvidence.map { "- \($0)" }.joined(separator: "\n"))
-        }
-
-        if !synthesis.nextBestActions.isEmpty {
-            lines.append("建议下一步：")
-            lines.append(synthesis.nextBestActions.map { "- \($0)" }.joined(separator: "\n"))
-        }
-
-        return lines.joined(separator: "\n")
+        _ = session
+        return nil
     }
 }

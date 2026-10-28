@@ -170,8 +170,9 @@ final class BionicMigrationService {
         }
         let old = prepared.role
         let originalParticipant = try BionicDisk.read(prepared.roleRoot, "participants/\(old.state.participantID).json")
-        let audit = try await model.validatePersona(old.persona, participant: originalParticipant, binding: binding, language: language, importing: true)
-        guard audit.receipt.flag("passed") else { throw BionicFailure("auditRejected", detail: audit.receipt.records("issues").map { $0.text("explanation") }.joined(separator: "\n")) }
+        // 角色远程内容审核已退役：只保留本地格式、路径、大小、哈希与引用完整性校验，不发远程 audit 请求。
+        _ = originalParticipant
+        try BionicPersonaCatalog.validate(old.persona, existing: nil, importing: true)
         // Retry never mutates the inspected source folder. The private working copy is installed atomically.
         let working = prepared.stagingRoot.appendingPathComponent("accepted-" + BionicCodec.id(), isDirectory: true)
         try fm.copyItem(at: prepared.roleRoot, to: working)
@@ -181,19 +182,6 @@ final class BionicMigrationService {
         let (dueEvents, dueWrites) = try BionicDisk.dueEffects(role, at: .now)
         if !dueEvents.isEmpty { try appendImportTransaction(root: working, role: &role, events: dueEvents, writes: dueWrites) }
         var events: [BionicObject] = [], writes: [BionicWrite] = []
-        let auditOp = audit.request.text("operation_id")
-        writes += [BionicWrite("operations/\(auditOp)/request.json", audit.request),
-                   BionicWrite("operations/\(auditOp)/results/\(audit.result.text("result_id")).json", audit.result)]
-        events.append(BionicRecords.event("operation_checkpoint", BionicRecords.checkpoint(audit.request,
-            step: "root", phase: "committed", result: audit.result.text("result_id"), attempts: 1)))
-        var validatedPersona = role.persona
-        validatedPersona["persona_revision_id"] = .string(BionicCodec.id())
-        validatedPersona["recorded_at"] = .string(BionicCodec.instant())
-        validatedPersona["validation_receipt"] = .object(audit.receipt)
-        let validatedPath = "personas/\(validatedPersona.text("persona_revision_id")).json"
-        writes.append(BionicWrite(validatedPath, validatedPersona))
-        events.append(BionicRecords.event("persona_selected", ["persona_ref": .string(validatedPath),
-            "previous_persona_revision_id": .string(role.state.personaID), "reason": .string("import_validation")]))
         var newParticipant: BionicJSON = .null
         if mode == "new_person" {
             guard (1...40).contains(name.trimmingCharacters(in: .whitespacesAndNewlines).count) else { throw BionicFailure("invalidFields") }
@@ -231,11 +219,16 @@ final class BionicMigrationService {
         writes += [BionicWrite("operations/\(op)/request.json", request), BionicWrite("operations/\(op)/results/\(resultID).json", result)]
         events += [BionicRecords.event("archive_transferred", ["transfer_id": .string(transfer), "direction": .string("import"), "cutoff_sequence": prepared.exportManifest["cutoff_sequence"] ?? .null, "mode": .string(mode), "recorded_at": .string(BionicCodec.instant())]), BionicRecords.event("operation_checkpoint", BionicRecords.checkpoint(request, step: "root", phase: "committed", result: resultID))]
         try appendImportTransaction(root: working, role: &role, events: events, writes: writes, operation: op)
-        var local = binding; local["installation_id"] = .string(prepared.id); local["notifications_enabled"] = .bool(false)
+        let drafted = BionicModelBindingFields.drafted(binding)
+        var local = binding; local.removeValue(forKey: BionicModelBindingFields.draftKey)
+        local["installation_id"] = .string(prepared.id); local["notifications_enabled"] = .bool(false)
         local["unread_after_sequence"] = .count(mode == "new_person" ? role.state.lastMessageSequence : 0)
         local["contact_resume_allowed"] = .bool(continueContact); local["notification_observations"] = .object([:])
         let installed = try await archive.installImportedRole(from: working, instance: prepared.id, binding: local)
         try? fm.removeItem(at: prepared.stagingRoot)
+        if let drafted, !drafted.isInherit {
+            try? model.library.setScopeBinding(drafted, scope: .bionic(installed.installationID))
+        }
         return installed
     }
     private func appendImportTransaction(root: URL, role: inout BionicRole, events: [BionicObject], writes: [BionicWrite], operation: String? = nil) throws {

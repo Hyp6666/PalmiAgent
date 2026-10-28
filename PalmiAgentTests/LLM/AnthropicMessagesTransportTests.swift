@@ -83,10 +83,12 @@ final class AnthropicMessagesTransportTests: XCTestCase {
         XCTAssertEqual(decoded.toolCalls.first?.id, "toolu_1")
         XCTAssertEqual(decoded.toolCalls.first?.name, "palmi_read")
         XCTAssertEqual(decoded.toolCalls.first?.arguments, #"{"path":"a.txt"}"#)
-        XCTAssertEqual(decoded.tokenUsage.inputTokens, 12)
+        // Provider input_tokens excludes cache reads; normalized input includes them.
+        XCTAssertEqual(decoded.tokenUsage.inputTokens, 15)
+        XCTAssertEqual(decoded.tokenUsage.uncachedInputTokens, 12)
         XCTAssertEqual(decoded.tokenUsage.outputTokens, 5)
         XCTAssertEqual(decoded.tokenUsage.cachedInputTokens, 3)
-        XCTAssertEqual(decoded.tokenUsage.totalTokens, 17)
+        XCTAssertEqual(decoded.tokenUsage.totalTokens, 20)
     }
 
     func testStreamAccumulatorBuildsToolArgumentsAndRequiresMessageStop() throws {

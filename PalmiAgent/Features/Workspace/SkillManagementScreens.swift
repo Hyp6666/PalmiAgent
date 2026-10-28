@@ -362,48 +362,31 @@ private struct SkillCard: View {
     }
 }
 
+/// 技能详情：像文件夹一样浏览技能包，点文件用工作区同一套预览。
 private struct SkillDetailScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var registry: SkillRegistry
     let skill: SkillPackage
     let onDeleted: () -> Void
     let onError: (String) -> Void
-
-    private var fileTree: String {
-        (try? SkillFileTreeBuilder.treeString(for: skill.packageURL)) ?? PalmiL10n.tr("common.empty")
-    }
+    @State private var isDeleting = false
 
     var body: some View {
-        List {
-            Section {
-                Text(skill.description)
-                    .font(.body)
-                    .foregroundStyle(.primary)
-            }
-
-            Section {
-                Text(fileTree)
-                    .font(.footnote.monospaced())
-                    .textSelection(.enabled)
-            }
-
-            Section {
+        SkillFolderScreen(rootURL: skill.packageURL, relativePath: nil, title: skill.name)
+            .toolbar {
                 if skill.source != .builtIn {
-                    Button(PalmiL10n.tr("common.delete"), role: .destructive) {
-                        deleteSkill()
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(role: .destructive) { isDeleting = true } label: { Image(systemName: "trash") }
+                            .accessibilityLabel(PalmiL10n.tr("common.delete"))
                     }
                 }
-            }
-        }
-        .navigationTitle(skill.name)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(PalmiL10n.tr("common.done")) {
-                    dismiss()
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(PalmiL10n.tr("common.done")) { dismiss() }
                 }
             }
-        }
+            .confirmationDialog(skill.name, isPresented: $isDeleting, titleVisibility: .visible) {
+                Button(PalmiL10n.tr("common.delete"), role: .destructive) { deleteSkill() }
+            }
     }
 
     private func deleteSkill() {
@@ -417,38 +400,78 @@ private struct SkillDetailScreen: View {
     }
 }
 
-private enum SkillFileTreeBuilder {
-    static func treeString(for rootURL: URL) throws -> String {
-        let fileManager = FileManager.default
-        var lines = [rootURL.lastPathComponent]
-        try appendTreeLines(for: rootURL, prefix: "", into: &lines, fileManager: fileManager)
-        return lines.joined(separator: "\n")
+/// 技能包里的一层目录。只读：不提供新建、重命名或删除。
+private struct SkillFolderScreen: View {
+    let rootURL: URL
+    let relativePath: String?
+    let title: String
+    @State private var previewedFile: WorkspacePreviewFile?
+    @State private var errorMessage: String?
+
+    private var nodes: [WorkspaceFileNode] {
+        let directory = relativePath.map { rootURL.appendingPathComponent($0) } ?? rootURL
+        return SkillFileNodeBuilder.nodes(in: directory, root: rootURL)
     }
 
-    private static func appendTreeLines(
-        for directoryURL: URL,
-        prefix: String,
-        into lines: inout [String],
-        fileManager: FileManager
-    ) throws {
-        let entries = try fileManager.contentsOfDirectory(
-            at: directoryURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        )
-        .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
-
-        for (index, entry) in entries.enumerated() {
-            let isDirectory = try entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
-            let isLast = index == entries.count - 1
-            let connector = isLast ? "└─ " : "├─ "
-            let suffix = isDirectory ? "/" : ""
-            lines.append("\(prefix)\(connector)\(entry.lastPathComponent)\(suffix)")
-
-            if isDirectory {
-                let childPrefix = prefix + (isLast ? "   " : "│  ")
-                try appendTreeLines(for: entry, prefix: childPrefix, into: &lines, fileManager: fileManager)
+    var body: some View {
+        Group {
+            let nodes = nodes
+            if nodes.isEmpty {
+                ContentUnavailableView(PalmiL10n.tr("workspace.files.emptyFolder"), systemImage: "folder")
+            } else {
+                List(nodes) { node in
+                    if node.isDirectory {
+                        NavigationLink {
+                            SkillFolderScreen(rootURL: rootURL, relativePath: node.relativePath, title: node.name)
+                        } label: {
+                            WorkspaceFileRowLabel(node: node)
+                        }
+                    } else {
+                        Button { preview(node) } label: { WorkspaceFileRowLabel(node: node) }
+                            .buttonStyle(.plain)
+                    }
+                }
+                .listStyle(.plain)
             }
         }
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $previewedFile) { WorkspaceFilePreviewSheet(file: $0) }
+        .alert(PalmiL10n.tr("common.operationFailed"), isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            Button(PalmiL10n.tr("common.ok"), role: .cancel) {}
+        } message: { Text(errorMessage ?? "") }
+    }
+
+    private func preview(_ node: WorkspaceFileNode) {
+        do {
+            previewedFile = try WorkspacePreviewFileLoader.load(relativePath: node.relativePath) { rootURL.appendingPathComponent($0) }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private enum SkillFileNodeBuilder {
+    /// 文件夹在前，其余按名称排序；子节点只用于显示条目数。
+    static func nodes(in directory: URL, root: URL) -> [WorkspaceFileNode] {
+        let entries = (try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        return entries
+            .map { url -> WorkspaceFileNode in
+                let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+                let relative = String(url.standardizedFileURL.path.dropFirst(root.standardizedFileURL.path.count))
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                return WorkspaceFileNode(
+                    id: relative, name: url.lastPathComponent, relativePath: relative, url: url,
+                    isDirectory: isDirectory, children: isDirectory ? nodes(in: url, root: root) : []
+                )
+            }
+            .sorted { lhs, rhs in
+                if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
+                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+            }
     }
 }

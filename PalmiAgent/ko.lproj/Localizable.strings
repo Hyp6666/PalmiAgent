@@ -85,7 +85,6 @@
 "chat.history.new" = "새 채팅";
 "chat.history.rename" = "채팅 이름 변경";
 "chat.history.renameMessage" = "이름이 이 채팅 기록에 즉시 적용됩니다.";
-"chat.history.title" = "채팅 기록";
 "chat.input.placeholder" = "메시지 입력…";
 "chat.suggestion.fill" = "입력";
 "chat.suggestion.fillAccessibility" = "추천된 다음 메시지 입력";
@@ -664,7 +663,7 @@
 "tool.authorization.autoReviewPolicy.empty" = "설정 안 함";
 "tool.authorization.autoReviewPolicy.note" = "검토 정책은 자동 검토를 선택한 경우에만 적용됩니다.";
 "tool.authorization.autoReviewPolicy.placeholder" = "나만의 검토 정책을 입력하세요(선택).";
-"tool.authorization.autoReviewPolicy.title" = "사용자 정의 검토 정책";
+"tool.authorization.autoReviewPolicy.title" = "검토 규칙";
 "tool.authorization.title" = "도구 권한";
 "tool.confirmation.allow" = "허용";
 "tool.confirmation.always" = "매번 확인";
@@ -778,8 +777,6 @@
 "workspace.nameEditor.message" = "이름이 현재 프로젝트 또는 세션에 즉시 적용됩니다.";
 "workspace.placeholder.projectName" = "프로젝트 이름";
 "workspace.placeholder.threadName" = "세션 이름";
-"workspace.project.threadCount" = "세션 %d개";
-"workspace.sidebar.section.projects" = "프로젝트 작업 공간";
 "workspace.status.attachmentsAdded" = "첨부 파일 %d개를 추가했습니다.";
 "workspace.status.chatBelongsToOtherMode" = "이 채팅은 현재 모드에 속하지 않습니다.";
 "workspace.status.chatCreated" = "채팅 “%@”을(를) 만들었습니다.";
@@ -946,7 +943,7 @@
 "model.connection.placeholder" = "https://example.com/v1";
 "model.connection.title" = "API";
 "model.connection.advanced" = "업스트림 형식";
-"model.connection.protocol.title" = "업스트림 API 형식";
+"model.connection.protocol.title" = "프로토콜";
 "model.connection.protocol.footer" = "명시적으로 선택하면 해당 형식만 사용합니다. 자동 협상은 엔드포인트가 미지원임을 명확히 반환한 경우에만 형식을 전환합니다.";
 "model.connection.protocol.automatic" = "자동(권장)";
 "model.connection.protocol.automatic.detail" = "아래 순서에 따라 자동 협상";
@@ -960,7 +957,7 @@
 "model.apiKey.placeholder" = "예: sk-........";
 "model.apiKey.show" = "API Key 표시";
 "model.discovery.deselectAll" = "전체 선택 해제";
-"model.discovery.fetch" = "모델 가져오기";
+"model.discovery.fetch" = "모델 목록 가져오기";
 "model.discovery.importCount" = "가져오기(%d)";
 "model.discovery.loading" = "모델 목록을 가져오는 중…";
 "model.discovery.notSelected" = "선택 안 함";
@@ -999,7 +996,7 @@
 "searchConfiguration.mode.local" = "로컬 검색";
 "searchConfiguration.mode.remote" = "원격 검색";
 "searchConfiguration.section" = "검색 구성";
-"searchConfiguration.local.title" = "로컬 검색";
+"searchConfiguration.local.title" = "검색 엔진";
 "searchConfiguration.remote.title" = "원격 검색";
 "searchConfiguration.remote.required" = "먼저 사용 가능한 원격 검색 구성을 추가하세요.";
 "remoteSearch.title" = "원격 검색";
@@ -1724,8 +1721,8 @@
 "neo.runtime.elapsed.minutesSeconds" = "경과 %d분 %d초";
 "neo.runtime.reasoning" = "추론";
 "neo.runtime.explanation" = "설명";
-"neo.runtime.overview" = "개요";
-"neo.runtime.result" = "결과";
+"neo.runtime.toolInput" = "도구 입력";
+"neo.runtime.toolOutput" = "도구 출력";
 "neo.runtime.awaitingResult" = "도구 결과를 기다리는 중…";
 
 // Bionic background progress
@@ -1809,3 +1806,108 @@
 "askUser.result.answered" = "사용자 답변 완료";
 
 "askUser.result.timeoutDefault" = "시간 초과 기본 선택";
+
+/* 模型库与工具能力 */
+"ml.binding.invalid" = "사용할 수 없음";
+"ml.capability.text" = "텍스트 생성";
+"ml.capability.toolImages" = "도구 결과 이미지";
+"ml.capability.tools" = "도구 호출";
+"ml.conflicts.count" = "충돌 %d개";
+"ml.conflicts.current" = "새 버전";
+"ml.conflicts.deleted" = "삭제됨";
+"ml.conflicts.keepCurrent" = "새 버전 유지";
+"ml.conflicts.legacy" = "이전 버전";
+"ml.conflicts.title" = "충돌";
+"ml.conflicts.useLegacy" = "이전 버전 사용";
+"ml.connection.custom" = "사용자 지정";
+"ml.connection.label" = "이름";
+"ml.connection.missing" = "더 이상 존재하지 않음";
+"ml.connection.modelCount" = "모델 %d개";
+"ml.connection.models" = "모델";
+"ml.connection.preset" = "제공업체";
+"ml.credential.failed" = "읽기 실패";
+"ml.credential.locked" = "일시적으로 읽을 수 없음";
+"ml.credential.missing" = "API 키 없음";
+"ml.credential.none" = "설정 안 됨";
+"ml.credential.saved" = "저장됨";
+"ml.delete.references" = "사용 중: %@";
+"ml.followDefault" = "기본 모델 따르기";
+"ml.followDefaultNamed" = "기본 따르기(%@)";
+"ml.library.title" = "모델 라이브러리";
+"ml.mainModel" = "기본 모델";
+"ml.mainModel.notConfigured" = "기본 모델 미선택";
+"ml.migration.compatibility" = "이전 버전에서도 이 설정을 읽을 수 있으며 어느 쪽에서 변경해도 유지됩니다.";
+"ml.migration.headline" = "'플랜'이 모델 라이브러리로 정리되었습니다";
+"ml.migration.naming" = "그룹 이름 지정(선택)";
+"ml.migration.namingDetail" = "이름이 없으면 주소가 표시됩니다. 언제든 모델 라이브러리에서 바꿀 수 있습니다.";
+"ml.migration.noPlans" = "이전 플랜 없음";
+"ml.migration.oldPlans" = "이전 플랜";
+"ml.migration.reviewDetail" = "이전 경량 모델은 권한 자동 검토에만 남으며 도구 기능에서 바꿀 수 있습니다.";
+"ml.migration.source.apiProfile" = "이전 API 설정에서";
+"ml.migration.source.none" = "이전 설정에 선택된 기본 모델 없음";
+"ml.migration.source.plan" = "이전 사용 중 플랜에서";
+"ml.migration.source.preV2" = "이전 버전 플랜에서";
+"ml.migration.subtitle" = "모든 모델, 연결, 키가 유지되었습니다. 이제 기본 모델은 하나이며 이미지 이해와 권한 검토는 따로 설정하는 도구가 되었습니다.";
+"ml.migration.title" = "모델 설정이 업그레이드되었습니다";
+"ml.migration.visionDetail" = "이전 멀티모달 모델은 이미지 이해 도구의 모델이 되었습니다. 기본 모델이 이미지를 읽을 수 있으면 직접 읽습니다.";
+"ml.migration.wasActive" = "사용 중이었음";
+"ml.model.connectivity" = "연결 확인";
+"ml.model.delete" = "모델 삭제";
+"ml.model.discoveryEmpty" = "반환된 모델이 없음";
+"ml.model.providerID" = "모델 ID";
+"ml.model.setMain" = "기본 모델로 설정";
+"ml.session.currentModel" = "현재 모델";
+"ml.session.defaultModel" = "기본 모델";
+"ml.session.otherModels" = "다른 모델 선택";
+"ml.tool.followMain" = "기본 모델 따르기";
+"ml.tool.review" = "검토 모델";
+"ml.tool.title" = "도구 구성";
+"ml.web.local" = "기기";
+
+"ml.unavailable" = "모델 라이브러리를 사용할 수 없음";
+"ml.add.model" = "모델 추가";
+"ml.add.oauth" = "OAuth 로그인";
+"ml.add.confirm" = "추가";
+"ml.optional" = "선택";
+"ml.connection.address" = "주소";
+"ml.connection.account" = "계정";
+"ml.connection.deleteConfirm" = "“%@” 및 모든 모델을 삭제할까요?";
+"ml.model.detail" = "모델 세부정보";
+"ml.model.name" = "메모 이름";
+"ml.model.deleteConfirm" = "“%@”을(를) 삭제할까요?";
+"ml.review.policyDefault" = "기본";
+"ml.review.policyCustom" = "사용자 지정";
+
+"ml.groups.title" = "API 그룹";
+"ml.add.fetch" = "모델 자동 가져오기";
+"ml.add.manual" = "모델 직접 추가";
+"ml.add.import" = "가져오기";
+"ml.model.remove" = "제거";
+"ml.model.checkVision" = "비전 확인";
+"ml.web.remote" = "원격";
+"ml.web.service" = "서비스";
+"ml.web.endpoint" = "엔드포인트";
+"ml.web.noEndpoint" = "이 인터페이스에는 기본 엔드포인트가 없습니다.";
+
+"ml.oauth.groups" = "OAuth 그룹";
+"ml.model.imageInput" = "이미지 입력 지원";
+"ml.batch.footer" = "이 설정은 일괄 적용됩니다. 개별 모델은 가져온 후 수정할 수 있습니다.";
+"ml.fetch.run" = "가져오기";
+"ml.fetch.selectAll" = "모두 선택";
+"ml.fetch.deselectAll" = "모두 선택 해제";
+"ml.check.start" = "확인";
+"ml.check.visionNotice" = "테스트 이미지를 모델에 보내므로 소량의 사용량이 소모될 수 있습니다. 통과하면 ‘이미지 입력 지원’이 자동으로 켜집니다. 확인하지 않고 직접 켜거나 끌 수도 있지만 실제 사용 결과는 보장되지 않습니다.";
+
+// Interactive answer content
+"ui.expand" = "펼치기";
+"ui.close" = "닫기";
+"ui.followUp" = "이 내용으로 계속";
+"ui.retry" = "다시 불러오기";
+
+"attachment.openOriginal" = "원본 이미지 보기: %@";
+"attachment.previewUnavailable" = "미리보기를 사용할 수 없습니다";
+
+// Progressive conversation presentation
+"settings.runtime.professionalStyle" = "전문가 모드 실행 표시";
+"settings.runtime.progressiveScope" = "채팅에서는 항상 Neo로 과정을 표시하며 모든 응답 내용을 유지합니다. 이 설정은 전문가 모드에만 적용됩니다.";
+"chat.runtime.notice" = "실행 상태";

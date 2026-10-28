@@ -3,7 +3,7 @@ import SafariServices
 import UIKit
 
 struct ChatGPTOAuthScreen: View {
-    @Bindable var planStore: ModelPlanStore
+    @Bindable var library: ModelLibraryStore
     @State private var account = ChatGPTAccountStore.shared
     @State private var showBrowser = false
     @State private var busy = false
@@ -65,7 +65,7 @@ struct ChatGPTOAuthScreen: View {
         do {
             let list = try await account.refreshCatalog()
             guard let active = account.account else { return }
-            try planStore.importChatGPTModels(list, account: active)
+            try library.importChatGPTModels(list, account: active)
         } catch is CancellationError {} catch { self.error = error.localizedDescription }
     }
 }

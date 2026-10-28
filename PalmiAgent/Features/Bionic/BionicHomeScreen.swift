@@ -78,7 +78,11 @@ struct BionicRootScreen: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(displayedRoles, id: \.installationID) { role in
-                            Button { Task { await store.open(role.installationID) } } label: {
+                            Button {
+                                // 点开会话的这一刻气泡即归零，不等待页面加载。
+                                store.markConversationRead(role.installationID)
+                                Task { await store.open(role.installationID) }
+                            } label: {
                                 HStack(alignment: .center, spacing: 12) {
                                     BionicAvatar(data: store.avatars[role.installationID + ":" + role.characterID], name: role.name, size: 52)
                                     VStack(alignment: .leading, spacing: 5) {

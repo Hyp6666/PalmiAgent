@@ -256,6 +256,7 @@ enum RoutedToolCallKind {
     case taskState
     case subagent
     case compact
+    case resultReader
     case external
 }
 
@@ -272,6 +273,7 @@ struct ToolRouter {
     let taskStateToolNames: Set<String>
     let subagentToolNames: Set<String>
     let compactToolName: String
+    var resultReaderToolName: String = ToolResultReaderTool.name
 
     func route(
         _ toolUse: AgentToolUse,
@@ -312,6 +314,16 @@ struct ToolRouter {
             return RoutedToolCall(
                 toolUse: toolUse,
                 kind: .compact,
+                prepared: nil,
+                policy: nil,
+                routingError: nil
+            )
+        }
+
+        if toolUse.name == resultReaderToolName {
+            return RoutedToolCall(
+                toolUse: toolUse,
+                kind: .resultReader,
                 prepared: nil,
                 policy: nil,
                 routingError: nil
@@ -392,6 +404,13 @@ struct ToolExecutionPlanner {
             }
 
             if case .compact = call.kind {
+                flushParallel()
+                flushSequential()
+                batches.append(ToolExecutionBatch(kind: .progressOnly, calls: [call]))
+                continue
+            }
+
+            if case .resultReader = call.kind {
                 flushParallel()
                 flushSequential()
                 batches.append(ToolExecutionBatch(kind: .progressOnly, calls: [call]))

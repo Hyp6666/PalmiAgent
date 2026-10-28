@@ -30,6 +30,7 @@ struct AgentPromptBuilder {
 
         return [
             basePrompt,
+            PalmiGenerativeUIPrompt.text,
             PalmiLanguage.current.systemPromptLanguageInstruction
         ].joined(separator: "\n\n")
     }

@@ -107,6 +107,25 @@ extension BionicArchiveStore {
         )
     }
 
+    /// 打开会话即全部已读：把已读水位线推进到当前最新消息序号。
+    /// 水位线不依赖消息 ID、参与者或界面状态，之后的未读只统计更新的角色消息。
+    /// 同时为水位线内的角色消息补记已读回执（检查器展示用，失败不影响结果）。
+    @discardableResult
+    func markAllRead(_ instance: String, through floor: Int = 0) throws -> Bool {
+        let role = try loadRole(instance)
+        let latest = max(role.state.lastMessageSequence, floor)
+        // 本机绑定缺失或损坏时从空对象重建，水位线写入不因此失败。
+        var local = (try? binding(instance)) ?? [:]
+        let after = local.int("unread_after_sequence")
+        guard latest > after else { return false }
+        let read = Set(role.state.raw.object("read_message_ids_by_participant")[role.state.participantID]?.array.compactMap(\.string) ?? [])
+        let unreadIDs = (try? unreadCharacterSequences(instance, read: read, after: after)).map { Array($0.keys) } ?? []
+        local["unread_after_sequence"] = .count(latest)
+        try saveBinding(instance, local)
+        if !unreadIDs.isEmpty { _ = try? markRead(instance, ids: unreadIDs) }
+        return true
+    }
+
     func unreadCharacterSequences(_ instance: String, read: Set<String>, after: Int) throws -> [String: Int] {
         let role = try loadRole(instance)
         var cache = presentationCache[instance] ?? BionicPresentationCache()

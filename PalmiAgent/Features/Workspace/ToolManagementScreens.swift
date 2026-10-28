@@ -53,55 +53,6 @@ struct ToolManagementOverviewScreen: View {
     }
 }
 
-struct ToolAuthorizationSettingsScreen: View {
-    @Bindable var authorizationStore: ToolAuthorizationStore
-
-    var body: some View {
-        List {
-            Section {
-                Picker(
-                    PalmiL10n.tr("tool.authorization.title"),
-                    selection: Binding(
-                        get: { authorizationStore.mode },
-                        set: { authorizationStore.setMode($0) }
-                    )
-                ) {
-                    ForEach(ToolAuthorizationMode.userSelectableCases) { mode in
-                        Text(mode.localizedTitle).tag(mode)
-                    }
-                }
-                .pickerStyle(.menu)
-            }
-
-            Section {
-                ZStack(alignment: .topLeading) {
-                    if authorizationStore.customAutoReviewPolicy.isEmpty {
-                        Text(PalmiL10n.tr("tool.authorization.autoReviewPolicy.placeholder"))
-                            .foregroundStyle(.tertiary)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 8)
-                            .allowsHitTesting(false)
-                    }
-
-                    TextEditor(text: Binding(
-                        get: { authorizationStore.customAutoReviewPolicy },
-                        set: { authorizationStore.setCustomAutoReviewPolicy($0) }
-                    ))
-                    .frame(minHeight: 120)
-                    .scrollContentBackground(.hidden)
-                }
-            } header: {
-                Text(PalmiL10n.tr("tool.authorization.autoReviewPolicy.title"))
-            } footer: {
-                Text(PalmiL10n.tr("tool.authorization.autoReviewPolicy.note"))
-            }
-        }
-        .listStyle(.insetGrouped)
-        .navigationTitle(PalmiL10n.tr("tool.authorization.title"))
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
 private struct ToolManagementSectionBlock: View {
     let section: ToolManagementSectionDefinition
     let groups: [ToolManagementGroupDefinition]

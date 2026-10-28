@@ -2,54 +2,53 @@ import SwiftUI
 import PhotosUI
 import UIKit
 
+/// 角色的主模型选择：跟随默认主模型，或明确指定模型库中的一个模型。
+/// 选择写入草稿的 `model_library_binding`，保存时转入模型库作用域绑定，不写进角色存档。
 struct BionicModelBindingFields: View {
+    static let draftKey = "model_library_binding"
     @Bindable var store: BionicStore
     @Binding var binding: BionicObject
-    @State private var modelHelp: String?
-    private var planOverride: ModelPlanSessionOverride { store.model.sessionOverride(binding) }
-    private var plan: ModelPlanSnapshot? { store.model.plans.selectedPlan(for: planOverride) }
-    private func candidate(_ key: String, slot: ModelPlanSlot, plan: ModelPlanSnapshot) -> Binding<String> {
-        Binding(get: {
-            store.model.plans.selectedCandidate(for: slot, in: plan, sessionOverride: planOverride)?
-                .id.uuidString.lowercased() ?? ""
-        }, set: { binding[key] = $0.isEmpty ? .null : .string($0) })
+
+    private var library: ModelLibraryStore { store.model.library }
+    private var instance: String? { binding.optionalText("installation_id") }
+    private var current: String {
+        if let draft = binding.optionalText(Self.draftKey) { return draft }
+        guard let instance else { return "" }
+        return library.scopeBinding(.bionic(instance)).explicitModelID?.uuidString ?? ""
     }
+    private var selectableModels: [ModelRecord] {
+        library.state.models.filter { !$0.imageGenerationOnly }
+    }
+
     var body: some View {
-        Section(PalmiL10n.tr("bionic.models")) {
-            Picker(PalmiL10n.tr("bionic.modelPlan"), selection: Binding(get: { binding.text("plan_id") }, set: {
-                binding["plan_id"] = $0.isEmpty ? .null : .string($0)
-                binding["primary_candidate_id"] = .null
-                binding["multimodal_candidate_id"] = .null
-                binding["lightweight_candidate_id"] = .null
+        Section {
+            Picker(PalmiL10n.tr("bionic.primaryModel"), selection: Binding(get: { current }, set: {
+                binding[Self.draftKey] = .string($0)
             })) {
-                Text(PalmiL10n.tr("bionic.followActivePlan")).tag("")
-                ForEach(store.model.plans.plans) { Text($0.name).tag($0.id.uuidString.lowercased()) }
+                Text(defaultTitle).tag("")
+                ForEach(selectableModels) { model in
+                    Text(ModelLibraryPresentation.modelTitle(model, library: library)).tag(model.id.uuidString)
+                }
+                if !current.isEmpty, !selectableModels.contains(where: { $0.id.uuidString == current }) {
+                    Text(PalmiL10n.tr("ml.binding.invalid")).tag(current)
+                }
             }
-            if let plan {
-                modelRow(title: "bionic.primaryModel", help: "bionic.primaryModelHelp", slot: .primary, key: "primary_candidate_id", plan: plan)
-                modelRow(title: "bionic.visionModel", help: "bionic.visionModelHelp", slot: .multimodal, key: "multimodal_candidate_id", plan: plan)
-                modelRow(title: "bionic.lightweightModel", help: "bionic.lightweightModelHelp", slot: .lightweight, key: "lightweight_candidate_id", plan: plan)
-            }
+        } header: {
+            Text(PalmiL10n.tr("bionic.models"))
         }
-        .alert(PalmiL10n.tr("bionic.models"), isPresented: Binding(get: { modelHelp != nil }, set: { if !$0 { modelHelp = nil } })) {
-            Button(PalmiL10n.tr("bionic.ok"), role: .cancel) {}
-        } message: { Text(PalmiL10n.tr(modelHelp ?? "bionic.models")) }
     }
-    private func modelRow(title: String, help: String, slot: ModelPlanSlot, key: String, plan: ModelPlanSnapshot) -> some View {
-        HStack {
-            Text(PalmiL10n.tr(title))
-            Button { modelHelp = help } label: { Image(systemName: "questionmark.circle").foregroundStyle(.secondary) }
-                .buttonStyle(.plain).accessibilityLabel(PalmiL10n.tr(title))
-            Spacer()
-            Picker(PalmiL10n.tr(title), selection: candidate(key, slot: slot, plan: plan)) {
-                if store.model.plans.selectedCandidate(for: slot, in: plan, sessionOverride: planOverride) == nil {
-                    Text(PalmiL10n.tr("common.notSelected")).tag("").disabled(true)
-                }
-                ForEach(plan.candidates.filter { !$0.isImageGenerationOnly }) {
-                    Text($0.title).tag($0.id.uuidString.lowercased())
-                }
-            }.labelsHidden()
-        }
+
+    private var defaultTitle: String {
+        let name = library.state.defaultMainModel.modelID.flatMap { library.state.model($0) }
+            .map { ModelLibraryPresentation.modelTitle($0, library: library) }
+        return name.map { PalmiL10n.tr("ml.followDefaultNamed", $0) } ?? PalmiL10n.tr("ml.followDefault")
+    }
+
+    /// 草稿值 → 作用域绑定；nil 表示草稿未改动。
+    static func drafted(_ binding: BionicObject) -> ScopedMainModelBinding? {
+        guard let raw = binding.optionalText(draftKey) else { return nil }
+        if raw.isEmpty { return .inherit }
+        return UUID(uuidString: raw).map(ScopedMainModelBinding.explicitModel)
     }
 }
 
