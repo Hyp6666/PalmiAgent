@@ -778,7 +778,6 @@
 "workspace.nameEditor.message" = "名称会立即应用到当前项目或会话。";
 "workspace.placeholder.projectName" = "项目名称";
 "workspace.placeholder.threadName" = "会话名称";
-"workspace.project.threadCount" = "%d 个会话";
 "workspace.sidebar.section.projects" = "项目工作区";
 "workspace.status.attachmentsAdded" = "已添加 %d 个附件。";
 "workspace.status.chatBelongsToOtherMode" = "该聊天不属于当前模式。";
@@ -1901,23 +1900,15 @@
 "ml.check.visionNotice" = "检查会向模型发送一张测试图片，可能消耗少量额度。检查通过后会自动开启“支持图片输入”。你也可以不检查，直接开启或关闭这个选项，但不保证实际使用效果。";
 
 // Interactive answer content
-"ui.generating" = "正在生成交互内容…";
-"ui.unavailable" = "交互内容暂不可用";
-"ui.source" = "查看源代码";
 "ui.expand" = "展开";
 "ui.close" = "关闭";
-"ui.reset" = "重置";
 "ui.followUp" = "根据当前内容继续";
-"ui.loading" = "正在加载…";
 "ui.retry" = "重新加载";
-"ui.saveFailed" = "最新的交互状态未能保存。";
-"ui.snapshotFailed" = "未能获取当前交互状态，请重试。";
 
 "attachment.openOriginal" = "查看原图：%@";
 "attachment.previewUnavailable" = "预览不可用";
 
 // Progressive conversation presentation
-"chat.progressive.ended" = "本轮已结束";
 "settings.runtime.professionalStyle" = "专业模式的运行过程";
 "settings.runtime.progressiveScope" = "聊天模式始终使用 Neo 展示过程，回答持续保留。此处选择仅影响专业模式。";
 "chat.runtime.notice" = "运行提示";

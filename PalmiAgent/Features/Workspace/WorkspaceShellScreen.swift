@@ -481,7 +481,6 @@ private struct WorkspaceSidebar: View {
                         ForEach(store.projects) { project in
                             WorkspaceProjectRow(
                                 project: project,
-                                threadCount: store.threadCount(for: project.id),
                                 isSelected: store.selectedProjectID == project.id,
                                 isExpanded: expandedProjectIDs.contains(project.id),
                                 threads: expandedProjectIDs.contains(project.id) ? store.threads(for: project.id) : [],
@@ -685,7 +684,6 @@ private struct WorkspaceSidebar: View {
 
 private struct WorkspaceProjectRow: View {
     let project: WorkspaceProjectRecord
-    let threadCount: Int
     let isSelected: Bool
     let isExpanded: Bool
     let threads: [WorkspaceThreadRecord]
@@ -726,23 +724,24 @@ private struct WorkspaceProjectRow: View {
                         PalmiFileIcon(name: project.name, isDirectory: true, size: 26)
                             .opacity(isExpanded ? 1 : 0.78)
 
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(project.name)
-                                .font(.body.weight(isExpanded ? .semibold : .regular))
-                                .foregroundStyle(isExpanded ? .blue : .primary)
-                            Text(PalmiL10n.tr("workspace.project.threadCount", threadCount))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                        Text(project.name)
+                            .font(.body.weight(isExpanded ? .semibold : .regular))
+                            .foregroundStyle(isExpanded ? .blue : .primary)
+                            .lineLimit(1)
 
                         Spacer()
                         PalmiUnreadBadge(count: unreadCount)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
-                    .padding(.vertical, 6)
+                    .padding(.vertical, 4)
                 }
                 .buttonStyle(.plain)
+                .contextMenu {
+                    Button(PalmiL10n.tr("workspace.action.viewFolder"), systemImage: "folder") { onBrowseFiles() }
+                    Button(PalmiL10n.tr("common.rename"), systemImage: "pencil") { onRenameProject() }
+                    Button(PalmiL10n.tr("common.delete"), systemImage: "trash", role: .destructive) { onDeleteProject() }
+                }
 
                 if isExpanded {
                     Button(action: onCreateThread) {
@@ -752,25 +751,6 @@ private struct WorkspaceProjectRow: View {
                             .frame(width: 28, height: 28)
                     }
                     .buttonStyle(.plain)
-                }
-
-                Menu {
-                    Button {
-                        onBrowseFiles()
-                    } label: {
-                        Label(PalmiL10n.tr("workspace.action.viewFolder"), systemImage: "folder")
-                    }
-                    Button(PalmiL10n.tr("common.rename")) {
-                        onRenameProject()
-                    }
-                    Button(PalmiL10n.tr("common.delete"), role: .destructive) {
-                        onDeleteProject()
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.title3)
-                        .foregroundStyle(.blue)
-                        .frame(width: 28, height: 28)
                 }
             }
 
@@ -808,58 +788,39 @@ private struct WorkspaceThreadRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            HStack(spacing: 12) {
-                Image(systemName: thread.subagentOrigin == nil
-                    ? (isSelected ? "message.fill" : "message")
-                    : "person.2")
-                    .foregroundStyle(.mint)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(thread.name)
+                    .font(.body.weight(isSelected ? .semibold : .regular))
+                    .lineLimit(1)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(thread.name)
-                        .font(.body.weight(isSelected ? .semibold : .regular))
-                    Text(thread.updatedAt.formatted(date: .abbreviated, time: .shortened))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    if thread.subagentOrigin != nil {
-                        Label(subagentStatusText, systemImage: subagentStatusIcon)
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(subagentStatusColor)
-                    }
-
-                    if let runningBadgeText {
-                        Label(runningBadgeText, systemImage: "sparkles")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.blue)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .background(.blue.opacity(0.10), in: Capsule())
-                    }
+                if thread.subagentOrigin != nil {
+                    Label(subagentStatusText, systemImage: subagentStatusIcon)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(subagentStatusColor)
                 }
 
-                Spacer()
-                PalmiUnreadBadge(count: unreadCount)
+                if let runningBadgeText {
+                    Label(runningBadgeText, systemImage: "sparkles")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.blue)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(.blue.opacity(0.10), in: Capsule())
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Menu {
-                Button(PalmiL10n.tr("common.rename")) {
-                    onRename()
-                }
-                Button(PalmiL10n.tr("common.delete"), role: .destructive) {
-                    onDelete()
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(.body)
-                    .foregroundStyle(.blue)
-                    .frame(width: 28, height: 28)
-            }
+            Spacer()
+            PalmiUnreadBadge(count: unreadCount)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
-        .padding(.vertical, 4)
+        .padding(.vertical, 3)
         .onTapGesture {
             onSelect()
+        }
+        .contextMenu {
+            Button(PalmiL10n.tr("common.rename"), systemImage: "pencil") { onRename() }
+            Button(PalmiL10n.tr("common.delete"), systemImage: "trash", role: .destructive) { onDelete() }
         }
     }
 

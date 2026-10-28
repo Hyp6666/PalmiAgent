@@ -18,14 +18,6 @@ struct ChatHistoryHomeScreen: View {
             List {
                 chatHeaderSpacer
 
-                if let statusMessage = store.statusMessage, !statusMessage.isEmpty {
-                    Section {
-                        Text(statusMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
                 Section(PalmiL10n.tr("chat.history.title")) {
                     if store.chatProjects.isEmpty {
                         HStack {
@@ -38,7 +30,6 @@ struct ChatHistoryHomeScreen: View {
                     } else {
                         ForEach(store.chatProjects) { project in
                             let threads = store.threads(for: project.id)
-                            let thread = threads.first
                             let runningBadgeText = threads.lazy.compactMap {
                                 chatStore.runningBadgeText(
                                     for: WorkspaceSelection(projectID: project.id, threadID: $0.id)
@@ -46,7 +37,6 @@ struct ChatHistoryHomeScreen: View {
                             }.first
                             ChatHistoryCard(
                                 project: project,
-                                updatedAt: thread?.updatedAt ?? project.createdAt,
                                 runningBadgeText: runningBadgeText,
                                 unreadCount: threads.reduce(0) { count, thread in
                                     count + (thread.subagentOrigin == nil ? chatStore.unreadStore.count(for:
@@ -61,11 +51,13 @@ struct ChatHistoryHomeScreen: View {
                             },
                                 onDelete: { pendingDeletion = project }
                             )
+                            .listRowInsets(EdgeInsets(top: 9, leading: 20, bottom: 9, trailing: 20))
                         }
                     }
                 }
             }
             .scrollContentBackground(.hidden)
+            .environment(\.defaultMinListRowHeight, 40)
             .background(Color.clear)
             .scrollDismissesKeyboard(.interactively)
 
@@ -169,7 +161,6 @@ struct ChatHistoryHomeScreen: View {
 
 private struct ChatHistoryCard: View {
     let project: WorkspaceProjectRecord
-    let updatedAt: Date
     let runningBadgeText: String?
     let unreadCount: Int
     let onOpen: () -> Void
@@ -177,49 +168,34 @@ private struct ChatHistoryCard: View {
     let onDelete: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
-            Button(action: onOpen) {
-                VStack(alignment: .leading, spacing: 6) {
+        Button(action: onOpen) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text(project.name)
                         .font(.body.weight(.semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
-
-                    Text(updatedAt.formatted(date: .abbreviated, time: .shortened))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
 
                     if let runningBadgeText {
                         Label(runningBadgeText, systemImage: "sparkles")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.blue)
                             .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
+                            .padding(.vertical, 3)
                             .background(.blue.opacity(0.10), in: Capsule())
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
 
-            PalmiUnreadBadge(count: unreadCount)
-
-            Menu {
-                Button(PalmiL10n.tr("common.rename")) {
-                    onRename()
-                }
-                Button(PalmiL10n.tr("common.delete"), role: .destructive) {
-                    onDelete()
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(.title3)
-                    .foregroundStyle(.blue)
-                    .frame(width: 28, height: 28)
+                PalmiUnreadBadge(count: unreadCount)
             }
+            .contentShape(Rectangle())
         }
-        .padding(.vertical, 4)
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button(PalmiL10n.tr("common.rename"), systemImage: "pencil") { onRename() }
+            Button(PalmiL10n.tr("common.delete"), systemImage: "trash", role: .destructive) { onDelete() }
+        }
     }
 }
 

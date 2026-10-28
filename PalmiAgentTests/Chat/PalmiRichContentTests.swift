@@ -153,4 +153,21 @@ final class PalmiUIStateTests: XCTestCase {
         await separate.loadIfNeeded()
         XCTAssertEqual(separate.state["n"], .number(1))
     }
+
+    func testPromptExamplesPassValidation() throws {
+        let parts = PalmiRichContentParser.parse(PalmiGenerativeUIPrompt.text, enabled: true, isStreaming: false)
+        let artifacts = parts.compactMap { part -> PalmiUIValidatedArtifact? in
+            if case .artifact(let value) = part.content { return value }
+            return nil
+        }
+        XCTAssertFalse(parts.contains { if case .invalid = $0.content { return true }; return false })
+        XCTAssertEqual(Set(artifacts.map(\.artifact.id)), ["cost", "check", "square"])
+    }
+
+    func testAppearanceFieldsAreOptionalAndNewComponentsValidate() throws {
+        let source = #"{"version":1,"id":"look","kind":"native","title":"Look","summary":"Semantic colors.","initialState":{"score":72},"elements":[{"id":"c","type":"callout","tone":"positive","label":"Correct"},{"id":"b","type":"badge","label":"Tag","tone":"not-a-tone"},{"id":"p","type":"progress","label":"Score","expression":{"op":"state","key":"score"},"tone":"mint"},{"id":"t","type":"text","text":"Plain","style":"headline"}]}"#
+        let validated = try PalmiUIValidator.decode(source)
+        XCTAssertEqual(validated.artifact.elements?.first?.tone, "positive")
+        XCTAssertThrowsError(try PalmiUIValidator.decode(source.replacingOccurrences(of: #""label":"Tag","#, with: "")))
+    }
 }

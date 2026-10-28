@@ -89,6 +89,8 @@ final class BionicStore {
     @ObservationIgnored private var chatPageID: String?
     @ObservationIgnored private var chatVisibleID: String?
     @ObservationIgnored private var chatVisibilityToken: UUID?
+    /// 当前打开着的会话页。唯一的已读规则：会话页开着且 App 在前台，该会话未读恒为 0。
+    @ObservationIgnored private var openConversationID: String?
     @ObservationIgnored private var bootstrapped = false
     @ObservationIgnored private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     @ObservationIgnored private var backgroundFinishTask: Task<Void, Never>?
@@ -171,6 +173,7 @@ final class BionicStore {
         backgroundFinishTask = nil
         endBackgroundAllowance()
         isForeground = true
+        if let openConversationID { markConversationRead(openConversationID) }
         notifications.setVisible(modeVisible ? chatVisibleID : nil, foreground: modeVisible)
         await refresh(); await syncModelBindings(); await coordinator.activate(); await notifications.reconcile()
         scheduleReadFlush(retry: true)
@@ -219,6 +222,22 @@ final class BionicStore {
     func visibleMode(_ visible: Bool) {
         modeVisible = visible; notifications.setVisible(visible ? chatVisibleID : nil, foreground: isForeground && visible)
     }
+    func conversationOpened(_ instance: String) {
+        openConversationID = instance
+        markConversationRead(instance)
+    }
+    func conversationClosed(_ instance: String) {
+        if openConversationID == instance { openConversationID = nil }
+    }
+    /// 界面计数立即清零；持久化推进已读水位线，并同步系统通知与角标。
+    private func markConversationRead(_ instance: String) {
+        guard !resetting, isForeground, openConversationID == instance else { return }
+        if unreadSequencesByInstance[instance]?.isEmpty == false { unreadSequencesByInstance[instance] = [:] }
+        Task { @MainActor [weak self] in
+            guard let self, (try? await self.archive.markAllRead(instance)) == true else { return }
+            await self.notifications.reconcile()
+        }
+    }
     func chatAppeared(_ instance: String, token: UUID) {
         guard !resetting else { return }
         chatPageID = instance
@@ -251,7 +270,7 @@ final class BionicStore {
         endBackgroundAllowance()
         invalidationToken += 1; openTicket += 1; windowTicket += 1
         // 在首次 await 前撤销旧页面，禁止它在重置中重新写入回执日志。
-        selectedID = nil; chatPageID = nil; chatVisibleID = nil; chatVisibilityToken = nil
+        selectedID = nil; chatPageID = nil; chatVisibleID = nil; chatVisibilityToken = nil; openConversationID = nil
         path = []; messages = []; quotedMessages = [:]
         notifications.setVisible(nil, foreground: false)
         coordinator.stopForReset(); readTask?.cancel(); readTask = nil; readTaskID = nil; pendingReads.removeAll()
@@ -311,7 +330,11 @@ final class BionicStore {
         if unconfirmed.isEmpty { acknowledgedReads.removeValue(forKey: key) }
         else { acknowledgedReads[key] = unconfirmed }
         notifications.setPendingReadIDs(id, ids: unconfirmed)
-        let unread = projection.unreadSequences.filter { !unconfirmed.contains($0.key) }
+        var unread = projection.unreadSequences.filter { !unconfirmed.contains($0.key) }
+        if isForeground, openConversationID == id {
+            if !unread.isEmpty { markConversationRead(id) }
+            unread = [:]
+        }
         if unreadSequencesByInstance[id] != unread {
             unreadSequencesByInstance[id] = unread
         }

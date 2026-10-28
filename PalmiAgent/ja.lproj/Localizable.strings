@@ -778,7 +778,6 @@
 "workspace.nameEditor.message" = "名前は現在のプロジェクトまたはセッションにすぐ適用されます。";
 "workspace.placeholder.projectName" = "プロジェクト名";
 "workspace.placeholder.threadName" = "セッション名";
-"workspace.project.threadCount" = "%d 件のセッション";
 "workspace.sidebar.section.projects" = "プロジェクトワークスペース";
 "workspace.status.attachmentsAdded" = "添付ファイルを %d 個追加しました。";
 "workspace.status.chatBelongsToOtherMode" = "このチャットは現在のモードに属していません。";
@@ -1900,23 +1899,15 @@
 "ml.check.visionNotice" = "テスト画像をモデルに送信するため、少量の利用枠を消費する場合があります。成功すると「画像入力に対応」が自動でオンになります。確認せずに直接オン／オフすることもできますが、実際の動作は保証されません。";
 
 // Interactive answer content
-"ui.generating" = "インタラクティブな内容を生成中…";
-"ui.unavailable" = "インタラクティブな内容を表示できません";
-"ui.source" = "ソースを表示";
 "ui.expand" = "展開";
 "ui.close" = "閉じる";
-"ui.reset" = "リセット";
 "ui.followUp" = "この内容で続ける";
-"ui.loading" = "読み込み中…";
 "ui.retry" = "再読み込み";
-"ui.saveFailed" = "最新の操作状態を保存できませんでした。";
-"ui.snapshotFailed" = "現在の操作状態を取得できませんでした。もう一度お試しください。";
 
 "attachment.openOriginal" = "元の画像を表示：%@";
 "attachment.previewUnavailable" = "プレビューできません";
 
 // Progressive conversation presentation
-"chat.progressive.ended" = "応答が終了しました";
 "settings.runtime.professionalStyle" = "プロモードの実行表示";
 "settings.runtime.progressiveScope" = "チャットでは常に Neo を使用し、各段階の回答を表示したままにします。この設定はプロモードにのみ適用されます。";
 "chat.runtime.notice" = "実行状況";

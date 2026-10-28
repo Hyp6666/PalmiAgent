@@ -182,6 +182,8 @@ struct ChatScreen: View {
             && !isShowingModeInfo && !showingMarkdownImage
     }
     @State private var openBionicAfterSuggestion = false
+    /// 长会话只渲染最近若干轮；滚到最早一轮时再逐批展开。按会话记忆，切换会话自动回到默认窗口。
+    @State private var turnWindow = ChatTurnWindow()
 
     private struct BionicSuggestionPresentationKey: Equatable {
         let ticket: BionicSuggestionTicket?
@@ -726,6 +728,8 @@ struct ChatScreen: View {
     private var messageList: some View {
         let readTargets = ChatUnreadStore.readTargets(in: store.messages)
         let readSelection = workspaceStore.selectedSelection
+        let allTurns = turns
+        let shownTurns = windowedTurns(allTurns)
         return ScrollViewReader { proxy in
             // GeometryReader 自身忽略顶部安全区以从屏幕顶部铺开，于是它上报的
             // safeAreaInsets.top 即为被忽略的状态栏高度，用于下方顶部让位 spacer。
@@ -738,11 +742,21 @@ struct ChatScreen: View {
                         Color.clear
                             .frame(height: geometry.safeAreaInsets.top + topChromeReservedHeight)
 
-                        if turns.isEmpty {
+                        if allTurns.isEmpty {
                             emptyState
                         }
 
-                        ForEach(turns) { turn in
+                        if shownTurns.count < allTurns.count, let firstShown = shownTurns.first {
+                            // 只在用户亲手滚到这里时展开，避免首帧布局误触发。
+                            Color.clear
+                                .frame(height: 1)
+                                .task(id: messageScrollIsInteracting) {
+                                    guard messageScrollIsInteracting else { return }
+                                    revealEarlierTurns(keeping: firstShown.id, proxy: proxy)
+                                }
+                        }
+
+                        ForEach(shownTurns) { turn in
                             runtimeTurnView(turn, readTargets: readTargets)
                                 .id(turn.id)
                         }
@@ -764,6 +778,7 @@ struct ChatScreen: View {
                     store.unreadStore.markRead(Set(ids.compactMap(UUID.init(uuidString:))), selection: selection)
                 }
                 .scrollDismissesKeyboard(.interactively)
+                .defaultScrollAnchor(.bottom, for: .initialOffset)
                 .onScrollPhaseChange { _, phase in
                     messageScrollIsInteracting = phase == .interacting || phase == .decelerating
                 }
@@ -929,8 +944,6 @@ struct ChatScreen: View {
                 }
             }
             if header?.finishedAt != nil {
-                Text(PalmiL10n.tr("chat.progressive.ended"))
-                    .font(.caption).foregroundStyle(.secondary)
                 if let lastAnswer = turn.publicAnswerMessages.last {
                     finalAnswerCompletionRow(for: turn, finalMessage: lastAnswer)
                 }
@@ -1153,7 +1166,8 @@ struct ChatScreen: View {
             AssistantMessageContentView(
                 messageID: message.id, source: message.content,
                 isStreaming: isStreamingMessage, richContentVersion: message.richContentVersion,
-                workspaceURL: workspaceURL, markdownTransform: renderableMarkdown(from:),
+                workspaceURL: workspaceURL,
+                markdownTransform: { renderableMarkdown(from: isStreamingMessage ? stabilizedStreamingMarkdown(from: $0) : $0) },
                 onRequestFollowUp: { draft in
                     guard let capturedSelection, workspaceStore.selectedSelection == capturedSelection,
                           draft.utf8.count <= 32_768 else { return }
@@ -1170,7 +1184,7 @@ struct ChatScreen: View {
             let source = isStreamingMessage
                 ? stabilizedStreamingMarkdown(from: message.content)
                 : message.content
-            assistantBody(for: source)
+            assistantBody(for: source, isStreaming: isStreamingMessage)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -3041,6 +3055,29 @@ struct ChatScreen: View {
         }
     }
 
+    private func windowedTurns(_ all: [ChatTurn]) -> [ChatTurn] {
+        let key = workspaceStore.selectedSelection.map(ChatUnreadStore.key)
+        var limit = turnWindow.selectionKey == key ? turnWindow.limit : ChatTurnWindow.initialLimit
+        // 首个未读回答必须在窗口内，才能定位过去。
+        if let target = initialUnreadTarget,
+           let index = all.firstIndex(where: { $0.contains(messageID: target) }) {
+            limit = max(limit, all.count - index)
+        }
+        return all.count > limit ? Array(all.suffix(limit)) : all
+    }
+
+    private func revealEarlierTurns(keeping anchorID: UUID, proxy: ScrollViewProxy) {
+        let key = workspaceStore.selectedSelection.map(ChatUnreadStore.key)
+        let current = turnWindow.selectionKey == key ? turnWindow.limit : ChatTurnWindow.initialLimit
+        turnWindow = ChatTurnWindow(selectionKey: key, limit: current + ChatTurnWindow.step)
+        isMessageAutoFollowEnabled = false
+        // 在顶部插入更早的轮次后，保持原先最上面那一轮的位置不跳动。
+        Task { @MainActor in
+            await Task.yield()
+            proxy.scrollTo(anchorID, anchor: .top)
+        }
+    }
+
     private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool = true) {
         isMessageAutoFollowEnabled = true
         messageScrollWorkID = UUID()
@@ -3326,8 +3363,9 @@ struct ChatScreen: View {
     }
 
     @ViewBuilder
-    private func assistantBody(for content: String) -> some View {
-        if shouldUseNativeSelectableText(for: content) {
+    private func assistantBody(for content: String, isStreaming: Bool = false) -> some View {
+        // 流式输出期间固定用 Markdown 视图，避免内容一出现 Markdown 记号就在两种视图间切换。
+        if !isStreaming && shouldUseNativeSelectableText(for: content) {
             AssistantPlainTextBlock(text: content).equatable()
         } else {
             AssistantMarkdownBlock(markdown: renderableMarkdown(from: content)).equatable()
@@ -3345,6 +3383,14 @@ struct ChatScreen: View {
         let inlineBackticks = normalized.replacingOccurrences(of: "```", with: "").filter { $0 == "`" }.count
         if inlineBackticks % 2 == 1 {
             normalized += "`"
+        }
+
+        // 未闭合的粗体先按闭合渲染，避免 “**” 先以原文出现、闭合后才变粗。
+        let boldParts = normalized.components(separatedBy: "**")
+        if fencedSections % 2 == 0, boldParts.count % 2 == 0,
+           let tail = boldParts.last, !tail.isEmpty, !tail.contains("\n"),
+           tail.first?.isWhitespace == false, tail.last?.isWhitespace == false {
+            normalized += "**"
         }
 
         let openingBrackets = normalized.filter { $0 == "[" }.count
@@ -5610,6 +5656,13 @@ private extension PalmiChatMessage {
     }
 }
 
+private struct ChatTurnWindow {
+    static let initialLimit = 12
+    static let step = 12
+    var selectionKey: String?
+    var limit = initialLimit
+}
+
 private struct ChatTurn: Identifiable {
     let id: UUID
     let userMessage: PalmiChatMessage?
@@ -5620,6 +5673,13 @@ private struct ChatTurn: Identifiable {
 
     var orderedInTurnMessages: [PalmiChatMessage] {
         messagesBeforeFinal + (finalMessage.map { [$0] } ?? []) + messagesAfterFinal
+    }
+
+    func contains(messageID: UUID) -> Bool {
+        id == messageID || userMessage?.id == messageID || headerMessage?.id == messageID
+            || finalMessage?.id == messageID
+            || messagesBeforeFinal.contains { $0.id == messageID }
+            || messagesAfterFinal.contains { $0.id == messageID }
     }
 
     var isProgressive: Bool {

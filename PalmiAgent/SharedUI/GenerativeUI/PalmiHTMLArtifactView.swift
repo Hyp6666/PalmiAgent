@@ -11,25 +11,23 @@ struct PalmiHTMLArtifactView: View {
 
     var body: some View {
         if failed {
-            VStack(spacing: 12) {
-                Label(PalmiL10n.tr("ui.unavailable"), systemImage: "rectangle.slash")
-                Text(session.validated.artifact.summary).font(.subheadline).foregroundStyle(.secondary)
-                Button(PalmiL10n.tr("ui.retry")) { session.reload() }.buttonStyle(.bordered)
-            }.frame(maxWidth: .infinity).padding(24)
+            // 渲染失败时只保留文字摘要与一个重试图标，不出现额外容器。
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(session.validated.artifact.summary).font(.body).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button { session.reload() } label: { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
+                    .accessibilityLabel(PalmiL10n.tr("ui.retry"))
+            }
         } else {
             PalmiHTMLWebView(session: session, renderID: session.reloadID, html: session.validated.artifact.html ?? "", initialState: session.state,
                              onState: { session.replaceState($0) },
-                             onHeight: { height = min(max($0, 200), expanded ? 760 : 480) },
-                             onReady: { loading = false }, onFailure: { failed = true })
+                             onHeight: { height = min(max($0, 60), expanded ? 1_200 : 720) },
+                             onReady: { withAnimation(.easeOut(duration: 0.2)) { loading = false } }, onFailure: { failed = true })
                 .frame(height: height)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .opacity(loading ? 0 : 1)
                 .overlay {
-                    if loading {
-                        ZStack {
-                            Color(uiColor: .secondarySystemBackground)
-                            ProgressView(PalmiL10n.tr("ui.loading"))
-                        }
-                    }
+                    if loading { ProgressView() }
                 }
         }
     }
@@ -287,7 +285,7 @@ nonisolated enum PalmiHTMLDocument {
         <meta name="viewport" content="width=device-width,initial-scale=1">
         <meta name="referrer" content="no-referrer">
         <meta http-equiv="x-dns-prefetch-control" content="off">
-        <style>:root{color-scheme:light dark}body{font:16px -apple-system,system-ui,sans-serif;margin:0;padding:12px;box-sizing:border-box}*{box-sizing:border-box}img,svg,canvas{max-width:100%}button,input,select{font:inherit}button,input,select{min-height:40px}</style>
+        <style>\(guestBaseStyle)</style>
         <script>\(guestBridge(nonce: nonce, state64: state64))</script>
         </head><body>\(html)</body></html>
         """
@@ -300,6 +298,22 @@ nonisolated enum PalmiHTMLDocument {
         </head><body><iframe id="palmi-artifact" sandbox="allow-scripts" referrerpolicy="no-referrer" allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'; display-capture 'none'" srcdoc="\(escape(guest))"></iframe></body></html>
         """
     }
+
+    /// 与原生正文融为一体：透明背景、无内边距、系统字体与动态色；
+    /// 提供一组语义色/调色板 CSS 变量，深浅模式自动切换。
+    static let guestBaseStyle = """
+    :root{color-scheme:light dark;\
+    --palmi-text:#1c1c1e;--palmi-secondary:#6c6c70;--palmi-fill:rgba(120,120,128,.12);--palmi-separator:rgba(60,60,67,.18);\
+    --palmi-red:#ff3b30;--palmi-orange:#ff9500;--palmi-yellow:#ffcc00;--palmi-green:#34c759;--palmi-mint:#00c7be;\
+    --palmi-teal:#30b0c7;--palmi-cyan:#32ade6;--palmi-blue:#007aff;--palmi-indigo:#5856d6;--palmi-purple:#af52de;--palmi-pink:#ff2d55;\
+    --palmi-positive:var(--palmi-green);--palmi-negative:var(--palmi-red);--palmi-warning:var(--palmi-orange);--palmi-info:var(--palmi-blue)}\
+    @media (prefers-color-scheme:dark){:root{--palmi-text:#f2f2f7;--palmi-secondary:#aeaeb2;--palmi-fill:rgba(120,120,128,.24);--palmi-separator:rgba(84,84,88,.6);\
+    --palmi-red:#ff453a;--palmi-orange:#ff9f0a;--palmi-yellow:#ffd60a;--palmi-green:#30d158;--palmi-mint:#63e6e2;\
+    --palmi-teal:#40c8e0;--palmi-cyan:#64d2ff;--palmi-blue:#0a84ff;--palmi-indigo:#5e5ce6;--palmi-purple:#bf5af2;--palmi-pink:#ff375f}}\
+    html,body{background:transparent;margin:0;padding:0}\
+    body{font:17px/1.45 -apple-system,system-ui,sans-serif;color:var(--palmi-text);-webkit-text-size-adjust:100%}\
+    *{box-sizing:border-box}img,svg,canvas{max-width:100%}button,input,select{font:inherit}button,input,select{min-height:40px}
+    """
 
     static let hardenGlobals = #"""
     (() => {

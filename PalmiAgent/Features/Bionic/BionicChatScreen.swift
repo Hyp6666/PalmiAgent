@@ -22,8 +22,8 @@ struct BionicChatScreen: View {
     private var role: BionicRole? {
         store.roles.first { $0.installationID == instance }
     }
-    /// 与普通聊天软件一致：App 在前台、正停在这个会话页，就是已读。
-    /// 页内的弹窗、菜单、报错都不再阻止已读；被其他页面盖住时由 screenVisible / readingAllowed 反映。
+    /// 会话页是否正被用户看着：只用于抑制本会话通知与“回到最新”按钮。
+    /// 已读不看这里——会话页打开即已读，由 store.conversationOpened 统一处理。
     private var canRead: Bool {
         screenVisible && store.isForeground && unreadSnapshot.readingAllowed
             && store.selectedID == instance
@@ -88,13 +88,6 @@ struct BionicChatScreen: View {
                         }
                         .padding(.horizontal, 14).padding(.top, 10)
                         .background { PalmiChatScrollTopGuard().frame(width: 0, height: 0) }
-                    }
-                    .palmiReadConversation(
-                        scope: instance + ":" + (role?.state.participantID ?? ""),
-                        enabled: canRead,
-                        unreadIDs: Set(store.unreadSequencesByInstance[instance]?.keys.map { $0 } ?? [])
-                    ) { ids in
-                        acknowledgeConversation(ids)
                     }
                     .onGeometryChange(for: CGRect.self) { proxy in
                         proxy.frame(in: .global)
@@ -249,7 +242,7 @@ struct BionicChatScreen: View {
             screenVisible = true
             store.chatAppeared(instance, token: visibilityToken)
             store.chatVisibility(instance, visible: canRead, token: visibilityToken)
-            acknowledgeConversation(Set(store.unreadSequencesByInstance[instance]?.keys.map { $0 } ?? []))
+            store.conversationOpened(instance)
             scrollController.enterRole(installationID: instance, followingLatest: store.followingLatest)
             scrollController.updateLatestMessage(store.messages.last?.text("message_id"), following: store.followingLatest)
             if store.followingLatest { scrollController.requestBottom() }
@@ -261,14 +254,12 @@ struct BionicChatScreen: View {
         }
         .onDisappear {
             screenVisible = false
+            store.conversationClosed(instance)
             scrollController.leaveRole()
             store.chatDisappeared(instance, token: visibilityToken)
         }
         .onChange(of: canRead, initial: true) { _, allowed in
             store.chatVisibility(instance, visible: allowed, token: visibilityToken)
-            if allowed {
-                acknowledgeConversation(Set(store.unreadSequencesByInstance[instance]?.keys.map { $0 } ?? []))
-            }
         }
         .onChange(of: readableViewport, initial: true) { _, viewport in
             scrollController.observeReadableBottom(viewport.maxY)
@@ -302,12 +293,6 @@ struct BionicChatScreen: View {
         )) {
             Button(PalmiL10n.tr("bionic.ok"), role: .cancel) {}
         } message: { Text(localError ?? "") }
-    }
-
-    private func acknowledgeConversation(_ ids: Set<String>) {
-        guard canRead, let reader = role?.state.participantID else { return }
-        store.readConversationMessages(ids, instance: instance, participantID: reader,
-                                       visibilityToken: visibilityToken)
     }
 
     /// 最新真实消息行的尾部探针；不是每行都建一个默认高度的 GeometryReader。

@@ -59,11 +59,13 @@ nonisolated struct PalmiUIExpression: Codable, Equatable, Sendable {
 nonisolated struct PalmiUIChartPoint: Codable, Equatable, Sendable {
     let label: String
     let value: PalmiUIExpression
+    let tone: String?
 }
 
 nonisolated struct PalmiUINode: Codable, Equatable, Identifiable, Sendable {
     enum Kind: String, Codable, Sendable {
         case column, row, card, text, metric, slider, toggle, select, textField, chart, divider, button
+        case callout, badge, progress
     }
     enum Action: String, Codable, Sendable { case reset, continueConversation }
 
@@ -84,6 +86,10 @@ nonisolated struct PalmiUINode: Codable, Equatable, Identifiable, Sendable {
     let action: Action?
     let followUp: String?
     let children: [PalmiUINode]?
+    /// 纯外观字段：语义色/调色板色、SF Symbol、文字层级。未知取值按默认外观渲染，不使组件失效。
+    let tone: String?
+    let icon: String?
+    let style: String?
 }
 
 nonisolated struct PalmiUIArtifact: Codable, Equatable, Identifiable, Sendable {
@@ -168,7 +174,7 @@ nonisolated enum PalmiUIValidator {
         for node in nodes {
             count += 1
             guard count <= 128, validIdentifier(node.id), ids.insert(node.id).inserted else { throw fail("Invalid, duplicate or excessive component ids") }
-            for text in [node.text, node.label, node.suffix, node.followUp].compactMap({ $0 }) {
+            for text in [node.text, node.label, node.suffix, node.followUp, node.tone, node.icon, node.style].compactMap({ $0 }) {
                 guard text.count <= 2_000 else { throw fail("Component text exceeds 2000 characters") }
             }
             if let decimals = node.decimals, !(0...6).contains(decimals) { throw fail("Decimals must be 0...6") }
@@ -209,6 +215,15 @@ nonisolated enum PalmiUIValidator {
                 guard node.action != nil, let label = node.label, !label.isEmpty else { throw fail("Button requires label and action") }
             case .text:
                 guard node.text != nil else { throw fail("Text component requires text") }
+            case .callout:
+                guard node.text?.isEmpty == false || node.label?.isEmpty == false else { throw fail("Callout requires text or label") }
+            case .badge:
+                guard let label = node.label, !label.isEmpty else { throw fail("Badge requires label") }
+            case .progress:
+                guard let expression = node.expression else { throw fail("Progress requires an expression") }
+                let minimum = node.minimum ?? 0, maximum = node.maximum ?? 100
+                guard minimum.isFinite, maximum.isFinite, minimum < maximum else { throw fail("Progress requires minimum < maximum") }
+                try validateExpression(expression, state: state)
             case .divider: break
             }
             if ![PalmiUINode.Kind.column, .row, .card].contains(node.type), node.children != nil { throw fail("Leaf components cannot contain children") }

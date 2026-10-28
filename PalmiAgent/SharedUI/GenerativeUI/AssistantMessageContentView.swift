@@ -12,30 +12,22 @@ struct AssistantMessageContentView: View {
     let onRequestFollowUp: (String) -> Void
 
     var body: some View {
-        let parts = PalmiRichContentParser.parse(source, enabled: richContentVersion == 1, isStreaming: isStreaming)
+        let parts = PalmiRichContentParseCache.parts(source, enabled: richContentVersion == 1, isStreaming: isStreaming)
         VStack(alignment: .leading, spacing: 14) {
             ForEach(parts) { part in
                 switch part.content {
                 case .markdown(let markdown):
                     AssistantMarkdownContentView(markdown: markdownTransform(markdown))
                 case .pending:
-                    HStack(spacing: 10) {
-                        ProgressView()
-                        Text(PalmiL10n.tr("ui.generating")).font(.subheadline).foregroundStyle(.secondary)
-                    }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 16))
+                    ProgressView().frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
                 case .invalid(let source, _):
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label(PalmiL10n.tr("ui.unavailable"), systemImage: "rectangle.slash").font(.subheadline)
-                        DisclosureGroup(PalmiL10n.tr("ui.source")) {
-                            ScrollView(.horizontal) {
-                                Text(source).font(.caption.monospaced()).textSelection(.enabled)
-                            }.frame(maxHeight: 220)
-                        }.font(.caption)
-                    }.padding(16).background(.quaternary, in: RoundedRectangle(cornerRadius: 16))
+                    // 组件无法渲染时只保留模型给出的文字摘要，不暴露 JSON 源码。
+                    if let summary = PalmiRichContentParseCache.fallbackSummary(source) {
+                        AssistantMarkdownContentView(markdown: summary)
+                    }
                 case .artifact(let validated):
-                    PalmiUIArtifactCard(validated: validated, messageID: messageID,
-                                        workspaceURL: workspaceURL, onRequestFollowUp: onRequestFollowUp)
+                    PalmiUIArtifactInline(validated: validated, messageID: messageID,
+                                          workspaceURL: workspaceURL, onRequestFollowUp: onRequestFollowUp)
                         .id("\(messageID.uuidString):\(validated.id)")
                 }
             }
@@ -43,7 +35,66 @@ struct AssistantMessageContentView: View {
     }
 }
 
-private struct PalmiUIArtifactCard: View {
+/// 解析结果缓存：列表滚动、其他消息流式刷新时不重复解析/校验同一段正文。
+@MainActor
+private enum PalmiRichContentParseCache {
+    private final class Box { let parts: [PalmiRichContentPart]; init(_ parts: [PalmiRichContentPart]) { self.parts = parts } }
+    private static let cache: NSCache<NSString, Box> = {
+        let cache = NSCache<NSString, Box>(); cache.countLimit = 160; return cache
+    }()
+
+    static func parts(_ source: String, enabled: Bool, isStreaming: Bool) -> [PalmiRichContentPart] {
+        let key = "\(enabled ? 1 : 0)\(isStreaming ? 1 : 0)|\(source)" as NSString
+        if let hit = cache.object(forKey: key) { return hit.parts }
+        let parts = PalmiRichContentParser.parse(source, enabled: enabled, isStreaming: isStreaming)
+        cache.setObject(Box(parts), forKey: key)
+        return parts
+    }
+
+    static func fallbackSummary(_ source: String) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(source.utf8)) as? [String: Any],
+              let summary = object["summary"] as? String,
+              !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return String(summary.prefix(1_000))
+    }
+}
+
+/// 语义色与调色板。全部使用系统动态色，浅色/深色模式自动适配。
+enum PalmiUITone {
+    static func color(_ tone: String?) -> Color? {
+        switch tone?.lowercased() {
+        case "positive", "success", "correct", "green": .green
+        case "negative", "danger", "error", "wrong", "red": .red
+        case "warning", "caution", "orange": .orange
+        case "info", "blue": .blue
+        case "accent", "purple": .purple
+        case "neutral", "gray", "grey": .gray
+        case "yellow": .yellow
+        case "mint": .mint
+        case "teal": .teal
+        case "cyan": .cyan
+        case "indigo": .indigo
+        case "pink": .pink
+        case "brown": .brown
+        default: nil
+        }
+    }
+
+    /// 未指定颜色的多系列/多类别数据按这组明快的色相依次着色，避免整屏单一蓝色。
+    static let palette: [Color] = [.pink, .orange, .yellow, .green, .mint, .teal, .cyan, .blue, .indigo, .purple]
+
+    static func defaultIcon(_ tone: String?) -> String {
+        switch tone?.lowercased() {
+        case "positive", "success", "correct", "green", "mint": "checkmark.circle.fill"
+        case "negative", "danger", "error", "wrong", "red": "xmark.circle.fill"
+        case "warning", "caution", "orange", "yellow": "exclamationmark.triangle.fill"
+        case "info", "blue", "cyan", "teal", "indigo": "info.circle.fill"
+        default: "lightbulb.fill"
+        }
+    }
+}
+
+private struct PalmiUIArtifactInline: View {
     let validated: PalmiUIValidatedArtifact
     let messageID: UUID
     let workspaceURL: URL
@@ -53,8 +104,10 @@ private struct PalmiUIArtifactCard: View {
     var body: some View {
         Group {
             if let session {
-                PalmiUIArtifactCardContent(session: session, onRequestFollowUp: onRequestFollowUp)
-            } else { ProgressView().frame(maxWidth: .infinity).padding(20) }
+                PalmiUIArtifactContent(session: session, onRequestFollowUp: onRequestFollowUp)
+            } else {
+                Color.clear.frame(height: 44)
+            }
         }.task(id: validated.id) {
             if session?.validated.id != validated.id {
                 let value = PalmiUIArtifactSession(validated: validated, messageID: messageID, workspaceURL: workspaceURL)
@@ -66,44 +119,48 @@ private struct PalmiUIArtifactCard: View {
     }
 }
 
-private struct PalmiUIArtifactCardContent: View {
+/// 交互内容直接嵌在正文流里：没有外框、标题栏和工具条。
+/// HTML 小应用只在右上角保留一个展开图标。
+private struct PalmiUIArtifactContent: View {
     let session: PalmiUIArtifactSession
     @State private var expanded = false
-    @State private var showingSource = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.palmiImagePreviewChanged) private var previewChanged
     let onRequestFollowUp: (String) -> Void
 
+    private var isHTML: Bool { session.validated.artifact.kind == .html }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Image(systemName: session.validated.artifact.kind == .native ? "slider.horizontal.3" : "square.stack.3d.up")
-                    .foregroundStyle(.tint)
-                Text(session.validated.artifact.title).font(.headline).lineLimit(2)
-                Spacer(minLength: 4)
-                Button { captureAnd { expanded = true } } label: {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right").frame(width: 44, height: 44)
-                }.buttonStyle(.plain).accessibilityLabel(PalmiL10n.tr("ui.expand"))
-                    .disabled(!canCapture)
-            }
-            if !expanded {
-                PalmiUIArtifactBody(session: session, isExpanded: false, onRequestFollowUp: onRequestFollowUp)
-            } else {
+        Group {
+            if expanded {
                 Color.clear.frame(height: 120)
+            } else {
+                PalmiUIArtifactBody(session: session, isExpanded: false, onRequestFollowUp: onRequestFollowUp)
             }
-            toolbar
-            if session.saveFailed { Text(PalmiL10n.tr("ui.saveFailed")).font(.caption).foregroundStyle(.secondary) }
-            if session.snapshotFailed { Text(PalmiL10n.tr("ui.snapshotFailed")).font(.caption).foregroundStyle(.secondary) }
         }
-        .padding(14)
-        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.primary.opacity(0.08)))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .topTrailing) {
+            if isHTML && !expanded {
+                Button { captureAnd { expanded = true } } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 32, height: 32)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .padding(4)
+                .accessibilityLabel(PalmiL10n.tr("ui.expand"))
+                .disabled(!canCapture)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(session.validated.artifact.title)
         .onDisappear { session.flush(); previewChanged(false) }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { Task { _ = await session.captureLatestState(); session.flush() } }
         }
-        .onChange(of: expanded) { _, _ in previewChanged(expanded || showingSource) }
-        .onChange(of: showingSource) { _, _ in previewChanged(expanded || showingSource) }
+        .onChange(of: expanded) { _, value in previewChanged(value) }
         .sheet(isPresented: $expanded) {
             NavigationStack {
                 ScrollView {
@@ -114,49 +171,23 @@ private struct PalmiUIArtifactCardContent: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button(PalmiL10n.tr("ui.close")) {
+                        Button(PalmiL10n.tr("ui.close"), systemImage: "xmark") {
                             Task {
                                 _ = await session.captureLatestState()
                                 session.flush(); expanded = false
                             }
-                        }.disabled(session.actionPending)
-                    }
-                    ToolbarItem(placement: .bottomBar) {
-                        HStack {
-                            Button(PalmiL10n.tr("ui.reset")) { session.reset() }
-                            Spacer()
-                            Button(PalmiL10n.tr("ui.followUp")) {
-                                captureAnd { onRequestFollowUp(session.followUpDraft()); expanded = false }
-                            }.disabled(!canCapture)
                         }
+                        .labelStyle(.iconOnly)
+                        .disabled(session.actionPending)
                     }
                 }
-            }.interactiveDismissDisabled(session.validated.artifact.kind == .html)
+            }.interactiveDismissDisabled(isHTML)
                 .onDisappear { session.flush() }
         }
-        .sheet(isPresented: $showingSource) {
-            NavigationStack {
-                ScrollView([.horizontal, .vertical]) {
-                    Text(session.validated.sourceJSON).font(.footnote.monospaced()).textSelection(.enabled).padding()
-                }.navigationTitle(PalmiL10n.tr("ui.source"))
-                    .toolbar { ToolbarItem(placement: .topBarTrailing) { Button(PalmiL10n.tr("ui.close")) { showingSource = false } } }
-            }
-        }
-    }
-
-    private var toolbar: some View {
-        HStack(spacing: 14) {
-            Button(PalmiL10n.tr("ui.reset")) { session.reset() }
-            Button(PalmiL10n.tr("ui.source")) { showingSource = true }
-            Spacer(minLength: 4)
-            Button(PalmiL10n.tr("ui.followUp")) {
-                captureAnd { onRequestFollowUp(session.followUpDraft()); expanded = false }
-            }.disabled(!canCapture)
-        }.font(.caption.weight(.medium)).buttonStyle(.plain).foregroundStyle(.tint)
     }
 
     private var canCapture: Bool {
-        !session.actionPending && (session.validated.artifact.kind == .native || session.snapshotAvailable)
+        !session.actionPending && (!isHTML || session.snapshotAvailable)
     }
 
     private func captureAnd(_ action: @escaping () -> Void) {
@@ -191,6 +222,8 @@ private struct PalmiNativeUINodeView: View {
 
     var body: some View { content }
 
+    private var tone: Color? { PalmiUITone.color(node.tone) }
+
     private var content: AnyView {
         switch node.type {
         case .column:
@@ -201,60 +234,169 @@ private struct PalmiNativeUINodeView: View {
                 VStack(alignment: .leading, spacing: 12) { children }
             })
         case .card:
+            let tint = tone ?? .secondary
             return AnyView(VStack(alignment: .leading, spacing: 12) { children }
                 .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(uiColor: .tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 12)))
+                .background(tint.opacity(tone == nil ? 0.08 : 0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay {
+                    if tone != nil {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(tint.opacity(0.28), lineWidth: 1)
+                    }
+                })
+        case .callout:
+            let tint = tone ?? .blue
+            return AnyView(HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: node.icon ?? PalmiUITone.defaultIcon(node.tone))
+                    .foregroundStyle(tint)
+                    .font(.body.weight(.semibold))
+                VStack(alignment: .leading, spacing: 4) {
+                    if let label = node.label, !label.isEmpty {
+                        Text(label).font(.headline).foregroundStyle(tint)
+                    }
+                    if let text = node.text, !text.isEmpty {
+                        Text(text).font(.body).foregroundStyle(.primary).textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(tint.opacity(0.3), lineWidth: 1)))
+        case .badge:
+            let tint = tone ?? .accentColor
+            return AnyView(HStack(spacing: 4) {
+                if let icon = node.icon { Image(systemName: icon) }
+                Text(node.label ?? "")
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(tint.opacity(0.15), in: Capsule()))
         case .text:
-            return AnyView(Text(node.text ?? "").font(.body).textSelection(.enabled)
+            return AnyView(Text(node.text ?? "").font(textFont).foregroundStyle(textColor).textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true))
         case .metric:
             return AnyView(VStack(alignment: .leading, spacing: 4) {
-                Text(node.label ?? "").font(.caption).foregroundStyle(.secondary)
-                Text(formatted(node.expression?.evaluate(in: session.state))).font(.title2.weight(.semibold))
+                HStack(spacing: 5) {
+                    if let icon = node.icon { Image(systemName: icon).foregroundStyle(tone ?? .secondary) }
+                    Text(node.label ?? "").foregroundStyle(.secondary)
+                }.font(.footnote.weight(.medium))
+                Text(formatted(node.expression?.evaluate(in: session.state)))
+                    .font(.system(.title, design: .rounded).weight(.bold))
+                    .foregroundStyle(tone ?? .primary)
                     .monospacedDigit().contentTransition(.numericText())
+            })
+        case .progress:
+            let minimum = node.minimum ?? 0, maximum = node.maximum ?? 100
+            let value = node.expression?.evaluate(in: session.state)
+            let fraction = value.map { min(max(($0 - minimum) / (maximum - minimum), 0), 1) } ?? 0
+            return AnyView(VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text(node.label ?? "")
+                    Spacer()
+                    Text(formatted(value)).monospacedDigit().foregroundStyle(tone ?? .secondary)
+                }.font(.subheadline)
+                ProgressView(value: fraction).tint(tone ?? .accentColor)
             })
         case .slider:
             return AnyView(VStack(alignment: .leading, spacing: 8) {
-                HStack { Text(node.label ?? ""); Spacer(); Text(formatted(session.state[node.stateKey ?? ""]?.number)).monospacedDigit() }
-                    .font(.subheadline)
+                HStack {
+                    Text(node.label ?? "")
+                    Spacer()
+                    Text(formatted(session.state[node.stateKey ?? ""]?.number)).monospacedDigit()
+                        .foregroundStyle(tone ?? .primary).fontWeight(.semibold)
+                }.font(.subheadline)
                 Slider(value: numberBinding, in: (node.minimum ?? 0)...(node.maximum ?? 1), step: node.step ?? 0.01)
+                    .tint(tone ?? .accentColor)
                     .accessibilityLabel(node.label ?? "")
             })
         case .toggle:
-            return AnyView(Toggle(node.label ?? "", isOn: boolBinding).font(.subheadline))
+            return AnyView(Toggle(node.label ?? "", isOn: boolBinding).font(.subheadline).tint(tone ?? .green))
         case .select:
-            return AnyView(Picker(node.label ?? "", selection: stringBinding) {
-                ForEach(node.options ?? [], id: \.self) { Text($0).tag($0) }
-            }.pickerStyle(.menu))
+            return AnyView(HStack {
+                Text(node.label ?? "").font(.subheadline)
+                Spacer(minLength: 8)
+                Picker(node.label ?? "", selection: stringBinding) {
+                    ForEach(node.options ?? [], id: \.self) { Text($0).tag($0) }
+                }.pickerStyle(.menu).labelsHidden().tint(tone ?? .accentColor)
+            })
         case .textField:
             return AnyView(VStack(alignment: .leading, spacing: 6) {
-                Text(node.label ?? "").font(.caption).foregroundStyle(.secondary)
+                Text(node.label ?? "").font(.footnote).foregroundStyle(.secondary)
                 TextField(node.text ?? "", text: stringBinding).textFieldStyle(.roundedBorder)
             })
         case .chart:
-            return AnyView(Chart {
-                ForEach(Array((node.points ?? []).enumerated()), id: \.offset) { _, point in
-                    if let value = point.value.evaluate(in: session.state) {
-                        if node.chartStyle == "bar" {
-                            BarMark(x: .value("Category", point.label), y: .value("Value", value))
-                        } else {
-                            LineMark(x: .value("Category", point.label), y: .value("Value", value))
-                            PointMark(x: .value("Category", point.label), y: .value("Value", value))
-                        }
-                    }
-                }
-            }.frame(height: dynamicTypeSize.isAccessibilitySize ? 280 : 220)
-                .accessibilityLabel(node.label ?? session.validated.artifact.title))
+            return AnyView(chart)
         case .divider: return AnyView(Divider())
         case .button:
-            return AnyView(Button(node.label ?? "") {
+            return AnyView(Button {
                 switch node.action {
                 case .reset: session.reset()
                 case .continueConversation:
                     session.flush(); onRequestFollowUp(session.followUpDraft(prefix: node.followUp))
                 case nil: break
                 }
-            }.buttonStyle(.bordered))
+            } label: {
+                if let icon = node.icon { Label(node.label ?? "", systemImage: icon) } else { Text(node.label ?? "") }
+            }
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .tint(tone ?? .accentColor))
+        }
+    }
+
+    private var chart: some View {
+        let points = Array((node.points ?? []).enumerated())
+        let isBar = node.chartStyle == "bar"
+        // 用 id 字节和取色：同一图表每次启动颜色稳定（hashValue 每次启动随机）。
+        let lineTint = tone ?? PalmiUITone.palette[node.id.utf8.reduce(0) { $0 + Int($1) } % PalmiUITone.palette.count]
+        return VStack(alignment: .leading, spacing: 8) {
+            if let label = node.label, !label.isEmpty {
+                Text(label).font(.subheadline.weight(.semibold))
+            }
+            Chart {
+                ForEach(points, id: \.offset) { index, point in
+                    if let value = point.value.evaluate(in: session.state) {
+                        if isBar {
+                            BarMark(x: .value("Category", point.label), y: .value("Value", value))
+                                .foregroundStyle(PalmiUITone.color(point.tone) ?? tone
+                                                 ?? PalmiUITone.palette[index % PalmiUITone.palette.count])
+                                .cornerRadius(6)
+                        } else {
+                            AreaMark(x: .value("Category", point.label), y: .value("Value", value))
+                                .foregroundStyle(LinearGradient(colors: [lineTint.opacity(0.28), lineTint.opacity(0.02)],
+                                                                startPoint: .top, endPoint: .bottom))
+                                .interpolationMethod(.catmullRom)
+                            LineMark(x: .value("Category", point.label), y: .value("Value", value))
+                                .foregroundStyle(lineTint)
+                                .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                                .interpolationMethod(.catmullRom)
+                            PointMark(x: .value("Category", point.label), y: .value("Value", value))
+                                .foregroundStyle(PalmiUITone.color(point.tone) ?? lineTint)
+                        }
+                    }
+                }
+            }
+            .frame(height: dynamicTypeSize.isAccessibilitySize ? 280 : 220)
+            .accessibilityLabel(node.label ?? session.validated.artifact.title)
+        }
+    }
+
+    private var textFont: Font {
+        switch node.style?.lowercased() {
+        case "title": .title3.weight(.bold)
+        case "headline": .headline
+        case "caption", "footnote": .footnote
+        default: .body
+        }
+    }
+
+    private var textColor: Color {
+        if let tone { return tone }
+        switch node.style?.lowercased() {
+        case "caption", "footnote": return .secondary
+        default: return .primary
         }
     }
 

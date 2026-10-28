@@ -778,7 +778,6 @@
 "workspace.nameEditor.message" = "이름이 현재 프로젝트 또는 세션에 즉시 적용됩니다.";
 "workspace.placeholder.projectName" = "프로젝트 이름";
 "workspace.placeholder.threadName" = "세션 이름";
-"workspace.project.threadCount" = "세션 %d개";
 "workspace.sidebar.section.projects" = "프로젝트 작업 공간";
 "workspace.status.attachmentsAdded" = "첨부 파일 %d개를 추가했습니다.";
 "workspace.status.chatBelongsToOtherMode" = "이 채팅은 현재 모드에 속하지 않습니다.";
@@ -1900,23 +1899,15 @@
 "ml.check.visionNotice" = "테스트 이미지를 모델에 보내므로 소량의 사용량이 소모될 수 있습니다. 통과하면 ‘이미지 입력 지원’이 자동으로 켜집니다. 확인하지 않고 직접 켜거나 끌 수도 있지만 실제 사용 결과는 보장되지 않습니다.";
 
 // Interactive answer content
-"ui.generating" = "대화형 콘텐츠 생성 중…";
-"ui.unavailable" = "대화형 콘텐츠를 사용할 수 없습니다";
-"ui.source" = "소스 보기";
 "ui.expand" = "펼치기";
 "ui.close" = "닫기";
-"ui.reset" = "초기화";
 "ui.followUp" = "이 내용으로 계속";
-"ui.loading" = "불러오는 중…";
 "ui.retry" = "다시 불러오기";
-"ui.saveFailed" = "최신 상호작용 상태를 저장하지 못했습니다.";
-"ui.snapshotFailed" = "현재 상호작용 상태를 가져오지 못했습니다. 다시 시도하세요.";
 
 "attachment.openOriginal" = "원본 이미지 보기: %@";
 "attachment.previewUnavailable" = "미리보기를 사용할 수 없습니다";
 
 // Progressive conversation presentation
-"chat.progressive.ended" = "응답이 종료되었습니다";
 "settings.runtime.professionalStyle" = "전문가 모드 실행 표시";
 "settings.runtime.progressiveScope" = "채팅에서는 항상 Neo로 과정을 표시하며 모든 응답 내용을 유지합니다. 이 설정은 전문가 모드에만 적용됩니다.";
 "chat.runtime.notice" = "실행 상태";

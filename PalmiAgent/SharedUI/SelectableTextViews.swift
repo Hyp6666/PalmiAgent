@@ -60,18 +60,7 @@ struct SelectableMarkdownTextView: View {
 
     @Environment(\.openURL) private var openURL
     @Environment(\.selectableLinkInteractionHandler) private var linkInteractionHandler
-    @State private var renderedMarkdown: RenderedMarkdown?
-
-    private static let renderCache: NSCache<NSString, NSAttributedString> = {
-        let cache = NSCache<NSString, NSAttributedString>()
-        cache.countLimit = 96; cache.totalCostLimit = 8 * 1024 * 1024
-        return cache
-    }()
-
-    private struct RenderedMarkdown {
-        let key: String
-        let attributedText: NSAttributedString
-    }
+    @State private var renderer = SelectableMarkdownRenderState()
 
     private var renderKey: String {
         [
@@ -83,21 +72,13 @@ struct SelectableMarkdownTextView: View {
         ].joined(separator: "|")
     }
 
-    private var placeholderAttributedText: NSAttributedString {
-        NSAttributedString(
-            string: markdown,
-            attributes: [
-                .font: baseFont,
-                .foregroundColor: textColor
-            ]
-        )
-    }
-
     var body: some View {
         let key = renderKey
-        let attributedText = renderedMarkdown?.key == key
-            ? renderedMarkdown?.attributedText ?? placeholderAttributedText
-            : placeholderAttributedText
+        // 渲染结果未就绪时继续显示上一次的 Markdown 渲染结果，绝不回退成原始纯文本；
+        // 这样流式输出时不会在“纯文本 ↔ Markdown”之间来回闪烁。
+        let attributedText = renderer.attributedText(for: key)
+            ?? renderer.latest
+            ?? NSAttributedString(string: markdown, attributes: [.font: baseFont, .foregroundColor: textColor])
 
         SelectableAttributedTextView(
             attributedText: attributedText,
@@ -110,23 +91,73 @@ struct SelectableMarkdownTextView: View {
                 openURL(interaction.url)
             }
         }
-        .task(id: key) {
-            await Task.yield()
-            guard !Task.isCancelled else { return }
-            if let cached = Self.renderCache.object(forKey: key as NSString) {
-                renderedMarkdown = RenderedMarkdown(key: key, attributedText: cached)
-                return
-            }
-            let rendered = MarkdownAttributedTextRenderer.render(
-                markdown: markdown,
-                textColor: textColor,
-                tintColor: tintColor,
-                baseFont: baseFont
-            )
-            guard !Task.isCancelled else { return }
-            Self.renderCache.setObject(rendered, forKey: key as NSString, cost: rendered.length * 4)
-            renderedMarkdown = RenderedMarkdown(key: key, attributedText: rendered)
+        .onChange(of: key, initial: true) {
+            renderer.request(key: key, markdown: markdown, textColor: textColor, tintColor: tintColor, baseFont: baseFont)
         }
+    }
+}
+
+/// Markdown 渲染节流：同一视图连续变化（流式输出）时最多每 ~60ms 渲染一次最新内容；
+/// 短文本首次出现时同步渲染，避免先闪一帧原始文本。
+@MainActor
+@Observable
+final class SelectableMarkdownRenderState {
+    private(set) var latest: NSAttributedString?
+    @ObservationIgnored private var latestKey: String?
+    @ObservationIgnored private var pending: (key: String, render: () -> NSAttributedString)?
+    @ObservationIgnored private var scheduled: Task<Void, Never>?
+    @ObservationIgnored private var lastRenderAt: ContinuousClock.Instant?
+
+    private static let throttle: Duration = .milliseconds(60)
+    private static let synchronousLimit = 4_000
+    private static let cache: NSCache<NSString, NSAttributedString> = {
+        let cache = NSCache<NSString, NSAttributedString>()
+        cache.countLimit = 160; cache.totalCostLimit = 12 * 1024 * 1024
+        return cache
+    }()
+
+    func attributedText(for key: String) -> NSAttributedString? {
+        latestKey == key ? latest : Self.cache.object(forKey: key as NSString)
+    }
+
+    func request(key: String, markdown: String, textColor: UIColor, tintColor: UIColor, baseFont: UIFont) {
+        if let cached = Self.cache.object(forKey: key as NSString) {
+            pending = nil
+            publish(cached, key: key)
+            return
+        }
+        let render = {
+            MarkdownAttributedTextRenderer.render(markdown: markdown, textColor: textColor,
+                                                  tintColor: tintColor, baseFont: baseFont)
+        }
+        if latest == nil, markdown.utf8.count <= Self.synchronousLimit {
+            store(render(), key: key)
+            return
+        }
+        pending = (key, render)
+        guard scheduled == nil else { return }
+        let elapsed = lastRenderAt.map { ContinuousClock.now - $0 } ?? Self.throttle
+        let delay = max(.zero, Self.throttle - elapsed)
+        scheduled = Task { @MainActor [weak self] in
+            if delay > .zero { try? await Task.sleep(for: delay) } else { await Task.yield() }
+            guard let self else { return }
+            self.scheduled = nil
+            guard let job = self.pending else { return }
+            self.pending = nil
+            self.store(job.render(), key: job.key)
+        }
+    }
+
+    private func store(_ rendered: NSAttributedString, key: String) {
+        Self.cache.setObject(rendered, forKey: key as NSString, cost: rendered.length * 4)
+        lastRenderAt = .now
+        publish(rendered, key: key)
+    }
+
+    private func publish(_ rendered: NSAttributedString, key: String) {
+        guard latestKey != key else { return }
+        latestKey = key
+        latest = rendered
     }
 }
 
