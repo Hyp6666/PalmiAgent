@@ -1856,6 +1856,7 @@
 "ml.model.discoveryEmpty" = "モデルが返されませんでした";
 "ml.model.providerID" = "モデル ID";
 "ml.model.setMain" = "既定のモデルに設定";
+"ml.session.currentModel" = "現在のモデル";
 "ml.session.defaultModel" = "既定のモデル";
 "ml.session.otherModels" = "ほかのモデルを選択";
 "ml.tool.followMain" = "既定のモデルに従う";

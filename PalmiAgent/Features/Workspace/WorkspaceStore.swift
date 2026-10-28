@@ -745,7 +745,7 @@ final class WorkspaceStore {
     }
 
     private func restoreSelections() throws {
-        let activeSelection = try? workspaceManager.currentSelection()
+        let activeSelection = try? workspaceManager.userSelection()
 
         if let activeSelection {
             let allProjects = projects + chatProjects

@@ -1856,6 +1856,7 @@
 "ml.model.discoveryEmpty" = "沒有取得模型";
 "ml.model.providerID" = "模型 ID";
 "ml.model.setMain" = "設為預設模型";
+"ml.session.currentModel" = "目前模型";
 "ml.session.defaultModel" = "預設模型";
 "ml.session.otherModels" = "選擇其他模型";
 "ml.tool.followMain" = "跟隨預設模型";

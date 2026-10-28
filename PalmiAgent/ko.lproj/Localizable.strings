@@ -1856,6 +1856,7 @@
 "ml.model.discoveryEmpty" = "반환된 모델이 없음";
 "ml.model.providerID" = "모델 ID";
 "ml.model.setMain" = "기본 모델로 설정";
+"ml.session.currentModel" = "현재 모델";
 "ml.session.defaultModel" = "기본 모델";
 "ml.session.otherModels" = "다른 모델 선택";
 "ml.tool.followMain" = "기본 모델 따르기";

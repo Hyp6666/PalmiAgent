@@ -1857,6 +1857,7 @@
 "ml.model.discoveryEmpty" = "没有获取到模型";
 "ml.model.providerID" = "模型 ID";
 "ml.model.setMain" = "设为默认模型";
+"ml.session.currentModel" = "当前模型";
 "ml.session.defaultModel" = "默认模型";
 "ml.session.otherModels" = "选择其他模型";
 "ml.tool.followMain" = "跟随默认模型";

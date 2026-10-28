@@ -796,6 +796,12 @@ final class WorkspaceManager {
         return nil
     }
 
+    /// 用户界面上真正选中的会话：忽略后台任务为自己临时固定的会话。
+    /// 界面恢复选中状态必须用它，否则后台会话收尾时刷新列表会把界面跳到那个会话。
+    func userSelection() throws -> WorkspaceSelection {
+        try Self.$pinnedSelection.withValue(nil) { try currentSelection() }
+    }
+
     func currentSelection() throws -> WorkspaceSelection {
         if let pinnedSelection = Self.pinnedSelection {
             let threadURL = threadDirectoryURL(for: pinnedSelection.projectID, threadID: pinnedSelection.threadID)

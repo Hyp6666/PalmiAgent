@@ -116,6 +116,8 @@ struct NeoRuntimeTimelineSheet: View {
                 .padding(.horizontal, 24)
                 .padding(.top, 10)
                 .padding(.bottom, 28)
+                // 撑满宽度：否则半屏时内容按自身宽度居中，只露出中间一条白底。
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .background(Color(uiColor: .systemBackground))
             .navigationTitle(PalmiL10n.tr("neo.runtime.title"))
@@ -359,6 +361,7 @@ struct NeoRuntimeStepDetailSheet: View {
                     }
                 }
                 .padding(24)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
     }
 

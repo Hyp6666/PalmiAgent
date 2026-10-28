@@ -1856,6 +1856,7 @@
 "ml.model.discoveryEmpty" = "No models returned";
 "ml.model.providerID" = "Model ID";
 "ml.model.setMain" = "Set as Default Model";
+"ml.session.currentModel" = "Current Model";
 "ml.session.defaultModel" = "Default Model";
 "ml.session.otherModels" = "Choose Another Model";
 "ml.tool.followMain" = "Follow Default Model";

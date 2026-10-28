@@ -2685,20 +2685,24 @@ struct ChatScreen: View {
         let state = modelSelectionState
         let library = store.modelLibrary
 
+        Section(PalmiL10n.tr("ml.session.currentModel")) {
+            Text(compactTopModelMenuTitle(state.model?.title ?? PalmiL10n.tr("ml.mainModel.notConfigured")))
+                .lineLimit(1)
+                .frame(width: topModelMenuExpandedItemWidth, alignment: .leading)
+        }
+
         Section(PalmiL10n.tr("ml.session.defaultModel")) {
             Button {
                 selectSessionMainModel(nil)
             } label: {
                 topModelMenuSelectionLabel(
-                    compactTopModelMenuTitle(state.defaultModel.map {
-                        ModelLibraryPresentation.modelTitle($0, library: library)
-                    } ?? PalmiL10n.tr("ml.mainModel.notConfigured")),
+                    compactTopModelMenuTitle(state.defaultModel?.title ?? PalmiL10n.tr("ml.mainModel.notConfigured")),
                     isSelected: !state.isExplicit
                 )
             }
         }
 
-        // 其他模型按连接分组，每组是一个二级菜单。
+        // 其他模型按来源分组，每组是一个二级菜单。
         Section(PalmiL10n.tr("ml.session.otherModels")) {
             ForEach(ModelLibraryPresentation.groups(library: library, models: state.selectableModels), id: \.connectionID) { group in
                 Menu {
@@ -2714,12 +2718,19 @@ struct ChatScreen: View {
                     }
                 } label: {
                     topModelMenuSelectionLabel(
-                        compactTopModelMenuTitle(group.title),
+                        compactTopModelMenuTitle(topModelMenuGroupTitle(group, library: library)),
                         isSelected: group.models.contains { state.binding.explicitModelID == $0.id }
                     )
                 }
             }
         }
+    }
+
+    /// Codex OAuth 来源在菜单里只显示来源名，不拼接账号邮箱；用户自己备注过的来源照常显示备注。
+    private func topModelMenuGroupTitle(_ group: ModelLibraryPresentation.Group, library: ModelLibraryStore) -> String {
+        guard let connection = library.state.connection(group.connectionID),
+              connection.userLabel == nil, connection.chatGPTAccount != nil else { return group.title }
+        return "Codex OAuth"
     }
 
     @ViewBuilder

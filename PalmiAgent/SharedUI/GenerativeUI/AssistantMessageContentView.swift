@@ -91,6 +91,18 @@ enum PalmiUITone {
     }
 }
 
+/// 交互会话缓存：消息滑出屏幕再滑回来时直接复用，不再先显示占位再异步重建，避免列表高度跳变。
+@MainActor
+enum PalmiUIArtifactSessionCache {
+    private static let cache: NSCache<NSString, PalmiUIArtifactSession> = {
+        let cache = NSCache<NSString, PalmiUIArtifactSession>(); cache.countLimit = 64; return cache
+    }()
+
+    static func key(messageID: UUID, artifactID: String) -> NSString { "\(messageID.uuidString):\(artifactID)" as NSString }
+    static func session(for key: NSString) -> PalmiUIArtifactSession? { cache.object(forKey: key) }
+    static func store(_ session: PalmiUIArtifactSession, for key: NSString) { cache.setObject(session, forKey: key) }
+}
+
 private struct PalmiUIArtifactInline: View {
     let validated: PalmiUIValidatedArtifact
     let messageID: UUID
@@ -98,20 +110,39 @@ private struct PalmiUIArtifactInline: View {
     let onRequestFollowUp: (String) -> Void
     @State private var session: PalmiUIArtifactSession?
 
+    init(validated: PalmiUIValidatedArtifact, messageID: UUID, workspaceURL: URL, onRequestFollowUp: @escaping (String) -> Void) {
+        self.validated = validated
+        self.messageID = messageID
+        self.workspaceURL = workspaceURL
+        self.onRequestFollowUp = onRequestFollowUp
+        let key = PalmiUIArtifactSessionCache.key(messageID: messageID, artifactID: validated.id)
+        var initial = PalmiUIArtifactSessionCache.session(for: key)
+        // 原生组件不依赖已保存状态即可排版：同步创建，首帧就是最终高度，已保存状态随后载入。
+        if initial == nil, validated.artifact.kind == .native {
+            let created = PalmiUIArtifactSession(validated: validated, messageID: messageID, workspaceURL: workspaceURL)
+            PalmiUIArtifactSessionCache.store(created, for: key)
+            initial = created
+        }
+        _session = State(initialValue: initial)
+    }
+
     var body: some View {
         Group {
             if let session {
                 PalmiUIArtifactContent(session: session, onRequestFollowUp: onRequestFollowUp)
             } else {
-                Color.clear.frame(height: 44)
+                Color.clear.frame(height: PalmiHTMLHeightCache.height(for: validated.id, expanded: false) ?? 44)
             }
         }.task(id: validated.id) {
-            if session?.validated.id != validated.id {
-                let value = PalmiUIArtifactSession(validated: validated, messageID: messageID, workspaceURL: workspaceURL)
-                await value.loadIfNeeded()
-                guard !Task.isCancelled else { return }
-                session = value
+            if let session, session.validated.id == validated.id {
+                await session.loadIfNeeded()
+                return
             }
+            let value = PalmiUIArtifactSession(validated: validated, messageID: messageID, workspaceURL: workspaceURL)
+            await value.loadIfNeeded()
+            guard !Task.isCancelled else { return }
+            PalmiUIArtifactSessionCache.store(value, for: PalmiUIArtifactSessionCache.key(messageID: messageID, artifactID: validated.id))
+            session = value
         }
     }
 }

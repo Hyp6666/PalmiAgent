@@ -2,12 +2,29 @@ import SwiftUI
 import WebKit
 import UIKit
 
+/// HTML 小应用上一次实测的高度。重建 WebView 时先按这个高度占位，滚动时列表不跳。
+@MainActor
+enum PalmiHTMLHeightCache {
+    private static var heights: [String: CGFloat] = [:]
+    static func height(for artifactID: String, expanded: Bool) -> CGFloat? { heights[artifactID + (expanded ? ":e" : ":i")] }
+    static func store(_ height: CGFloat, for artifactID: String, expanded: Bool) {
+        if heights.count > 256 { heights.removeAll() }
+        heights[artifactID + (expanded ? ":e" : ":i")] = height
+    }
+}
+
 struct PalmiHTMLArtifactView: View {
     let session: PalmiUIArtifactSession
     let expanded: Bool
-    @State private var height: CGFloat = 320
+    @State private var height: CGFloat
     @State private var loading = true
     @State private var failed = false
+
+    init(session: PalmiUIArtifactSession, expanded: Bool) {
+        self.session = session
+        self.expanded = expanded
+        _height = State(initialValue: PalmiHTMLHeightCache.height(for: session.validated.id, expanded: expanded) ?? 320)
+    }
 
     var body: some View {
         if failed {
@@ -22,7 +39,11 @@ struct PalmiHTMLArtifactView: View {
         } else {
             PalmiHTMLWebView(session: session, renderID: session.reloadID, html: session.validated.artifact.html ?? "", initialState: session.state,
                              onState: { session.replaceState($0) },
-                             onHeight: { height = min(max($0, 60), expanded ? 1_200 : 720) },
+                             onHeight: {
+                                 let value = min(max($0, 60), expanded ? 1_200 : 720)
+                                 PalmiHTMLHeightCache.store(value, for: session.validated.id, expanded: expanded)
+                                 if abs(value - height) > 0.5 { height = value }
+                             },
                              onReady: { withAnimation(.easeOut(duration: 0.2)) { loading = false } }, onFailure: { failed = true })
                 .frame(height: height)
                 .opacity(loading ? 0 : 1)
@@ -98,6 +119,9 @@ private struct PalmiHTMLWebView: UIViewRepresentable {
         private var snapshotID: String?
         private var snapshotContinuation: CheckedContinuation<[String: PalmiUIValue], Error>?
         private var snapshotTimeout: Task<Void, Never>?
+        /// 页面占用手势期间被暂停的外层滚动视图。
+        private var suspendedScrollViews: [UIScrollView] = []
+        private var gestureSafety: Task<Void, Never>?
 
         init(owner: PalmiHTMLWebView) { self.owner = owner; self.renderID = owner.renderID }
 
@@ -121,6 +145,8 @@ private struct PalmiHTMLWebView: UIViewRepresentable {
 
         func dispose() {
             guard !disposed else { return }; disposed = true
+            gestureSafety?.cancel(); gestureSafety = nil
+            restoreOuterScrolling()
             finishSnapshot(.failure(PalmiUIValidationError.invalid("The UI was closed")))
             owner.session.removeSnapshotProvider(token: snapshotToken)
             watchdog?.cancel(); watchdog = nil
@@ -147,6 +173,7 @@ private struct PalmiHTMLWebView: UIViewRepresentable {
 
         private func fail() {
             guard !disposed else { return }
+            restoreOuterScrolling()
             finishSnapshot(.failure(PalmiUIValidationError.invalid("The UI is unavailable")))
             owner.session.removeSnapshotProvider(token: snapshotToken)
             watchdog?.cancel(); watchdog = nil
@@ -182,8 +209,35 @@ private struct PalmiHTMLWebView: UIViewRepresentable {
                     return try await self.requestSnapshot()
                 }
             case "error": fail()
+            case "gesture":
+                setExclusiveGesture((body["payload"] as? Bool) ?? false)
             default: break
             }
+        }
+
+        /// 页面在这次触摸里自己处理滑动：暂停所有外层滚动视图的拖动，抬手后恢复。
+        private func setExclusiveGesture(_ active: Bool) {
+            gestureSafety?.cancel(); gestureSafety = nil
+            guard active else { restoreOuterScrolling(); return }
+            guard suspendedScrollViews.isEmpty, let view = webView else { return }
+            var node = view.superview
+            while let current = node {
+                if let scroll = current as? UIScrollView, scroll.panGestureRecognizer.isEnabled {
+                    scroll.panGestureRecognizer.isEnabled = false
+                    suspendedScrollViews.append(scroll)
+                }
+                node = current.superview
+            }
+            // 抬手事件丢失时兜底恢复，外层滚动不会被永久占用。
+            gestureSafety = Task { @MainActor [weak self] in
+                do { try await Task.sleep(for: .seconds(8)) } catch { return }
+                self?.restoreOuterScrolling()
+            }
+        }
+
+        private func restoreOuterScrolling() {
+            for scroll in suspendedScrollViews { scroll.panGestureRecognizer.isEnabled = true }
+            suspendedScrollViews.removeAll()
         }
 
         private func decodeState(_ value: Any?) -> [String: PalmiUIValue]? {
@@ -328,7 +382,7 @@ nonisolated enum PalmiHTMLDocument {
         """
         (() => {
           const nonce = '\(nonce)';
-          const counts = {state:0,height:0,ready:0,error:0};
+          const counts = {state:0,height:0,ready:0,error:0,gesture:0};
           let epoch = performance.now();
           let pendingSnapshot = null;
           Object.defineProperty(globalThis, '__palmiSnapshotRequest', {value:requestID => {
@@ -351,11 +405,12 @@ nonisolated enum PalmiHTMLDocument {
             if (!Object.prototype.hasOwnProperty.call(counts, data.kind)) return;
             const now = performance.now();
             if (now - epoch >= 1000) { epoch = now; for (const key in counts) counts[key] = 0; }
-            if (++counts[data.kind] > (data.kind === 'state' ? 12 : 6)) return;
+            if (++counts[data.kind] > (data.kind === 'state' || data.kind === 'gesture' ? 12 : 6)) return;
             let payload = data.payload;
             if (data.kind === 'state' && (typeof payload !== 'string' || payload.length > 16384)) return;
             if (data.kind === 'height' && (!Number.isFinite(payload) || payload <= 0 || payload > 20000)) return;
             if (data.kind === 'ready' || data.kind === 'error') payload = null;
+            if (data.kind === 'gesture') payload = data.payload === true;
             window.webkit.messageHandlers.palmiArtifactV1.postMessage({nonce,kind:data.kind,payload});
           });
         })();
@@ -406,6 +461,28 @@ nonisolated enum PalmiHTMLDocument {
             publishState();
             parent.postMessage({channel:'palmi-ui-v1',nonce,kind:'snapshot',requestID:data.requestID,payload:JSON.stringify(current)}, '*');
           });
+          // 页面声明自己处理手势（touch-action 不允许纵向平移，或在触摸事件里 preventDefault）时，
+          // 通知宿主在这次触摸期间把外层滚动让给页面；手指全部离开后归还。
+          let gestureClaimed = false;
+          const claimGesture = () => { if (!gestureClaimed) { gestureClaimed = true; post('gesture', true); } };
+          const releaseGesture = () => { if (gestureClaimed) { gestureClaimed = false; post('gesture', false); } };
+          const wantsGesture = target => {
+            for (let el = target; el && el.nodeType === 1; el = el.parentElement) {
+              const action = getComputedStyle(el).touchAction || 'auto';
+              if (action !== 'auto' && action !== 'manipulation' && !action.includes('pan-y')) return true;
+            }
+            return false;
+          };
+          const nativePreventDefault = Event.prototype.preventDefault;
+          Event.prototype.preventDefault = function () {
+            if (this.cancelable && (this.type === 'touchstart' || this.type === 'touchmove'
+                || ((this.type === 'pointerdown' || this.type === 'pointermove') && this.pointerType === 'touch'))) claimGesture();
+            return nativePreventDefault.call(this);
+          };
+          addEventListener('touchstart', event => { if (wantsGesture(event.target)) claimGesture(); }, {capture:true, passive:true});
+          const touchFinished = event => { if (!event.touches || event.touches.length === 0) releaseGesture(); };
+          addEventListener('touchend', touchFinished, {capture:true, passive:true});
+          addEventListener('touchcancel', touchFinished, {capture:true, passive:true});
           addEventListener('pagehide', publishState);
           document.addEventListener('visibilitychange', () => { if (document.hidden) publishState(); });
           let heightTimer;
