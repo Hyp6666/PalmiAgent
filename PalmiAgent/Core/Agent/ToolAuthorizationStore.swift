@@ -154,7 +154,7 @@ final class ToolAuthorizationStore {
         return trimmed
     }
 
-    static let defaultAutoReviewPolicy = "读取位置、日历、提醒事项等个人数据，只要是完成用户当前请求的必要步骤（例如查天气、找附近地点、安排日程）就允许；只有把个人数据发往与请求无关的对象时才拒绝。"
+    static let defaultAutoReviewPolicy = "Allow reading personal data such as location, calendar or reminders whenever it is a necessary step for the user's current request (for example checking the weather, finding nearby places or planning a schedule). Deny only when personal data would be sent to a recipient unrelated to the request."
 
     private func loadCustomAutoReviewPolicy() {
         customAutoReviewPolicy = userDefaults.string(forKey: customReviewPolicyKey) ?? ""
