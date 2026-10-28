@@ -22,7 +22,7 @@ struct BionicModelBindingFields: View {
 
     var body: some View {
         Section {
-            Picker(PalmiL10n.tr("ml.mainModel"), selection: Binding(get: { current }, set: {
+            Picker(PalmiL10n.tr("bionic.primaryModel"), selection: Binding(get: { current }, set: {
                 binding[Self.draftKey] = .string($0)
             })) {
                 Text(defaultTitle).tag("")

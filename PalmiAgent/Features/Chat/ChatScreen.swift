@@ -2685,30 +2685,38 @@ struct ChatScreen: View {
         let state = modelSelectionState
         let library = store.modelLibrary
 
-        Section(PalmiL10n.tr("ml.session.mainModel")) {
+        Section(PalmiL10n.tr("ml.session.defaultModel")) {
             Button {
                 selectSessionMainModel(nil)
             } label: {
                 topModelMenuSelectionLabel(
                     compactTopModelMenuTitle(state.defaultModel.map {
-                        PalmiL10n.tr("ml.followDefaultNamed", ModelLibraryPresentation.modelTitle($0, library: library))
-                    } ?? PalmiL10n.tr("ml.followDefault")),
+                        ModelLibraryPresentation.modelTitle($0, library: library)
+                    } ?? PalmiL10n.tr("ml.mainModel.notConfigured")),
                     isSelected: !state.isExplicit
                 )
             }
         }
 
-        ForEach(ModelLibraryPresentation.groups(library: library, models: state.selectableModels), id: \.connectionID) { group in
-            Section(compactTopModelMenuTitle(group.title)) {
-                ForEach(group.models) { model in
-                    Button {
-                        selectSessionMainModel(model.id)
-                    } label: {
-                        topModelMenuSelectionLabel(
-                            compactTopModelMenuTitle(model.title),
-                            isSelected: state.binding.explicitModelID == model.id
-                        )
+        // 其他模型按连接分组，每组是一个二级菜单。
+        Section(PalmiL10n.tr("ml.session.otherModels")) {
+            ForEach(ModelLibraryPresentation.groups(library: library, models: state.selectableModels), id: \.connectionID) { group in
+                Menu {
+                    ForEach(group.models) { model in
+                        Button {
+                            selectSessionMainModel(model.id)
+                        } label: {
+                            topModelMenuSelectionLabel(
+                                compactTopModelMenuTitle(model.title),
+                                isSelected: state.binding.explicitModelID == model.id
+                            )
+                        }
                     }
+                } label: {
+                    topModelMenuSelectionLabel(
+                        compactTopModelMenuTitle(group.title),
+                        isSelected: group.models.contains { state.binding.explicitModelID == $0.id }
+                    )
                 }
             }
         }
