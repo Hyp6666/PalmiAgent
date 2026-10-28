@@ -9,7 +9,7 @@ final class ContextAssemblerCacheTests: XCTestCase {
         super.tearDown()
     }
 
-    func testVolatileResearchStateComesAfterStableHistory() throws {
+    func testRetiredResearchStateDoesNotChangeStableHistory() throws {
         let assembler = makeAssembler()
         let original = makeSession(researchAnswer: "first synthesis")
         let updated = makeSession(researchAnswer: "updated synthesis")
@@ -33,10 +33,12 @@ final class ContextAssemblerCacheTests: XCTestCase {
 
         XCTAssertEqual(Array(first.apiMessages.prefix(3)), Array(second.apiMessages.prefix(3)))
         XCTAssertEqual(first.apiMessages.prefix(3).map(\.role), ["system", "user", "assistant"])
-        XCTAssertNotEqual(first.apiMessages.last?.content, second.apiMessages.last?.content)
+        XCTAssertEqual(first.apiMessages, second.apiMessages)
+        XCTAssertFalse(first.apiMessages.contains { $0.content?.contains("first synthesis") == true })
+        XCTAssertFalse(second.apiMessages.contains { $0.content?.contains("updated synthesis") == true })
     }
 
-    func testStableSummaryDoesNotContainVolatileResearchProjection() throws {
+    func testStableSummaryIsRetainedWithoutRetiredResearchProjection() throws {
         let assembler = makeAssembler()
         var session = makeSession(researchAnswer: "volatile synthesis")
         session.hiddenContextSummary = AgentHiddenContextSummary(
@@ -59,7 +61,8 @@ final class ContextAssemblerCacheTests: XCTestCase {
 
         XCTAssertTrue(assembled.apiMessages[1].content?.contains("stable compacted history") == true)
         XCTAssertFalse(assembled.apiMessages[1].content?.contains("volatile synthesis") == true)
-        XCTAssertTrue(assembled.apiMessages.last?.content?.contains("volatile synthesis") == true)
+        XCTAssertFalse(assembled.apiMessages.contains { $0.content?.contains("volatile synthesis") == true })
+        XCTAssertEqual(assembled.apiMessages.last?.content, "stable assistant message")
     }
 
     private func makeAssembler() -> ContextAssembler {

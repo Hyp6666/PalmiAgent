@@ -16,6 +16,7 @@ final class AgentLoop {
     private struct PendingUserGuidance {
         let modelText: String
         let visibleText: String
+        let imagePaths: [String]
     }
 
     private struct PhaseCheckpointAdmission {
@@ -182,7 +183,7 @@ final class AgentLoop {
         }
     }
 
-    func enqueueUserGuidance(_ text: String, visibleText: String? = nil) {
+    func enqueueUserGuidance(_ text: String, visibleText: String? = nil, imagePaths: [String] = []) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         let trimmedVisibleText = visibleText?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -194,7 +195,8 @@ final class AgentLoop {
         pendingInterruptions.append(
             PendingUserGuidance(
                 modelText: trimmed,
-                visibleText: displayText
+                visibleText: displayText,
+                imagePaths: imagePaths
             )
         )
     }
@@ -216,6 +218,22 @@ final class AgentLoop {
     }
 
     func currentContextCompositionSnapshot(actions: [ToolAction]) -> ContextCompositionSnapshot {
+        if currentSurface() == .chat {
+            let tools = chatToolDefinitions(actions: actions)
+            let base = promptBuilder.build(actions: actions, tier: .speed, exposesTools: !tools.isEmpty,
+                exposesPhaseThought: false, surface: .chat)
+            let context = contextAssembler.assembleChatTool(baseSystemPrompt: base, session: session)
+            let encoded = (try? JSONEncoder().encode(tools)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            let toolTokens = tools.isEmpty ? 0 : ApproximateTokenCounter.estimate(encoded)
+            let systemTokens = ApproximateTokenCounter.estimate(base)
+            return ContextCompositionSnapshot(totalTokens: context.approximateTokenCount + toolTokens,
+                maxTokens: AgentRunProfile.profile(for: .speed).contextCompaction.maximumContextTokenCount,
+                systemPromptTokens: systemTokens, skillTokens: 0,
+                messageTokens: max(0, context.approximateTokenCount - systemTokens), toolTokens: toolTokens,
+                skillCount: 0, messageCount: max(0, context.apiMessages.count - 1),
+                hiddenSummaryCount: session.hiddenContextSummary == nil ? 0 : 1,
+                toolEntryCount: tools.count, compactionCount: session.compactionCount)
+        }
         let runProfile = currentAgentRunProfile()
         let surface = currentSurface()
         let exposesPhaseThought = surface == .professional && isExternalReasoningEnabled
@@ -413,11 +431,8 @@ final class AgentLoop {
         let runProfile = surface == .chat ? AgentRunProfile.profile(for: .speed) : currentAgentRunProfile()
         let promptCacheKey = (try? workspaceManager.currentSelection()).map { "palmi:thread:v1:\($0.threadID.uuidString.lowercased())" }
         let resolver = imageResolver(for: modelOverrides)
-        if surface == .chat && actions.isEmpty {
-            let base = promptBuilder.build(actions: [], tier: .speed, exposesTools: false, exposesPhaseThought: false, surface: .chat)
-            let context = contextAssembler.assemblePlainChat(baseSystemPrompt: base, session: session, imageResolver: resolver)
-            return freeze(context, tools: [], toolIntent: .none, selection: modelOverrides.mainSelection(reasoning: .automatic),
-                          bindings: modelOverrides, promptCacheKey: promptCacheKey)
+        if surface == .chat {
+            return chatFrozenRequest(actions: actions, modelOverrides: modelOverrides, promptCacheKey: promptCacheKey)
         }
         let phaseThoughtEnabled = surface == .chat ? false : isExternalReasoningEnabled
         var tools = LLMToolDefinitionBuilder.makeToolDefinitions(for: actions)
@@ -581,7 +596,11 @@ final class AgentLoop {
         modelOverrides: AgentModelBindings = .unconfigured,
         runLimits: AgentRunLimits? = nil
     ) async throws -> AgentTurnResult {
-        try await runTurnCore(
+        if currentSurface() == .chat {
+            return try await runChatConversationTurn(userInput: userInput, providerID: providerID,
+                actions: actions, imagePaths: imagePaths, modelOverrides: modelOverrides, runLimits: runLimits)
+        }
+        return try await runTurnCore(
             userInput: userInput,
             providerID: providerID,
             actions: actions,
@@ -619,17 +638,8 @@ final class AgentLoop {
         }
         let selection = try workspaceManager.currentSelection()
         let promptCacheKey = "palmi:thread:v1:\(selection.threadID.uuidString.lowercased())"
-        let surface = (try? workspaceManager.currentProject().surface) ?? .professional
-        let runProfile = surface == .chat ? AgentRunProfile.profile(for: .speed) : currentAgentRunProfile()
-        if surface == .chat && actions.isEmpty {
-            return try await runPlainChatTurn(
-                userInput: trimmedInput,
-                providerID: providerID,
-                imagePaths: imagePaths,
-                modelOverrides: modelOverrides,
-                promptCacheKey: promptCacheKey
-            )
-        }
+        let surface = WorkspaceProjectSurface.professional
+        let runProfile = currentAgentRunProfile()
 
         let turnRequestRole: APIModelRole = .reasoningModel
         let toolRouter = ToolRouter(
@@ -641,7 +651,7 @@ final class AgentLoop {
         let toolPlanner = ToolExecutionPlanner()
         let runVerifier = RunVerifier()
         let contextCompactionConfiguration = runProfile.contextCompaction
-        let phaseThoughtEnabled = surface == .chat ? false : isExternalReasoningEnabled
+        let phaseThoughtEnabled = isExternalReasoningEnabled
         let subagentToolsEnabled = surface == .professional && subagentRuntimeBridge != nil
         let taskIdentity = AgentTaskStateIdentity(
             projectID: selection.projectID,
@@ -735,13 +745,6 @@ final class AgentLoop {
                 )
                 let resolver = imageResolver(for: modelOverrides)
                 func assembleTurnContext() -> AssembledAgentContext {
-                    if surface == .chat {
-                        return contextAssembler.assembleChatTool(
-                            baseSystemPrompt: baseSystemPrompt,
-                            session: session,
-                            imageResolver: resolver
-                        )
-                    }
                     return contextAssembler.assemble(
                         baseSystemPrompt: baseSystemPrompt,
                         skills: activeSkills,
@@ -1662,93 +1665,242 @@ final class AgentLoop {
         }
     }
 
-    private func runPlainChatTurn(
+    /// Compatibility entry points keep ChatStore/journaling stable; the chat driver is independent.
+    private func runChatConversationTurn(
         userInput: String,
         providerID: APIProviderID,
+        actions: [ToolAction],
         imagePaths: [String],
         modelOverrides: AgentModelBindings,
-        promptCacheKey: String
+        runLimits: AgentRunLimits?
     ) async throws -> AgentTurnResult {
-        session.append(.user(text: userInput, imagePaths: imagePaths))
-        appendEventLog(.turnStarted, summary: "开始聊天")
-
-        let baseSystemPrompt = promptBuilder.build(
-            actions: [],
-            tier: .speed,
-            exposesTools: false,
-            exposesPhaseThought: false,
-            surface: .chat
+        let input = userInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !input.isEmpty else { throw AppError.invalidState("请输入聊天内容。") }
+        AgentToolCallProtocolIntegrity.closeDanglingCalls(in: &session)
+        emittedModelNotices = []
+        firstSuccessfulRequestOfTurn = nil
+        pendingInterruptions = []
+        activeTurnMode = .standard
+        activeTurnDeepResearchFolder = ""
+        let turnID = UUID()
+        let turnSessionID = session.id
+        let turnEpoch = generationEpoch
+        var allowedActions = ChatModeToolFilter.actions(for: .chat, from: actions)
+        if let image = actions.first(where: { $0.id == .generateImage }),
+           !allowedActions.contains(where: { $0.id == .generateImage }) { allowedActions.append(image) }
+        let promptCacheKey = "palmi:thread:v1:\(try workspaceManager.currentSelection().threadID.uuidString.lowercased())"
+        let turnInput = inputWithTurnRuntimeDirectives(
+            input, actions: allowedActions, runProfile: .profile(for: .speed), surface: .chat
         )
-        let runProfile = AgentRunProfile.profile(for: .speed)
-        let chatSelection = AgentModelSelection(
-            providerID: providerID,
-            modelRole: .reasoningModel,
-            reasoning: .automatic,
-            configurationOverride: modelOverrides.main
-        )
-        let resolver = imageResolver(for: modelOverrides)
-        var assembledContext = contextAssembler.assemblePlainChat(
-            baseSystemPrompt: baseSystemPrompt,
-            session: session,
-            imageResolver: resolver
-        )
-        switch await runCompactionAtSafePoint(
-            frozen: freeze(assembledContext, tools: [], toolIntent: .none, selection: chatSelection,
-                           bindings: modelOverrides, promptCacheKey: promptCacheKey),
-            configuration: runProfile.contextCompaction
-        ) {
-        case .compacted:
-            assembledContext = contextAssembler.assemblePlainChat(baseSystemPrompt: baseSystemPrompt, session: session, imageResolver: resolver)
-        case .mustStop(let message):
-            throw AppError.invalidState(message)
-        case .none, .failed:
-            break
+        session.append(.user(text: turnInput, imagePaths: imagePaths))
+        appendEventLog(.turnStarted, summary: "开始渐进式聊天")
+        defer {
+            if session.id == turnSessionID, generationEpoch == turnEpoch {
+                resolvePendingApprovals(approved: false)
+                AgentToolCallProtocolIntegrity.closeDanglingCalls(in: &session)
+            }
         }
-        let frozenChatRequest = freeze(assembledContext, tools: [], toolIntent: .none, selection: chatSelection,
-                                       bindings: modelOverrides, promptCacheKey: promptCacheKey)
+        let host = ChatConversationHost(
+            prepareRequest: { [self] in
+                guard session.id == turnSessionID, generationEpoch == turnEpoch else { throw CancellationError() }
+                var frozen = chatFrozenRequest(actions: allowedActions, modelOverrides: modelOverrides, promptCacheKey: promptCacheKey)
+                switch await runCompactionAtSafePoint(frozen: frozen, configuration: AgentRunProfile.profile(for: .speed).contextCompaction) {
+                case .compacted:
+                    frozen = chatFrozenRequest(actions: allowedActions, modelOverrides: modelOverrides, promptCacheKey: promptCacheKey)
+                case .mustStop(let message): throw AppError.invalidState(message)
+                case .none, .failed: break
+                }
+                return frozen
+            },
+            stream: { [self] frozen, onDelta, onReasoning in
+                appendEventLog(.modelRequest, summary: "请求聊天模型")
+                return try await modelRuntime.stream(AgentModelStreamingRequest(
+                    selection: frozen.selection, apiMessages: frozen.apiMessages,
+                    tools: frozen.tools, toolIntent: frozen.toolIntent,
+                    onDelta: onDelta, onReasoningDelta: onReasoning,
+                    promptCacheKey: frozen.promptCacheKey
+                ))
+            },
+            recordResponseUsage: { [self] response, frozen in
+                guard session.id == frozen.sessionID, generationEpoch == frozen.generationEpoch else { throw CancellationError() }
+                session.cumulativeUsage.add(totalTokens: response.totalTokens)
+            },
+            commitResponse: { [self] response, frozen, segmentID in
+                guard session.id == frozen.sessionID, generationEpoch == frozen.generationEpoch else { throw CancellationError() }
+                session.append(AgentMessage(id: segmentID, role: response.message.role,
+                    blocks: response.message.blocks, nativeReasoning: response.message.nativeReasoning,
+                    timestamp: response.message.timestamp, attachedImagePaths: response.message.attachedImagePaths))
+                emitModelNotices(response.notices)
+                noteSuccessfulRequest(frozen)
+                appendEventLog(.modelResponse, summary: "聊天阶段已提交；工具调用 \(response.message.toolUses.count) 个")
+            },
+            commitPartialText: { [self] raw, segmentID in
+                guard session.id == turnSessionID, generationEpoch == turnEpoch else { return }
+                session.append(AgentMessage(id: segmentID, role: .assistant, blocks: [.text(raw)]))
+                appendEventLog(.modelFailure, summary: "已保留被中断的聊天正文，未提交未完成工具调用")
+            },
+            executeTool: { [self] use, intent in
+                guard session.id == turnSessionID, generationEpoch == turnEpoch else { throw CancellationError() }
+                try await executeChatTool(use, actions: allowedActions, providerID: providerID,
+                                          modelOverrides: modelOverrides, turnID: turnID,
+                                          userGoal: input, assistantIntent: intent, expectedSessionID: turnSessionID, expectedEpoch: turnEpoch)
+            },
+            hasGuidance: { [self] in !pendingInterruptions.isEmpty },
+            skipUnstartedTools: { [self] uses in
+                guard session.id == turnSessionID, generationEpoch == turnEpoch else { return }
+                for use in uses { skipChatToolForGuidance(use) }
+            },
+            consumeGuidance: { [self] in
+                guard session.id == turnSessionID, generationEpoch == turnEpoch else { return false }
+                return consumePendingInterruptions()
+            },
+            repairToolProtocol: { [self] in
+                if session.id == turnSessionID, generationEpoch == turnEpoch { AgentToolCallProtocolIntegrity.closeDanglingCalls(in: &session) }
+            },
+            setState: { [self] newState in
+                if session.id == turnSessionID, generationEpoch == turnEpoch { state = newState }
+            },
+            emit: { [self] event in
+                if session.id == turnSessionID, generationEpoch == turnEpoch { emit(event) }
+            }
+        )
+        let result = try await ChatConversationRuntime().run(host: host, limits: runLimits ?? .default)
+        appendEventLog(.finalReply, summary: "聊天回合已完成；保留全部已提交阶段")
+        return result
+    }
 
-        state = .thinking
-        appendEventLog(.modelRequest, summary: "请求聊天模型")
+    private func chatToolDefinitions(actions: [ToolAction]) -> [AgentModelToolDefinition] {
+        guard !actions.isEmpty else { return [] }
+        return LLMToolDefinitionBuilder.makeToolDefinitions(for: actions)
+            + AgentInfrastructureToolDefinitionFactory.makeToolDefinitions(includesTaskTool: false, includesAgentTool: false)
+    }
 
-        do {
-            let response = try await modelRuntime.stream(
-                AgentModelStreamingRequest(
-                    selection: chatSelection,
-                    apiMessages: assembledContext.apiMessages,
-                    tools: [],
-                    toolIntent: .none,
-                    onDelta: { text in
-                        self.emit(.streamingDelta(text: text))
-                    },
-                    onReasoningDelta: { [weak self] text in
-                        self?.emit(.reasoningDelta(text: text))
-                    },
-                    promptCacheKey: promptCacheKey
-                )
-            )
+    private func chatFrozenRequest(
+        actions: [ToolAction], modelOverrides: AgentModelBindings, promptCacheKey: String?
+    ) -> FrozenModelRequest {
+        let tools = chatToolDefinitions(actions: actions)
+        let base = promptBuilder.build(actions: actions, tier: .speed, exposesTools: !tools.isEmpty,
+                                       exposesPhaseThought: false, surface: .chat)
+        // Tool history is kept even if the current user disabled new tool calls.
+        let context = contextAssembler.assembleChatTool(baseSystemPrompt: base, session: session,
+                                                       imageResolver: imageResolver(for: modelOverrides))
+        return freeze(context, tools: tools, toolIntent: tools.isEmpty ? .none : .auto,
+                      selection: modelOverrides.mainSelection(reasoning: .automatic),
+                      bindings: modelOverrides, promptCacheKey: promptCacheKey)
+    }
 
-            emitModelNotices(response.notices)
-            noteSuccessfulRequest(frozenChatRequest)
-            session.cumulativeUsage.add(totalTokens: response.totalTokens)
-            session.append(response.message)
-            emit(.tokenUpdate(totalTokens: response.totalTokens))
+    private func executeChatTool(
+        _ use: AgentToolUse, actions: [ToolAction], providerID: APIProviderID,
+        modelOverrides: AgentModelBindings, turnID: UUID, userGoal: String, assistantIntent: String,
+        expectedSessionID: UUID, expectedEpoch: Int
+    ) async throws {
+        if !actions.isEmpty,
+           use.name == AgentInfrastructureToolDefinitionFactory.compactToolName || use.name == ToolResultReaderTool.name {
+            let title = use.name == ToolResultReaderTool.name ? "读取工具结果" : "整理上下文"
+            let stepID = UUID()
+            appendEventLog(.toolStarted, summary: "开始执行 \(title)", payloadJSON: use.input)
+            emit(.internalToolStarted(AgentInternalToolStep(
+                id: stepID, toolName: use.name, title: title, status: .warning,
+                summary: "正在执行", details: "", argumentsJSON: use.input,
+                isRunning: true, relatedThreadIDs: []
+            )))
+            let result = use.name == ToolResultReaderTool.name ? handleResultReaderTool(use) : handleCompactTool(use)
+            session.append(.toolResult(toolUseID: use.id, toolName: use.name, output: result.payload, isError: result.isError))
+            finishInternalTool(stepID, toolUse: use, title: title, result: result)
+            return
+        }
+        let prepared: AgentPreparedToolExecution
+        switch toolExecutor.prepare(use, actions: actions) {
+        case .ready(let value): prepared = value
+        case .failure(let message):
+            session.append(.toolResult(toolUseID: use.id, toolName: use.name,
+                                       output: jsonPayload(["status": "error", "message": message]), isError: true))
+            emitRejectedToolCard(toolUse: use, message: message)
+            return
+        }
+        let stepID = UUID()
+        let policy = prepared.action.id.policyMetadata
+        let startedAt = Date()
+        let permit = try await requestApprovalIfNeeded(
+            stepID: stepID, turnID: turnID, toolUse: use, prepared: prepared, policy: policy,
+            providerID: providerID, modelOverrides: modelOverrides,
+            userGoal: userGoal, assistantIntent: assistantIntent
+        )
+        try Task.checkCancellation()
+        guard session.id == expectedSessionID, generationEpoch == expectedEpoch else { throw CancellationError() }
+        if !pendingInterruptions.isEmpty { skipChatToolForGuidance(use, prepared: prepared, stepID: stepID); return }
+        let execution: AgentToolExecutionResult
+        if let permit {
+            if let mismatch = consumePermit(permit, prepared: prepared, toolUse: use,
+                                            stepID: stepID, turnID: turnID, policy: policy) {
+                session.append(.toolResult(toolUseID: use.id, toolName: use.name,
+                                           output: jsonPayload(["status": "error", "message": mismatch]), isError: true))
+                emitRejectedToolCard(toolUse: use, message: mismatch)
+                return
+            }
+            appendEventLog(.toolStarted, summary: "开始执行 \(prepared.action.title)", payloadJSON: prepared.argumentsJSON)
+            try await toolExecutionCheckpoint?(stepID, prepared.action, prepared.argumentsJSON)
+            try Task.checkCancellation()
+            emit(.toolStarted(stepID: stepID, action: prepared.action, argumentsJSON: prepared.argumentsJSON))
+            do {
+                execution = try await toolExecutor.execute(prepared, stepID: stepID, modelOverrides: modelOverrides,
+                    beforeExecution: { [self] in
+                        guard session.id == expectedSessionID, generationEpoch == expectedEpoch else { throw CancellationError() }
+                        if !pendingInterruptions.isEmpty { throw ChatToolExecutionInterruption.superseded }
+                    })
+            } catch ChatToolExecutionInterruption.superseded {
+                skipChatToolForGuidance(use, prepared: prepared, stepID: stepID)
+                return
+            }
+        } else {
+            execution = toolExecutor.skippedByUser(prepared, stepID: stepID)
+        }
+        guard session.id == expectedSessionID, generationEpoch == expectedEpoch else { throw CancellationError() }
+        // Commit a returned outcome before observing cancellation: never lose a completed side effect.
+        let deltas = attachToolUseID(execution.step.fileDeltas, toolUseID: use.id)
+        let step = LLMToolExecutionStep(
+            id: execution.step.id, action: execution.step.action, argumentsJSON: execution.step.argumentsJSON,
+            result: execution.step.result, requiresUserInteraction: execution.step.requiresUserInteraction,
+            presentation: execution.step.presentation, fileDeltas: deltas, inlineMetadata: execution.step.inlineMetadata
+        )
+        session.toolAuditRecords.append(ToolAuditRecord(
+            id: UUID(), toolUseID: use.id, toolName: step.action.id.modelToolName,
+            riskLevel: policy.riskLevel, argumentsJSON: prepared.argumentsJSON,
+            status: step.result.status, summary: step.result.summary, startedAt: startedAt,
+            finishedAt: .now, requiresUserInteraction: step.requiresUserInteraction
+        ))
+        session.fileDeltas.append(contentsOf: deltas)
+        var evidence = EvidenceStore(references: session.evidenceReferences)
+        evidence.ingest(fileDeltas: deltas)
+        session.evidenceReferences = evidence.references
+        session.append(.toolResult(toolUseID: use.id, toolName: step.action.id.modelToolName,
+                                   output: execution.payload, isError: step.result.status == .failure))
+        appendEventLog(.toolFinished, summary: "\(step.action.title)：\(step.result.summary)", payloadJSON: step.result.details)
+        emit(.toolFinished(step: step))
+        try Task.checkCancellation()
+    }
 
-            let finalReply = LLMGuardrails.sanitizeUserFacingReply(
-                response.message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-
-            state = .completed
-            appendEventLog(.finalReply, summary: "已完成聊天回复")
-
-            return AgentTurnResult(
-                finalReply: finalReply,
-                outputTokens: response.totalTokens,
-                iterations: 1,
-                tokenUsage: response.tokenUsage
-            )
-        } catch {
-            state = .failed((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
-            throw error
+    private func skipChatToolForGuidance(
+        _ use: AgentToolUse, prepared: AgentPreparedToolExecution? = nil, stepID: UUID? = nil
+    ) {
+        let message = "收到新的用户指示，尚未开始的工具调用已跳过。"
+        session.append(.toolResult(toolUseID: use.id, toolName: use.name,
+            output: jsonPayload(["status": "skipped", "reason": "new_user_guidance", "message": message]), isError: false))
+        if let prepared, let stepID {
+            let result = ToolResult(status: .warning, title: prepared.action.title, summary: message,
+                details: message, actionID: prepared.action.id, createdAt: .now)
+            session.toolAuditRecords.append(ToolAuditRecord(id: UUID(), toolUseID: use.id,
+                toolName: use.name, riskLevel: prepared.action.id.policyMetadata.riskLevel,
+                argumentsJSON: prepared.argumentsJSON, status: .warning, summary: message,
+                startedAt: .now, finishedAt: .now, requiresUserInteraction: false))
+            appendEventLog(.toolFinished, summary: message)
+            emit(.toolFinished(step: LLMToolExecutionStep(id: stepID, action: prepared.action,
+                argumentsJSON: prepared.argumentsJSON, result: result, requiresUserInteraction: false)))
+        } else {
+            appendEventLog(.toolFinished, summary: message)
+            emit(.internalToolFinished(AgentInternalToolStep(id: UUID(), toolName: use.name,
+                title: use.name, status: .warning, summary: message, details: "",
+                argumentsJSON: use.input, isRunning: false, relatedThreadIDs: [])))
         }
     }
 
@@ -1795,7 +1947,7 @@ final class AgentLoop {
         pendingInterruptions.removeAll()
 
         for guidance in queuedGuidance {
-            session.append(.user(text: guidance.modelText))
+            session.append(.user(text: guidance.modelText, imagePaths: guidance.imagePaths))
         }
 
         emit(.queuedUserGuidanceInjected(messages: queuedGuidance.map(\.visibleText)))
@@ -2221,7 +2373,9 @@ final class AgentLoop {
         var untrusted: [(source: String, text: String)] = []
         let intent = assistantIntent.trimmingCharacters(in: .whitespacesAndNewlines)
         if !intent.isEmpty { untrusted.append((source: "assistant_plan", text: String(intent.prefix(2_000)))) }
-        untrusted.append((source: "task_focus", text: currentTaskFocusDescription()))
+        if currentSurface() == .professional {
+            untrusted.append((source: "task_focus", text: currentTaskFocusDescription()))
+        }
         return ToolReviewer.Evidence(trustedAuthorization: trusted, untrustedContext: untrusted, policy: toolAuthorizationStore.effectiveAutoReviewPolicy)
     }
 

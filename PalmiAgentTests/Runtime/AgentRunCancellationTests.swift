@@ -94,12 +94,14 @@ final class AgentRunCancellationTests: XCTestCase {
     func testApprovalResolutionCompletesExactlyOnce() async throws {
         let waiter = AgentApprovalWaiter()
         let id = UUID()
-        async let value = waiter.wait(id: id)
-        await Task.yield()
-
-        XCTAssertTrue(waiter.resolve(id: id, approved: true))
-        XCTAssertFalse(waiter.resolve(id: id, approved: false))
-        let resolvedValue = try await value
+        // The current MainActor task registers wait() before this queued task can run.
+        // A yield after an async-let does not guarantee registration on this executor.
+        let resolution = Task { @MainActor in
+            XCTAssertTrue(waiter.resolve(id: id, approved: true))
+            XCTAssertFalse(waiter.resolve(id: id, approved: false))
+        }
+        let resolvedValue = try await waiter.wait(id: id)
+        await resolution.value
         XCTAssertTrue(resolvedValue)
     }
 }

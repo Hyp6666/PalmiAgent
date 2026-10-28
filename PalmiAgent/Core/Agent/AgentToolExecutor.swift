@@ -64,7 +64,8 @@ final class AgentToolExecutor {
     func execute(
         _ prepared: AgentPreparedToolExecution,
         stepID: UUID,
-        modelOverrides: AgentModelBindings = .unconfigured
+        modelOverrides: AgentModelBindings = .unconfigured,
+        beforeExecution: (() throws -> Void)? = nil
     ) async throws -> AgentToolExecutionResult {
         // 浏览器在独立运行时中按对话串行；不同对话不占用全局工具锁。
         let permit: ToolExecutionPermit?
@@ -80,6 +81,7 @@ final class AgentToolExecutor {
             if let permit { executionCoordinator.release(permit) }
         }
         try Task.checkCancellation()
+        try beforeExecution?()
 
         let outcome: ToolExecutionOutcome
         do {

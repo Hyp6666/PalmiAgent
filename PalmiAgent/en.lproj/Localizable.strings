@@ -1898,3 +1898,25 @@
 "ml.fetch.deselectAll" = "Deselect All";
 "ml.check.start" = "Check";
 "ml.check.visionNotice" = "This sends a test image to the model and may use a small amount of quota. If it passes, “Supports Image Input” is turned on automatically. You can also turn the option on or off without checking, but results in real use aren't guaranteed.";
+
+// Interactive answer content
+"ui.generating" = "Generating interactive content…";
+"ui.unavailable" = "Interactive content is unavailable";
+"ui.source" = "View source";
+"ui.expand" = "Expand";
+"ui.close" = "Close";
+"ui.reset" = "Reset";
+"ui.followUp" = "Continue with this";
+"ui.loading" = "Loading…";
+"ui.retry" = "Reload";
+"ui.saveFailed" = "Your latest interaction state could not be saved.";
+"ui.snapshotFailed" = "Could not read the current interaction state. Try again.";
+
+"attachment.openOriginal" = "View original image: %@";
+"attachment.previewUnavailable" = "Preview unavailable";
+
+// Progressive conversation presentation
+"chat.progressive.ended" = "Response ended";
+"settings.runtime.professionalStyle" = "Professional mode activity";
+"settings.runtime.progressiveScope" = "Chat always uses Neo for activity and keeps every answer segment visible. This preference applies only to Professional mode.";
+"chat.runtime.notice" = "Run status";

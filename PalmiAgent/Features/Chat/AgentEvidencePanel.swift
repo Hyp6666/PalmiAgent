@@ -439,6 +439,7 @@ private struct FileDeltaRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
+                PalmiFileIcon(name: delta.path, size: 28)
                 Text(delta.path)
                     .font(.headline)
                 Spacer(minLength: 8)

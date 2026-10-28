@@ -658,7 +658,11 @@ struct BionicImageTile: View {
             if let image { Image(uiImage: image).resizable().scaledToFill().frame(width: width, height: height) }
             else if attachment.text("kind") != "image" || failed {
                 VStack(spacing: 6) {
-                    Image(systemName: attachment.text("kind") == "video" ? "play.rectangle" : "doc").font(.title2)
+                    PalmiFileIcon(
+                        name: attachment.text("filename"),
+                        mimeType: attachment.text("kind") == "video" ? "video/*" : nil,
+                        size: 34
+                    )
                     Text(attachment.text("filename")).font(.caption).lineLimit(2)
                 }.padding(8)
             } else { ProgressView() }

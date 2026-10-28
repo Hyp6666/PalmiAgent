@@ -56,9 +56,7 @@ struct WorkspaceAllProjectsFilesSheet: View {
                     List(store.projects) { project in
                         NavigationLink(value: WorkspaceProjectFilesRoute(projectID: project.id)) {
                             HStack(spacing: 12) {
-                                Image(systemName: "folder.fill")
-                                    .font(.title3)
-                                    .foregroundStyle(.blue)
+                                PalmiFileIcon(name: project.name, isDirectory: true, size: 30)
                                     .frame(width: 30)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(project.name).lineLimit(1)
@@ -331,10 +329,8 @@ struct WorkspaceFileRowLabel: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: symbol)
-                .font(.title3)
-                .foregroundStyle(node.isDirectory ? Color.blue : Color.secondary)
-                .frame(width: 30)
+            PalmiFileIcon(name: node.name, isDirectory: node.isDirectory, size: 34)
+                .frame(width: 34)
             VStack(alignment: .leading, spacing: 2) {
                 Text(node.name)
                     .foregroundStyle(.primary)
@@ -355,19 +351,7 @@ struct WorkspaceFileRowLabel: View {
         return ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)
     }
 
-    private var symbol: String {
-        if node.isDirectory { return "folder.fill" }
-        switch (node.name as NSString).pathExtension.lowercased() {
-        case "png", "jpg", "jpeg", "heic", "gif", "webp", "bmp", "tiff": return "photo"
-        case "pdf": return "doc.richtext"
-        case "md", "markdown", "txt", "rtf": return "doc.text"
-        case "py", "swift", "js", "ts", "json", "html", "css", "sh", "yml", "yaml", "xml", "csv": return "chevron.left.forwardslash.chevron.right"
-        case "zip", "tar", "gz": return "doc.zipper"
-        case "mp3", "m4a", "wav", "aac": return "waveform"
-        case "mp4", "mov", "m4v": return "film"
-        default: return "doc"
-        }
-    }
+
 }
 
 // MARK: - 行操作与分享

@@ -217,7 +217,7 @@ struct ChatScreen: View {
     }
 
     private func shouldHideCompletedChatDetails(for turn: ChatTurn) -> Bool {
-        guard isChatSurface,
+        guard !turn.isProgressive, isChatSurface,
               turn.finalMessage != nil,
               let header = turn.headerMessage?.sessionHeader,
               header.finishedAt != nil else {
@@ -851,7 +851,9 @@ struct ChatScreen: View {
 
     @ViewBuilder
     private func runtimeTurnView(_ turn: ChatTurn, readTargets: [UUID: UUID]) -> some View {
-        if PalmiReasoningUIStyle.resolve(reasoningUIStyleRaw).applies(to: shellMode),
+        if turn.isProgressive {
+            progressiveTurnView(turn, readTargets: readTargets)
+        } else if PalmiReasoningUIStyle.resolve(reasoningUIStyleRaw).applies(to: shellMode),
            let headerMessage = turn.headerMessage,
            let header = headerMessage.sessionHeader {
             VStack(alignment: .leading, spacing: 16) {
@@ -885,6 +887,56 @@ struct ChatScreen: View {
         } else {
             turnView(turn, readTargets: readTargets)
         }
+    }
+
+    @ViewBuilder
+    private func progressiveTurnView(_ turn: ChatTurn, readTargets: [UUID: UUID]) -> some View {
+        let header = turn.headerMessage?.sessionHeader
+        let timeline = PalmiProgressiveTimeline.build(
+            messages: turn.orderedInTurnMessages, finishedAt: header?.finishedAt
+        )
+        let isCurrent = store.isLoading && store.activeTurnHeaderID == turn.headerMessage?.id
+        VStack(alignment: .leading, spacing: 16) {
+            if let userMessage = turn.userMessage { userBubble(userMessage) }
+            if timeline.isEmpty, isCurrent, let header, let headerID = turn.headerMessage?.id {
+                NeoRuntimeCard(
+                    headerID: headerID, header: header, messages: [], finalMessage: nil,
+                    isCurrentTurn: true, streamingMessageID: nil,
+                    liveReasoningBuffer: store.liveReasoningBuffer(for:),
+                    onOpenRelatedThread: openRelatedThread, selection: workspaceStore.selectedSelection
+                )
+            }
+            ForEach(timeline) { item in
+                switch item.content {
+                case .answer(let message):
+                    assistantMarkdown(for: message)
+                        .id("unread-" + (readTargets[message.id] ?? message.id).uuidString)
+                case .user(let message):
+                    userBubble(message)
+                case .process(let messages, let boundary):
+                    let live = isCurrent && header?.finishedAt == nil && timeline.last?.id == item.id
+                    let traceHeader = PalmiChatSessionHeader(
+                        startedAt: messages.first?.timestamp ?? header?.startedAt ?? .distantPast,
+                        finishedAt: live ? nil : (boundary ?? header?.finishedAt ?? messages.last?.timestamp),
+                        responsePresentation: .progressive
+                    )
+                    NeoRuntimeCard(
+                        headerID: item.id, header: traceHeader, messages: messages, finalMessage: nil,
+                        isCurrentTurn: live, streamingMessageID: store.activeStreamingMessageIDValue,
+                        liveReasoningBuffer: store.liveReasoningBuffer(for:),
+                        onOpenRelatedThread: openRelatedThread, selection: workspaceStore.selectedSelection
+                    )
+                }
+            }
+            if header?.finishedAt != nil {
+                Text(PalmiL10n.tr("chat.progressive.ended"))
+                    .font(.caption).foregroundStyle(.secondary)
+                if let lastAnswer = turn.publicAnswerMessages.last {
+                    finalAnswerCompletionRow(for: turn, finalMessage: lastAnswer)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -1092,13 +1144,35 @@ struct ChatScreen: View {
 
     @ViewBuilder
     private func assistantMarkdown(for message: PalmiChatMessage) -> some View {
-        let isStreamingMessage = store.activeStreamingMessageIDValue == message.id
-        let source = isStreamingMessage
-            ? stabilizedStreamingMarkdown(from: message.content)
-            : message.content
-
-        assistantBody(for: source)
+        let isStreamingMessage = message.responseSegment?.status == .streaming
+            || store.activeStreamingMessageIDValue == message.id
+        let capturedSelection = workspaceStore.selectedSelection
+        if message.role == .agent, message.richContentVersion == 1,
+           let workspaceURL = workspaceStore.currentWorkspaceURL {
+            // The rich parser must receive real provider bytes. Never synthesize a closing fence.
+            AssistantMessageContentView(
+                messageID: message.id, source: message.content,
+                isStreaming: isStreamingMessage, richContentVersion: message.richContentVersion,
+                workspaceURL: workspaceURL, markdownTransform: renderableMarkdown(from:),
+                onRequestFollowUp: { draft in
+                    guard let capturedSelection, workspaceStore.selectedSelection == capturedSelection,
+                          draft.utf8.count <= 32_768 else { return }
+                    if store.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        store.inputText = draft
+                    } else {
+                        store.inputText += "\n\n" + draft
+                    }
+                    isFocused = true
+                }
+            )
             .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            let source = isStreamingMessage
+                ? stabilizedStreamingMarkdown(from: message.content)
+                : message.content
+            assistantBody(for: source)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     private func finalAnswerCompletionRow(
@@ -1227,13 +1301,25 @@ struct ChatScreen: View {
         fullTurn: Bool,
         markdown: Bool
     ) -> String {
+        if turn.isProgressive {
+            let source = PalmiProgressiveTimeline.publicAnswerMarkdown(in: turn.orderedInTurnMessages)
+            if markdown { return source }
+            // Block ids are unique within each message, not across the whole turn.
+            let plainSource = turn.publicAnswerMessages.map { message in
+                message.richContentVersion == 1
+                    ? PalmiRichContentExport.plainText(message.content)
+                    : message.content
+            }.joined(separator: "\n\n")
+            return Self.plainText(fromMarkdown: plainSource)
+        }
         let markdownText = fullTurn
-            ? Self.completeTurnMarkdown(for: turn, finalMessage: finalMessage)
+            ? Self.completeTurnMarkdown(for: turn, finalMessage: finalMessage, richAsPlain: !markdown)
             : finalMessage.content.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        return markdown
-            ? markdownText
-            : Self.plainText(fromMarkdown: markdownText)
+        if markdown { return markdownText }
+        let exportSource = !fullTurn && finalMessage.richContentVersion == 1
+            ? PalmiRichContentExport.plainText(markdownText)
+            : markdownText
+        return Self.plainText(fromMarkdown: exportSource)
     }
 
     private func writeTemporaryAnswerFile(
@@ -1274,7 +1360,8 @@ struct ChatScreen: View {
 
     private static func completeTurnMarkdown(
         for turn: ChatTurn,
-        finalMessage: PalmiChatMessage
+        finalMessage: PalmiChatMessage,
+        richAsPlain: Bool = false
     ) -> String {
         var orderedMessages: [PalmiChatMessage] = []
         if let userMessage = turn.userMessage {
@@ -1286,12 +1373,12 @@ struct ChatScreen: View {
 
         return orderedMessages
             .compactMap { message in
-                Self.exportableMarkdown(for: message)
+                Self.exportableMarkdown(for: message, richAsPlain: richAsPlain)
             }
             .joined(separator: "\n\n")
     }
 
-    private static func exportableMarkdown(for message: PalmiChatMessage) -> String? {
+    private static func exportableMarkdown(for message: PalmiChatMessage, richAsPlain: Bool = false) -> String? {
         if message.role == .user {
             return exportableUserQuestionMarkdown(for: message)
         }
@@ -1300,7 +1387,10 @@ struct ChatScreen: View {
 
         switch message.kind {
         case .normal, .summary:
-            return nonEmptyTrimmed(message.content)
+            let source = richAsPlain && message.richContentVersion == 1
+                ? PalmiRichContentExport.plainText(message.content)
+                : message.content
+            return nonEmptyTrimmed(source)
         case .toolCall:
             guard let toolCall = message.toolCall else {
                 return nonEmptyTrimmed(message.content)
@@ -1883,27 +1973,21 @@ struct ChatScreen: View {
         }
     }
 
-    // 附件横向滚动条：圆角方块，图片=缩略图、文件=带色块+文件名，点开预览。
+    // Images use a three-column gallery; document attachments use the shared file cards.
     private var composerAttachmentTiles: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                ForEach(store.pendingAttachments) { attachment in
-                    ComposerAttachmentTile(
-                        attachment: attachment,
-                        resolvedURL: try? workspaceStore.workspaceURL(for: attachment.relativePath),
-                        onTap: { previewAttachment(attachment) },
-                        onRemove: { store.removePendingAttachment(attachment) }
-                    )
+        PalmiAttachmentGallery(
+            attachments: store.pendingAttachments.map(\.chatAttachment),
+            presentation: .composer,
+            composerIsFocused: isFocused,
+            resolvedURL: { try? workspaceStore.workspaceURL(for: $0.relativePath) },
+            onTap: { previewSessionAttachment($0) },
+            onRemove: { attachment in
+                guard let pending = store.pendingAttachments.first(where: { $0.id == attachment.id }) else {
+                    return
                 }
+                store.removePendingAttachment(pending)
             }
-            .padding(.horizontal, 2)
-            .padding(.vertical, 3)
-        }
-        .frame(height: 66)
-    }
-
-    private func previewAttachment(_ attachment: ChatStore.PendingAttachment) {
-        previewSessionAttachment(attachment.chatAttachment)
+        )
     }
 
     @ViewBuilder
@@ -5083,253 +5167,12 @@ private struct ChatAttachmentStack: View {
     let onTap: (PalmiChatAttachment) -> Void
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: 8) {
-            ForEach(attachments) { attachment in
-                ChatAttachmentRow(
-                    attachment: attachment,
-                    resolvedURL: resolvedURL(attachment),
-                    onTap: { onTap(attachment) }
-                )
-            }
-        }
-    }
-}
-
-private struct ChatAttachmentRow: View {
-    let attachment: PalmiChatAttachment
-    let resolvedURL: URL?
-    let onTap: () -> Void
-
-    @State private var thumbnail: UIImage?
-
-    private static let previewSize = CGSize(width: 78, height: 58)
-
-    private var isImage: Bool {
-        if attachment.source != .filePicker { return true }
-        let ext = (attachment.name as NSString).pathExtension.lowercased()
-        return ["jpg", "jpeg", "png", "heic", "heif", "gif", "webp", "bmp", "tiff"].contains(ext)
-    }
-
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 10) {
-                preview
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(attachment.source.localizedTitle)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-
-                    Text(displayName)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                        .multilineTextAlignment(.leading)
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.white.opacity(0.86))
-                    .shadow(color: .black.opacity(0.06), radius: 10, y: 4)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .task(id: attachment.id) { await loadThumbnail() }
-        .accessibilityLabel(PalmiL10n.tr("attachment.accessibility.item", attachment.source.localizedTitle, displayName))
-    }
-
-    @ViewBuilder
-    private var preview: some View {
-        if isImage {
-            if let thumbnail {
-                Image(uiImage: thumbnail)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: Self.previewSize.width, height: Self.previewSize.height)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            } else {
-                placeholderPreview(systemImage: "photo")
-            }
-        } else {
-            placeholderPreview(systemImage: "doc.fill")
-        }
-    }
-
-    private func placeholderPreview(systemImage: String) -> some View {
-        ZStack {
-            fileTint.opacity(isImage ? 0.14 : 1)
-            Image(systemName: systemImage)
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(isImage ? Color.secondary : Color.white)
-        }
-        .frame(width: Self.previewSize.width, height: Self.previewSize.height)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    private var displayName: String {
-        (attachment.name as NSString).lastPathComponent
-    }
-
-    private var fileTint: Color {
-        switch (attachment.name as NSString).pathExtension.lowercased() {
-        case "pdf": return Color(red: 0.86, green: 0.27, blue: 0.24)
-        case "doc", "docx": return Color(red: 0.18, green: 0.42, blue: 0.86)
-        case "xls", "xlsx", "csv": return Color(red: 0.16, green: 0.60, blue: 0.36)
-        case "ppt", "pptx": return Color(red: 0.86, green: 0.45, blue: 0.18)
-        case "zip", "rar", "7z", "gz", "tar": return Color(red: 0.55, green: 0.45, blue: 0.30)
-        case "md", "markdown", "txt": return Color(red: 0.36, green: 0.40, blue: 0.48)
-        default: return Color(red: 0.40, green: 0.46, blue: 0.56)
-        }
-    }
-
-    private func loadThumbnail() async {
-        guard isImage, thumbnail == nil, let url = resolvedURL else { return }
-        let maxPixel = max(Self.previewSize.width, Self.previewSize.height) * 3
-        let image = await Task.detached(priority: .utility) {
-            ComposerAttachmentTile.downsample(url: url, maxPixel: maxPixel)
-        }.value
-        guard let image else { return }
-        await MainActor.run { thumbnail = image }
-    }
-}
-
-// 统一的附件方块：等大圆角矩形。图片=缩略图（点开看大图）；文件=带色方块+文件名（点开预览）。
-// 右上角内嵌删除按钮。最多 15 个由 ChatStore.addPendingAttachments 兜底。
-private struct ComposerAttachmentTile: View {
-    let attachment: ChatStore.PendingAttachment
-    let resolvedURL: URL?
-    let onTap: () -> Void
-    let onRemove: () -> Void
-
-    @State private var thumbnail: UIImage?
-
-    private static let side: CGFloat = 56
-    private static let corner: CGFloat = 14
-
-    private var isImage: Bool {
-        if attachment.source != .filePicker { return true }
-        let ext = (attachment.name as NSString).pathExtension.lowercased()
-        return ["jpg", "jpeg", "png", "heic", "heif", "gif", "webp", "bmp", "tiff"].contains(ext)
-    }
-
-    var body: some View {
-        Button(action: onTap) {
-            tileContent
-                .frame(width: Self.side, height: Self.side)
-                .clipShape(RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Self.corner, style: .continuous)
-                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
-                )
-                .contentShape(RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .overlay(alignment: .topTrailing) {
-            removeButton.padding(4)
-        }
-        .task(id: attachment.id) { await loadThumbnail() }
-    }
-
-    @ViewBuilder
-    private var tileContent: some View {
-        if isImage {
-            if let thumbnail {
-                Image(uiImage: thumbnail)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                ZStack {
-                    Color.black.opacity(0.04)
-                    Image(systemName: "photo")
-                        .font(.system(size: 20, weight: .regular))
-                        .foregroundStyle(.secondary)
-                }
-            }
-        } else {
-            ZStack {
-                fileTint
-                VStack(spacing: 3) {
-                    Image(systemName: "doc.fill")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.white)
-
-                    Text(displayName)
-                        .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.95))
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-                        .truncationMode(.middle)
-                        .padding(.horizontal, 4)
-                }
-            }
-        }
-    }
-
-    private var removeButton: some View {
-        Button(action: onRemove) {
-            Image(systemName: "xmark")
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 18, height: 18)
-                .background(Circle().fill(Color.black.opacity(0.55)))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(PalmiL10n.tr("attachment.remove"))
-    }
-
-    private var displayName: String {
-        (attachment.name as NSString).lastPathComponent
-    }
-
-    private var fileTint: Color {
-        switch (attachment.name as NSString).pathExtension.lowercased() {
-        case "pdf": return Color(red: 0.86, green: 0.27, blue: 0.24)
-        case "doc", "docx": return Color(red: 0.18, green: 0.42, blue: 0.86)
-        case "xls", "xlsx", "csv": return Color(red: 0.16, green: 0.60, blue: 0.36)
-        case "ppt", "pptx": return Color(red: 0.86, green: 0.45, blue: 0.18)
-        case "zip", "rar", "7z", "gz", "tar": return Color(red: 0.55, green: 0.45, blue: 0.30)
-        case "md", "markdown", "txt": return Color(red: 0.36, green: 0.40, blue: 0.48)
-        default: return Color(red: 0.40, green: 0.46, blue: 0.56)
-        }
-    }
-
-    private func loadThumbnail() async {
-        guard isImage, thumbnail == nil, let url = resolvedURL else { return }
-        let maxPixel = Self.side * 3  // @3x，足够清晰且省内存
-        let image = await Task.detached(priority: .utility) {
-            ComposerAttachmentTile.downsample(url: url, maxPixel: maxPixel)
-        }.value
-        guard let image else { return }
-        await MainActor.run { thumbnail = image }
-    }
-
-    nonisolated static func downsample(url: URL, maxPixel: CGFloat) -> UIImage? {
-        guard let source = CGImageSourceCreateWithURL(
-            url as CFURL,
-            [kCGImageSourceShouldCache: false] as CFDictionary
-        ) else {
-            return nil
-        }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixel)
-        ]
-        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-            return nil
-        }
-        return UIImage(cgImage: cgImage)
+        PalmiAttachmentGallery(
+            attachments: attachments,
+            presentation: .message,
+            resolvedURL: resolvedURL,
+            onTap: onTap
+        )
     }
 }
 
@@ -5774,6 +5617,22 @@ private struct ChatTurn: Identifiable {
     let messagesBeforeFinal: [PalmiChatMessage]
     let finalMessage: PalmiChatMessage?
     let messagesAfterFinal: [PalmiChatMessage]
+
+    var orderedInTurnMessages: [PalmiChatMessage] {
+        messagesBeforeFinal + (finalMessage.map { [$0] } ?? []) + messagesAfterFinal
+    }
+
+    var isProgressive: Bool {
+        headerMessage?.sessionHeader?.responsePresentation == .progressive
+            || orderedInTurnMessages.contains { $0.responseSegment != nil }
+    }
+
+    var publicAnswerMessages: [PalmiChatMessage] {
+        orderedInTurnMessages.filter {
+            $0.role == .agent && ($0.kind == .normal || $0.kind == .summary)
+                && !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
 
     static func build(from messages: [PalmiChatMessage]) -> [ChatTurn] {
         var turns: [ChatTurn] = []

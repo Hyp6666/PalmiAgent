@@ -1898,3 +1898,25 @@
 "ml.fetch.deselectAll" = "取消全選";
 "ml.check.start" = "檢查";
 "ml.check.visionNotice" = "檢查會向模型傳送一張測試圖片，可能消耗少量額度。檢查通過後會自動開啟「支援圖片輸入」。你也可以不檢查，直接開啟或關閉此選項，但不保證實際使用效果。";
+
+// Interactive answer content
+"ui.generating" = "正在產生互動內容…";
+"ui.unavailable" = "互動內容暫時無法使用";
+"ui.source" = "檢視原始碼";
+"ui.expand" = "展開";
+"ui.close" = "關閉";
+"ui.reset" = "重設";
+"ui.followUp" = "依目前內容繼續";
+"ui.loading" = "載入中…";
+"ui.retry" = "重新載入";
+"ui.saveFailed" = "最新的互動狀態未能儲存。";
+"ui.snapshotFailed" = "無法取得目前的互動狀態，請再試一次。";
+
+"attachment.openOriginal" = "檢視原圖：%@";
+"attachment.previewUnavailable" = "無法預覽";
+
+// Progressive conversation presentation
+"chat.progressive.ended" = "本輪已結束";
+"settings.runtime.professionalStyle" = "專業模式的執行過程";
+"settings.runtime.progressiveScope" = "聊天模式一律使用 Neo 顯示過程，回答會持續保留。此處選擇僅影響專業模式。";
+"chat.runtime.notice" = "執行提示";

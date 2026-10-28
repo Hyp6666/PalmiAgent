@@ -56,3 +56,34 @@ and OpenAI-compatible endpoints. Provider names and model identifiers in the UI
 are used for compatibility and routing. This repository does not include model
 weights, provider SDK source code, or provider services. Users are responsible
 for complying with the terms of any provider they connect.
+
+## dsh-open-file file icon design
+
+The folded document outline, format labels, and file-family palette in
+PalmiFileIcon are adapted from the file badge design of dsh-open-file,
+https://github.com/hyper-dsh-plugins/dsh-open-file,
+revision 39636d198993c5980da0091056d307bb5a8a48c5.
+Only the file icon presentation is referenced; its harness and file tools are
+not included.
+
+MIT License
+
+Copyright (c) 2026 dsh-open-file contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

@@ -118,15 +118,18 @@ final class ChatStore {
     struct QueuedUserGuidance: Identifiable, Equatable {
         let id: UUID
         let content: String
+        let attachments: [PalmiChatAttachment]
         let createdAt: Date
 
         init(
             id: UUID = UUID(),
             content: String,
+            attachments: [PalmiChatAttachment] = [],
             createdAt: Date = .now
         ) {
             self.id = id
             self.content = content
+            self.attachments = attachments
             self.createdAt = createdAt
         }
     }
@@ -171,6 +174,8 @@ final class ChatStore {
         var executionTask: Task<Void, Never>?
         var continuedProcessingIdentifier: String?
         var modelRequestID = UUID()
+        var responseSegment: PalmiResponseSegment?
+        var legacyPublicFilter = ChatPublicStreamFilter()
         var draftContent = ""
         var draftReasoning = ""
         var draftByteCount = 0
@@ -195,6 +200,7 @@ final class ChatStore {
         var activeSessionHeaderID: UUID?
         var activeToolMessageIDs: [UUID: UUID] = [:]
         var activeStreamingMessageID: UUID?
+        var activeResponseSegment: PalmiResponseSegment?
         var activeStreamingReasoningMessageID: UUID?
         var streamingReasoningText: String = ""
         var activeContextCompactionMessageID: UUID?
@@ -235,6 +241,7 @@ final class ChatStore {
     private var activeSessionHeaderID: UUID?
     private var activeToolMessageIDs: [UUID: UUID] = [:]
     private var activeStreamingMessageID: UUID?
+    private var activeResponseSegment: PalmiResponseSegment?
     // 实时「思考」卡：当前显示会话使用引用型 buffer 承接高频 reasoning 增量。
     private var activeStreamingReasoningMessageID: UUID?
     private var activeStreamingReasoningBuffer: LiveReasoningBuffer?
@@ -487,7 +494,9 @@ final class ChatStore {
                 errorMessage = PalmiL10n.tr("chat.error.sessionBusy")
                 return
             }
-            enqueueQueuedUserGuidance(hiddenText)
+            let guidanceAttachments = pendingAttachments.map(\.chatAttachment)
+            let guidanceImagePaths = pendingAttachments.filter { isImageAttachment($0) }.map(\.relativePath)
+            enqueueQueuedUserGuidance(visibleText, attachments: guidanceAttachments)
             inputText = ""
             pendingAttachments = []
             errorMessage = nil
@@ -500,7 +509,7 @@ final class ChatStore {
                     providerID: runProviderID,
                     modelOverrides: modelOverrides
                 )
-                running.loop.enqueueUserGuidance(modelInput, visibleText: hiddenText)
+                running.loop.enqueueUserGuidance(modelInput, visibleText: visibleText, imagePaths: guidanceImagePaths)
             }
             return
         }
@@ -518,7 +527,7 @@ final class ChatStore {
         let pendingAutoTitleTarget = autoTitleTargetIfNeeded(for: turnSelection, loop: runLoop)
         let runID = UUID()
         let activeRun = ActiveRun(selection: turnSelection, loop: runLoop, runID: runID)
-        if workspaceStore.thread(for: turnSelection)?.subagentOrigin == nil {
+        if turnSurface == .professional, workspaceStore.thread(for: turnSelection)?.subagentOrigin == nil {
             runLoop.setSubagentRuntimeBridge(
                 makeSubagentRuntimeBridge(
                     parentRun: activeRun,
@@ -559,7 +568,8 @@ final class ChatStore {
             role: .agent,
             kind: .sessionHeader,
             content: "",
-            sessionHeader: PalmiChatSessionHeader(startedAt: startedAt),
+            sessionHeader: PalmiChatSessionHeader(startedAt: startedAt,
+                responsePresentation: turnSurface == .chat ? .progressive : .final),
             timestamp: startedAt
         )
         messages.append(userMessage)
@@ -569,6 +579,7 @@ final class ChatStore {
         activeSessionHeaderID = headerMessage.id
         activeToolMessageIDs = [:]
         activeStreamingMessageID = nil
+        activeResponseSegment = nil
         finalizeStreamingReasoning()
         activeContextCompactionMessageID = nil
         saveActiveSessionViewState(for: turnSelection)
@@ -614,9 +625,9 @@ final class ChatStore {
                     try await finishJournalEventStream(for: activeRun)
 
                     if isRunSelectionDisplayed(turnSelection) {
-                        if !result.finalReply.isEmpty {
+                        if result.outputDisposition == .legacyFinalReply, !result.finalReply.isEmpty {
                             if !finalizeStreamingMessage(with: result.finalReply) {
-                                appendParsedAssistantContent(result.finalReply, preferSummaryForTrailingText: true)
+                                appendFinalAssistantContent(result.finalReply)
                             }
                         }
                         let tokenUsage = tokenUsageSnapshot(
@@ -630,7 +641,7 @@ final class ChatStore {
                     } else {
                         appendPersistedBackgroundResult(
                             for: turnSelection,
-                            finalReply: result.finalReply,
+                            finalReply: result.outputDisposition == .legacyFinalReply ? result.finalReply : "",
                             outputTokens: result.outputTokens,
                             tokenUsage: tokenUsageSnapshot(
                                 for: result,
@@ -760,13 +771,13 @@ final class ChatStore {
             pendingApprovalRequestsBySelection.removeValue(forKey: turnSelection)
 
             if didRunForDisplayedSession {
-                queuedUserGuidance.removeAll()
+                restoreUnsentGuidance(for: turnSelection)
                 saveVisibleComposerState()
                 pendingApprovalRequest = nil
                 isLoading = false
                 clearActiveSessionState()
             } else {
-                clearQueuedGuidance(for: turnSelection)
+                restoreUnsentGuidance(for: turnSelection)
                 // 任务收尾时用户已在别的会话：把 loop 与展示重新对齐到当前会话
                 // （此前切换时为保护后台任务而跳过了 replaceSession，这里补上）。
                 loadMessagesForActiveThread()
@@ -1081,7 +1092,7 @@ final class ChatStore {
             role: .agent,
             kind: .sessionHeader,
             content: "",
-            sessionHeader: PalmiChatSessionHeader(startedAt: startedAt),
+            sessionHeader: PalmiChatSessionHeader(startedAt: startedAt, responsePresentation: .final),
             timestamp: startedAt
         )
         let initialMessages = [userMessage, headerMessage]
@@ -1133,7 +1144,7 @@ final class ChatStore {
                 if isRunSelectionDisplayed(selection) {
                     if !result.finalReply.isEmpty,
                        !finalizeStreamingMessage(with: result.finalReply) {
-                        appendParsedAssistantContent(result.finalReply, preferSummaryForTrailingText: true)
+                        appendFinalAssistantContent(result.finalReply)
                     }
                     finalizeActiveSession(
                         outputTokens: result.outputTokens,
@@ -1994,28 +2005,21 @@ final class ChatStore {
                     tokenUsage: tokenUsage,
                     finishedAt: .now
                 )
-                let trimmedFinalReply = finalReply.trimmingCharacters(in: .whitespacesAndNewlines)
-                if errorMessage == nil,
-                   !trimmedFinalReply.isEmpty,
-                   let streamingMessageID = activeSessionViewStatesBySelection[selection]?.activeStreamingMessageID {
-                    storedMessages.removeAll { $0.id == streamingMessageID }
-                }
+                let progressive = isProgressiveTurn(in: storedMessages, headerID: nil)
+                let trimmedFinalReply = publicFinalSource(finalReply).trimmingCharacters(in: .whitespacesAndNewlines)
                 if let errorMessage {
-                    storedMessages.append(
-                        PalmiChatMessage(
-                            role: .agent,
-                            kind: .summary,
-                            content: PalmiL10n.tr("chat.error.callFailed", errorMessage)
-                        )
-                    )
+                    let notice = PalmiL10n.tr("chat.error.callFailed", errorMessage)
+                    storedMessages.append(progressive ? runtimeStatusMessage(notice)
+                        : PalmiChatMessage(role: .agent, kind: .summary, content: notice))
                 } else if !trimmedFinalReply.isEmpty {
-                    storedMessages.append(
-                        PalmiChatMessage(
-                            role: .agent,
-                            kind: .summary,
-                            content: trimmedFinalReply
-                        )
-                    )
+                    if let streamingID = activeSessionViewStatesBySelection[selection]?.activeStreamingMessageID,
+                       let index = storedMessages.firstIndex(where: { $0.id == streamingID }) {
+                        storedMessages[index] = rebuildMessage(from: storedMessages[index], kind: .summary,
+                            content: trimmedFinalReply, foldBehavior: .alwaysVisible, richContentVersion: 1)
+                    } else {
+                        storedMessages.append(PalmiChatMessage(role: .agent, kind: .summary,
+                            content: trimmedFinalReply, richContentVersion: 1))
+                    }
                 }
                 try workspaceManager.saveChatMessagesForCurrentThread(
                     normalizeMessages(storedMessages)
@@ -2083,6 +2087,10 @@ final class ChatStore {
         finishedAt: Date
     ) -> [PalmiChatMessage] {
         storedMessages.map { message in
+            if var segment = message.responseSegment, segment.status == .streaming {
+                segment.status = .interrupted
+                return rebuildMessage(from: message, responseSegment: segment)
+            }
             if message.kind == .toolCall,
                let toolCall = message.toolCall,
                toolCall.isRunning == true {
@@ -2115,7 +2123,8 @@ final class ChatStore {
                     finishedAt: finishedAt,
                     outputTokens: tokenUsage?.totalTokens ?? outputTokens ?? header.outputTokens,
                     tokenUsage: tokenUsage ?? header.tokenUsage,
-                    taskProgress: header.taskProgress
+                    taskProgress: header.taskProgress,
+                    responsePresentation: header.responsePresentation
                 )
             )
         }
@@ -2244,7 +2253,18 @@ final class ChatStore {
                             outputTokens: nil,
                             finishedAt: .now
                         )
-                        if let draft,
+                        if let recovery, !recovery.responseSegments.isEmpty {
+                            restoreResponseSegments(recovery, into: &storedMessages)
+                            var recoveredSession = try workspaceManager.loadAgentSessionForCurrentThread() ?? AgentSession()
+                            for item in recovery.responseSegments.sorted(by: { $0.segment.ordinal < $1.segment.ordinal }) {
+                                if !item.source.isEmpty, !recoveredSession.messages.contains(where: { $0.id == item.segment.id }) {
+                                    recoveredSession.append(AgentMessage(id: item.segment.id, role: .assistant, blocks: [.text(item.source)]))
+                                }
+                            }
+                            AgentToolCallProtocolIntegrity.closeDanglingCalls(in: &recoveredSession)
+                            try workspaceManager.saveAgentSessionForCurrentThread(recoveredSession)
+                        }
+                        if recovery?.responseSegments.isEmpty != false, let draft,
                            !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                            !storedMessages.contains(where: {
                                $0.role == .agent && $0.kind == .normal && $0.content == draft
@@ -2318,6 +2338,11 @@ final class ChatStore {
     ) -> [PalmiChatMessage] {
         let trimmedMessage = interruptionMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedMessage.isEmpty else { return messages }
+        if isProgressiveTurn(in: messages, headerID: nil) {
+            if messages.last?.toolCall?.toolName == "runtime_notice",
+               messages.last?.toolCall?.summary == trimmedMessage { return messages }
+            return messages + [runtimeStatusMessage(trimmedMessage)]
+        }
         if let lastMessage = messages.last,
            lastMessage.role == .agent,
            lastMessage.kind == .summary,
@@ -2425,6 +2450,7 @@ final class ChatStore {
             activeSessionHeaderID: activeSessionHeaderID,
             activeToolMessageIDs: activeToolMessageIDs,
             activeStreamingMessageID: activeStreamingMessageID,
+            activeResponseSegment: activeResponseSegment,
             activeStreamingReasoningMessageID: activeStreamingReasoningMessageID,
             streamingReasoningText: streamingReasoningText,
             activeContextCompactionMessageID: activeContextCompactionMessageID
@@ -2435,6 +2461,7 @@ final class ChatStore {
         activeSessionHeaderID = state.activeSessionHeaderID
         activeToolMessageIDs = state.activeToolMessageIDs
         activeStreamingMessageID = state.activeStreamingMessageID
+        activeResponseSegment = state.activeResponseSegment
         activeStreamingReasoningMessageID = state.activeStreamingReasoningMessageID
         if state.activeStreamingReasoningMessageID != nil,
            !state.streamingReasoningText.isEmpty {
@@ -2453,10 +2480,13 @@ final class ChatStore {
     }
 
     private func inferredActiveSessionViewState(from messages: [PalmiChatMessage]) -> ActiveSessionViewState {
-        ActiveSessionViewState(
+        let streaming = messages.last { $0.responseSegment?.status == .streaming }
+        return ActiveSessionViewState(
             activeSessionHeaderID: messages.last { message in
                 message.kind == .sessionHeader && message.sessionHeader?.finishedAt == nil
             }?.id,
+            activeStreamingMessageID: streaming?.id,
+            activeResponseSegment: streaming?.responseSegment,
             activeContextCompactionMessageID: messages.last { message in
                 message.kind == .contextCompaction && message.contextCompaction?.status == .running
             }?.id
@@ -2600,6 +2630,17 @@ final class ChatStore {
         }
 
         switch event {
+        case .responseSegmentStarted(let segment):
+            if !messages.contains(where: { $0.id == segment.id && $0.responseSegment?.status != .streaming }) {
+                activeResponseSegment = segment
+                activeStreamingMessageID = nil
+            }
+            persistIfNeeded()
+        case let .responseSegmentFinished(segment, source):
+            var viewState = currentActiveSessionViewState()
+            finishResponseSegment(segment, source: source, messages: &messages, viewState: &viewState)
+            applyActiveSessionViewState(viewState)
+            persistIfNeeded()
         case .assistantText(let content):
             if !content.isEmpty {
                 appendParsedAssistantContent(content, shouldPersist: false)
@@ -2765,19 +2806,26 @@ final class ChatStore {
         }
 
         switch event {
+        case .responseSegmentStarted(let segment):
+            if !messages.contains(where: { $0.id == segment.id && $0.responseSegment?.status != .streaming }) {
+                viewState.activeResponseSegment = segment
+                viewState.activeStreamingMessageID = nil
+            }
+            markPersistent()
+        case let .responseSegmentFinished(segment, source):
+            finishResponseSegment(segment, source: source, messages: &messages, viewState: &viewState)
+            markPersistent()
         case .assistantText(let content):
             if !content.isEmpty {
                 appendParsedAssistantContent(content, to: &messages, preferSummaryForTrailingText: false)
             }
             markPersistent()
         case .modelNotice(let notice):
-            messages.append(
-                PalmiChatMessage(
-                    role: .agent,
-                    kind: .summary,
-                    content: localizedModelNotice(notice)
-                )
-            )
+            if isProgressiveTurn(in: messages, headerID: viewState.activeSessionHeaderID) {
+                messages.append(runtimeStatusMessage(localizedModelNotice(notice)))
+            } else {
+                messages.append(PalmiChatMessage(role: .agent, kind: .summary, content: localizedModelNotice(notice)))
+            }
             markPersistent()
         case .thoughtCard(let card):
             appendThoughtCard(card, to: &messages)
@@ -2872,7 +2920,8 @@ final class ChatStore {
 
     private func shouldApplyAgentMessageEventInBackground(_ event: AgentEvent) -> Bool {
         switch event {
-        case .assistantText,
+        case .responseSegmentStarted, .responseSegmentFinished,
+             .assistantText,
              .modelNotice,
              .thoughtCard,
              .queuedUserGuidanceInjected,
@@ -2899,11 +2948,11 @@ final class ChatStore {
 
     private func shouldFinalizeStreamingReasoning(for event: AgentEvent) -> Bool {
         switch event {
-        case .assistantText,
+        case .responseSegmentStarted, .responseSegmentFinished,
+             .assistantText,
              .modelNotice,
              .thoughtCard,
              .queuedUserGuidanceInjected,
-             .streamingDelta,
              .contextCompactionStarted,
              .contextCompactionFinished,
              .toolReviewStarted,
@@ -2913,7 +2962,7 @@ final class ChatStore {
              .internalToolStarted,
              .internalToolFinished:
             return true
-        case .reasoningDelta,
+        case .streamingDelta, .reasoningDelta,
              .tokenUpdate,
              .eventLogged,
              .taskStateChanged,
@@ -3020,17 +3069,19 @@ final class ChatStore {
     ) {
         guard !injectedMessages.isEmpty else { return }
 
+        let queued = composerState.queuedUserGuidance
         let removableCount = min(injectedMessages.count, composerState.queuedUserGuidance.count)
         if removableCount > 0 {
             composerState.queuedUserGuidance.removeFirst(removableCount)
         }
 
-        for text in injectedMessages {
+        for (offset, text) in injectedMessages.enumerated() {
             messages.append(
                 PalmiChatMessage(
                     role: .user,
                     kind: .normal,
-                    content: text,
+                    content: offset < queued.count ? queued[offset].content : text,
+                    attachments: offset < queued.count ? queued[offset].attachments : [],
                     turnPlacement: viewState.activeSessionHeaderID == nil ? .standalone : .inTurn,
                     foldBehavior: viewState.activeSessionHeaderID == nil ? .alwaysVisible : .withTurn
                 )
@@ -3043,6 +3094,7 @@ final class ChatStore {
         messages: inout [PalmiChatMessage],
         viewState: inout ActiveSessionViewState
     ) {
+        guard !text.isEmpty else { return }
         if let streamingID = viewState.activeStreamingMessageID,
            let index = messages.firstIndex(where: { $0.id == streamingID }) {
             messages[index] = rebuildMessage(
@@ -3050,7 +3102,11 @@ final class ChatStore {
                 content: messages[index].content + text
             )
         } else {
-            let message = PalmiChatMessage(role: .agent, kind: .summary, content: text)
+            let message = PalmiChatMessage(id: viewState.activeResponseSegment?.id ?? UUID(),
+                role: .agent, kind: viewState.activeResponseSegment == nil ? .summary : .normal,
+                content: text, foldBehavior: .alwaysVisible,
+                responseSegment: viewState.activeResponseSegment,
+                richContentVersion: viewState.activeResponseSegment == nil ? nil : 1)
             viewState.activeStreamingMessageID = message.id
             messages.append(message)
         }
@@ -3093,7 +3149,8 @@ final class ChatStore {
                 finishedAt: currentHeader.finishedAt,
                 outputTokens: tokenUsage?.totalTokens ?? outputTokens ?? currentHeader.outputTokens,
                 tokenUsage: tokenUsage ?? currentHeader.tokenUsage,
-                taskProgress: taskProgress ?? currentHeader.taskProgress
+                taskProgress: taskProgress ?? currentHeader.taskProgress,
+                responsePresentation: currentHeader.responsePresentation
             )
         )
     }
@@ -3298,6 +3355,110 @@ final class ChatStore {
         )
     }
 
+    private func runtimeStatusMessage(_ content: String) -> PalmiChatMessage {
+        PalmiChatMessage(role: .agent, kind: .toolCall, content: "", toolCall: PalmiToolCallCard(
+            cardKind: .tool, toolTitle: PalmiL10n.tr("chat.runtime.notice"), toolName: "runtime_notice",
+            presentationKind: .data, status: .warning, summary: content, details: content,
+            argumentsJSON: "", requiresUserInteraction: false, isRunning: false))
+    }
+
+    private func isProgressiveTurn(in messages: [PalmiChatMessage], headerID: UUID?) -> Bool {
+        let header = headerID.flatMap { id in messages.first { $0.id == id } }
+            ?? messages.last { $0.kind == .sessionHeader }
+        return header?.sessionHeader?.responsePresentation == .progressive
+    }
+
+    private func finishResponseSegment(
+        _ segment: PalmiResponseSegment, source: String,
+        messages: inout [PalmiChatMessage], viewState: inout ActiveSessionViewState
+    ) {
+        if let index = messages.firstIndex(where: { $0.id == segment.id }) {
+            let previous = messages[index]
+            // Completion/replay can append a missing suffix, never erase or duplicate visible content.
+            let content = source.hasPrefix(previous.content) ? source : previous.content
+            messages[index] = rebuildMessage(from: previous, content: content,
+                foldBehavior: .alwaysVisible, responseSegment: segment, richContentVersion: 1)
+        } else if !source.isEmpty {
+            messages.append(PalmiChatMessage(id: segment.id, role: .agent, kind: .normal,
+                content: source, foldBehavior: .alwaysVisible,
+                responseSegment: segment, richContentVersion: 1))
+        }
+        if viewState.activeResponseSegment?.id == segment.id {
+            viewState.activeResponseSegment = nil
+            viewState.activeStreamingMessageID = nil
+        }
+    }
+
+    private func publicFinalSource(_ content: String) -> String {
+        var filter = ChatPublicStreamFilter()
+        let body = filter.append(content)
+        let tail = filter.finish()
+        return body.text + tail.text
+    }
+
+    private func appendFinalAssistantContent(_ content: String, shouldPersist: Bool = true) {
+        let source = publicFinalSource(content)
+        if !source.isEmpty {
+            messages.append(PalmiChatMessage(role: .agent, kind: .summary,
+                content: source, richContentVersion: 1))
+        }
+        if shouldPersist { persistMessages() }
+    }
+
+    private func normalizedStreamEvents(_ event: AgentEvent, for run: ActiveRun) -> [AgentEvent] {
+        func events(_ parts: (text: String, reasoning: String)) -> [AgentEvent] {
+            var result: [AgentEvent] = []
+            if !parts.reasoning.isEmpty { result.append(.reasoningDelta(text: parts.reasoning)) }
+            if !parts.text.isEmpty { result.append(.streamingDelta(text: parts.text)) }
+            return result
+        }
+        switch event {
+        case .responseSegmentStarted, .responseSegmentFinished:
+            return [event]
+        case .streamingDelta(let text) where run.responseSegment == nil:
+            return events(run.legacyPublicFilter.append(text))
+        case .eventLogged(let entry) where entry.kind == .modelRequest:
+            run.legacyPublicFilter = ChatPublicStreamFilter()
+            return [event]
+        case .eventLogged(let entry) where entry.kind == .finalReply:
+            return events(run.legacyPublicFilter.finish()) + [event]
+        case .persistenceBarrier where run.responseSegment == nil:
+            return events(run.legacyPublicFilter.finish()) + [event]
+        default:
+            return [event]
+        }
+    }
+
+    private func restoreResponseSegments(
+        _ recovery: AgentRunRecoveryState,
+        into messages: inout [PalmiChatMessage]
+    ) {
+        for recovered in recovery.responseSegments.sorted(by: { $0.segment.ordinal < $1.segment.ordinal }) {
+            var segment = recovered.segment
+            if segment.status == .streaming { segment.status = .interrupted }
+            var viewState = ActiveSessionViewState()
+            finishResponseSegment(segment, source: recovered.source, messages: &messages, viewState: &viewState)
+        }
+    }
+
+    private func restoreUnsentGuidance(for selection: WorkspaceSelection) {
+        let displayed = loadedSelection == selection || displayedSelection == selection
+        var state = displayed ? currentComposerState() : (composerStatesBySelection[selection] ?? SessionComposerState())
+        guard !state.queuedUserGuidance.isEmpty else { return }
+        state.inputText = (state.queuedUserGuidance.map(\.content) + [state.inputText])
+            .filter { !$0.isEmpty }.joined(separator: "\n\n")
+        var seen = Set(state.pendingAttachments.map(\.id))
+        for queued in state.queuedUserGuidance {
+            for attachment in queued.attachments where seen.insert(attachment.id).inserted {
+                state.pendingAttachments.append(PendingAttachment(id: attachment.id, name: attachment.name,
+                    relativePath: attachment.relativePath, source: attachment.source))
+            }
+        }
+        state.queuedUserGuidance = []
+        storeComposerState(state, for: selection)
+        if displayed { applyComposerState(state) }
+    }
+
     private func rebuildMessage(
         from message: PalmiChatMessage,
         kind: PalmiChatMessage.Kind? = nil,
@@ -3307,7 +3468,9 @@ final class ChatStore {
         contextCompaction: PalmiContextCompactionNotice? = nil,
         attachments: [PalmiChatAttachment]? = nil,
         turnPlacement: PalmiChatTurnPlacement? = nil,
-        foldBehavior: PalmiChatFoldBehavior? = nil
+        foldBehavior: PalmiChatFoldBehavior? = nil,
+        responseSegment: PalmiResponseSegment? = nil,
+        richContentVersion: Int? = nil
     ) -> PalmiChatMessage {
         PalmiChatMessage(
             id: message.id,
@@ -3320,6 +3483,8 @@ final class ChatStore {
             attachments: attachments ?? message.attachments,
             turnPlacement: turnPlacement ?? message.turnPlacement,
             foldBehavior: foldBehavior ?? message.foldBehavior,
+            responseSegment: responseSegment ?? message.responseSegment,
+            richContentVersion: richContentVersion ?? message.richContentVersion,
             timestamp: message.timestamp
         )
     }
@@ -3349,24 +3514,26 @@ final class ChatStore {
         activeToolMessageIDs[stepID] = message.id
     }
 
-    private func enqueueQueuedUserGuidance(_ text: String) {
-        queuedUserGuidance.append(QueuedUserGuidance(content: text))
+    private func enqueueQueuedUserGuidance(_ text: String, attachments: [PalmiChatAttachment] = []) {
+        queuedUserGuidance.append(QueuedUserGuidance(content: text, attachments: attachments))
     }
 
     private func applyInjectedQueuedUserGuidance(_ injectedMessages: [String]) {
         guard !injectedMessages.isEmpty else { return }
 
+        let queued = queuedUserGuidance
         let removableCount = min(injectedMessages.count, queuedUserGuidance.count)
         if removableCount > 0 {
             queuedUserGuidance.removeFirst(removableCount)
         }
 
-        for text in injectedMessages {
+        for (offset, text) in injectedMessages.enumerated() {
             messages.append(
                 PalmiChatMessage(
                     role: .user,
                     kind: .normal,
-                    content: text,
+                    content: offset < queued.count ? queued[offset].content : text,
+                    attachments: offset < queued.count ? queued[offset].attachments : [],
                     turnPlacement: activeSessionHeaderID == nil ? .standalone : .inTurn,
                     foldBehavior: activeSessionHeaderID == nil ? .alwaysVisible : .withTurn
                 )
@@ -3763,6 +3930,11 @@ final class ChatStore {
         content: String,
         shouldPersist: Bool = true
     ) {
+        if isProgressiveTurn(in: messages, headerID: activeSessionHeaderID), kind == .summary {
+            messages.append(runtimeStatusMessage(content))
+            if shouldPersist { persistMessages() }
+            return
+        }
         messages.append(
             PalmiChatMessage(
                 role: .agent,
@@ -3777,6 +3949,7 @@ final class ChatStore {
 
     /// Append streaming text to an existing message, or create a new one if this is the first delta.
     private func appendOrExtendStreamingMessage(text: String) {
+        guard !text.isEmpty else { return }
         if let streamingID = activeStreamingMessageID,
            let index = messages.firstIndex(where: { $0.id == streamingID }) {
             messages[index] = rebuildMessage(
@@ -3784,11 +3957,11 @@ final class ChatStore {
                 content: messages[index].content + text
             )
         } else {
-            let message = PalmiChatMessage(
-                role: .agent,
-                kind: .summary,
-                content: text
-            )
+            let message = PalmiChatMessage(id: activeResponseSegment?.id ?? UUID(),
+                role: .agent, kind: activeResponseSegment == nil ? .summary : .normal,
+                content: text, foldBehavior: .alwaysVisible,
+                responseSegment: activeResponseSegment,
+                richContentVersion: activeResponseSegment == nil ? nil : 1)
             activeStreamingMessageID = message.id
             messages.append(message)
         }
@@ -3800,9 +3973,9 @@ final class ChatStore {
             return false
         }
 
-        messages.remove(at: index)
+        messages[index] = rebuildMessage(from: messages[index], kind: .summary,
+            content: publicFinalSource(finalContent), foldBehavior: .alwaysVisible, richContentVersion: 1)
         activeStreamingMessageID = nil
-        appendParsedAssistantContent(finalContent, preferSummaryForTrailingText: true, shouldPersist: false)
         return true
     }
 
@@ -3822,7 +3995,8 @@ final class ChatStore {
                     finishedAt: finishedAt ?? currentHeader.finishedAt,
                     outputTokens: tokenUsage?.totalTokens ?? outputTokens ?? currentHeader.outputTokens,
                     tokenUsage: tokenUsage ?? currentHeader.tokenUsage,
-                    taskProgress: taskProgress ?? currentHeader.taskProgress
+                    taskProgress: taskProgress ?? currentHeader.taskProgress,
+                responsePresentation: currentHeader.responsePresentation
                 )
             )
         }
@@ -3958,7 +4132,8 @@ final class ChatStore {
                     finishedAt: finishedAt,
                     outputTokens: header.outputTokens,
                     tokenUsage: header.tokenUsage,
-                    taskProgress: header.taskProgress
+                    taskProgress: header.taskProgress,
+                    responsePresentation: header.responsePresentation
                 )
             )
         }
@@ -4066,13 +4241,14 @@ final class ChatStore {
             guard let self else { return }
             for await event in loop.events {
                 if let run = self.activeRuns[selection], run.loop === loop {
-                    do {
-                        try await self.journalAgentEvent(event, for: run)
-                    } catch {
-                        run.journalError = error
+                    for normalized in self.normalizedStreamEvents(event, for: run) {
+                        do { try await self.journalAgentEvent(normalized, for: run) }
+                        catch { run.journalError = error }
+                        self.handleAgentEvent(normalized, selection: selection, loop: loop)
                     }
+                } else {
+                    self.handleAgentEvent(event, selection: selection, loop: loop)
                 }
-                self.handleAgentEvent(event, selection: selection, loop: loop)
                 if case let .persistenceBarrier(id) = event,
                    let run = self.activeRuns[selection] {
                     run.persistenceBarrierContinuations.removeValue(forKey: id)?.resume()
@@ -4174,7 +4350,24 @@ final class ChatStore {
             break
         }
         switch event {
+        case .responseSegmentStarted(let segment):
+            try await flushJournalDraft(for: run)
+            run.responseSegment = segment
+            run.modelRequestID = segment.id
+            run.draftContent = ""
+            run.draftReasoning = ""
+            run.draftByteCount = 0
+            run.lastFlushedDraftByteCount = 0
+            run.lastDraftFlushNanoseconds = DispatchTime.now().uptimeNanoseconds
+            _ = try await runJournalStore.append(runID: run.runID, payload: .responseSegmentStarted(segment))
+            _ = try await runJournalStore.append(runID: run.runID, payload: .modelRequestStarted(requestID: segment.id))
+        case let .responseSegmentFinished(segment, source):
+            try await flushJournalDraft(for: run)
+            _ = try await runJournalStore.append(runID: run.runID,
+                payload: .responseSegmentFinished(segment: segment, source: source))
+            if run.responseSegment?.id == segment.id { run.responseSegment = nil }
         case let .eventLogged(entry) where entry.kind == .modelRequest:
+            if run.responseSegment != nil { break }
             try await flushJournalDraft(for: run)
             run.draftContent = ""
             run.draftReasoning = ""
@@ -4303,7 +4496,9 @@ final class ChatStore {
             let message = normalizeVisibleAttachmentBlock(in: rawMessage)
             let trimmed = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            if message.role == .agent,
+            if message.responseSegment == nil,
+               message.richContentVersion == nil,
+               message.role == .agent,
                (message.kind == .summary || message.kind == .normal),
                trimmed.count <= 4,
                let previous = normalized.last,

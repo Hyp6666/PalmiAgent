@@ -723,8 +723,8 @@ private struct WorkspaceProjectRow: View {
             HStack(spacing: 12) {
                 Button(action: onToggleProject) {
                     HStack(spacing: 12) {
-                        Image(systemName: isExpanded ? "folder.fill" : "folder")
-                            .foregroundStyle(isExpanded ? .blue : .secondary)
+                        PalmiFileIcon(name: project.name, isDirectory: true, size: 26)
+                            .opacity(isExpanded ? 1 : 0.78)
 
                         VStack(alignment: .leading, spacing: 4) {
                             Text(project.name)
@@ -1311,7 +1311,11 @@ private struct OnboardingAIDataSharingConsentStep: View {
                 Button {
                     isShowingPolicy = true
                 } label: {
-                    Label(PalmiL10n.tr("consent.viewPolicy"), systemImage: "doc.richtext")
+                    Label {
+                        Text(PalmiL10n.tr("consent.viewPolicy"))
+                    } icon: {
+                        PalmiFileIcon(name: PalmiPolicyDocumentResource.displayFileName(for: selectedLanguageID), size: 24)
+                    }
                         .font(.headline)
                         .frame(maxWidth: .infinity, minHeight: 52)
                 }
@@ -2085,19 +2089,31 @@ private struct PrivacyAndPolicySettingsScreen: View {
                 NavigationLink {
                     PalmiPolicyDocumentScreen(languageID: selectedLanguageID)
                 } label: {
-                    Label(PalmiL10n.tr("privacy.policy.currentLanguage"), systemImage: "doc.richtext")
+                    Label {
+                        Text(PalmiL10n.tr("privacy.policy.currentLanguage"))
+                    } icon: {
+                        PalmiFileIcon(name: PalmiPolicyDocumentResource.displayFileName(for: selectedLanguageID), size: 24)
+                    }
                 }
 
                 NavigationLink {
                     PalmiPolicyDocumentScreen(languageID: PalmiLanguage.zhHans.rawValue)
                 } label: {
-                    Label(PalmiL10n.tr("privacy.policy.zhHans"), systemImage: "doc.text")
+                    Label {
+                        Text(PalmiL10n.tr("privacy.policy.zhHans"))
+                    } icon: {
+                        PalmiFileIcon(name: PalmiPolicyDocumentResource.displayFileName(for: PalmiLanguage.zhHans.rawValue), size: 24)
+                    }
                 }
 
                 NavigationLink {
                     PalmiPolicyDocumentScreen(languageID: PalmiLanguage.en.rawValue)
                 } label: {
-                    Label(PalmiL10n.tr("privacy.policy.en"), systemImage: "doc.text")
+                    Label {
+                        Text(PalmiL10n.tr("privacy.policy.en"))
+                    } icon: {
+                        PalmiFileIcon(name: PalmiPolicyDocumentResource.displayFileName(for: PalmiLanguage.en.rawValue), size: 24)
+                    }
                 }
             }
         }
@@ -2342,10 +2358,11 @@ struct ModelAddressHelpScreen: View {
                         )
                     )
                 } label: {
-                    Label(
-                        PalmiL10n.tr("model.connection.help.policyLink"),
-                        systemImage: "doc.text"
-                    )
+                    Label {
+                        Text(PalmiL10n.tr("model.connection.help.policyLink"))
+                    } icon: {
+                        PalmiFileIcon(name: PalmiPolicyDocumentResource.displayFileName(for: languageID), size: 24)
+                    }
                 }
             }
         }

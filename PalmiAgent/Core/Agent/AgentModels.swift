@@ -423,6 +423,8 @@ struct AgentApprovalRequest: Identifiable, Equatable, Sendable {
 }
 
 enum AgentEvent: Sendable {
+    case responseSegmentStarted(PalmiResponseSegment)
+    case responseSegmentFinished(segment: PalmiResponseSegment, source: String)
     case assistantText(String)
     case modelNotice(AgentModelNotice)
     case thoughtCard(AgentThoughtCard)
@@ -455,16 +457,19 @@ struct AgentTurnResult: Sendable {
     let outputTokens: Int
     let iterations: Int
     let tokenUsage: AgentModelTokenUsage
+    let outputDisposition: AgentOutputDisposition
 
     init(
         finalReply: String,
         outputTokens: Int,
         iterations: Int,
-        tokenUsage: AgentModelTokenUsage = .empty
+        tokenUsage: AgentModelTokenUsage = .empty,
+        outputDisposition: AgentOutputDisposition = .legacyFinalReply
     ) {
         self.finalReply = finalReply
         self.outputTokens = outputTokens
         self.iterations = iterations
         self.tokenUsage = tokenUsage
+        self.outputDisposition = outputDisposition
     }
 }

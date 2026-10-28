@@ -544,7 +544,9 @@ final class LLMAPIClient: AgentModelRuntime {
             ),
             totalTokens: decoded.tokenUsage.totalTokens ?? 0,
             tokenUsage: decoded.tokenUsage,
-            notices: []
+            notices: [],
+            outputWasTruncated: ["max_tokens", "model_context_window_exceeded", "pause_turn"].contains(decoded.stopReason ?? ""),
+            wasRefused: decoded.stopReason == "refusal"
         )
     }
 
@@ -643,7 +645,8 @@ final class LLMAPIClient: AgentModelRuntime {
                 ),
                 observedReasoning: observedReasoning,
                 appliedEffort: decoded.appliedReasoningEffort
-            )
+            ),
+            outputWasTruncated: decoded.outputWasTruncated, wasRefused: decoded.wasRefused
         )
     }
 
@@ -1114,7 +1117,8 @@ final class LLMAPIClient: AgentModelRuntime {
                         || ReasoningControlEvidenceEvaluator.containsInlineReasoning(in: result.fullContent),
                     appliedEffort: nil,
                     effortIsRepresentable: reasoningEffortIsRepresentable(in: runtimeProfile)
-                )
+                ),
+                outputWasTruncated: result.finishReason == "length", wasRefused: result.wasRefused
             )
         } catch let error as LLMHTTPTransportError {
             if preservesTransportErrors { throw error }
@@ -1322,7 +1326,8 @@ final class LLMAPIClient: AgentModelRuntime {
                         || ReasoningControlEvidenceEvaluator.containsInlineReasoning(in: result.fullContent),
                     appliedEffort: nil,
                     effortIsRepresentable: reasoningEffortIsRepresentable(in: resolvedRuntimeProfile)
-                )
+                ),
+                outputWasTruncated: result.finishReason == "length", wasRefused: result.wasRefused
             )
         } catch let error as LLMHTTPTransportError {
             if preservesTransportErrors { throw error }
@@ -2004,6 +2009,8 @@ enum LLMHTTPTransport {
         let tokenUsage: AgentModelTokenUsage
         let response: HTTPURLResponse
         let optionalControlFallbackIntent: LLMOptionalControlIntent?
+        var finishReason: String? = nil
+        var wasRefused: Bool = false
     }
 
     /// Perform a streaming SSE request. Calls `onDelta` for each text chunk received.
@@ -2069,6 +2076,7 @@ enum LLMHTTPTransport {
                 }
 
                 var fullContent = ""
+                var wasRefused = false
                 var reasoningContent = ""
                 var reasoningDetails: JSONRuntimeValue?
                 var totalTokens = 0
@@ -2106,6 +2114,12 @@ enum LLMHTTPTransport {
                         }
 
                         if let delta = chunk.choices.first?.delta {
+                            if let refusal = delta.refusal, !refusal.isEmpty {
+                                wasRefused = true
+                                emittedAnyDelta = true
+                                fullContent += refusal
+                                await onDelta(refusal)
+                            }
                             if let text = delta.reasoningContent, !text.isEmpty {
                                 emittedAnyDelta = true
                                 reasoningContent += text
@@ -2202,7 +2216,9 @@ enum LLMHTTPTransport {
                     totalTokens: totalTokens,
                     tokenUsage: LLMAPIClient.modelTokenUsage(from: finalUsage),
                     response: httpResponse,
-                    optionalControlFallbackIntent: optionalControlFallbackIntent
+                    optionalControlFallbackIntent: optionalControlFallbackIntent,
+                    finishReason: termination.finishReason,
+                    wasRefused: wasRefused || termination.finishReason == "content_filter"
                 )
             } catch {
                 if isCancellation(error) {
@@ -2451,6 +2467,7 @@ private struct SSEChoice: Decodable {
 }
 
 private struct SSEDelta: Decodable {
+    let refusal: String?
     let content: String?
     let role: String?
     let reasoningContent: String?
@@ -2461,6 +2478,7 @@ private struct SSEDelta: Decodable {
 
     enum CodingKeys: String, CodingKey {
         case content
+        case refusal
         case role
         case reasoningContent = "reasoning_content"
         case reasoning

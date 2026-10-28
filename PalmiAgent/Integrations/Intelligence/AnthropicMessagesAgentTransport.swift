@@ -195,6 +195,7 @@ struct AnthropicMessagesDecodedResult: Sendable {
     let reasoningText: String?
     let toolCalls: [AnthropicMessagesToolCall]
     let tokenUsage: AgentModelTokenUsage
+    var stopReason: String? = nil
 }
 
 enum AnthropicMessagesCodecError: Error, Equatable {
@@ -212,13 +213,15 @@ enum AnthropicMessagesCodec {
         }
         return decodedResult(
             content: object["content"]?.arrayValue ?? [],
-            usage: object["usage"]?.objectValue
+            usage: object["usage"]?.objectValue,
+            stopReason: object["stop_reason"]?.stringValue
         )
     }
 
     fileprivate static func decodedResult(
         content: [JSONRuntimeValue],
-        usage: [String: JSONRuntimeValue]?
+        usage: [String: JSONRuntimeValue]?,
+        stopReason: String? = nil
     ) -> AnthropicMessagesDecodedResult {
         var text: [String] = []
         var reasoning: [String] = []
@@ -250,7 +253,8 @@ enum AnthropicMessagesCodec {
             text: text.joined(),
             reasoningText: reasoning.isEmpty ? nil : reasoning.joined(separator: "\n"),
             toolCalls: toolCalls,
-            tokenUsage: tokenUsage(from: usage)
+            tokenUsage: tokenUsage(from: usage),
+            stopReason: stopReason
         )
     }
 
@@ -307,6 +311,7 @@ struct AnthropicMessagesStreamAccumulator: Sendable {
     private var cachedInputTokens: Int?
     private var cacheCreationInputTokens: Int?
     private(set) var sawTerminalEvent = false
+    private var stopReason: String?
 
     mutating func consume(payload: String) throws -> AnthropicMessagesStreamDelta {
         guard let data = payload.data(using: .utf8),
@@ -318,6 +323,7 @@ struct AnthropicMessagesStreamAccumulator: Sendable {
 
         switch type {
         case "message_start":
+            stopReason = object["message"]?.objectValue?["stop_reason"]?.stringValue
             mergeUsage(object["message"]?.objectValue?["usage"]?.objectValue)
         case "content_block_start":
             guard let index = object["index"]?.intValue,
@@ -360,6 +366,7 @@ struct AnthropicMessagesStreamAccumulator: Sendable {
                 break
             }
         case "message_delta":
+            if let value = object["delta"]?.objectValue?["stop_reason"]?.stringValue { stopReason = value }
             mergeUsage(object["usage"]?.objectValue)
         case "message_stop":
             sawTerminalEvent = true
@@ -397,7 +404,8 @@ struct AnthropicMessagesStreamAccumulator: Sendable {
                 "output_tokens": outputTokens.map { .number(Double($0)) } ?? .null,
                 "cache_read_input_tokens": cachedInputTokens.map { .number(Double($0)) } ?? .null,
                 "cache_creation_input_tokens": cacheCreationInputTokens.map { .number(Double($0)) } ?? .null
-            ])
+            ]),
+            stopReason: stopReason
         )
     }
 

@@ -119,7 +119,7 @@ struct WorkspaceFilePreviewSheet: View {
     var body: some View {
         NavigationStack {
             WorkspaceFilePreviewContent(file: file)
-                .background(.white)
+                .background(Color(uiColor: .systemBackground))
                 .navigationTitle(file.title)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -166,7 +166,7 @@ struct WorkspaceFileCarouselPreviewSheet: View {
                             .foregroundStyle(.primary)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(.white)
+                    .background(Color(uiColor: .systemBackground))
                 } else {
                     ZStack(alignment: .bottom) {
                         TabView(selection: $selectedFileID) {
@@ -183,7 +183,7 @@ struct WorkspaceFileCarouselPreviewSheet: View {
                                 .padding(.bottom, 12)
                         }
                     }
-                    .background(.white)
+                    .background(Color(uiColor: .systemBackground))
                 }
             }
             .navigationTitle(currentFile?.title ?? PalmiL10n.tr("filePreview.title"))
@@ -335,8 +335,7 @@ private struct WorkspaceImagePreview: View {
                     .padding(12)
             } else if didFail {
                 VStack(spacing: 10) {
-                    Image(systemName: "photo")
-                        .font(.system(size: 32, weight: .semibold))
+                    PalmiFileIcon(name: url.lastPathComponent, size: 40)
                     Text(PalmiL10n.tr("filePreview.emptyImage"))
                         .font(.headline)
                 }
@@ -352,39 +351,18 @@ private struct WorkspaceImagePreview: View {
     }
 
     static func isSupported(url: URL) -> Bool {
-        let ext = url.pathExtension.lowercased()
-        return ["jpg", "jpeg", "png", "heic", "heif", "gif", "webp", "bmp", "tiff"].contains(ext)
+        PalmiFilePresentation.resolve(name: url.lastPathComponent).isRasterImage
     }
 
     private func loadImage() async {
-        let loadedImage = await Task.detached(priority: .utility) {
-            Self.downsample(url: url, maxPixel: 2_400)
-        }.value
-
-        await MainActor.run {
-            image = loadedImage
-            didFail = loadedImage == nil
-        }
+        image = nil
+        didFail = false
+        let result = await PalmiAttachmentThumbnailStore.shared.thumbnail(url: url, maxPixel: 2_400)
+        guard !Task.isCancelled else { return }
+        image = result.map { UIImage(cgImage: $0.cgImage) }
+        didFail = result == nil
     }
 
-    nonisolated private static func downsample(url: URL, maxPixel: CGFloat) -> UIImage? {
-        guard let source = CGImageSourceCreateWithURL(
-            url as CFURL,
-            [kCGImageSourceShouldCache: false] as CFDictionary
-        ) else {
-            return nil
-        }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixel)
-        ]
-        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-            return nil
-        }
-        return UIImage(cgImage: cgImage)
-    }
 }
 
 struct QuickLookPreview: UIViewControllerRepresentable {
