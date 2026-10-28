@@ -154,14 +154,11 @@ final class PalmiUIStateTests: XCTestCase {
         XCTAssertEqual(separate.state["n"], .number(1))
     }
 
-    func testPromptExamplesPassValidation() throws {
+    func testPromptDescribesBothKindsWithoutExecutableExamples() {
         let parts = PalmiRichContentParser.parse(PalmiGenerativeUIPrompt.text, enabled: true, isStreaming: false)
-        let artifacts = parts.compactMap { part -> PalmiUIValidatedArtifact? in
-            if case .artifact(let value) = part.content { return value }
-            return nil
-        }
-        XCTAssertFalse(parts.contains { if case .invalid = $0.content { return true }; return false })
-        XCTAssertEqual(Set(artifacts.map(\.artifact.id)), ["cost", "check", "square"])
+        XCTAssertFalse(parts.contains { if case .markdown = $0.content { return false }; return true })
+        XCTAssertTrue(PalmiGenerativeUIPrompt.text.contains("Native SwiftUI component block (kind:\"native\")"))
+        XCTAssertTrue(PalmiGenerativeUIPrompt.text.contains("HTML mini-app block (kind:\"html\")"))
     }
 
     func testAppearanceFieldsAreOptionalAndNewComponentsValidate() throws {
