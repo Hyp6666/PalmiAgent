@@ -105,7 +105,7 @@ struct ModelLibraryMigrationSheet: View {
                        detail: PalmiL10n.tr("ml.migration.visionDetail"))
             outcomeRow(icon: "checkmark.shield", title: PalmiL10n.tr("ml.tool.review"), value: bindingText(library.state.toolBindings.permissionReview),
                        detail: PalmiL10n.tr("ml.migration.reviewDetail"))
-            ForEach(receipt?.notes ?? [], id: \.self) { note in
+            ForEach(receipt?.localizedNotes ?? [], id: \.self) { note in
                 Label(note, systemImage: "exclamationmark.triangle.fill")
                     .font(.footnote)
                     .foregroundStyle(.orange)

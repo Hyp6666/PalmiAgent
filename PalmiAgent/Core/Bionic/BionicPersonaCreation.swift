@@ -9,7 +9,7 @@ enum BionicPersonaCreation {
             "birth_date": ToolJSONSchema.string(description: "真实合法的 YYYY-MM-DD；角色必须已满19岁且不超过70岁", format: "date"),
             "background": ToolJSONSchema.string(description: "背景，最多2000字；非空时必须用native_language对应的母语填写，忠实保留已确认设定；未给出时为空"),
             "native_language": ToolJSONSchema.string(description: "角色固定母语；用户已指定时必须显式填写对应代码，identity和非空background使用该语言。未指定时默认应用语言，创建后不可直接改",
-                enumValues: ["zh-Hans", "zh-Hant", "en", "ja", "ko"]),
+                enumValues: BionicPersonaCatalog.languages),
             "gender_kind": ToolJSONSchema.string(description: "性别表达；默认none", enumValues: ["none", "male", "female", "custom"]),
             "gender_text": ToolJSONSchema.string(description: "仅gender_kind=custom时使用，1到20字"),
             "mbti": ToolJSONSchema.string(description: "可选的16型MBTI，留空则不设置"),

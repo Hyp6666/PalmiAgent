@@ -30,10 +30,10 @@ nonisolated enum ModelLibraryError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unavailable(let message): message
-        case .connectionMissing: "连接不存在。"
-        case .modelMissing: "模型不存在。"
+        case .connectionMissing: PalmiL10n.tr("ml.connection.missing")
+        case .modelMissing: PalmiL10n.tr("model.error.modelMissing")
         case .invalidInput(let message): message
-        case .referencedElsewhere(let names): "仍被以下设置引用：" + names.joined(separator: "、")
+        case .referencedElsewhere(let names): PalmiL10n.tr("ml.delete.references", names.joined(separator: PalmiL10n.tr("common.listSeparator")))
         }
     }
 }
@@ -151,7 +151,7 @@ final class ModelLibraryStore {
         do {
             try files.writeEnvelope(migrated)
         } catch {
-            availability = .deferred("无法写入模型库：\(error.localizedDescription)")
+            availability = .deferred(PalmiL10n.tr("ml.error.write", error.localizedDescription))
             return
         }
         state = migrated
@@ -178,10 +178,10 @@ final class ModelLibraryStore {
     var unavailableMessage: String {
         switch availability {
         case .ready: ""
-        case .notLoaded: "模型库尚未加载。"
+        case .notLoaded: PalmiL10n.tr("ml.error.notLoaded")
         case .deferred(let message): message
-        case .futureFormat(let version): "模型库来自更新版本（v\(version)），当前版本只能只读保留。"
-        case .unreadable(let reason): "模型库文件无法读取：\(reason)。原始数据已另存。"
+        case .futureFormat(let version): PalmiL10n.tr("ml.error.futureFormat", version)
+        case .unreadable(let reason): PalmiL10n.tr("ml.error.unreadable", ModelLibraryMessageLocalization.reason(reason))
         }
     }
 
@@ -208,7 +208,7 @@ final class ModelLibraryStore {
     private func reconcileLegacyArchive() {
         let read = inventory.readV2Archive()
         if read.isUnsafeToOverwrite {
-            compatibilityIssue = "旧版模型配置数据损坏或来自更新版本，已停止写入兼容数据，原始数据保持不变。"
+            compatibilityIssue = PalmiL10n.tr("ml.error.legacyUnsafe")
             return
         }
         var bridge = state.compatibility.legacyArchive
@@ -216,7 +216,7 @@ final class ModelLibraryStore {
         let baseline = bridge.confirmedBaseline ?? .absent
         if baseline.archiveBytes != nil, legacy.archiveBytes == nil {
             // 整个旧 namespace 消失：无法判断是否重置，保留新状态等待明确处理。
-            compatibilityIssue = "旧版模型配置已被清除（可能执行过重置）。新版配置保持不变，未自动写回。"
+            compatibilityIssue = PalmiL10n.tr("ml.error.legacyCleared")
             return
         }
 
@@ -237,7 +237,7 @@ final class ModelLibraryStore {
             conflict.blocksExecution && conflict.field.hasPrefix("legacy.")
         }
         guard !hasBlockingArchiveConflict else {
-            compatibilityIssue = "新旧版本修改了同一项关键配置，已暂停兼容写入，等待你选择保留哪一份。"
+            compatibilityIssue = PalmiL10n.tr("ml.error.legacyConflict")
             return
         }
         let projection = makeProjection(legacy: legacyArchive, pointer: legacy.activePlanID)
@@ -356,7 +356,7 @@ final class ModelLibraryStore {
             try files.writeEnvelope(value)
             state = value
         } catch {
-            compatibilityIssue = "无法保存模型库：\(error.localizedDescription)"
+            compatibilityIssue = PalmiL10n.tr("ml.error.save", error.localizedDescription)
         }
     }
 
@@ -402,7 +402,7 @@ final class ModelLibraryStore {
             }
             journal.steps.append("credentials-verified")
             try files.writeJournal(journal)
-            guard let bytes = target.archiveBytes else { throw ModelLibraryError.invalidInput("投影为空") }
+            guard let bytes = target.archiveBytes else { throw ModelLibraryError.invalidInput(PalmiL10n.tr("ml.error.emptyProjection")) }
             defaults.set(bytes, forKey: LegacyModelInventory.archiveKey)
             if let pointer = target.activePlanID, defaults.string(forKey: LegacyModelInventory.activePlanIDKey) != pointer {
                 defaults.set(pointer, forKey: LegacyModelInventory.activePlanIDKey)
@@ -410,13 +410,13 @@ final class ModelLibraryStore {
             journal.steps.append("published")
             try files.writeJournal(journal)
         } catch {
-            compatibilityIssue = "兼容数据写入未完成：\(error.localizedDescription)。旧版仍读取原配置。"
+            compatibilityIssue = PalmiL10n.tr("ml.error.publish", error.localizedDescription)
             files.deleteJournal()
             return
         }
         let readBack = inventory.v2Snapshot(fingerprint: credentials.fingerprint)
         guard Self.snapshotsEquivalent(readBack, target) else {
-            compatibilityIssue = "兼容数据读回与预期不一致，已保留恢复日志。"
+            compatibilityIssue = PalmiL10n.tr("ml.error.readBack")
             return
         }
         confirmBaseline(readBack, projection: projection)

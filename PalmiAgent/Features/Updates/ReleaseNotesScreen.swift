@@ -2,9 +2,15 @@ import SwiftUI
 
 /// Content identifiers are independent of build numbers, so patch builds do not repeat an announcement.
 enum ReleaseNotesCatalog {
-    static let currentID = "release-26.10"
+    static let currentID = "release-26.11"
+    static let currentItems = ["chat", "interface", "browser", "models", "tools", "interactive", "replies", "files", "questions", "background", "bionic", "languages", "navigation"]
     static let acknowledgedKey = "palmi.release-notes.acknowledged"
-    static let history = ["26.9", "26.8", "26.7", "1.0.1", "1.0.0"]
+    static func title(for version: String) -> String {
+        let legacyVersions = ["1.0.0", "1.0.1", "26.7", "26.8", "26.9"]
+        return "\(legacyVersions.contains(version) ? "PalmiAgent" : "Palmi") \(version)"
+    }
+
+    static let history = ["26.10", "26.9", "26.8", "26.7", "1.0.1", "1.0.0"]
 }
 
 struct BionicIntroductionContent: View {
@@ -49,7 +55,6 @@ struct BionicIntroductionScreen: View {
 struct CurrentReleaseNotesScreen: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage(ReleaseNotesCatalog.acknowledgedKey) private var acknowledged = ""
-    @State private var showsIntroduction = false
     let onOpenBionic: () -> Void
     var onClose: (() -> Void)? = nil
 
@@ -57,26 +62,18 @@ struct CurrentReleaseNotesScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 Text(PalmiL10n.tr("updates.current")).font(.largeTitle.bold())
-                releaseSection("bionic", items: ["characters", "conversations", "plans"], introductionHelp: true)
-                releaseSection("models", items: ["oauth", "images"])
-                releaseSection("neo", items: ["timeline", "details"])
-                releaseSection("interaction", items: ["settings", "unread"])
-                Divider()
-                Text(PalmiL10n.tr("updates.modelUsageNote"))
-                    .font(.footnote).foregroundStyle(.secondary)
+                ForEach(ReleaseNotesCatalog.currentItems, id: \.self) { item in
+                    HStack(alignment: .top, spacing: 10) {
+                        Text("•").foregroundStyle(.secondary)
+                        Text(PalmiL10n.tr("updates.26.11.\(item)"))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
             .frame(maxWidth: 680, alignment: .leading).padding(24).frame(maxWidth: .infinity)
         }
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 10) {
-                Button {
-                    acknowledge()
-                    onOpenBionic()
-                } label: {
-                    Text(PalmiL10n.tr("updates.openBionic"))
-                        .frame(maxWidth: .infinity).padding(.vertical, 8)
-                }
-                .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
                 Button(PalmiL10n.tr("updates.dismiss")) { acknowledge() }
                     .font(.subheadline)
             }
@@ -85,14 +82,34 @@ struct CurrentReleaseNotesScreen: View {
         }
         .navigationTitle(PalmiL10n.tr("updates.title"))
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func acknowledge() {
+        acknowledged = ReleaseNotesCatalog.currentID
+        if let onClose { onClose() } else { dismiss() }
+    }
+}
+
+struct Release2610Content: View {
+    @State private var showsIntroduction = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 28) {
+            Text("Palmi 26.10").font(.largeTitle.bold())
+            releaseSection("bionic", items: ["characters", "conversations", "plans"], introductionHelp: true)
+            releaseSection("models", items: ["oauth", "images"])
+            releaseSection("neo", items: ["timeline", "details"])
+            releaseSection("interaction", items: ["settings", "unread"])
+            Divider()
+            Text(PalmiL10n.tr("updates.modelUsageNote"))
+                .font(.footnote).foregroundStyle(.secondary)
+        }
         .sheet(isPresented: $showsIntroduction) {
             NavigationStack {
-                BionicIntroductionScreen()
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button(PalmiL10n.tr("common.done")) { showsIntroduction = false }
-                        }
+                BionicIntroductionScreen().toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(PalmiL10n.tr("common.done")) { showsIntroduction = false }
                     }
+                }
             }
         }
     }
@@ -122,10 +139,6 @@ struct CurrentReleaseNotesScreen: View {
         }
     }
 
-    private func acknowledge() {
-        acknowledged = ReleaseNotesCatalog.currentID
-        if let onClose { onClose() } else { dismiss() }
-    }
 }
 
 struct ReleaseNotesHistoryScreen: View {
@@ -137,19 +150,23 @@ struct ReleaseNotesHistoryScreen: View {
             }
             Section(PalmiL10n.tr("updates.history")) {
                 ForEach(ReleaseNotesCatalog.history, id: \.self) { version in
-                    NavigationLink("Palmi APP \(version)") {
+                    NavigationLink(ReleaseNotesCatalog.title(for: version)) {
                         ScrollView {
                             VStack(alignment: .leading, spacing: 20) {
-                                Text("Palmi APP \(version)").font(.largeTitle.bold())
-                                Text(PalmiL10n.tr("updates.history.\(version)"))
-                                    .lineSpacing(5).textSelection(.enabled)
+                                if version == "26.10" {
+                                    Release2610Content()
+                                } else {
+                                    Text(ReleaseNotesCatalog.title(for: version)).font(.largeTitle.bold())
+                                    Text(PalmiL10n.tr("updates.history.\(version)"))
+                                        .lineSpacing(5).textSelection(.enabled)
+                                }
                                 if let url = URL(string: "https://github.com/Hyp6666/PalmiAgent/releases/tag/v\(version)") {
                                     Link(PalmiL10n.tr("updates.source"), destination: url)
                                 }
                             }
                             .frame(maxWidth: 680, alignment: .leading).padding(24).frame(maxWidth: .infinity)
                         }
-                        .navigationTitle(version).navigationBarTitleDisplayMode(.inline)
+                        .navigationTitle(ReleaseNotesCatalog.title(for: version)).navigationBarTitleDisplayMode(.inline)
                     }
                 }
             }

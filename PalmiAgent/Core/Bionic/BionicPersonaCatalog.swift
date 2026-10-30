@@ -2,8 +2,8 @@ import Foundation
 
 nonisolated enum BionicPersonaCatalog {
     static let dimensions = ["extraversion", "warmth", "humor", "initiative", "directness"]
-    static let languages = ["zh-Hans", "zh-Hant", "en", "ja", "ko"]
-    static let languageNames = ["zh-Hans": "简体中文", "zh-Hant": "繁體中文", "en": "English", "ja": "日本語", "ko": "한국어"]
+    static let languages = PalmiLanguage.allCases.map(\.rawValue)
+    static let languageNames = Dictionary(uniqueKeysWithValues: PalmiLanguage.allCases.map { ($0.rawValue, $0.displayTitle) })
     static let types = ["ISTJ", "ISFJ", "INFJ", "INTJ", "ISTP", "ISFP", "INFP", "INTP", "ESTP", "ESFP", "ENFP", "ENTP", "ESTJ", "ESFJ", "ENFJ", "ENTJ"]
     // Short paraphrases, not a test or a claim of certification.
     // Source: Myers & Briggs Foundation, The 16 MBTI Personality Types.

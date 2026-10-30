@@ -1027,8 +1027,8 @@
 "remoteSearch.error.title" = "구성 오류";
 
 /* PalmiAgent 仿生模式 */
-"appMode.bionic" = "컴패니언";
-"appMode.bionicMode" = "컴패니언 모드";
+"appMode.bionic" = "바이오닉";
+"appMode.bionicMode" = "바이오닉 모드";
 "bionic.age" = "만 %d세";
 "bionic.appData" = "캐릭터 기록을 포함한 앱 데이터";
 "bionic.appSettings" = "앱 설정";
@@ -1664,7 +1664,7 @@
 "bionic.introduction.cost" = "언제나처럼 직접 설정한 모델을 사용합니다. Palmi APP은 모델 사용 비용을 부담하지 않습니다. 무료 플랜과 Bionic Pro 일회성 구매 모두 모델 크레딧을 포함하지 않으며, 설정한 모델 서비스에 따라 별도 요금이 발생합니다.\n\n한 가지 알려드리고 싶습니다. 바이오닉 모드는 눈에 보이는 답변을 만드는 것 외에도 많은 작업을 합니다. 이런 작업은 실제로 전달되는 메시지보다 몇 배 많은 토큰을 사용할 수 있습니다. 적절한 모델을 선택하고 청구 내역을 살펴 주세요.\n\n저는 주 모델로 DeepSeek-Flash를 추천합니다. 답변이 빠르고, 제 경험으로는 대화의 느낌도 아주 좋았습니다. 실제로 사용하며 시험해 본 결과, 적당한 빈도로 며칠간 캐릭터와 대화한 비용은 전문가 모드에서 “자전거를 타는 펠리컨의 SVG 애니메이션을 만들어 줘”라고 한 번 요청한 비용과 대체로 비슷했습니다. 이와 함께 모델 사용량과 비용을 집계하기 위해 시뮬레이션 실험을 세심하게 설계했습니다. [바이오닉 채팅 토큰 사용량 및 비용 분석 보고서](https://github.com/Hyp6666/PalmiAgent/blob/main/docs/reports/bionic-chat-token-usage.en.md)에서 결과를 확인할 수 있습니다.\n\n이번에는 Codex OAuth 로그인도 추가했습니다. Codex를 지원하는 구독 플랜을 이용 중이라면 Palmi APP에 로그인하고, 계정에서 허용하는 이미지 생성 모델을 설정해 볼 수 있습니다. 캐릭터가 느닷없이 셀카 한 장을 보내올지도 모릅니다.";
 "bionic.introduction.closing" = "여기서 생성되는 모든 것은 가상입니다. 글도 사진도, 현대 AI 모델이 만들어 낸 데이터일 뿐입니다. 무엇이 사실인지 스스로 판단하는 감각을 잊지 말아 주세요.\n\n저희는 이 대화를 중계하는 서버를 운영하지 않습니다. 사용자와 직접 설정한 모델 서비스 사이의 데이터 흐름을 파악할 수 없고, 그래서도 안 된다고 생각합니다. 따라서 해당 모델이 만들어 내는 내용에 어떤 약속이나 보증도 할 수 없습니다. 여러분과 바이오닉 캐릭터의 이야기는 허구라는 것을 언제나 기억해 주세요. 화면을 내려놓고 실제 삶을 더 많이 느껴 보세요.";
 "updates.title" = "업데이트 소식";
-"updates.current" = "Palmi 26.10";
+"updates.current" = "Palmi 26.11";
 "updates.history" = "이전 버전";
 "updates.source" = "GitHub 릴리스 원문 보기";
 "updates.dismiss" = "완료";
@@ -1911,3 +1911,147 @@
 "settings.runtime.professionalStyle" = "전문가 모드 실행 표시";
 "settings.runtime.progressiveScope" = "채팅에서는 항상 Neo로 과정을 표시하며 모든 응답 내용을 유지합니다. 이 설정은 전문가 모드에만 적용됩니다.";
 "chat.runtime.notice" = "실행 상태";
+
+/* 统一会话外壳：开始屏短句、侧栏 */
+"start.greeting.chat.1" = "어서 오세요~ 오늘은 무슨 이야기할까요?";
+"start.greeting.chat.2" = "드디어 오셨네요~";
+"start.greeting.chat.3" = "편하게 입력하고 이야기 나눠요";
+"start.greeting.chat.4" = "요즘 새로운 소식 있어요?";
+"start.greeting.chat.5" = "차 한 잔 하면서 천천히 얘기해요~";
+"start.greeting.chat.6" = "오늘 기분은 어떠세요?";
+"start.greeting.chat.7" = "뭐든 편하게 물어보세요";
+"start.greeting.chat.8" = "언제든 함께할게요~";
+"start.greeting.chat.9" = "이야기 들려주세요, 귀 기울일게요";
+"start.greeting.chat.10" = "또 만났네요, 반가워요!";
+"start.greeting.professional.1" = "힘 좀 쓸 만한 일 주세요~";
+"start.greeting.professional.2" = "분부만 내리세요, 기꺼이 돕겠습니다";
+"start.greeting.professional.3" = "오늘은 어떤 큰일을 해치울까요?";
+"start.greeting.professional.4" = "맡겨만 주세요, 바로 시작할게요";
+"start.greeting.professional.5" = "준비 완료, 지시를 기다립니다";
+"start.greeting.professional.6" = "어려운 문제일수록 환영이에요~";
+"start.greeting.professional.7" = "맡겨 두고 커피 한잔하세요";
+"start.greeting.professional.8" = "소매 걷어붙이고 시작해 볼까요!";
+"start.greeting.professional.9" = "파일, 웹, 코드 전부 맡겨 주세요";
+"start.greeting.professional.10" = "목표만 말씀하세요, 나머지는 제가";
+"drawer.open" = "사이드바 열기";
+"drawer.close" = "사이드바 닫기";
+"drawer.search" = "검색";
+"drawer.browser" = "내장 브라우저";
+"drawer.files" = "파일";
+"drawer.workspaces" = "워크스페이스";
+"drawer.newWorkspace" = "새 워크스페이스";
+"drawer.noResults" = "일치하는 결과가 없습니다";
+"chat.newConversation" = "새 채팅";
+"chat.model" = "모델";
+"start.workspace.newWorkspace" = "새 워크스페이스…";
+"start.workspace.hint" = "이번 작업의 파일이 여기에 저장됩니다";
+
+/* 内部工具（整理上下文 / 读取工具结果） */
+"agent.internalTool.compact" = "컨텍스트 정리";
+"agent.internalTool.readResult" = "도구 결과 읽기";
+"agent.internalTool.running" = "실행 중";
+"agent.internalTool.failed" = "도구 호출 실패";
+"agent.compact.scheduled.summary" = "컨텍스트 압축 예약됨";
+"agent.compact.scheduled.details" = "이번 도구 묶음이 모두 끝난 뒤 안전한 시점에 실행합니다. 아직 압축되지 않았습니다.";
+"agent.compact.failed" = "압축을 예약하지 못했습니다";
+"agent.readResult.summary" = "%d..<%d / %d 바이트를 읽음";
+"agent.readResult.next" = "다음 시작 위치: %d";
+"agent.readResult.end" = "끝까지 읽음";
+"agent.readResult.failed" = "도구 결과를 읽지 못했습니다";
+
+/* 仿生入口 */
+"start.bionic.enter" = "들어가기";
+
+/* 默认工作区 */
+"workspace.defaultWorkspace.name" = "기본 워크스페이스";
+"drawer.customWorkspaces" = "내 워크스페이스";
+"ml.template.bailian" = "Alibaba Cloud Bailian";
+"ml.template.zhipuCodingNote" = "Messages 호환. 표준 API와 별도의 프리셋입니다.";
+"ml.template.bailianNote" = "중국 본토용 호환 엔드포인트입니다.";
+"ml.template.geminiNote" = "OpenAI 호환 엔드포인트. 네이티브 웹 도구는 별도로 선언한 generateContent 엔드포인트를 사용합니다.";
+"ml.references.sessions" = "세션 또는 캐릭터 %d개";
+"ml.references.webTools" = "웹 도구 %d개";
+"ml.error.restoreConnection" = "먼저 이 모델의 연결을 복원하세요.";
+"ml.error.credentialsInAddress" = "주소에 사용자 이름이나 비밀번호를 포함할 수 없습니다.";
+"ml.error.write" = "모델 라이브러리를 기록할 수 없습니다: %@";
+"ml.error.save" = "모델 라이브러리를 저장할 수 없습니다: %@";
+"ml.error.notLoaded" = "모델 라이브러리가 아직 로드되지 않았습니다.";
+"ml.error.futureFormat" = "모델 라이브러리는 더 최신 버전(v%d)에서 생성되어 현재 버전에서는 읽기 전용으로만 보존됩니다.";
+"ml.error.unreadable" = "모델 라이브러리를 읽을 수 없습니다: %@. 원본 데이터는 별도로 저장되었습니다.";
+"ml.error.legacyUnsafe" = "이전 모델 설정이 손상되었거나 더 최신 버전의 데이터입니다. 호환 데이터 기록을 중단했으며 원본 데이터는 변경되지 않았습니다.";
+"ml.error.legacyCleared" = "이전 모델 설정이 지워졌습니다(초기화되었을 수 있습니다). 새 설정은 그대로 유지되며 자동으로 다시 기록하지 않았습니다.";
+"ml.error.legacyConflict" = "두 버전에서 동일한 중요 설정을 변경했습니다. 유지할 버전을 선택할 때까지 호환 데이터 기록을 일시 중지합니다.";
+"ml.error.publish" = "호환 데이터 기록을 완료하지 못했습니다: %@. 이전 버전은 여전히 원래 설정을 읽습니다.";
+"ml.error.readBack" = "호환 데이터를 다시 읽은 결과가 예상과 다릅니다. 복구 로그를 보존했습니다.";
+"ml.resolve.notConfigured" = "먼저 설정 › 모델에서 기본 모델을 선택하세요.";
+"ml.resolve.explicitlyUnconfigured" = "이 세션은 기본 모델을 사용하지 않도록 명시적으로 설정되어 있습니다. 세션에서 모델을 선택하거나 기본 모델 따르기를 선택하세요.";
+"ml.resolve.modelMissing" = "선택한 기본 모델이 라이브러리에서 삭제되었습니다. 다시 선택하세요.";
+"ml.resolve.connectionMissing" = "기본 모델의 연결이 더 이상 존재하지 않습니다. 기본 모델을 다시 선택하세요.";
+"ml.resolve.notMain" = "“%@”은(는) 기본 모델로 사용할 수 없습니다(예: 이미지 생성 전용 모델).";
+"ml.resolve.credentialMissing" = "“%@” 연결에는 API 키가 필요하지만 저장된 키가 없습니다.";
+"ml.resolve.credentialLocked" = "“%@”의 자격 증명을 일시적으로 읽을 수 없습니다. 기기가 잠겨 있을 수 있습니다. 나중에 다시 시도하세요.";
+"ml.resolve.credentialRead" = "“%@”의 자격 증명을 읽을 수 없습니다.";
+"ml.resolve.conflict" = "두 버전에서 “%@”을(를) 변경했습니다. 설정에서 충돌을 해결할 때까지 사용을 일시 중지합니다.";
+"ml.resolve.endpoint" = "“%@” 연결의 주소가 유효하지 않습니다.";
+"ml.credential.error.locked" = "보호된 자격 증명을 일시적으로 읽을 수 없습니다. 기기가 잠겨 있을 수 있습니다. 나중에 다시 시도하세요.";
+"ml.credential.error.read" = "보호된 자격 증명을 읽을 수 없습니다(%d).";
+"ml.credential.error.missing" = "연결에 API 키가 필요하지만 저장된 자격 증명을 찾지 못했습니다.";
+"ml.credential.error.verification" = "기록 후 다시 읽은 자격 증명이 일치하지 않습니다. 원래 설정을 보존했습니다.";
+"ml.migration.error.locked" = "보호된 자격 증명을 일시적으로 읽을 수 없습니다. 다음 잠금 해제까지 이전을 미루며 원래 설정은 유지됩니다.";
+"ml.migration.note.primaryInvalid" = "이전 계획의 기본 모델 %@이(가) 유효하지 않거나 후보에 없어 기본 모델을 설정하지 않았습니다.";
+"ml.migration.note.unreadable" = "이전 모델 설정 아카이브를 분석할 수 없습니다(%@). 원본 데이터는 보존되었으며 덮어쓰지 않습니다.";
+"ml.migration.note.future" = "이전 모델 설정 아카이브는 더 최신 버전(v%@)에서 생성되었습니다. 원본 데이터는 보존되었으며 덮어쓰지 않습니다.";
+"ml.error.invalidDataType" = "유효하지 않은 데이터 형식";
+"ml.error.searchDecode" = "원격 검색 설정을 디코딩할 수 없습니다";
+"ml.error.unknownVersion" = "알 수 없는 버전 %@";
+"ml.error.fileRead" = "모델 라이브러리 파일을 읽을 수 없습니다";
+"ml.error.fileFormat" = "인식할 수 없는 모델 라이브러리 파일 형식";
+"ml.conflicts.existence" = "삭제 또는 수정";
+"ml.web.adapter.search" = "%@ 웹 검색";
+"ml.web.adapter.searchAPI" = "%@ 검색 API";
+"ml.web.adapter.fetch" = "%@ 웹 페이지 읽기";
+"ml.web.adapter.fetchAPI" = "%@ 웹 페이지 읽기 API";
+"ml.web.adapter.responsesSearch" = "%@ Responses 웹 검색";
+"ml.web.adapter.chatSearch" = "%@ Chat 웹 검색(enable_search)";
+"ml.web.adapter.extract" = "%@ 웹 페이지 추출";
+"ml.web.adapter.searchPro" = "%@ 웹 검색 Pro";
+"ml.web.adapter.urlContext" = "%@ 웹 페이지 컨텍스트";
+"ml.web.adapter.genericResponses" = "일반 Responses 웹 검색";
+"ml.web.adapter.genericMessages" = "일반 Messages 웹 검색";
+"ml.web.error.relativePath" = "상대 경로는 /로 시작할 수 없습니다: %@";
+"ml.web.error.invalidEndpoint" = "유효하지 않은 웹 도구 주소: %@";
+"ml.web.error.notConfiguredSearch" = "웹 검색 서비스가 설정되지 않았습니다.";
+"ml.web.error.notConfiguredFetch" = "웹 페이지 읽기 서비스가 설정되지 않았습니다.";
+"ml.web.error.bindingMissing" = "웹 도구 설정이 더 이상 존재하지 않습니다.";
+"ml.web.error.connectionMismatch" = "서버 도구의 모델이 연결과 일치하지 않습니다. 자격 증명을 전송하지 않았습니다.";
+"ml.web.error.modelRequired" = "서버 측 웹 도구에 사용할 모델을 선택하세요.";
+"ml.web.error.resultMismatch" = "선택한 웹 서비스에서 필요한 결과 형식을 제공할 수 없습니다: %@.";
+"ml.web.error.budget" = "웹 작업이 시간 제한 또는 이어받기 한도를 초과했습니다.";
+"ml.web.error.clientTool" = "웹 서비스가 예기치 않게 클라이언트 도구 %@을(를) 요청했습니다. 실행을 거부했습니다.";
+"ml.web.error.oauth" = "Codex OAuth 연결은 이 웹 도구 인터페이스에서 사용할 수 없습니다.";
+"ml.web.error.invalidConfig" = "웹 도구 설정이 유효하지 않습니다.";
+"ml.error.emptyProjection" = "호환 데이터가 비어 있습니다.";
+
+"tool.management.webResearch.beta" = "웹 연구（beta）";
+"tool.management.browser.beta" = "브라우저 조작（beta）";
+
+// Palmi 26.11
+"updates.26.11.chat" = "Palmi를 열면 바로 대화로 들어갑니다. 채팅과 전문가 모드의 사용 경험이 더욱 일관됩니다.";
+"updates.26.11.interface" = "새로운 화면과 사이드바에서 대화 기록, 파일, 스킬, 설정을 한곳에서 찾으세요.";
+"updates.26.11.browser" = "브라우저 조작 베타가 왔습니다! 전문가 모드에서 말로 브라우저를 지시하고 여러 페이지를 확인하세요. 로그인이나 인증은 직접 이어받을 수 있습니다.";
+"updates.26.11.models" = "모델을 그룹으로 정리하고 기본 모델을 선택하세요. 기존 3개 모델 설정은 자동 이전되며 대화 중에도 바꿀 수 있습니다.";
+"updates.26.11.tools" = "더 많은 도구에 개별 모델을 선택하세요:\n자동 승인;\n이미지를 보지 못하는 모델을 위한 시각 도구;\n원격 웹 검색과 페이지 읽기;\n이미지 생성.";
+"updates.26.11.interactive" = "추가 설정 없이 대화형 답변을 즐기세요. 자전거 타는 펠리컨, 북극곰을 탄 진시황, 테트리스, 날씨까지 답변 안에서 만나보세요.";
+"updates.26.11.replies" = "답변이 작성되는 대로 표시되며 글, 이미지, 대화형 콘텐츠가 자연스럽게 이어집니다. 다음 메시지 제안으로 대화를 계속하세요.";
+"updates.26.11.files" = "프로젝트 파일을 모아 보고 폴더 열기, 미리 보기, 공유와 대화 첨부 확인도 더 쉽게 하세요.";
+"updates.26.11.questions" = "결정이 필요하면 현재 화면에 질문이 나타납니다. 연속 답변, 설명 추가, 질문한 대화로 돌아가기를 지원합니다.";
+"updates.26.11.background" = "백그라운드 작업과 진행 표시를 개선하고 바이오닉 답변도 지원합니다. 긴 작업이 기존 시간이나 횟수 제한으로 중단되지 않습니다.";
+"updates.26.11.bionic" = "바이오닉 대화, 읽음 상태와 안 읽은 알림을 개선해 대화를 열면 더 정확하게 반영됩니다.";
+"updates.26.11.languages" = "독일어, 스웨덴어, 아랍어, 튀르키예어, 인도네시아어, 프랑스어를 추가했습니다. 답변과 대화 제목도 선택한 언어에 더 잘 맞습니다.";
+"updates.26.11.navigation" = "브라우저를 접은 뒤 현재 대화를 잃는 문제와 바이오닉에서 사이드바를 열 때 다른 모드가 선택되는 문제를 수정했습니다.";
+
+"browser.searchEngine" = "검색 엔진";
+
+"browser.closeTab" = "탭 닫기";
+
+"browser.untitled" = "제목 없는 페이지";

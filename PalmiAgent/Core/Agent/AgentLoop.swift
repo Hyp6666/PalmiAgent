@@ -1248,15 +1248,15 @@ final class AgentLoop {
                                     isError: result.isError
                                 )
                             )
-                            finishInternalTool(stepID, toolUse: toolUse, title: "Read Result", result: result)
+                            finishInternalTool(stepID, toolUse: toolUse, title: internalToolTitle(toolUse.name), result: result)
                             continue
                         }
 
                         if case .compact = routedCall.kind {
                             let stepID = beginInternalTool(
                                 toolUse,
-                                title: "Compact",
-                                details: "已登记压缩，将在本批工具完成后的安全点执行。"
+                                title: internalToolTitle(toolUse.name),
+                                details: PalmiL10n.tr("agent.compact.scheduled.details")
                             )
                             let result = handleCompactTool(toolUse)
                             session.append(
@@ -1267,7 +1267,7 @@ final class AgentLoop {
                                     isError: result.isError
                                 )
                             )
-                            finishInternalTool(stepID, toolUse: toolUse, title: "Compact", result: result)
+                            finishInternalTool(stepID, toolUse: toolUse, title: internalToolTitle(toolUse.name), result: result)
                             continue
                         }
 
@@ -1292,7 +1292,7 @@ final class AgentLoop {
                                 toolName: toolUse.name,
                                 title: title,
                                 status: .warning,
-                                summary: "正在执行",
+                                summary: PalmiL10n.tr("agent.internalTool.running"),
                                 details: "等待 subagent 控制面返回结果。",
                                 argumentsJSON: toolUse.input,
                                 isRunning: true,
@@ -1798,12 +1798,12 @@ final class AgentLoop {
     ) async throws {
         if !actions.isEmpty,
            use.name == AgentInfrastructureToolDefinitionFactory.compactToolName || use.name == ToolResultReaderTool.name {
-            let title = use.name == ToolResultReaderTool.name ? "读取工具结果" : "整理上下文"
+            let title = internalToolTitle(use.name)
             let stepID = UUID()
             appendEventLog(.toolStarted, summary: "开始执行 \(title)", payloadJSON: use.input)
             emit(.internalToolStarted(AgentInternalToolStep(
                 id: stepID, toolName: use.name, title: title, status: .warning,
-                summary: "正在执行", details: "", argumentsJSON: use.input,
+                summary: PalmiL10n.tr("agent.internalTool.running"), details: "", argumentsJSON: use.input,
                 isRunning: true, relatedThreadIDs: []
             )))
             let result = use.name == ToolResultReaderTool.name ? handleResultReaderTool(use) : handleCompactTool(use)
@@ -2021,7 +2021,7 @@ final class AgentLoop {
                     toolName: toolUse.name,
                     title: title,
                     status: .warning,
-                    summary: "正在执行",
+                    summary: PalmiL10n.tr("agent.internalTool.running"),
                     details: details,
                     argumentsJSON: toolUse.input,
                     isRunning: true,
@@ -2094,8 +2094,8 @@ final class AgentLoop {
                 payload: jsonPayload(["status": "scheduled", "maintenance_id": task.maintenanceID.uuidString.lowercased()]),
                 isError: false,
                 status: .success,
-                summary: "已登记上下文压缩",
-                details: "将在本批工具全部完成后的安全点执行；这不表示已经压缩。"
+                summary: PalmiL10n.tr("agent.compact.scheduled.summary"),
+                details: PalmiL10n.tr("agent.compact.scheduled.details")
             )
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -2103,7 +2103,7 @@ final class AgentLoop {
                 payload: jsonPayload(["status": "error", "message": message]),
                 isError: true,
                 status: .failure,
-                summary: "压缩登记失败",
+                summary: PalmiL10n.tr("agent.compact.failed"),
                 details: message
             )
         }
@@ -2123,8 +2123,8 @@ final class AgentLoop {
                 payload: jsonPayload(payload),
                 isError: false,
                 status: .success,
-                summary: "已读取 \(page.start)..<\(page.end) / \(page.totalBytes) 字节",
-                details: page.nextStart.map { "下一段起点：\($0)" } ?? "已读到末尾"
+                summary: PalmiL10n.tr("agent.readResult.summary", page.start, page.end, page.totalBytes),
+                details: page.nextStart.map { PalmiL10n.tr("agent.readResult.next", $0) } ?? PalmiL10n.tr("agent.readResult.end")
             )
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -2132,7 +2132,7 @@ final class AgentLoop {
                 payload: jsonPayload(["status": "error", "message": message]),
                 isError: true,
                 status: .failure,
-                summary: "读取工具结果失败",
+                summary: PalmiL10n.tr("agent.readResult.failed"),
                 details: message
             )
         }
@@ -2898,6 +2898,10 @@ final class AgentLoop {
 
     private func internalToolTitle(_ toolName: String) -> String {
         switch toolName {
+        case AgentInfrastructureToolDefinitionFactory.compactToolName:
+            return PalmiL10n.tr("agent.internalTool.compact")
+        case ToolResultReaderTool.name:
+            return PalmiL10n.tr("agent.internalTool.readResult")
         case SubagentToolDefinitionFactory.useAgentToolName:
             return "Use Agent"
         case SubagentToolDefinitionFactory.spawnToolName:
@@ -2921,7 +2925,7 @@ final class AgentLoop {
             toolName: toolUse.name,
             title: toolUse.name,
             status: .failure,
-            summary: "工具调用失败",
+            summary: PalmiL10n.tr("agent.internalTool.failed"),
             details: message,
             argumentsJSON: toolUse.input,
             isRunning: false,

@@ -1664,7 +1664,7 @@
 "bionic.introduction.cost" = "同樣，這會使用您自己設定的模型，Palmi APP 會和往常一樣，不承擔您的模型額度費用。基礎權益與仿生 Pro 的一次性購買皆不包含模型額度；模型服務依您的設定另行計費。\n\n不過我需要提醒您的是，仿生模式會進行大量直接生成回覆以外的操作。這些操作可能消耗數倍於直接展示給您的訊息的詞元數量，所以請選擇合適的模型，並留意自己的帳單。\n\n我推薦您使用 DeepSeek-Flash 模型作為主模型設定：回覆速度快，互動體驗一流。在實際體驗中，我測試得到在中等強度地和仿生角色聊天的情況下，數天累計的真實額度費用，大致相當於我在專業模式下「生成一個 SVG 畫鵜鶘騎自行車的動畫」的一次費用。除此之外，我們精心設計了模擬實驗來統計模型用量與額度消耗，可參閱[仿生聊天模擬使用的額度消耗分析報告](https://github.com/Hyp6666/PalmiAgent/blob/main/docs/reports/bionic-chat-token-usage.zh-CN.md)。\n\n除此之外，我們本次還做了 Codex OAuth 登入。如果您訂閱了支援 Codex 的會員方案，可以嘗試登入 Palmi APP，並在帳號權限允許的情況下設定可用的生圖模型。這樣，仿生角色可能會出其不意地傳一張自拍照給您哦～";
 "bionic.introduction.closing" = "請注意，這裡生成的一切都是虛擬的，都是假的。文字也好，照片也罷，它們只不過是現代人工智慧模型生成的一堆資料，請您具備明辨是非的能力。\n\n我們沒有用於中轉這些對話的伺服器，您與所設定模型服務之間的資料流動，我們無法掌握，也不應該掌握。因此，我們也不可能對您主動設定的某一模型的輸出內容做出任何承諾與兜底。請始終記得，您與仿生角色的故事屬於虛構，放下螢幕，多感受真實的生活。";
 "updates.title" = "版本更新內容";
-"updates.current" = "Palmi 26.10";
+"updates.current" = "Palmi 26.11";
 "updates.history" = "歷代版本";
 "updates.source" = "查看 GitHub Release 原文";
 "updates.dismiss" = "完成";
@@ -1911,3 +1911,147 @@
 "settings.runtime.professionalStyle" = "專業模式的執行過程";
 "settings.runtime.progressiveScope" = "聊天模式一律使用 Neo 顯示過程，回答會持續保留。此處選擇僅影響專業模式。";
 "chat.runtime.notice" = "執行提示";
+
+/* 统一会话外壳：开始屏短句、侧栏 */
+"start.greeting.chat.1" = "你來啦～今天想聊什麼？";
+"start.greeting.chat.2" = "終於等到你～";
+"start.greeting.chat.3" = "隨心輸入，開始暢聊";
+"start.greeting.chat.4" = "有什麼新鮮事，說來聽聽？";
+"start.greeting.chat.5" = "泡杯茶，慢慢聊～";
+"start.greeting.chat.6" = "今天心情如何呀？";
+"start.greeting.chat.7" = "想到什麼就聊什麼吧";
+"start.greeting.chat.8" = "我在這裡，隨時奉陪～";
+"start.greeting.chat.9" = "有問題儘管問，我洗耳恭聽";
+"start.greeting.chat.10" = "嗨～又見面了";
+"start.greeting.professional.1" = "來點有挑戰的任務吧～";
+"start.greeting.professional.2" = "請吩咐，樂意為你效勞";
+"start.greeting.professional.3" = "今天要搞定什麼大事？";
+"start.greeting.professional.4" = "交給我吧，說做就做";
+"start.greeting.professional.5" = "準備就緒，隨時待命";
+"start.greeting.professional.6" = "難題儘管丟過來～";
+"start.greeting.professional.7" = "任務交給我，你去喝杯咖啡";
+"start.greeting.professional.8" = "捲起袖子，開工囉！";
+"start.greeting.professional.9" = "檔案、網頁、程式碼，通通搞定";
+"start.greeting.professional.10" = "說出目標，剩下的交給我";
+"drawer.open" = "打開側欄";
+"drawer.close" = "收起側欄";
+"drawer.search" = "搜尋";
+"drawer.browser" = "內建瀏覽器";
+"drawer.files" = "檔案";
+"drawer.workspaces" = "工作區";
+"drawer.newWorkspace" = "新增工作區";
+"drawer.noResults" = "沒有符合的結果";
+"chat.newConversation" = "新對話";
+"chat.model" = "模型";
+"start.workspace.newWorkspace" = "新增工作區…";
+"start.workspace.hint" = "本次任務的檔案會放在這裡";
+
+/* 内部工具（整理上下文 / 读取工具结果） */
+"agent.internalTool.compact" = "整理上下文";
+"agent.internalTool.readResult" = "讀取工具結果";
+"agent.internalTool.running" = "正在執行";
+"agent.internalTool.failed" = "工具呼叫失敗";
+"agent.compact.scheduled.summary" = "已登記上下文壓縮";
+"agent.compact.scheduled.details" = "將在本批工具全部完成後的安全點執行；這不表示已經壓縮。";
+"agent.compact.failed" = "壓縮登記失敗";
+"agent.readResult.summary" = "已讀取 %d..<%d / %d 位元組";
+"agent.readResult.next" = "下一段起點：%d";
+"agent.readResult.end" = "已讀到末尾";
+"agent.readResult.failed" = "讀取工具結果失敗";
+
+/* 仿生入口 */
+"start.bionic.enter" = "進入";
+
+/* 默认工作区 */
+"workspace.defaultWorkspace.name" = "預設工作區";
+"drawer.customWorkspaces" = "自建工作區";
+"ml.template.bailian" = "阿里雲百煉";
+"ml.template.zhipuCodingNote" = "相容 Messages；與標準 API 使用不同預設。";
+"ml.template.bailianNote" = "中國內地相容入口。";
+"ml.template.geminiNote" = "OpenAI 相容入口；原生連網工具使用另行宣告的 generateContent 端點。";
+"ml.references.sessions" = "%d 個工作階段或角色";
+"ml.references.webTools" = "%d 個連網工具";
+"ml.error.restoreConnection" = "請先還原此模型所屬的連線。";
+"ml.error.credentialsInAddress" = "位址中不得包含使用者名稱或密碼。";
+"ml.error.write" = "無法寫入模型資料庫：%@";
+"ml.error.save" = "無法儲存模型資料庫：%@";
+"ml.error.notLoaded" = "模型資料庫尚未載入。";
+"ml.error.futureFormat" = "模型資料庫來自較新版本（v%d），目前版本只能以唯讀方式保留。";
+"ml.error.unreadable" = "無法讀取模型資料庫檔案：%@。原始資料已另行儲存。";
+"ml.error.legacyUnsafe" = "舊版模型設定資料已損毀或來自較新版本，已停止寫入相容資料，原始資料保持不變。";
+"ml.error.legacyCleared" = "舊版模型設定已清除（可能曾執行重設）。新版設定保持不變，未自動寫回。";
+"ml.error.legacyConflict" = "新舊版本修改了同一項重要設定，已暫停相容寫入，等待你選擇要保留的版本。";
+"ml.error.publish" = "相容資料寫入未完成：%@。舊版仍讀取原設定。";
+"ml.error.readBack" = "相容資料讀回結果與預期不符，已保留復原記錄。";
+"ml.resolve.notConfigured" = "請先在設定 › 模型中選擇預設模型。";
+"ml.resolve.explicitlyUnconfigured" = "此工作階段明確設為不使用預設模型。請在工作階段中選擇模型，或改為跟隨預設模型。";
+"ml.resolve.modelMissing" = "所選預設模型已從模型資料庫刪除，請重新選擇。";
+"ml.resolve.connectionMissing" = "預設模型所屬的連線已不存在，請重新選擇預設模型。";
+"ml.resolve.notMain" = "「%@」無法作為預設模型，例如僅支援圖像生成的模型。";
+"ml.resolve.credentialMissing" = "連線「%@」需要 API Key，但未儲存憑證。";
+"ml.resolve.credentialLocked" = "「%@」的憑證暫時無法讀取，裝置可能已鎖定，請稍後再試。";
+"ml.resolve.credentialRead" = "無法讀取「%@」的憑證。";
+"ml.resolve.conflict" = "「%@」在新舊版本中均被修改，已暫停使用，請先在設定中處理衝突。";
+"ml.resolve.endpoint" = "連線「%@」的位址無效。";
+"ml.credential.error.locked" = "受保護憑證暫時無法讀取，裝置可能處於鎖定狀態，請稍後再試。";
+"ml.credential.error.read" = "無法讀取受保護憑證（%d）。";
+"ml.credential.error.missing" = "連線需要 API Key，但找不到已儲存的憑證。";
+"ml.credential.error.verification" = "憑證寫入後讀回結果不一致，已保留原設定。";
+"ml.migration.error.locked" = "受保護憑證暫時無法讀取，移轉已延後至下次解鎖後進行，原設定保持不變。";
+"ml.migration.note.primaryInvalid" = "舊方案的預設模型 %@ 已失效或不在候選清單中，保持未設定。";
+"ml.migration.note.unreadable" = "無法解析舊模型設定封存檔（%@），原始資料已保留且不會被覆寫。";
+"ml.migration.note.future" = "舊模型設定封存檔來自較新版本（v%@），原始資料已保留且不會被覆寫。";
+"ml.error.invalidDataType" = "資料類型無效";
+"ml.error.searchDecode" = "無法解碼遠端搜尋設定";
+"ml.error.unknownVersion" = "未知版本 %@";
+"ml.error.fileRead" = "無法讀取模型資料庫檔案";
+"ml.error.fileFormat" = "無法辨識模型資料庫檔案格式";
+"ml.conflicts.existence" = "刪除或修改";
+"ml.web.adapter.search" = "%@ 網路搜尋";
+"ml.web.adapter.searchAPI" = "%@ 搜尋 API";
+"ml.web.adapter.fetch" = "%@ 網頁讀取";
+"ml.web.adapter.fetchAPI" = "%@ 網頁讀取 API";
+"ml.web.adapter.responsesSearch" = "%@ Responses 連網搜尋";
+"ml.web.adapter.chatSearch" = "%@ Chat 連網搜尋（enable_search）";
+"ml.web.adapter.extract" = "%@ 網頁擷取";
+"ml.web.adapter.searchPro" = "%@ 網路搜尋 Pro";
+"ml.web.adapter.urlContext" = "%@ 網頁上下文";
+"ml.web.adapter.genericResponses" = "通用 Responses 連網搜尋";
+"ml.web.adapter.genericMessages" = "通用 Messages 連網搜尋";
+"ml.web.error.relativePath" = "相對路徑不得以 / 開頭：%@";
+"ml.web.error.invalidEndpoint" = "網頁工具位址無效：%@";
+"ml.web.error.notConfiguredSearch" = "尚未設定網頁搜尋服務。";
+"ml.web.error.notConfiguredFetch" = "尚未設定網頁讀取服務。";
+"ml.web.error.bindingMissing" = "網頁工具設定已不存在。";
+"ml.web.error.connectionMismatch" = "伺服器端工具的模型與連線不符，未傳送憑證。";
+"ml.web.error.modelRequired" = "請為伺服器端網頁工具選擇模型。";
+"ml.web.error.resultMismatch" = "所選網頁服務無法提供所需的結果類型：%@。";
+"ml.web.error.budget" = "網頁操作超出時限或續傳額度。";
+"ml.web.error.clientTool" = "網頁服務意外要求用戶端工具 %@，已拒絕執行。";
+"ml.web.error.oauth" = "Codex OAuth 連線無法用於此網頁工具介面。";
+"ml.web.error.invalidConfig" = "網頁工具設定無效。";
+"ml.error.emptyProjection" = "相容資料為空。";
+
+"tool.management.webResearch.beta" = "網頁研究（beta）";
+"tool.management.browser.beta" = "瀏覽器操控（beta）";
+
+// Palmi 26.11
+"updates.26.11.chat" = "重整互動體驗，現在開啟 Palmi 直接進入聊天，聊天與專業模式更加一致。";
+"updates.26.11.interface" = "全新介面與側欄集中收納歷史對話、檔案、技能與設定，切換更順手。";
+"updates.26.11.browser" = "瀏覽器操控測試版登場！可在專業模式用自然語言指揮內建瀏覽器，查看多個網頁，登入或驗證時也能親自接手。";
+"updates.26.11.models" = "全新模型分組與預設模型選擇，舊有三模型設定會自動遷移，對話中也能隨時切換模型。";
+"updates.26.11.tools" = "更多工具可單獨選擇模型：\n自動審核；\n為無法看圖的模型準備的視覺工具；\n遠端網頁搜尋與讀取；\n圖片生成。";
+"updates.26.11.interactive" = "互動式回覆已就緒，無須額外設定。騎腳踏車的鵜鶘？秦始皇騎北極熊？俄羅斯方塊？天氣查詢？直接在回覆中體驗。";
+"updates.26.11.replies" = "回覆邊生成邊呈現，文字、圖片與互動內容自然銜接，也能從下一句建議繼續聊。";
+"updates.26.11.files" = "統一瀏覽專案檔案、展開資料夾、預覽與分享檔案，對話附件也更方便查看。";
+"updates.26.11.questions" = "需要你決定時，問題會浮現在目前畫面。可連續回答、補充說明或回到提問的對話。";
+"updates.26.11.background" = "強化背景執行與進度顯示，仿生回覆也能顯示背景進度，長任務不再受原先固定時長與輪數限制。";
+"updates.26.11.bionic" = "改善仿生聊天、已讀狀態與未讀提醒，開啟對話後閱讀狀態更準確。";
+"updates.26.11.languages" = "新增德語、瑞典語、阿拉伯語、土耳其語、印尼語及法語，回覆與對話標題更貼合所選語言。";
+"updates.26.11.navigation" = "修復收起瀏覽器後遺失目前對話，以及從仿生開啟側欄時選錯模式的問題。";
+
+"browser.searchEngine" = "搜尋引擎";
+
+"browser.closeTab" = "關閉分頁";
+
+"browser.untitled" = "未命名網頁";

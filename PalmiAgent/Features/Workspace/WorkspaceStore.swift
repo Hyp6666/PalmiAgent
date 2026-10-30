@@ -26,6 +26,13 @@ final class WorkspaceStore {
         })
     }
 
+    /// 默认工作区的显示名，随语言变化；落盘的名字固定为 defaultWorkspaceStoredName。
+    static var defaultWorkspaceName: String {
+        PalmiL10n.tr("workspace.defaultWorkspace.name")
+    }
+
+    static let defaultWorkspaceStoredName = "DefaultWorkspace"
+
     static func isDefaultChatConversationName(_ name: String) -> Bool {
         supportedDefaultNames(
             for: "workspace.default.chatConversation",
@@ -83,6 +90,16 @@ final class WorkspaceStore {
         reload()
     }
 
+    /// 侧栏「自建工作区」列表：用户自己建的项目，不含默认工作区。
+    var workspaceProjects: [WorkspaceProjectRecord] {
+        projects.filter { !$0.isDefault }
+    }
+
+    /// 默认工作区：没选工作区的专业任务都放这里，reload 时保证存在。
+    var defaultWorkspace: WorkspaceProjectRecord? {
+        projects.first(where: \.isDefault)
+    }
+
     var selectedProject: WorkspaceProjectRecord? {
         (projects + chatProjects).first { $0.id == selectedProjectID }
     }
@@ -136,9 +153,24 @@ final class WorkspaceStore {
 
     func reload() {
         do {
-            let professionalProjects = try workspaceManager.listProjects(on: .professional)
+            var professionalProjects = try workspaceManager.listProjects(on: .professional)
+            if !professionalProjects.contains(where: \.isDefault) {
+                _ = try workspaceManager.createProject(
+                    named: Self.defaultWorkspaceStoredName,
+                    surface: .professional,
+                    initialThreadName: nil,
+                    activate: false,
+                    isDefault: true
+                )
+                professionalProjects = try workspaceManager.listProjects(on: .professional)
+            }
             let chatProjects = try workspaceManager.listProjects(on: .chat)
-            projects = professionalProjects
+            projects = professionalProjects.map { project in
+                guard project.isDefault else { return project }
+                var renamed = project
+                renamed.name = Self.defaultWorkspaceName
+                return renamed
+            }
 
             let allProjects = professionalProjects + chatProjects
             var counts: [UUID: Int] = [:]
@@ -236,37 +268,65 @@ final class WorkspaceStore {
         }
     }
 
-    func selectChatConversation(_ project: WorkspaceProjectRecord) {
+    @discardableResult
+    func selectChatConversation(_ project: WorkspaceProjectRecord) -> Bool {
         do {
             guard project.surface == .chat else {
                 statusMessage = PalmiL10n.tr("workspace.status.chatBelongsToOtherMode")
-                return
+                return false
             }
+            let storedProject = try projectForActivation(project.id, surface: .chat)
             // 只解析、不新建：空聊天项目进入合法的 0 会话态，绝不再兜底建会话。
-            guard let selectedThread = try primaryThread(in: project.id) else {
-                selectedChatProjectID = project.id
+            var projectThreads = threadsByProject[project.id] ?? []
+            if projectThreads.isEmpty {
+                projectThreads = try workspaceManager.listThreads(in: project.id)
+            }
+            guard let selectedThread = projectThreads.first else {
+                workspaceManager.clearActiveSelection()
+                threadsByProject[project.id] = projectThreads
+                threadCounts[project.id] = projectThreads.count
+                selectedChatProjectID = storedProject.id
                 selectedChatThreadID = nil
                 clearActiveSelection()
                 statusMessage = nil
-                return
+                return true
             }
-            try workspaceManager.activateThread(projectID: project.id, threadID: selectedThread.id)
-            updateChatSelection(projectID: project.id, threadID: selectedThread.id)
-            applyActiveSelection(projectID: project.id, threadID: selectedThread.id)
+            try activateConversation(
+                WorkspaceSelection(projectID: storedProject.id, threadID: selectedThread.id),
+                in: storedProject
+            )
             statusMessage = nil
+            return true
         } catch {
             statusMessage = error.localizedDescription
+            return false
         }
     }
 
-    func selectThread(_ thread: WorkspaceThreadRecord) {
+    @discardableResult
+    func selectThread(_ thread: WorkspaceThreadRecord) -> Bool {
         do {
-            try workspaceManager.activateThread(projectID: thread.projectID, threadID: thread.id)
-            updateProfessionalSelection(projectID: thread.projectID, threadID: thread.id)
-            applyActiveSelection(projectID: thread.projectID, threadID: thread.id)
+            let project = try projectForActivation(thread.projectID, surface: .professional)
+            try activateConversation(WorkspaceSelection(projectID: thread.projectID, threadID: thread.id), in: project)
             statusMessage = nil
+            return true
         } catch {
             statusMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    /// 按完整来源定位会话，成功后才提交所属模式和当前界面的选择。
+    @discardableResult
+    func activateConversation(_ selection: WorkspaceSelection) -> Bool {
+        do {
+            let project = try projectForActivation(selection.projectID)
+            try activateConversation(selection, in: project)
+            statusMessage = nil
+            return true
+        } catch {
+            statusMessage = error.localizedDescription
+            return false
         }
     }
 
@@ -392,6 +452,60 @@ final class WorkspaceStore {
         }
     }
 
+    // MARK: - 新会话草稿
+
+    /// 进入新会话草稿：界面不选中任何会话，第一次真正发送时才落库。
+    func beginDraft() {
+        workspaceManager.clearActiveSelection()
+        clearActiveSelection()
+        statusMessage = nil
+    }
+
+    /// 聊天草稿落库：优先复用仍为空的默认聊天，否则新建一个。
+    func materializeChatDraft() -> WorkspaceSelection? {
+        ensureDefaultChatConversation()
+        return selectedSelection
+    }
+
+    /// 专业草稿落库：在指定工作区（nil 为默认工作区）里开新会话，复用仍为空的默认会话。
+    func materializeProfessionalDraft(in projectID: UUID?) -> WorkspaceSelection? {
+        do {
+            if let projectID = projectID ?? defaultWorkspace?.id, projects.contains(where: { $0.id == projectID }) {
+                let projectThreads = try refreshThreads(for: projectID)
+                let thread = try projectThreads.first(where: { thread in
+                    thread.subagentOrigin == nil && Self.isDefaultProfessionalThreadName(thread.name)
+                        && !workspaceManager.threadHasMessages(projectID: projectID, threadID: thread.id)
+                }) ?? workspaceManager.createThread(named: Self.defaultProfessionalThreadName, in: projectID)
+                try refreshThreads(for: projectID)
+                selectThread(thread)
+                return selectedSelection
+            }
+            return nil
+        } catch {
+            statusMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    /// 新建工作区：只建文件夹，不建会话、不切换当前界面。
+    @discardableResult
+    func createWorkspace(named name: String) -> WorkspaceProjectRecord? {
+        do {
+            let project = try workspaceManager.createProject(
+                named: name,
+                surface: .professional,
+                initialThreadName: nil,
+                activate: false
+            )
+            reload()
+            statusMessage = PalmiL10n.tr("workspace.status.projectCreated", project.name)
+            return projects.first { $0.id == project.id } ?? project
+        } catch {
+            statusMessage = error.localizedDescription
+            return nil
+        }
+    }
+
     func createThread(named name: String) {
         guard let selectedProject, selectedProject.surface == .professional else {
             statusMessage = PalmiL10n.tr("workspace.status.selectProjectFirst")
@@ -480,6 +594,7 @@ final class WorkspaceStore {
     }
 
     func renameProject(_ project: WorkspaceProjectRecord, to newName: String) {
+        guard !project.isDefault else { return }
         do {
             try workspaceManager.renameProject(projectID: project.id, to: newName)
             reload()
@@ -493,14 +608,13 @@ final class WorkspaceStore {
     }
 
     func deleteProject(_ project: WorkspaceProjectRecord) {
+        guard !project.isDefault else { return }
         do {
+            let wasDisplayed = selectedProjectID == project.id
             try workspaceManager.deleteProject(projectID: project.id)
             reload()
-            if project.surface == .chat {
-                activateChatSurface()
-            } else {
-                activateProfessionalSurface()
-            }
+            // 删掉正在看的会话就回到新会话草稿；删别的不打扰当前界面。
+            if wasDisplayed || selectedSelection == nil { beginDraft() }
             statusMessage = project.surface == .chat
                 ? PalmiL10n.tr("workspace.status.chatDeleted", project.name)
                 : PalmiL10n.tr("workspace.status.projectDeleted", project.name)
@@ -520,25 +634,17 @@ final class WorkspaceStore {
     }
 
     func deleteThread(_ thread: WorkspaceThreadRecord) {
-        let projectSurface = (projects + chatProjects)
-            .first { $0.id == thread.projectID }?
-            .surface ?? .professional
-
         do {
             let descendants = try workspaceManager.listThreads(in: thread.projectID)
                 .filter { $0.subagentOrigin?.parentThreadID == thread.id }
+            let wasDisplayed = selectedThreadID.map { Set([thread.id] + descendants.map(\.id)).contains($0) } ?? false
             for child in descendants {
                 try workspaceManager.deleteThread(projectID: child.projectID, threadID: child.id)
             }
             try workspaceManager.deleteThread(projectID: thread.projectID, threadID: thread.id)
             reload()
-            // 删除后重新解析激活选中：有剩余会话则切到下一个，没有则清空，
-            // 与 deleteProject 保持一致，避免停留在已删除的会话上。
-            if projectSurface == .chat {
-                activateChatSurface()
-            } else {
-                activateProfessionalSurface()
-            }
+            // 与 deleteProject 一致：删掉正在看的会话就回到新会话草稿，避免停留在已删除的会话上。
+            if wasDisplayed || selectedSelection == nil { beginDraft() }
             statusMessage = PalmiL10n.tr("workspace.status.threadDeleted", thread.name)
         } catch {
             statusMessage = error.localizedDescription
@@ -817,6 +923,54 @@ final class WorkspaceStore {
         threadsByProject[projectID] = projectThreads
         threadCounts[projectID] = projectThreads.count
         return projectThreads.first
+    }
+
+    private func projectForActivation(
+        _ projectID: UUID,
+        surface: WorkspaceProjectSurface? = nil
+    ) throws -> WorkspaceProjectRecord {
+        let project = try workspaceManager.withProject(projectID) {
+            try workspaceManager.currentProject()
+        }
+        guard project.id == projectID else {
+            throw AppError.invalidState(PalmiL10n.tr("workspace.status.targetProjectMissing"))
+        }
+        if let surface, project.surface != surface {
+            let key = surface == .chat
+                ? "workspace.status.chatBelongsToOtherMode"
+                : "workspace.status.projectBelongsToChat"
+            throw AppError.invalidState(PalmiL10n.tr(key))
+        }
+        return project
+    }
+
+    private func activateConversation(
+        _ selection: WorkspaceSelection,
+        in project: WorkspaceProjectRecord
+    ) throws {
+        let projectThreads = try workspaceManager.listThreads(in: project.id)
+        guard project.id == selection.projectID,
+              projectThreads.contains(where: {
+                  $0.id == selection.threadID && $0.projectID == selection.projectID
+              }) else {
+            throw AppError.invalidState("目标会话不存在。")
+        }
+        // 缓存中的线程可能已被删除；落盘核验成功前不更改任何内存选择。
+        try workspaceManager.activateThread(projectID: selection.projectID, threadID: selection.threadID)
+
+        threadsByProject[project.id] = projectThreads
+        threadCounts[project.id] = projectThreads.count
+        if selectedProjectID == project.id {
+            threads = projectThreads
+        }
+        chatProjects = sortedChatProjectsByRecentThread(chatProjects)
+        switch project.surface {
+        case .chat:
+            updateChatSelection(projectID: selection.projectID, threadID: selection.threadID)
+        case .professional:
+            updateProfessionalSelection(projectID: selection.projectID, threadID: selection.threadID)
+        }
+        applyActiveSelection(projectID: selection.projectID, threadID: selection.threadID)
     }
 
     private func updateProfessionalSelection(projectID: UUID, threadID: UUID) {

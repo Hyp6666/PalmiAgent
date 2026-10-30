@@ -5,8 +5,6 @@ import WebKit
 @MainActor
 final class BrowserFrameBridge: NSObject, WKScriptMessageHandler {
     private let secret = UUID().uuidString.lowercased()
-    private let scriptNonce = UUID().uuidString.replacingOccurrences(of: "-", with: "")
-    private var serverNonces: Set<String> = []
     private var frames: [String: WKFrameInfo] = [:]
     var onBlockedNavigation: ((String) -> Void)?
     private weak var controller: WKUserContentController?
@@ -18,18 +16,8 @@ final class BrowserFrameBridge: NSObject, WKScriptMessageHandler {
         refreshScripts()
     }
 
-    func acceptPolicy(from response: URLResponse) {
-        guard let http = response as? HTTPURLResponse,
-              let policy = http.value(forHTTPHeaderField: "Content-Security-Policy") else { return }
-        let discovered = Set(BrowserNavigationGuard.nonces(in: policy))
-        guard !discovered.isSubset(of: serverNonces), serverNonces.count < 256 else { return }
-        serverNonces.formUnion(discovered.prefix(256 - serverNonces.count))
-        refreshScripts()
-    }
-
     private func refreshScripts() {
         guard let controller else { return }
-        controller.removeAllUserScripts()
         let source = """
         globalThis.__palmiFrameSecret = '\(secret)';
         globalThis.__palmiFrameToken = '\(secret)-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -42,10 +30,8 @@ final class BrowserFrameBridge: NSObject, WKScriptMessageHandler {
         """
         controller.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart,
                                               forMainFrameOnly: false, in: BrowserSession.contentWorld))
-        controller.addUserScript(WKUserScript(source: BrowserNavigationGuard.isolatedScript(nonce: scriptNonce, serverNonces: Array(serverNonces)), injectionTime: .atDocumentStart,
+        controller.addUserScript(WKUserScript(source: BrowserNavigationGuard.isolatedScript, injectionTime: .atDocumentStart,
                                               forMainFrameOnly: false, in: BrowserSession.contentWorld))
-        controller.addUserScript(WKUserScript(source: BrowserNavigationGuard.pageScript(nonce: scriptNonce), injectionTime: .atDocumentStart,
-                                              forMainFrameOnly: false, in: .page))
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {

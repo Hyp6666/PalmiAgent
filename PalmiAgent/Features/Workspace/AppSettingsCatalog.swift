@@ -4,7 +4,6 @@ enum AppSettingsRowID: String, CaseIterable, Hashable, Sendable {
     case modelManagement
     case toolCapabilities
     case toolManagement
-    case skills
     case personalization
     case runtime
     case bionicPro
@@ -47,8 +46,7 @@ enum AppSettingsCatalog {
             rows: [
                 // 工具能力：看图、权限与自动审核、网页搜索与抓取、图片生成——说明各自用哪个模型或连接。
                 .init(id: .toolCapabilities, titleKey: "ml.tool.title", systemImageName: "wrench.and.screwdriver"),
-                .init(id: .toolManagement, titleKey: "settings.row.toolManagement", systemImageName: "switch.2"),
-                .init(id: .skills, titleKey: "settings.row.skills", systemImageName: "sparkles.rectangle.stack")
+                .init(id: .toolManagement, titleKey: "settings.row.toolManagement", systemImageName: "switch.2")
             ]
         ),
         .init(

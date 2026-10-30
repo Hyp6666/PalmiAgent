@@ -1,0 +1,13 @@
+"CFBundleDisplayName" = "PalmiAgent";
+"CFBundleName" = "PalmiAgent";
+"NSAlarmKitUsageDescription" = "PalmiAgent a besoin d’accéder aux alarmes système pour créer, consulter et gérer les alarmes et minuteurs.";
+"NSCalendarsFullAccessUsageDescription" = "PalmiAgent a besoin d’accéder au calendrier pour créer et lire des événements de test.";
+"NSCameraUsageDescription" = "PalmiAgent a besoin d’accéder à l’appareil photo pour prendre des photos, numériser des documents et reconnaître du texte en direct.";
+"NSContactsUsageDescription" = "PalmiAgent a besoin d’accéder aux contacts pour créer et rechercher des contacts de test.";
+"NSLocalNetworkUsageDescription" = "PalmiAgent a besoin d’accéder au réseau local pour découvrir les serveurs LM Studio du même réseau et s’y connecter.";
+"NSLocationWhenInUseUsageDescription" = "PalmiAgent a besoin d’accéder à votre position pour rechercher des lieux, afficher des itinéraires et trouver des adresses.";
+"NSMicrophoneUsageDescription" = "PalmiAgent a besoin d’accéder au microphone pour la reconnaissance vocale et de futures interactions vocales.";
+"NSPhotoLibraryAddUsageDescription" = "PalmiAgent a besoin de l’autorisation d’ajouter des éléments à votre photothèque pour enregistrer les images de test générées.";
+"NSPhotoLibraryUsageDescription" = "PalmiAgent a besoin d’accéder à votre photothèque pour choisir des images et traiter des médias.";
+"NSRemindersFullAccessUsageDescription" = "PalmiAgent a besoin d’accéder aux rappels pour créer et lire des rappels de test.";
+"NSSpeechRecognitionUsageDescription" = "PalmiAgent a besoin d’accéder à la reconnaissance vocale pour la saisie vocale et les expériences vocales.";

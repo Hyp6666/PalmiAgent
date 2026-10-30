@@ -10,17 +10,22 @@ struct WorkspaceProjectRecord: Identifiable, Hashable, Codable, Sendable {
     var name: String
     let createdAt: Date
     var surface: WorkspaceProjectSurface
+    /// 专业模式「默认工作区」：只有一个，没选工作区的新任务都放这里；不可改名、不可删除，
+    /// 显示名随语言变化（见 WorkspaceStore.reload）。
+    var isDefault: Bool
 
     init(
         id: UUID,
         name: String,
         createdAt: Date,
-        surface: WorkspaceProjectSurface = .professional
+        surface: WorkspaceProjectSurface = .professional,
+        isDefault: Bool = false
     ) {
         self.id = id
         self.name = name
         self.createdAt = createdAt
         self.surface = surface
+        self.isDefault = isDefault
     }
 
     init(from decoder: Decoder) throws {
@@ -29,6 +34,7 @@ struct WorkspaceProjectRecord: Identifiable, Hashable, Codable, Sendable {
         name = try container.decode(String.self, forKey: .name)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         surface = try container.decodeIfPresent(WorkspaceProjectSurface.self, forKey: .surface) ?? .professional
+        isDefault = try container.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
     }
 }
 

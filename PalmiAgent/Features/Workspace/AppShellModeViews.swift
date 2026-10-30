@@ -1,24 +1,15 @@
 import SwiftUI
+import UIKit
 
-enum AppShellMode: String {
-    case chat
-    case professional
-    case bionic
-
+extension AppShellMode {
     var title: String {
-        switch self {
-        case .chat: PalmiL10n.tr("appMode.chat")
-        case .professional: PalmiL10n.tr("appMode.professional")
-        case .bionic: PalmiL10n.tr("appMode.bionic")
-        }
+        localizedTitle(language: .current)
     }
-    var pickerTitle: String {
-        switch self {
-        case .chat: PalmiL10n.tr("appMode.chatMode")
-        case .professional: PalmiL10n.tr("appMode.professionalMode")
-        case .bionic: PalmiL10n.tr("appMode.bionicMode")
-        }
+
+    func localizedTitle(language: PalmiLanguage) -> String {
+        PalmiL10n.tr("appMode.\(rawValue)", language: language)
     }
+
     var symbolName: String {
         switch self {
         case .chat: "bubble.left.and.bubble.right"
@@ -28,61 +19,55 @@ enum AppShellMode: String {
     }
 }
 
-struct AppShellModeChip: View {
-    let mode: AppShellMode
-    let action: () -> Void
+/// 会话页顶部的模式切换：系统分段控件，聊天 / 专业两段等宽。
+/// 与侧栏滑块读写同一个当前模式，任何一处切换另一处同步。
+struct AppShellModeSegmentedPicker: View {
+    @AppStorage(PalmiLanguage.storageKey) private var languageID = PalmiLanguage.zhHans.rawValue
+    let selection: AppShellMode
+    let onSelect: (AppShellMode) -> Void
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: mode.symbolName)
-                    .font(.caption.weight(.semibold))
-                Text(mode.title)
-                    .font(.caption.weight(.semibold))
+        // 系统分段控件按 HIG 各段等宽；固有宽度太窄会把选中块挤成圆点，这里给足宽度。
+        SegmentedPickerMinimumWidth(minimum: 200) {
+            Picker(PalmiL10n.tr("common.mode"), selection: Binding(get: { selection }, set: onSelect)) {
+                Text(AppShellMode.chat.localizedTitle(language: PalmiLanguage.resolve(languageID))).tag(AppShellMode.chat)
+                Text(AppShellMode.professional.localizedTitle(language: PalmiLanguage.resolve(languageID))).tag(AppShellMode.professional)
             }
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .modifier(ModeChipBackground())
+            .pickerStyle(.segmented)
+            .id(languageID)
         }
-        .buttonStyle(.plain)
+    }
+
+    /// 与系统标签栏一致：选中段文字用系统蓝，拖动时玻璃选中块底下透出的也是蓝色。
+    /// 只作用于导航栏里的分段控件，其它分段控件不变。
+    static func configureAppearance() {
+        UISegmentedControl.appearance(whenContainedInInstancesOf: [UINavigationBar.self])
+            .setTitleTextAttributes([.foregroundColor: UIColor.systemBlue], for: .selected)
     }
 }
 
-struct AppShellTopFade: View {
-    var body: some View {
-        LinearGradient(
-            colors: [
-                Color(uiColor: .systemGroupedBackground),
-                Color(uiColor: .systemGroupedBackground).opacity(0.94),
-                Color(uiColor: .systemGroupedBackground).opacity(0.78),
-                Color(uiColor: .systemGroupedBackground).opacity(0)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .frame(height: 132)
-    }
-}
-
+/// 仿生首页顶栏：左侧栏按钮（无侧栏时为设置）· 中间模式名 · 右上角添加菜单。
+/// 仿生模式在侧栏滑块切换，这里只显示当前模式。
 struct AppShellTopBar: View {
+    @AppStorage(PalmiLanguage.storageKey) private var languageID = PalmiLanguage.zhHans.rawValue
     @Environment(\.palmiUnread) private var unreadSnapshot
     let mode: AppShellMode
     let trailingSystemName: String
     let trailingAccessibilityLabel: String
     let onOpenSettings: () -> Void
-    let onTrailingAction: () -> Void
-    let onSelectMode: (AppShellMode) -> Void
-    var bionicMenu: BionicAddMenu? = nil
-    var workspaceMenu: WorkspaceAddMenu? = nil
+    let bionicMenu: BionicAddMenu
+    /// 统一外壳下左上角换成侧栏按钮（设置移进侧栏底部）。
+    var onOpenDrawer: (() -> Void)? = nil
 
     var body: some View {
         GlassEffectContainer(spacing: 18) {
             ZStack {
-                modeMenu
+                Text(mode.localizedTitle(language: PalmiLanguage.resolve(languageID)))
+                    .font(.headline.weight(.semibold))
+                    .accessibilityAddTraits(.isHeader)
 
                 HStack {
-                    settingsButton
+                    leadingButton
 
                     Spacer()
 
@@ -93,335 +78,47 @@ struct AppShellTopBar: View {
         }
     }
 
-    private var settingsButton: some View {
-        Button(action: onOpenSettings) {
-            Image(systemName: "gearshape")
+    @ViewBuilder private var leadingButton: some View {
+        if let onOpenDrawer {
+            Button(action: onOpenDrawer) {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 50, height: 50)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.tint(.white.opacity(0.10)).interactive(), in: .capsule)
+            .overlay(alignment: .topTrailing) {
+                PalmiUnreadBadge(count: unreadSnapshot.countOutside(mode)).offset(x: 2, y: -2)
+            }
+            .accessibilityLabel(PalmiL10n.tr("drawer.open"))
+        } else {
+            Button(action: onOpenSettings) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 50, height: 50)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.tint(.white.opacity(0.10)).interactive(), in: .capsule)
+            .accessibilityLabel(PalmiL10n.tr("common.settings"))
+        }
+    }
+
+    private var trailingButton: some View {
+        Menu { bionicMenu } label: {
+            Image(systemName: trailingSystemName)
                 .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(.primary)
+                .foregroundStyle(.blue)
                 .frame(width: 50, height: 50)
                 .contentShape(Circle())
         }
+        .menuOrder(.fixed)
         .buttonStyle(.plain)
-        .glassEffect(.regular.tint(.white.opacity(0.10)).interactive(), in: .capsule)
-        .accessibilityLabel(PalmiL10n.tr("common.settings"))
-    }
-
-    @ViewBuilder private var trailingButton: some View {
-        if let bionicMenu {
-            Menu { bionicMenu } label: { trailingLabel }
-                .menuOrder(.fixed)
-                .buttonStyle(.plain)
-                .glassEffect(.regular.tint(.white.opacity(0.14)).interactive(), in: .capsule)
-                .accessibilityLabel(trailingAccessibilityLabel)
-                .accessibilityIdentifier("bionic.addMenu")
-        } else if let workspaceMenu {
-            Menu { workspaceMenu } label: { trailingLabel }
-                .menuOrder(.fixed)
-                .buttonStyle(.plain)
-                .glassEffect(.regular.tint(.white.opacity(0.14)).interactive(), in: .capsule)
-                .accessibilityLabel(trailingAccessibilityLabel)
-                .accessibilityIdentifier("workspace.addMenu")
-        } else {
-            Button(action: onTrailingAction) { trailingLabel }
-                .buttonStyle(.plain)
-                .glassEffect(.regular.tint(.white.opacity(0.14)).interactive(), in: .capsule)
-                .accessibilityLabel(trailingAccessibilityLabel)
-        }
-    }
-
-    private var trailingLabel: some View {
-        Image(systemName: trailingSystemName)
-            .font(.system(size: 24, weight: .semibold))
-            .foregroundStyle(.blue)
-            .frame(width: 50, height: 50)
-            .contentShape(Circle())
-    }
-
-    private var modeMenu: some View {
-        Menu {
-            ForEach([AppShellMode.chat, .professional, .bionic], id: \.rawValue) { target in
-                let count = unreadSnapshot.count(for: target)
-                let suffix = count > 0 ? " (" + (count > 99 ? "99+" : String(count)) + ")" : ""
-                Button { onSelectMode(target) } label: {
-                    Label(target.title + suffix, systemImage: target.symbolName)
-                }
-            }
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: mode.symbolName)
-                    .font(.subheadline.weight(.semibold))
-                Text(mode.title)
-                    .font(.headline.weight(.semibold))
-                Image(systemName: "chevron.down")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
-            }
-            .foregroundStyle(unreadSnapshot.countOutside(mode) > 0 ? Color.blue : Color.primary)
-            .padding(.horizontal, 18)
-            .frame(height: 50)
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .glassEffect(.regular.tint(.white.opacity(0.12)).interactive(), in: .capsule)
-        .accessibilityLabel(PalmiL10n.tr("common.mode"))
-
-    }
-}
-
-struct AppShellModePickerScreen: View {
-    @Environment(\.palmiUnread) private var unreadSnapshot
-    let currentMode: AppShellMode
-    let onSelect: (AppShellMode) -> Void
-    let onDismiss: () -> Void
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 18) {
-                    ForEach([AppShellMode.chat, .professional, .bionic], id: \.rawValue) { mode in
-                        Button { onSelect(mode) } label: {
-                            HStack(spacing: 16) {
-                                Image(systemName: mode.symbolName).font(.title2).frame(width: 34)
-                                Text(mode.pickerTitle).font(.title3.weight(.semibold))
-                                Spacer()
-                                PalmiUnreadBadge(count: unreadSnapshot.count(for: mode))
-                                if mode == currentMode { Image(systemName: "checkmark.circle.fill") }
-                            }
-                            .foregroundStyle(.primary).padding(24).frame(maxWidth: .infinity)
-                            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 24))
-                        }.buttonStyle(.plain)
-                    }
-                }.padding(24).frame(maxWidth: 600)
-            }
-            .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle(PalmiL10n.tr("common.mode"))
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(PalmiL10n.tr("common.cancel"), action: onDismiss)
-                }
-            }
-        }
-    }
-}
-
-private struct ModeChipBackground: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(iOS 26, *) {
-            content
-                .background {
-                    Capsule(style: .continuous)
-                        .fill(.white)
-                        .glassEffect(.regular.tint(.white.opacity(0.82)), in: .capsule)
-                }
-        } else {
-            content
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(.white.opacity(0.94))
-                        .overlay(
-                            Capsule(style: .continuous)
-                                .stroke(Color.black.opacity(0.06), lineWidth: 0.8)
-                        )
-                        .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
-                )
-        }
-    }
-}
-
-private struct ModeWaveBackground: View {
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
-            Canvas { context, size in
-                let frame = ModeWaveFrame(
-                    size: size,
-                    time: timeline.date.timeIntervalSinceReferenceDate
-                )
-                frame.draw(in: context)
-            }
-        }
-    }
-}
-
-private struct ModeWaveFrame {
-    let size: CGSize
-    let time: TimeInterval
-
-    func draw(in context: GraphicsContext) {
-        let rect = CGRect(origin: .zero, size: size)
-        context.fill(Path(rect), with: .color(.white))
-
-        let boundaryY = size.height * 0.5
-        let amplitude = interpolate(16, 32, 0.78 + sin(time * 0.22) * 0.08)
-        let wavelength = size.width * 0.88
-
-        var blackRegion = Path()
-        blackRegion.move(to: .zero)
-        blackRegion.addLine(to: CGPoint(x: size.width, y: 0))
-        blackRegion.addLine(to: CGPoint(x: size.width, y: boundaryY))
-
-        let steps = 56
-        for step in stride(from: steps, through: 0, by: -1) {
-            let x = CGFloat(step) / CGFloat(steps) * size.width
-            let theta = (x / wavelength) * .pi * 2 + time * 0.72
-            let y = boundaryY
-                + sin(theta) * amplitude
-                + cos(theta * 0.55 - time * 0.28) * amplitude * 0.34
-            blackRegion.addLine(to: CGPoint(x: x, y: y))
-        }
-        blackRegion.closeSubpath()
-        context.fill(blackRegion, with: .color(.black))
-
-        drawWaveStroke(in: context, boundaryY: boundaryY, amplitude: amplitude, wavelength: wavelength)
-        drawGlyphs(in: context, boundaryY: boundaryY)
-    }
-
-    private func drawWaveStroke(in context: GraphicsContext, boundaryY: CGFloat, amplitude: CGFloat, wavelength: CGFloat) {
-        var wave = Path()
-        wave.move(to: CGPoint(x: 0, y: boundaryY))
-        let steps = 72
-        for step in 0...steps {
-            let x = CGFloat(step) / CGFloat(steps) * size.width
-            let theta = (x / wavelength) * .pi * 2 + time * 0.72
-            let y = boundaryY
-                + sin(theta) * amplitude
-                + cos(theta * 0.55 - time * 0.28) * amplitude * 0.34
-            wave.addLine(to: CGPoint(x: x, y: y))
-        }
-
-        context.stroke(
-            wave,
-            with: .linearGradient(
-                Gradient(colors: [
-                    .white.opacity(0.10),
-                    .white.opacity(0.86),
-                    .black.opacity(0.18)
-                ]),
-                startPoint: CGPoint(x: 0, y: boundaryY - amplitude),
-                endPoint: CGPoint(x: size.width, y: boundaryY + amplitude)
-            ),
-            style: StrokeStyle(lineWidth: 9, lineCap: .round, lineJoin: .round)
-        )
-    }
-
-    private func drawGlyphs(in context: GraphicsContext, boundaryY: CGFloat) {
-        let glyphs = ["01", "git", "<>", "[]", "{}", "+", "-", "&&", "||", "*", ";", "/", "=", "ls", "::", "cd"]
-
-        for index in 0..<132 {
-            let seed = CGFloat(index)
-            let x = CGFloat.randomish(seed * 0.37 + 18) * size.width
-            let baseY = CGFloat.randomish(seed * 0.63 + 41) * size.height
-            let y = baseY + sin(time * (0.16 + Double(index % 7) * 0.018) + Double(index)) * 11
-            let onBlack = y < boundaryY
-            let accent = sin(time * 1.25 + Double(index) * 0.7) > 0.96
-            let size = interpolate(9, 13, CGFloat.randomish(seed * 0.21 + 72))
-            let alpha = interpolate(0.06, 0.18, CGFloat.randomish(seed * 0.51 + 9))
-
-            let color: Color
-            if onBlack {
-                color = accent
-                    ? Color(red: 0.52, green: 0.97, blue: 1).opacity(alpha)
-                    : .white.opacity(alpha)
-            } else {
-                color = accent
-                    ? Color(red: 1, green: 0.36, blue: 0.48).opacity(alpha * 0.75)
-                    : .black.opacity(alpha * 0.72)
-            }
-
-            let text = Text(glyphs[index % glyphs.count])
-                .font(.system(size: size, weight: .medium, design: .monospaced))
-                .foregroundStyle(color)
-
-            context.draw(context.resolve(text), at: CGPoint(x: x, y: y))
-        }
-    }
-
-    private func interpolate(_ start: CGFloat, _ end: CGFloat, _ progress: CGFloat) -> CGFloat {
-        start + (end - start) * progress
-    }
-}
-
-private struct AppShellModePickerLayout {
-    let size: CGSize
-
-    var horizontalInset: CGFloat {
-        min(28, size.width * 0.065)
-    }
-
-    var buttonHeight: CGFloat {
-        min(78, max(72, size.height * 0.084))
-    }
-
-    var buttonWidth: CGFloat {
-        min(max(196, size.width * 0.58), 248)
-    }
-
-    var centerX: CGFloat {
-        size.width / 2
-    }
-
-    var chatCenterY: CGFloat {
-        size.height * 0.24
-    }
-
-    var professionalCenterY: CGFloat {
-        size.height * 0.76
-    }
-}
-
-private struct NativeGlassCapsule: ViewModifier {
-    let tint: Color
-    let foregroundMode: AppShellMode
-
-    func body(content: Content) -> some View {
-        if #available(iOS 26, *) {
-            content
-                .background {
-                    Capsule(style: .continuous)
-                        .fill(tint)
-                        .glassEffect(
-                            .regular
-                                .tint(tint.opacity(foregroundMode == .chat ? 0.88 : 0.76))
-                                .interactive(),
-                            in: .capsule
-                        )
-                }
-        } else {
-            content
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(tint.opacity(foregroundMode == .chat ? 0.92 : 0.82))
-                        .overlay(
-                            Capsule(style: .continuous)
-                                .stroke(
-                                    foregroundMode == .chat
-                                        ? Color.black.opacity(0.06)
-                                        : Color.white.opacity(0.12),
-                                    lineWidth: 0.8
-                                )
-                        )
-                )
-        }
-    }
-}
-
-private extension CGFloat {
-    static func randomish(_ seed: CGFloat) -> CGFloat {
-        let value = sin(seed * 12.9898) * 43_758.5453
-        return value - floor(value)
-    }
-}
-
-/// 专业模式右上角菜单：新建项目、内置浏览器、全部项目文件。
-struct WorkspaceAddMenu: View {
-    let onNewProject: () -> Void
-    let onOpenBrowser: (() -> Void)?
-    let onOpenFiles: () -> Void
-
-    var body: some View {
-        Button(PalmiL10n.tr("workspace.action.newProject"), systemImage: "folder.badge.plus", action: onNewProject)
-        if let onOpenBrowser {
-            Button(PalmiL10n.tr("browser.menu.browser"), systemImage: "safari", action: onOpenBrowser)
-        }
-        Button(PalmiL10n.tr("browser.menu.files"), systemImage: "folder", action: onOpenFiles)
+        .glassEffect(.regular.tint(.white.opacity(0.14)).interactive(), in: .capsule)
+        .accessibilityLabel(trailingAccessibilityLabel)
+        .accessibilityIdentifier("bionic.addMenu")
     }
 }

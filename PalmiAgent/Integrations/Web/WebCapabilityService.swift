@@ -14,86 +14,86 @@ nonisolated struct WebAdapterDescriptor: Identifiable, Hashable, Sendable {
 }
 
 nonisolated enum WebAdapterCatalog {
-    static let all: [WebAdapterDescriptor] = [
-        .init(id: WebAdapterID.deepSeekSearch, title: "DeepSeek 搜索 API", operation: .search, executionKind: .independentHTTP,
+    static var all: [WebAdapterDescriptor] { [
+        .init(id: WebAdapterID.deepSeekSearch, title: PalmiL10n.tr("ml.web.adapter.searchAPI", "DeepSeek"), operation: .search, executionKind: .independentHTTP,
               resultCapabilities: [.structuredSearchHits],
               defaultEndpoints: ["deepseek": .apiBasePlusRelativePath(base: "https://api.deepseek.com", relativePath: "v1/tools/search")],
               note: "独立工具接口，不需要模型"),
-        .init(id: WebAdapterID.deepSeekFetch, title: "DeepSeek 网页读取 API", operation: .fetch, executionKind: .independentHTTP,
+        .init(id: WebAdapterID.deepSeekFetch, title: PalmiL10n.tr("ml.web.adapter.fetchAPI", "DeepSeek"), operation: .fetch, executionKind: .independentHTTP,
               resultCapabilities: [.extractedPageText],
               defaultEndpoints: ["deepseek": .apiBasePlusRelativePath(base: "https://api.deepseek.com", relativePath: "v1/tools/fetch")],
               note: "返回提取的 Markdown，不是 DOM 或快照"),
-        .init(id: WebAdapterID.deepSeekResponsesSearch, title: "DeepSeek Responses 联网", operation: .search, executionKind: .modelServerTool,
+        .init(id: WebAdapterID.deepSeekResponsesSearch, title: PalmiL10n.tr("ml.web.adapter.responsesSearch", "DeepSeek"), operation: .search, executionKind: .modelServerTool,
               resultCapabilities: [.searchSynthesisOnly, .structuredSearchHits],
               defaultEndpoints: ["deepseek": .explicitURL("https://api.deepseek.com/responses")],
               note: "需要支持服务端 web_search 的模型"),
-        .init(id: WebAdapterID.openAIResponsesSearch, title: "OpenAI Responses 联网", operation: .search, executionKind: .modelServerTool,
+        .init(id: WebAdapterID.openAIResponsesSearch, title: PalmiL10n.tr("ml.web.adapter.responsesSearch", "OpenAI"), operation: .search, executionKind: .modelServerTool,
               resultCapabilities: [.structuredSearchHits, .searchSynthesisOnly],
               defaultEndpoints: ["openai": .apiBasePlusRelativePath(base: "https://api.openai.com/v1", relativePath: "responses")],
               note: "web_search 服务端工具"),
-        .init(id: WebAdapterID.anthropicSearch, title: "Anthropic 联网搜索", operation: .search, executionKind: .modelServerTool,
+        .init(id: WebAdapterID.anthropicSearch, title: PalmiL10n.tr("ml.web.adapter.search", "Anthropic"), operation: .search, executionKind: .modelServerTool,
               resultCapabilities: [.structuredSearchHits, .searchSynthesisOnly],
               defaultEndpoints: ["anthropic": .apiBasePlusRelativePath(base: "https://api.anthropic.com/v1", relativePath: "messages")],
               note: "web_search 服务端工具"),
-        .init(id: WebAdapterID.anthropicFetch, title: "Anthropic 网页抓取", operation: .fetch, executionKind: .modelServerTool,
+        .init(id: WebAdapterID.anthropicFetch, title: PalmiL10n.tr("ml.web.adapter.fetch", "Anthropic"), operation: .fetch, executionKind: .modelServerTool,
               resultCapabilities: [.extractedPageText, .documentBytes],
               defaultEndpoints: ["anthropic": .apiBasePlusRelativePath(base: "https://api.anthropic.com/v1", relativePath: "messages")],
               note: "web_fetch 服务端工具，与搜索分别验证"),
-        .init(id: WebAdapterID.qwenChatSearch, title: "百炼 Chat 联网（enable_search）", operation: .search, executionKind: .modelServerTool,
+        .init(id: WebAdapterID.qwenChatSearch, title: PalmiL10n.tr("ml.web.adapter.chatSearch", "Bailian"), operation: .search, executionKind: .modelServerTool,
               resultCapabilities: [.searchSynthesisOnly],
               defaultEndpoints: ["bailian": .explicitURL("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")],
               note: "只返回模型结论，不保证结构化来源"),
-        .init(id: WebAdapterID.qwenResponsesSearch, title: "百炼 Responses 联网", operation: .search, executionKind: .modelServerTool,
+        .init(id: WebAdapterID.qwenResponsesSearch, title: PalmiL10n.tr("ml.web.adapter.responsesSearch", "Bailian"), operation: .search, executionKind: .modelServerTool,
               resultCapabilities: [.structuredSearchHits, .searchSynthesisOnly], defaultEndpoints: [:],
               note: "需填写 Workspace 与区域的完整 Responses 地址"),
-        .init(id: WebAdapterID.qwenResponsesExtractor, title: "百炼网页提取", operation: .fetch, executionKind: .modelServerTool,
+        .init(id: WebAdapterID.qwenResponsesExtractor, title: PalmiL10n.tr("ml.web.adapter.extract", "Bailian"), operation: .fetch, executionKind: .modelServerTool,
               resultCapabilities: [.extractedEvidence], defaultEndpoints: [:],
               note: "目标导向的提取内容，不保证全文"),
-        .init(id: WebAdapterID.kimiSearchBasic, title: "Kimi 搜索", operation: .search, executionKind: .independentHTTP,
+        .init(id: WebAdapterID.kimiSearchBasic, title: PalmiL10n.tr("ml.web.adapter.search", "Kimi"), operation: .search, executionKind: .independentHTTP,
               resultCapabilities: [.structuredSearchHits],
               defaultEndpoints: ["kimi": .apiBasePlusRelativePath(base: "https://api.moonshot.cn/v1", relativePath: "tools/search")],
               note: "独立工具接口，不需要模型"),
-        .init(id: WebAdapterID.kimiSearchPro, title: "Kimi 搜索 Pro", operation: .search, executionKind: .independentHTTP,
+        .init(id: WebAdapterID.kimiSearchPro, title: PalmiL10n.tr("ml.web.adapter.searchPro", "Kimi"), operation: .search, executionKind: .independentHTTP,
               resultCapabilities: [.structuredSearchHits],
               defaultEndpoints: ["kimi": .apiBasePlusRelativePath(base: "https://api.moonshot.cn/v1", relativePath: "tools/search_pro")],
               note: "独立收费档位，不会自动升级"),
-        .init(id: WebAdapterID.kimiFetch, title: "Kimi 网页读取", operation: .fetch, executionKind: .independentHTTP,
+        .init(id: WebAdapterID.kimiFetch, title: PalmiL10n.tr("ml.web.adapter.fetch", "Kimi"), operation: .fetch, executionKind: .independentHTTP,
               resultCapabilities: [.extractedPageText],
               defaultEndpoints: ["kimi": .apiBasePlusRelativePath(base: "https://api.moonshot.cn/v1", relativePath: "tools/fetch")],
               note: "返回 Markdown，图片为链接或占位"),
-        .init(id: WebAdapterID.zhipuSearch, title: "智谱网络搜索", operation: .search, executionKind: .independentHTTP,
+        .init(id: WebAdapterID.zhipuSearch, title: PalmiL10n.tr("ml.web.adapter.search", PalmiL10n.tr("provider.glm")), operation: .search, executionKind: .independentHTTP,
               resultCapabilities: [.structuredSearchHits],
               defaultEndpoints: ["zhipu": .apiBasePlusRelativePath(base: "https://open.bigmodel.cn/api/paas/v4", relativePath: "web_search")],
               note: "独立工具接口，不需要模型"),
-        .init(id: WebAdapterID.zhipuReader, title: "智谱网页阅读", operation: .fetch, executionKind: .independentHTTP,
+        .init(id: WebAdapterID.zhipuReader, title: PalmiL10n.tr("ml.web.adapter.fetch", PalmiL10n.tr("provider.glm")), operation: .fetch, executionKind: .independentHTTP,
               resultCapabilities: [.extractedPageText],
               defaultEndpoints: ["zhipu": .apiBasePlusRelativePath(base: "https://open.bigmodel.cn/api/paas/v4", relativePath: "reader")],
               note: "REST 接口；Coding Plan 的 MCP Reader 是另一产品"),
-        .init(id: WebAdapterID.geminiSearch, title: "Gemini Google 搜索", operation: .search, executionKind: .modelServerTool,
+        .init(id: WebAdapterID.geminiSearch, title: PalmiL10n.tr("ml.web.adapter.search", "Gemini Google"), operation: .search, executionKind: .modelServerTool,
               resultCapabilities: [.structuredSearchHits, .searchSynthesisOnly], defaultEndpoints: [:],
               note: "使用连接中明确声明的原生 generateContent 端点"),
-        .init(id: WebAdapterID.geminiURLContext, title: "Gemini 网页上下文", operation: .fetch, executionKind: .modelServerTool,
+        .init(id: WebAdapterID.geminiURLContext, title: PalmiL10n.tr("ml.web.adapter.urlContext", "Gemini"), operation: .fetch, executionKind: .modelServerTool,
               resultCapabilities: [.modelURLAnalysis], defaultEndpoints: [:],
               note: "返回模型分析与读取状态，不保证全文"),
-        .init(id: WebAdapterID.xaiResponsesSearch, title: "xAI 联网搜索", operation: .search, executionKind: .modelServerTool,
+        .init(id: WebAdapterID.xaiResponsesSearch, title: PalmiL10n.tr("ml.web.adapter.search", "xAI"), operation: .search, executionKind: .modelServerTool,
               resultCapabilities: [.structuredSearchHits, .searchSynthesisOnly],
               defaultEndpoints: ["xai": .apiBasePlusRelativePath(base: "https://api.x.ai/v1", relativePath: "responses")],
               note: "web_search 服务端工具"),
-        .init(id: WebAdapterID.arkResponsesSearch, title: "火山方舟联网搜索", operation: .search, executionKind: .modelServerTool,
+        .init(id: WebAdapterID.arkResponsesSearch, title: PalmiL10n.tr("ml.web.adapter.search", "Volcengine Ark"), operation: .search, executionKind: .modelServerTool,
               resultCapabilities: [.structuredSearchHits, .searchSynthesisOnly],
               defaultEndpoints: ["ark": .explicitURL("https://ark.cn-beijing.volces.com/api/v3/responses")],
               note: "默认 search_engine 来源"),
-        .init(id: WebAdapterID.baiduSearch, title: "百度千帆搜索", operation: .search, executionKind: .independentHTTP,
+        .init(id: WebAdapterID.baiduSearch, title: PalmiL10n.tr("ml.web.adapter.search", "Baidu Qianfan"), operation: .search, executionKind: .independentHTTP,
               resultCapabilities: [.structuredSearchHits],
               defaultEndpoints: ["baidu": .explicitURL("https://qianfan.baidubce.com/v2/ai_search/web_search")],
               note: "独立工具接口，standard 档位"),
-        .init(id: WebAdapterID.genericResponsesSearch, title: "通用 Responses 联网", operation: .search, executionKind: .modelServerTool,
+        .init(id: WebAdapterID.genericResponsesSearch, title: PalmiL10n.tr("ml.web.adapter.genericResponses"), operation: .search, executionKind: .modelServerTool,
               resultCapabilities: [.searchSynthesisOnly], defaultEndpoints: [:],
               note: "只使用公共合同，能力需验证"),
-        .init(id: WebAdapterID.genericMessagesSearch, title: "通用 Messages 联网", operation: .search, executionKind: .modelServerTool,
+        .init(id: WebAdapterID.genericMessagesSearch, title: PalmiL10n.tr("ml.web.adapter.genericMessages"), operation: .search, executionKind: .modelServerTool,
               resultCapabilities: [.searchSynthesisOnly], defaultEndpoints: [:],
               note: "只使用公共合同，能力需验证")
-    ]
+    ] }
 
     static func descriptor(_ id: String) -> WebAdapterDescriptor? { all.first { $0.id == id } }
 
@@ -162,7 +162,7 @@ nonisolated enum ResolvedWebBackend: Sendable, Equatable {
 
     var displayDescription: String {
         switch self {
-        case .local: "本机"
+        case .local: PalmiL10n.tr("ml.web.local")
         case .adapter(_, let adapterID, _, _, let endpoint, let label):
             "\(label)（\(WebAdapterCatalog.descriptor(adapterID)?.title ?? adapterID)，\(endpoint.host ?? endpoint.absoluteString)）"
         }
@@ -224,7 +224,7 @@ final class WebCapabilityService {
             return WebIndependentAdapters.failure(.search, adapter: "local", error: WebAdapterError(kind: .unsupportedCapability, message: "本机后端不经由适配器执行"))
         }
         guard let connection = library.state.connection(connectionID) else {
-            return WebIndependentAdapters.failure(.search, adapter: adapterID, error: WebAdapterError(kind: .invalidInput, message: "连接已不存在"))
+            return WebIndependentAdapters.failure(.search, adapter: adapterID, error: WebAdapterError(kind: .invalidInput, message: PalmiL10n.tr("ml.connection.missing")))
         }
         let apiKey: String?
         switch connection.authenticationKind {
@@ -232,17 +232,17 @@ final class WebCapabilityService {
             switch library.credentialRead(for: connection) {
             case .present(let key): apiKey = key
             case .notFound:
-                return WebIndependentAdapters.failure(.search, adapter: adapterID, error: WebAdapterError(kind: .authentication, message: "连接「\(connection.displayName)」没有保存 API Key"))
+                return WebIndependentAdapters.failure(.search, adapter: adapterID, error: WebAdapterError(kind: .authentication, message: PalmiL10n.tr("ml.resolve.credentialMissing", connection.displayName)))
             case .temporarilyUnavailable:
-                return WebIndependentAdapters.failure(.search, adapter: adapterID, error: WebAdapterError(kind: .authentication, message: "凭据暂时不可读，请解锁设备后重试"))
+                return WebIndependentAdapters.failure(.search, adapter: adapterID, error: WebAdapterError(kind: .authentication, message: PalmiL10n.tr("ml.credential.error.locked")))
             case .failed(let status):
-                return WebIndependentAdapters.failure(.search, adapter: adapterID, error: WebAdapterError(kind: .authentication, message: "无法读取凭据（\(status)）"))
+                return WebIndependentAdapters.failure(.search, adapter: adapterID, error: WebAdapterError(kind: .authentication, message: PalmiL10n.tr("ml.credential.error.read", status)))
             }
         case .none:
             apiKey = nil
         case .chatGPTOAuth:
             // OAuth 令牌不能自动当作通用 API key；能力不明时保持未验证。
-            return WebIndependentAdapters.failure(.search, adapter: adapterID, error: WebAdapterError(kind: .unsupportedCapability, message: "Codex OAuth 连接不能用于该网页工具接口"))
+            return WebIndependentAdapters.failure(.search, adapter: adapterID, error: WebAdapterError(kind: .unsupportedCapability, message: PalmiL10n.tr("ml.web.error.oauth")))
         }
         var context = WebAdapterContext(
             endpoint: endpoint, apiKey: apiKey,
@@ -314,7 +314,7 @@ final class WebCapabilityService {
         guard let binding = library.state.web.binding(bindingID),
               let connection = library.state.connection(binding.connectionID),
               let endpoint = try? binding.endpoint.resolvedURL() else {
-            return WebIndependentAdapters.failure(.search, adapter: "unknown", error: WebAdapterError(kind: .invalidInput, message: "网页工具配置无效"))
+            return WebIndependentAdapters.failure(.search, adapter: "unknown", error: WebAdapterError(kind: .invalidInput, message: PalmiL10n.tr("ml.web.error.invalidConfig")))
         }
         let backend = ResolvedWebBackend.adapter(
             bindingID: binding.id, adapterID: binding.adapterID, connectionID: connection.id,

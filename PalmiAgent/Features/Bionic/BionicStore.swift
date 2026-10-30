@@ -22,6 +22,9 @@ final class BionicStore {
     let history: BionicHistoryIndex
     let purchases: BionicPurchaseStore
     var showingPurchase = false
+    /// 新建 / 导入角色的弹层：仿生首页右上角和侧栏圆按钮共用同一份状态。
+    var showingCreator = false
+    var showingImporter = false
     private(set) var roles: [BionicRole] = []
     var selectedID: String?
     var path: [String] = []
@@ -512,6 +515,17 @@ final class BionicStore {
         let value = try await archive.setChatBackground(instance, data: data)
         chatPreferences[instance] = value
     }
+    /// 新建、导入角色前先确认名额；名额不足时报错，不弹出。
+    func presentRoleCreator() async {
+        do { try await archive.requireRoleCapacity(); showingCreator = true }
+        catch { globalError = Self.errorText(error) }
+    }
+
+    func presentRoleImporter() async {
+        do { try await archive.requireRoleCapacity(); showingImporter = true }
+        catch { globalError = Self.errorText(error) }
+    }
+
     func open(_ instance: String, target: String? = nil) async {
         guard !resetting, !Task.isCancelled else { return }
         openTicket += 1

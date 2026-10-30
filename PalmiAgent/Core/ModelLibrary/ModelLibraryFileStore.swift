@@ -46,11 +46,11 @@ nonisolated final class ModelLibraryFileStore: @unchecked Sendable {
 
     func readEnvelope() -> ModelLibraryEnvelopeRead {
         guard let data = try? Data(contentsOf: stateURL) else {
-            return fileManager.fileExists(atPath: stateURL.path) ? .corrupt("无法读取模型库文件") : .absent
+            return fileManager.fileExists(atPath: stateURL.path) ? .corrupt(PalmiL10n.tr("ml.error.fileRead")) : .absent
         }
         guard let header = try? JSONDecoder().decode(ModelLibraryEnvelopeHeader.self, from: data),
               header.format == ModelLibraryState.formatIdentifier else {
-            return .corrupt("模型库文件格式无法识别")
+            return .corrupt(PalmiL10n.tr("ml.error.fileFormat"))
         }
         guard header.schemaVersion <= ModelLibraryState.supportedSchemaVersion else {
             return .futureFormat(version: header.schemaVersion)

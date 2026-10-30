@@ -466,6 +466,16 @@ final class ChatStore {
         observeAgentEvents()
     }
 
+    /// 新会话草稿的首次发送：先由外壳落库会话，再把草稿里的输入原样带过去发送。
+    func sendFromDraft(materialize: () -> WorkspaceSelection?) {
+        guard !composedInputText().isEmpty else { return }
+        let draft = currentComposerState()
+        guard materialize() != nil else { return }
+        loadMessagesForActiveThread()
+        applyComposerState(draft)
+        send()
+    }
+
     func send() {
         let visibleText = visibleInputText()
         let hiddenText = composedInputText()
@@ -481,6 +491,7 @@ final class ChatStore {
         }
 
         let turnSurface = surface(for: turnSelection)
+        let turnLanguage = PalmiLanguage.current
         let turnActions = composerActions(for: turnSelection)
         let modelOverrides = modelRoleOverrides(for: turnSelection)
         let runProviderID = modelOverrides.primaryProviderID ?? .customOpenAI
@@ -593,7 +604,10 @@ final class ChatStore {
             // 首个真实主请求成功完成后才派生标题请求；不阻塞主任务。
             runLoop.onFirstSuccessfulRequest = { [weak self, weak runLoop] frozen in
                 runLoop?.onFirstSuccessfulRequest = nil
-                self?.triggerAutoTitleGeneration(for: pendingAutoTitleTarget, frozen: frozen, loop: runLoop)
+                self?.triggerAutoTitleGeneration(
+                    for: pendingAutoTitleTarget, frozen: frozen,
+                    userMessage: visibleText, language: turnLanguage, loop: runLoop
+                )
             }
         }
 
@@ -666,9 +680,10 @@ final class ChatStore {
                     )
                     triggerNextPromptSuggestion(
                         for: turnSelection,
-                        userMessage: visibleText.isEmpty ? hiddenText : visibleText,
+                        userMessage: visibleText,
                         finalReply: result.finalReply,
                         isChatSurface: turnSurface == .chat,
+                        language: turnLanguage,
                         providerID: runProviderID,
                         modelOverrides: modelOverrides
                     )
@@ -1763,6 +1778,7 @@ final class ChatStore {
         userMessage: String,
         finalReply: String,
         isChatSurface: Bool,
+        language: PalmiLanguage,
         providerID: APIProviderID,
         modelOverrides: AgentModelBindings
     ) {
@@ -1777,6 +1793,7 @@ final class ChatStore {
                 userMessage: userMessage,
                 finalReply: finalReply,
                 isChatSurface: isChatSurface,
+                language: language,
                 providerID: providerID,
                 modelOverrides: modelOverrides
             )
@@ -1790,10 +1807,14 @@ final class ChatStore {
     private func triggerAutoTitleGeneration(
         for target: WorkspaceAutoTitleTarget,
         frozen: FrozenModelRequest,
+        userMessage: String,
+        language: PalmiLanguage,
         loop: AgentLoop?
     ) {
         Task { [weak self] in
-            guard let self, let outcome = await conversationTitleService.generateTitle(target: target, frozen: frozen) else { return }
+            guard let self, let outcome = await conversationTitleService.generateTitle(
+                target: target, frozen: frozen, userMessage: userMessage, language: language
+            ) else { return }
             if let usage = outcome.usage { loop?.recordMaintenanceUsage(usage) }
             guard let title = outcome.title else { return }
             // 写回前由 WorkspaceStore 再次核对目标仍是默认名称；用户改名、删除或重置始终优先。
@@ -1817,8 +1838,9 @@ final class ChatStore {
         }
 
         guard let selection = workspaceStore.selectedSelection else {
+            // 未选中会话即「新会话草稿」：空草稿也算加载完成，允许输入并发送（发送时才落库）。
             loadedSelection = nil
-            loadedProjectionSucceeded = false
+            loadedProjectionSucceeded = true
             messages = []
             queuedUserGuidance = []
             pendingAttachments = []

@@ -41,16 +41,16 @@ nonisolated enum ModelResolutionIssue: Error, LocalizedError, Equatable, Sendabl
     var errorDescription: String? {
         switch self {
         case .libraryUnavailable(let message): message
-        case .notConfigured: "尚未选择主模型。请在设置 › 模型里选择一个主模型。"
-        case .explicitlyUnconfigured: "这个会话明确设置为不使用主模型。请在会话的模型选择里指定一个模型或改为跟随默认。"
-        case .modelMissing: "所选主模型已从模型库删除。请重新选择主模型。"
-        case .connectionMissing: "主模型所属的连接已不存在。请重新选择主模型。"
-        case .notUsableAsMainModel(let title): "「\(title)」不能作为主模型（例如图像生成专用模型）。"
-        case .credentialMissing(let name): "连接「\(name)」需要 API Key，但没有保存凭据。"
-        case .credentialTemporarilyUnavailable(let name): "连接「\(name)」的凭据暂时不可读（设备可能已锁定），请稍后再试。"
-        case .credentialReadFailed(let name): "无法读取连接「\(name)」的凭据。"
-        case .conflictBlocked(let name): "「\(name)」在新旧版本中被同时修改，已暂停使用，请先在设置中处理冲突。"
-        case .endpointInvalid(let name): "连接「\(name)」的地址无效。"
+        case .notConfigured: PalmiL10n.tr("ml.resolve.notConfigured")
+        case .explicitlyUnconfigured: PalmiL10n.tr("ml.resolve.explicitlyUnconfigured")
+        case .modelMissing: PalmiL10n.tr("ml.resolve.modelMissing")
+        case .connectionMissing: PalmiL10n.tr("ml.resolve.connectionMissing")
+        case .notUsableAsMainModel(let title): PalmiL10n.tr("ml.resolve.notMain", title)
+        case .credentialMissing(let name): PalmiL10n.tr("ml.resolve.credentialMissing", name)
+        case .credentialTemporarilyUnavailable(let name): PalmiL10n.tr("ml.resolve.credentialLocked", name)
+        case .credentialReadFailed(let name): PalmiL10n.tr("ml.resolve.credentialRead", name)
+        case .conflictBlocked(let name): PalmiL10n.tr("ml.resolve.conflict", name)
+        case .endpointInvalid(let name): PalmiL10n.tr("ml.resolve.endpoint", name)
         }
     }
 }
@@ -67,13 +67,13 @@ extension ModelLibraryStore {
         guard availability.isReady else { return .failure(.libraryUnavailable(unavailableMessage)) }
         let binding = scope.flatMap { state.sessionBindings[$0.key] } ?? .inherit
         if let scope, state.conflicts.contains(where: { $0.subject == .scope(scope.key) && $0.blocksExecution }) {
-            return .failure(.conflictBlocked("会话模型选择"))
+            return .failure(.conflictBlocked(PalmiL10n.tr("chat.model")))
         }
         switch binding {
         case .explicitModel(let id): return .success(id)
         case .explicitUnconfigured: return .failure(.explicitlyUnconfigured)
         case .inheritDefault:
-            if !state.blockingConflicts(for: .defaultMainModel).isEmpty { return .failure(.conflictBlocked("默认主模型")) }
+            if !state.blockingConflicts(for: .defaultMainModel).isEmpty { return .failure(.conflictBlocked(PalmiL10n.tr("ml.mainModel"))) }
             switch state.defaultMainModel {
             case .selected(let id): return .success(id)
             case .unconfigured, .explicitlyCleared: return .failure(.notConfigured)
@@ -255,7 +255,7 @@ nonisolated enum ConnectionEndpointBuilder {
             return try OpenAICompatibleEndpointResolver.resolve(inputAddress, preference: preference)
         }
         guard components.user == nil, components.password == nil else {
-            throw ModelLibraryError.invalidInput("地址中不允许包含用户名或密码。")
+            throw ModelLibraryError.invalidInput(PalmiL10n.tr("ml.error.credentialsInAddress"))
         }
         let query = components.queryItems
         components.queryItems = nil

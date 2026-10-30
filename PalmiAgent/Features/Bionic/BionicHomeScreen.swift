@@ -7,15 +7,13 @@ struct BionicRootScreen: View {
     @Environment(\.palmiUnread) private var parentUnread
     @Bindable var store: BionicStore
     let onOpenSettings: () -> Void
-    let onSelectMode: (AppShellMode) -> Void
-    @State private var creating = false
-    @State private var importing = false
+    var onOpenDrawer: (() -> Void)? = nil
     @State private var preparing = false
     @State private var prepared: BionicMigrationService.PreparedImport?
     @State private var errorText: String?
     private var localUnread: PalmiUnreadSnapshot {
         var value = parentUnread
-        value.readingAllowed = value.readingAllowed && !creating && !importing
+        value.readingAllowed = value.readingAllowed && !store.showingCreator && !store.showingImporter
             && !preparing && prepared == nil && !store.showingPurchase
             && errorText == nil && store.globalError == nil
         return value
@@ -35,12 +33,12 @@ struct BionicRootScreen: View {
         }
         .environment(\.palmiUnread, localUnread)
         .task { await store.refresh() }
-        .sheet(isPresented: $creating) { NavigationStack { BionicPersonaEditor(store: store, instance: nil) } }
+        .sheet(isPresented: $store.showingCreator) { NavigationStack { BionicPersonaEditor(store: store, instance: nil) } }
         .sheet(isPresented: $store.showingPurchase) {
             BionicPurchaseSheet(purchases: store.purchases)
         }
         .sheet(item: $prepared) { item in NavigationStack { BionicImportScreen(store: store, prepared: item) } }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.zip]) { result in
+        .fileImporter(isPresented: $store.showingImporter, allowedContentTypes: [.zip]) { result in
             switch result {
             case .success(let url):
                 preparing = true
@@ -56,12 +54,6 @@ struct BionicRootScreen: View {
             if !$0 { errorText = nil; store.globalError = nil }
         })) { Button(PalmiL10n.tr("bionic.ok"), role: .cancel) { errorText = nil; store.globalError = nil } }
         message: { Text(errorText ?? store.globalError ?? "") }
-    }
-    private func checkCapacity(_ proceed: @escaping @MainActor () -> Void) {
-        Task {
-            do { try await store.archive.requireRoleCapacity(); proceed() }
-            catch { errorText = BionicStore.errorText(error) }
-        }
     }
     private var home: some View {
         let displayedRoles = store.orderedRoles
@@ -118,11 +110,8 @@ struct BionicRootScreen: View {
         .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .top, spacing: 0) {
             AppShellTopBar(mode: .bionic, trailingSystemName: "plus", trailingAccessibilityLabel: PalmiL10n.tr("common.add"),
-                           onOpenSettings: onOpenSettings, onTrailingAction: {}, onSelectMode: onSelectMode,
-                           bionicMenu: BionicAddMenu(purchases: store.purchases,
-                               onCreate: { checkCapacity { creating = true } },
-                               onImport: { checkCapacity { importing = true } },
-                               onPro: { store.showingPurchase = true }))
+                           onOpenSettings: onOpenSettings, bionicMenu: BionicAddMenu(store: store),
+                           onOpenDrawer: onOpenDrawer)
                 .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 6)
                 .background(Color(uiColor: .systemGroupedBackground))
         }
@@ -145,18 +134,20 @@ struct BionicAvatar: View {
     }
 }
 
+/// 仿生「添加」菜单：仿生首页右上角和侧栏右下角圆按钮展开的是同一份菜单。
 struct BionicAddMenu: View {
-    let purchases: BionicPurchaseStore
-    let onCreate: () -> Void
-    let onImport: () -> Void
-    let onPro: () -> Void
+    let store: BionicStore
 
     var body: some View {
-        Button(PalmiL10n.tr("bionic.create"), systemImage: "person.badge.plus", action: onCreate)
-        Button(PalmiL10n.tr("bionic.import"), systemImage: "square.and.arrow.down", action: onImport)
+        Button(PalmiL10n.tr("bionic.create"), systemImage: "person.badge.plus") {
+            Task { await store.presentRoleCreator() }
+        }
+        Button(PalmiL10n.tr("bionic.import"), systemImage: "square.and.arrow.down") {
+            Task { await store.presentRoleImporter() }
+        }
         Divider()
-        Button(PalmiL10n.tr(purchases.hasFullAccess ? "bionic.pro.about" : "bionic.pro.get"),
-               systemImage: purchases.hasFullAccess ? "checkmark.seal" : "sparkles", action: onPro)
+        Button(PalmiL10n.tr(store.purchases.hasFullAccess ? "bionic.pro.about" : "bionic.pro.get"),
+               systemImage: store.purchases.hasFullAccess ? "checkmark.seal" : "sparkles") { store.showingPurchase = true }
         Divider()
         Button(PalmiL10n.tr("bionic.cancel"), role: .cancel) { }
     }

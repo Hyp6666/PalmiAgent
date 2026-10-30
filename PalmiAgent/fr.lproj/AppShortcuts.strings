@@ -1,0 +1,4 @@
+"Open ${applicationName}" = "Ouvrir ${applicationName}";
+"Launch ${applicationName} developer mode" = "Lancer le mode développeur de ${applicationName}";
+"Create a workspace with ${applicationName}" = "Créer un espace de travail avec ${applicationName}";
+"Make a test workspace in ${applicationName}" = "Créer un espace de travail de test dans ${applicationName}";

@@ -294,7 +294,8 @@ extension BionicArchiveStore {
             let path = try saveAsset(instance, image.data)
             guard path == image.record.text("asset") else { throw BionicFailure("archiveInvalid") }
         }
-        let labels = ["zh-Hans": "[图片]", "zh-Hant": "[圖片]", "en": "[Photo]", "ja": "[写真]", "ko": "[사진]"]
+        let labels = ["zh-Hans": "[图片]", "zh-Hant": "[圖片]", "en": "[Photo]", "ja": "[写真]", "ko": "[사진]",
+                      "de": "[Foto]", "sv": "[Foto]", "ar-EG": "[صورة]", "tr": "[Fotoğraf]", "id": "[Foto]", "fr": "[Photo]"]
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? (labels[role.persona.text("native_language")] ?? "[Photo]") : text
         var message = BionicRecords.message(role, text: body, author: "user", reply: reply, generated: now, logical: now, now: now, origin: "user_input")
         if !images.isEmpty { message["attachments"] = .records(images.map(\.record)) }

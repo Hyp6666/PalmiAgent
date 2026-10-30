@@ -78,7 +78,7 @@ final class ChatScreenReadReceiptTests: XCTestCase {
 }
 
 @MainActor
-private final class ChatReadFixture {
+final class ChatReadFixture {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("ChatRead-" + UUID().uuidString)
     let suite = "ChatScreenReadTests." + UUID().uuidString
     let defaults: UserDefaults
@@ -87,6 +87,8 @@ private final class ChatReadFixture {
     let registry: SkillRegistry
     let unread: ChatUnreadStore
     let store: ChatStore
+    let manualLab: ManualLabStore
+    let bionic: BionicStore
     let selection: WorkspaceSelection
     let surface: WorkspaceProjectSurface
 
@@ -126,6 +128,13 @@ private final class ChatReadFixture {
             currentDateTimeService: CurrentDateTimeService(), alarmService: AlarmService(),
             ocrService: PPocrv6TinyOCRService(workspaceManager: manager),
             modelRuntime: runtime, userDefaults: defaults)
+        manualLab = ManualLabStore(actions: [], executor: executor, modelLibrary: library,
+            modelRuntime: runtime, remoteWebSearchService: RemoteWebSearchService(),
+            webCapabilityService: WebCapabilityService(library: library), workspaceStore: workspace,
+            toolPermissionStore: permissions, toolAuthorizationStore: authorization)
+        bionic = BionicStore(modelRuntime: runtime, modelLibrary: library,
+            notificationService: NotificationService(),
+            archive: BionicArchiveStore(root: root.appendingPathComponent("bionic")))
         let toolExecutor = AgentToolExecutor(actionExecutor: executor, executionCoordinator: ToolExecutionCoordinator())
         let contexts = ContextAssembler(promptComposer: PromptComposer(userDefaults: defaults),
             toolContextProjector: ToolContextProjector(), researchStateAssembler: ResearchStateAssembler(),

@@ -1,60 +1,7 @@
 import Foundation
 import SwiftUI
 
-enum PalmiLanguage: String, CaseIterable, Identifiable, Sendable {
-    case zhHans = "zh-Hans"
-    case zhHant = "zh-Hant"
-    case en = "en"
-    case ja = "ja"
-    case ko = "ko"
-
-    static let storageKey = "palmi.onboarding.selected-language-id"
-
-    var id: String { rawValue }
-
-    var locale: Locale {
-        Locale(identifier: rawValue)
-    }
-
-    var displayTitle: String {
-        switch self {
-        case .zhHans: return "简体中文"
-        case .zhHant: return "繁體中文"
-        case .en: return "English"
-        case .ja: return "日本語"
-        case .ko: return "한국어"
-        }
-    }
-
-    var systemPromptLanguageInstruction: String {
-        switch self {
-        case .zhHans:
-            return "无特殊要求默认用简体中文回答"
-        case .zhHant:
-            return "無特殊要求預設用繁體中文回答"
-        case .en:
-            return "Unless otherwise specified, please answer in English."
-        case .ja:
-            return "特に指定がない限り、回答は日本語で行われます。"
-        case .ko:
-            return "별도의 언급이 없는 한, 답변은 한국어로 제공됩니다."
-        }
-    }
-
-    static var current: PalmiLanguage {
-        resolve(UserDefaults.standard.string(forKey: storageKey))
-    }
-
-    static func resolve(_ rawValue: String?) -> PalmiLanguage {
-        guard let rawValue,
-              let language = PalmiLanguage(rawValue: rawValue) else {
-            return .zhHans
-        }
-        return language
-    }
-}
-
-enum PalmiL10n {
+nonisolated enum PalmiL10n {
     static func tr(_ key: String, _ args: CVarArg...) -> String {
         let language = PalmiLanguage.current
         let localizedBundle = Self.bundle(for: language)

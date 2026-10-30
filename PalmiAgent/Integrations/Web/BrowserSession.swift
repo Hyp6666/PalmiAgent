@@ -2,6 +2,12 @@ import Foundation
 import UIKit
 import WebKit
 
+struct BrowserNavigationState: Equatable {
+    var canGoBack = false
+    var canGoForward = false
+    var isLoading = false
+}
+
 // 使用单次完成的桥接，超时或取消后迟到的 WebKit 回调不会再次恢复 continuation。
 @MainActor
 private final class BrowserPendingResult<Value> {
@@ -36,18 +42,28 @@ final class BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
     private var dismissDialog: (() -> Void)?
     /// 页面标题或地址变化时回调，用于更新标签页列表与持久化。
     var onPageChanged: ((URL?, String?) -> Void)?
+    var onNavigationChanged: ((BrowserNavigationState) -> Void)?
+    var onPageRendered: (() -> Void)?
+    private var previewCompletions: [(UIImage?) -> Void] = []
+    private var previewTimeout: Task<Void, Never>?
+    private var previewToken: UUID?
+    private(set) var needsProcessRecovery = false
     private var pageObservations: [NSKeyValueObservation] = []
     private var geolocationBridge: BrowserGeolocationBridge?
 
     init(dataStore: WKWebsiteDataStore) {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = dataStore
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        configuration.allowsInlineMediaPlayback = true
+        configuration.preferences.inactiveSchedulingPolicy = .suspend
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
         frameBridge.install(on: configuration.userContentController)
         if #unavailable(iOS 27.0) {
             let bridge = BrowserGeolocationBridge()
@@ -57,17 +73,86 @@ final class BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
         pageObservations = [
             webView.observe(\.title, options: [.new]) { [weak self] webView, _ in
                 let url = webView.url, title = webView.title
-                Task { @MainActor in self?.onPageChanged?(url, title) }
+                Task { @MainActor [weak self] in self?.onPageChanged?(url, title) }
             },
             webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
                 let url = webView.url, title = webView.title
-                Task { @MainActor in self?.onPageChanged?(url, title) }
+                Task { @MainActor [weak self] in self?.onPageChanged?(url, title) }
+            },
+            webView.observe(\.canGoBack, options: [.new]) { [weak self] _, _ in
+                Task { @MainActor [weak self] in self?.publishNavigationState() }
+            },
+            webView.observe(\.canGoForward, options: [.new]) { [weak self] _, _ in
+                Task { @MainActor [weak self] in self?.publishNavigationState() }
+            },
+            webView.observe(\.isLoading, options: [.new]) { [weak self] _, _ in
+                Task { @MainActor [weak self] in self?.publishNavigationState() }
             }
         ]
         frameBridge.onBlockedNavigation = { [weak self] message in
             guard let self, self.blockedMessages.count < 20 else { return }
             self.blockedMessages.append(message)
         }
+    }
+
+    private func publishNavigationState() {
+        guard !disposed else { return }
+        onNavigationChanged?(.init(canGoBack: webView.canGoBack, canGoForward: webView.canGoForward,
+                                  isLoading: webView.isLoading))
+    }
+
+    /// Independent of the agent operation deadline; previews must never cancel an agent request.
+    func capturePreview(afterScreenUpdates: Bool = false, completion: @escaping (UIImage?) -> Void) {
+        guard !disposed, webView.window != nil, webView.bounds.width > 0, webView.bounds.height > 0 else {
+            completion(nil)
+            return
+        }
+        previewCompletions.append(completion)
+        guard previewToken == nil else { return }
+        let token = UUID()
+        previewToken = token
+        let configuration = WKSnapshotConfiguration()
+        configuration.rect = CGRect(origin: .zero, size: CGSize(width: webView.bounds.width,
+            height: min(webView.bounds.height, webView.bounds.width * 4 / 3)))
+        configuration.snapshotWidth = 240
+        configuration.afterScreenUpdates = afterScreenUpdates
+        previewTimeout = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(1))
+                self?.finishPreview(nil, token: token)
+            } catch { }
+        }
+        webView.takeSnapshot(with: configuration) { [weak self] image, _ in
+            guard let self, self.previewToken == token else { return }
+            // WebKit returns device-scale images. Bound decoded memory, too, not just JPEG size.
+            let thumbnail = image.map { image in
+                let format = UIGraphicsImageRendererFormat()
+                format.scale = 1
+                format.opaque = true
+                return UIGraphicsImageRenderer(size: CGSize(width: 240, height: 320), format: format).image { _ in
+                    UIColor.systemBackground.setFill()
+                    UIRectFill(CGRect(x: 0, y: 0, width: 240, height: 320))
+                    image.draw(in: CGRect(x: 0, y: 0, width: 240, height: 240 * image.size.height / image.size.width))
+                }
+            }
+            self.finishPreview(thumbnail, token: token)
+        }
+    }
+
+    private func finishPreview(_ image: UIImage?, token: UUID) {
+        guard previewToken == token else { return }
+        previewToken = nil
+        previewTimeout?.cancel()
+        previewTimeout = nil
+        let completions = previewCompletions
+        previewCompletions.removeAll()
+        completions.forEach { $0(image) }
+    }
+
+    func recoverIfNeeded() {
+        guard needsProcessRecovery, !disposed else { return }
+        needsProcessRecovery = false
+        webView.reload()
     }
 
     func begin(timeout: TimeInterval = 30) throws {
@@ -108,6 +193,9 @@ final class BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
         geolocationBridge?.uninstall()
         geolocationBridge = nil
         onPageChanged = nil
+        onNavigationChanged = nil
+        onPageRendered = nil
+        if let token = previewToken { finishPreview(nil, token: token) }
         abort(BrowserToolError(code: "session_closed", message: "浏览器会话已关闭。"))
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
@@ -262,7 +350,7 @@ final class BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     private func showDialog(message: String, defaultText: String? = nil, isPrompt: Bool = false,
                             cancellable: Bool = true, completion: @escaping (String?) -> Void) -> Bool {
-        guard isHandedOff, UIApplication.shared.applicationState == .active,
+        guard (isHandedOff || !isBusy), UIApplication.shared.applicationState == .active,
               let presenter = dialogPresenter, presenter.presentedViewController == nil,
               presenter.viewIfLoaded?.window != nil else { return false }
         let alert = UIAlertController(title: PalmiL10n.tr("tool.facade.browser"), message: message, preferredStyle: .alert)
@@ -302,6 +390,7 @@ final class BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         guard !disposed else { return }
         currentNavigation = navigation
+        needsProcessRecovery = false
         ledger.invalidate()
         frameBridge.reset()
     }
@@ -310,6 +399,8 @@ final class BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
         guard !disposed, navigation === currentNavigation else { return }
         navigationCompletion?(.success(()))
         navigationCompletion = nil
+        publishNavigationState()
+        onPageRendered?()
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -333,11 +424,13 @@ final class BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         abort(BrowserToolError(code: "web_process_terminated", message: "网页进程已退出，请先 observe 或 reload。"))
+        needsProcessRecovery = true
+        if webView.window != nil, webView.isUserInteractionEnabled { recoverIfNeeded() }
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        guard BrowserSafety.allowsNavigation(navigationAction.request.url), !navigationAction.shouldPerformDownload else {
+        guard BrowserSafety.allowsFrameNavigation(navigationAction.request.url, isMainFrame: navigationAction.targetFrame?.isMainFrame ?? true), !navigationAction.shouldPerformDownload else {
             blockedMessages.append(navigationAction.shouldPerformDownload ? "已拦截下载。" : "已拦截非 http/https 导航。")
             decisionHandler(.cancel)
             return
@@ -348,13 +441,12 @@ final class BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
                  decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
         let disposition = (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")?.lowercased() ?? ""
-        guard BrowserSafety.allowsNavigation(navigationResponse.response.url),
+        guard BrowserSafety.allowsFrameNavigation(navigationResponse.response.url, isMainFrame: navigationResponse.isForMainFrame),
               BrowserSafety.allowsResponse(isDownload: disposition.contains("attachment"), canShowMIMEType: navigationResponse.canShowMIMEType) else {
             blockedMessages.append("已拦截下载或不可显示的导航响应。")
             decisionHandler(.cancel)
             return
         }
-        frameBridge.acceptPolicy(from: navigationResponse.response)
         decisionHandler(.allow)
     }
 

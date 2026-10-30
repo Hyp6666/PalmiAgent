@@ -1,0 +1,13 @@
+"CFBundleDisplayName" = "PalmiAgent";
+"CFBundleName" = "PalmiAgent";
+"NSAlarmKitUsageDescription" = "يحتاج PalmiAgent إلى الوصول إلى منبّهات النظام لإنشاء المنبّهات والمؤقتات وعرضها وإدارتها.";
+"NSCalendarsFullAccessUsageDescription" = "يحتاج PalmiAgent إلى الوصول إلى التقويم لإنشاء أحداث تجريبية وقراءتها.";
+"NSCameraUsageDescription" = "يحتاج PalmiAgent إلى الوصول إلى الكاميرا لالتقاط الصور ومسح المستندات والتعرف على النص الحي.";
+"NSContactsUsageDescription" = "يحتاج PalmiAgent إلى الوصول إلى جهات الاتصال لإنشاء جهات اتصال تجريبية والبحث فيها.";
+"NSLocalNetworkUsageDescription" = "يحتاج PalmiAgent إلى الوصول إلى الشبكة المحلية لاكتشاف خوادم LM Studio على الشبكة نفسها والاتصال بها.";
+"NSLocationWhenInUseUsageDescription" = "يحتاج PalmiAgent إلى الوصول إلى الموقع للبحث عن الأماكن ومعاينة المسارات والبحث عن العناوين.";
+"NSMicrophoneUsageDescription" = "يحتاج PalmiAgent إلى الوصول إلى الميكروفون للتعرف على الكلام والتفاعلات الصوتية المستقبلية.";
+"NSPhotoLibraryAddUsageDescription" = "يحتاج PalmiAgent إلى إذن الإضافة إلى مكتبة صورك لحفظ الصور التجريبية المولدة.";
+"NSPhotoLibraryUsageDescription" = "يحتاج PalmiAgent إلى الوصول إلى مكتبة الصور لاختيار الصور ومعالجة الوسائط.";
+"NSRemindersFullAccessUsageDescription" = "يحتاج PalmiAgent إلى الوصول إلى التذكيرات لإنشاء تذكيرات تجريبية وقراءتها.";
+"NSSpeechRecognitionUsageDescription" = "يحتاج PalmiAgent إلى الوصول إلى التعرف على الكلام للإدخال الصوتي والتجارب الصوتية.";

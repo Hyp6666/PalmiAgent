@@ -578,15 +578,17 @@ final class WorkspaceManager {
     func createProject(
         named name: String,
         surface: WorkspaceProjectSurface = .professional,
-        initialThreadName: String = "主会话",
-        activate: Bool = true
+        initialThreadName: String? = "主会话",
+        activate: Bool = true,
+        isDefault: Bool = false
     ) throws -> WorkspaceProjectRecord {
         _ = try ensureWorkspaceStorage()
         let project = WorkspaceProjectRecord(
             id: UUID(),
             name: normalizedDisplayName(name, fallback: "未命名项目"),
             createdAt: .now,
-            surface: surface
+            surface: surface,
+            isDefault: isDefault
         )
         let directoryURL = projectDirectoryURL(for: project.id)
         let workspaceURL = projectWorkspaceDirectoryURL(for: project.id)
@@ -596,8 +598,11 @@ final class WorkspaceManager {
         _ = try ensureHiddenFilesRoot(in: workspaceURL)
         try writeJSON(project, to: projectManifestURL(for: project.id))
 
-        let initialThread = try createThread(named: initialThreadName, in: project.id)
-        if activate { try activateThread(projectID: project.id, threadID: initialThread.id) }
+        // initialThreadName 为 nil：只建工作区本身（新会话草稿会在首次发送时再建会话）。
+        if let initialThreadName {
+            let initialThread = try createThread(named: initialThreadName, in: project.id)
+            if activate { try activateThread(projectID: project.id, threadID: initialThread.id) }
+        }
         return project
     }
 
@@ -763,6 +768,11 @@ final class WorkspaceManager {
         } else {
             activeSelection = nil
         }
+    }
+
+    /// 新会话草稿：界面不指向任何会话，后台任务刷新列表时也不会把界面拉回旧会话。
+    func clearActiveSelection() {
+        activeSelection = nil
     }
 
     func activateThread(projectID: UUID, threadID: UUID) throws {

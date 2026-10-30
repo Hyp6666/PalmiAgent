@@ -1027,8 +1027,8 @@
 "remoteSearch.error.title" = "Configuration Error";
 
 /* PalmiAgent 仿生模式 */
-"appMode.bionic" = "Companion";
-"appMode.bionicMode" = "Companion mode";
+"appMode.bionic" = "Bionic";
+"appMode.bionicMode" = "Bionic mode";
 "bionic.age" = "Age: %d";
 "bionic.appData" = "App data, including characters";
 "bionic.appSettings" = "App settings";
@@ -1664,7 +1664,7 @@
 "bionic.introduction.cost" = "As always, this uses the models you configure yourself. Palmi APP does not cover their usage costs. Neither the free plan nor a one-time Bionic Pro purchase includes model credits; model services are billed separately according to your setup.\n\nThere is something I should point out: Bionic mode does much more than generate the reply you see. Its other operations may use several times as many tokens as the messages delivered to you. Choose a suitable model and keep an eye on your bill.\n\nMy recommendation for the main model is DeepSeek-Flash: quick replies and, in my experience, an excellent conversational feel. In actual use, my testing showed that several days of moderately active character conversations cost roughly as much as a single Professional-mode request to “create an SVG animation of a pelican riding a bicycle.” In addition, we carefully designed a simulation experiment to quantify model usage and costs. See the [Bionic Chat Simulation Token Usage and Cost Analysis Report](https://github.com/Hyp6666/PalmiAgent/blob/main/docs/reports/bionic-chat-token-usage.en.md).\n\nThis update also adds Codex OAuth sign-in. If your subscription supports Codex, you can try signing in to Palmi APP and configuring an available image model, subject to your account’s access. Your character might just surprise you with a selfie.";
 "bionic.introduction.closing" = "Everything generated here is fictional. The words, the photographs—all of it is data produced by modern AI models. Please bring your own judgment to what you see.\n\nWe do not run a server that relays these conversations. We cannot oversee—and should not oversee—the flow of data between you and the model services you configure. Nor can we make promises or stand behind everything those models may produce. Please always remember that your story with a Bionic character is fictional. Put down the screen and experience more of real life.";
 "updates.title" = "What’s new";
-"updates.current" = "Palmi 26.10";
+"updates.current" = "Palmi 26.11";
 "updates.history" = "Previous releases";
 "updates.source" = "Read the original GitHub Release";
 "updates.dismiss" = "Done";
@@ -1911,3 +1911,147 @@
 "settings.runtime.professionalStyle" = "Professional mode activity";
 "settings.runtime.progressiveScope" = "Chat always uses Neo for activity and keeps every answer segment visible. This preference applies only to Professional mode.";
 "chat.runtime.notice" = "Run status";
+
+/* 统一会话外壳：开始屏短句、侧栏 */
+"start.greeting.chat.1" = "Hey there — what's on your mind today?";
+"start.greeting.chat.2" = "Finally, you're here!";
+"start.greeting.chat.3" = "Type anything, let's talk";
+"start.greeting.chat.4" = "Any news? I'm all ears";
+"start.greeting.chat.5" = "Grab a coffee, let's chat";
+"start.greeting.chat.6" = "How's your day going?";
+"start.greeting.chat.7" = "Ask me anything, really";
+"start.greeting.chat.8" = "Ready when you are";
+"start.greeting.chat.9" = "Penny for your thoughts?";
+"start.greeting.chat.10" = "Good to see you again!";
+"start.greeting.professional.1" = "Bring me something worth the effort";
+"start.greeting.professional.2" = "At your service — what's the job?";
+"start.greeting.professional.3" = "What are we shipping today?";
+"start.greeting.professional.4" = "Let's get things done";
+"start.greeting.professional.5" = "Standing by for orders";
+"start.greeting.professional.6" = "Throw me your toughest problem";
+"start.greeting.professional.7" = "Hand it over and grab a coffee";
+"start.greeting.professional.8" = "Sleeves rolled up. Let's build";
+"start.greeting.professional.9" = "Files, web, code — I've got it";
+"start.greeting.professional.10" = "Name the goal, I'll handle the rest";
+"drawer.open" = "Open Sidebar";
+"drawer.close" = "Close Sidebar";
+"drawer.search" = "Search";
+"drawer.browser" = "Built-in Browser";
+"drawer.files" = "Files";
+"drawer.workspaces" = "Workspaces";
+"drawer.newWorkspace" = "New Workspace";
+"drawer.noResults" = "No matches";
+"chat.newConversation" = "New Chat";
+"chat.model" = "Model";
+"start.workspace.newWorkspace" = "New Workspace…";
+"start.workspace.hint" = "Files for this task will live here";
+
+/* 内部工具（整理上下文 / 读取工具结果） */
+"agent.internalTool.compact" = "Compact context";
+"agent.internalTool.readResult" = "Read tool result";
+"agent.internalTool.running" = "Running";
+"agent.internalTool.failed" = "Tool call failed";
+"agent.compact.scheduled.summary" = "Context compaction scheduled";
+"agent.compact.scheduled.details" = "Runs at a safe point after this batch of tools finishes; nothing has been compacted yet.";
+"agent.compact.failed" = "Couldn't schedule compaction";
+"agent.readResult.summary" = "Read bytes %d..<%d of %d";
+"agent.readResult.next" = "Next segment starts at %d";
+"agent.readResult.end" = "Reached the end";
+"agent.readResult.failed" = "Couldn't read tool result";
+
+/* 仿生入口 */
+"start.bionic.enter" = "Enter";
+
+/* 默认工作区 */
+"workspace.defaultWorkspace.name" = "Default Workspace";
+"drawer.customWorkspaces" = "My Workspaces";
+"ml.template.bailian" = "Alibaba Cloud Bailian";
+"ml.template.zhipuCodingNote" = "Messages-compatible; a separate preset from the standard API.";
+"ml.template.bailianNote" = "Compatibility endpoint for mainland China.";
+"ml.template.geminiNote" = "OpenAI-compatible endpoint; native web tools use the separately declared generateContent endpoint.";
+"ml.references.sessions" = "%d sessions or characters";
+"ml.references.webTools" = "%d web tools";
+"ml.error.restoreConnection" = "Restore this model’s connection first.";
+"ml.error.credentialsInAddress" = "The address must not contain a username or password.";
+"ml.error.write" = "Could not write the model library: %@";
+"ml.error.save" = "Could not save the model library: %@";
+"ml.error.notLoaded" = "The model library has not loaded yet.";
+"ml.error.futureFormat" = "The model library is from a newer version (v%d) and can only be preserved as read-only in this version.";
+"ml.error.unreadable" = "Could not read the model library: %@. The original data was saved separately.";
+"ml.error.legacyUnsafe" = "The earlier model configuration is corrupt or from a newer version. Compatibility writes have stopped; the original data is unchanged.";
+"ml.error.legacyCleared" = "The earlier model configuration was cleared, possibly by a reset. The new configuration is unchanged and was not written back automatically.";
+"ml.error.legacyConflict" = "Both versions changed the same critical setting. Compatibility writes are paused until you choose which version to keep.";
+"ml.error.publish" = "Compatibility data could not be fully written: %@. The earlier version still reads the original configuration.";
+"ml.error.readBack" = "Compatibility data read-back did not match the expected result. The recovery log was preserved.";
+"ml.resolve.notConfigured" = "Choose a default model in Settings › Models first.";
+"ml.resolve.explicitlyUnconfigured" = "This session is explicitly set to use no default model. Select a model in the session or choose Follow Default Model.";
+"ml.resolve.modelMissing" = "The selected default model was deleted from the library. Choose a model again.";
+"ml.resolve.connectionMissing" = "The default model’s connection no longer exists. Select a default model again.";
+"ml.resolve.notMain" = "“%@” cannot be the default model, for example if it only generates images.";
+"ml.resolve.credentialMissing" = "The connection “%@” requires an API key, but none is saved.";
+"ml.resolve.credentialLocked" = "Credentials for “%@” are temporarily unavailable, possibly because the device is locked. Try again later.";
+"ml.resolve.credentialRead" = "Could not read credentials for “%@”.";
+"ml.resolve.conflict" = "“%@” was changed in both versions. Its use is paused until you resolve the conflict in Settings.";
+"ml.resolve.endpoint" = "The address for connection “%@” is invalid.";
+"ml.credential.error.locked" = "Protected credentials are temporarily unavailable, possibly because the device is locked. Try again later.";
+"ml.credential.error.read" = "Could not read protected credentials (%d).";
+"ml.credential.error.missing" = "The connection requires an API key, but no saved credentials were found.";
+"ml.credential.error.verification" = "Credentials read back after writing did not match. The original configuration was preserved.";
+"ml.migration.error.locked" = "Protected credentials are temporarily unavailable. Migration is deferred until the next unlock; the original configuration is unchanged.";
+"ml.migration.note.primaryInvalid" = "The earlier plan’s default model %@ was invalid or not among its candidates. No default model was set.";
+"ml.migration.note.unreadable" = "The earlier model archive could not be parsed (%@). Original data was preserved and will not be overwritten.";
+"ml.migration.note.future" = "The earlier model archive is from a newer version (v%@). Original data was preserved and will not be overwritten.";
+"ml.error.invalidDataType" = "Invalid data type";
+"ml.error.searchDecode" = "Could not decode the remote search configuration";
+"ml.error.unknownVersion" = "Unknown version %@";
+"ml.error.fileRead" = "Could not read the model library file";
+"ml.error.fileFormat" = "Unrecognized model library file format";
+"ml.conflicts.existence" = "Deletion or modification";
+"ml.web.adapter.search" = "%@ Web Search";
+"ml.web.adapter.searchAPI" = "%@ Search API";
+"ml.web.adapter.fetch" = "%@ Web Reading";
+"ml.web.adapter.fetchAPI" = "%@ Web Reading API";
+"ml.web.adapter.responsesSearch" = "%@ Responses Web Search";
+"ml.web.adapter.chatSearch" = "%@ Chat Web Search (enable_search)";
+"ml.web.adapter.extract" = "%@ Web Extraction";
+"ml.web.adapter.searchPro" = "%@ Web Search Pro";
+"ml.web.adapter.urlContext" = "%@ Web Context";
+"ml.web.adapter.genericResponses" = "Generic Responses Web Search";
+"ml.web.adapter.genericMessages" = "Generic Messages Web Search";
+"ml.web.error.relativePath" = "A relative path must not start with /: %@";
+"ml.web.error.invalidEndpoint" = "Invalid web tool address: %@";
+"ml.web.error.notConfiguredSearch" = "No web search service is configured.";
+"ml.web.error.notConfiguredFetch" = "No web reading service is configured.";
+"ml.web.error.bindingMissing" = "The web tool configuration no longer exists.";
+"ml.web.error.connectionMismatch" = "The server tool’s model does not match its connection. Credentials were not sent.";
+"ml.web.error.modelRequired" = "Select a model for the server-side web tool.";
+"ml.web.error.resultMismatch" = "The selected web service cannot provide the required result type: %@.";
+"ml.web.error.budget" = "The web operation exceeded its time or continuation budget.";
+"ml.web.error.clientTool" = "The web service unexpectedly requested client tool %@. Execution was refused.";
+"ml.web.error.oauth" = "Codex OAuth connections cannot be used with this web tool interface.";
+"ml.web.error.invalidConfig" = "Invalid web tool configuration.";
+"ml.error.emptyProjection" = "Compatibility data is empty.";
+
+"tool.management.webResearch.beta" = "Web Research（beta）";
+"tool.management.browser.beta" = "Browser（beta）";
+
+// Palmi 26.11
+"updates.26.11.chat" = "Open Palmi straight into a conversation, with a more consistent experience across Chat and Professional modes.";
+"updates.26.11.interface" = "A refreshed interface brings conversation history, files, skills and settings together in a new sidebar.";
+"updates.26.11.browser" = "Browser control is here in beta! Direct the built-in browser in everyday language in Professional mode, view multiple pages and take over for sign-in or verification.";
+"updates.26.11.models" = "Organize models into groups and choose a default. Your previous three-model setup moves over automatically, and you can switch models in a conversation.";
+"updates.26.11.tools" = "Choose separate models for more tools:\nAutomatic approval;\nVisual help for models that cannot see images;\nRemote web search and page reading;\nImage generation.";
+"updates.26.11.interactive" = "Interactive replies are ready with no extra setup. A cycling pelican? Qin Shi Huang riding a polar bear? Tetris? The weather? Explore them right inside the reply.";
+"updates.26.11.replies" = "Replies appear as they are written, bringing text, images and interactive content together. Keep chatting with suggested next messages.";
+"updates.26.11.files" = "Browse project files together, open folders, preview and share files, and view conversation attachments more easily.";
+"updates.26.11.questions" = "Questions appear over your current screen when Palmi needs a decision. Answer in sequence, add details, or return to the conversation that asked.";
+"updates.26.11.background" = "Improved background work with more timely progress, including Bionic replies. Long tasks are no longer interrupted by the previous fixed time and turn limits.";
+"updates.26.11.bionic" = "Improved Bionic conversations, read status and unread reminders, with more accurate read status when you open a conversation.";
+"updates.26.11.languages" = "Added German, Swedish, Arabic, Turkish, Indonesian and French. Replies and conversation titles also follow your chosen language more closely.";
+"updates.26.11.navigation" = "Fixed losing the current conversation after collapsing the browser and the wrong mode being selected when opening the sidebar from Bionic mode.";
+
+"browser.searchEngine" = "Search Engine";
+
+"browser.closeTab" = "Close Tab";
+
+"browser.untitled" = "Untitled Page";
