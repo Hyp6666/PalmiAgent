@@ -1,0 +1,56 @@
+{
+  "cropVersion": 2,
+  "captureOrigin": "native-device-hub-window",
+  "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/DI/en-US/07-python.jpg",
+  "sourceSha256": "0705c0a173249ad0405aa47258d190e9dd2e83769c41a7520361bcdc36d895e1",
+  "sourceFormat": "jpeg",
+  "sourceWidth": 3840,
+  "sourceHeight": 1916,
+  "crop": {
+    "left": 1773,
+    "top": 146,
+    "width": 805,
+    "height": 1641
+  },
+  "detectedHardwareBounds": {
+    "left": 1778,
+    "top": 151,
+    "width": 795,
+    "height": 1631
+  },
+  "detection": {
+    "bounds": {
+      "left": 1778,
+      "top": 151,
+      "width": 795,
+      "height": 1631
+    },
+    "threshold": 145,
+    "seedCandidates": [
+      {
+        "left": 1778,
+        "top": 151,
+        "width": 795,
+        "height": 1631,
+        "pixels": 126998
+      }
+    ],
+    "mergedSeeds": 1
+  },
+  "options": {
+    "mode": "auto",
+    "margin": 5,
+    "maskOuterWhite": true,
+    "whiteThreshold": 247,
+    "whiteChroma": 8
+  },
+  "operations": [
+    "integer-coordinate crop",
+    "edge-connected near-white background alpha mask"
+  ],
+  "rgbPixelsSourceIdentical": true,
+  "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+  "maskedPixels": 51637,
+  "cropSha256": "ae28f12726adbca5ccd85a7f67f1f5e29352d39754b964afc10f4f8b7d5b82a4",
+  "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/DI/en-US/07-python.png"
+}

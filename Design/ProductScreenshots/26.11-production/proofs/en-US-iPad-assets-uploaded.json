@@ -1,0 +1,20 @@
+{
+  "device": "iPad",
+  "locale": "en-US",
+  "stage": "uploaded",
+  "localeVisible": "英语（美国）",
+  "deviceTab": "125 标签 (selected) iPad 13 英寸显示屏, Value: 1",
+  "count": 9,
+  "files": [
+    "01-play.png",
+    "02-results.png",
+    "03-browser.png",
+    "04-files.png",
+    "05-models.png",
+    "06-sources.png",
+    "07-python.png",
+    "08-skills.png",
+    "09-palmi.png"
+  ],
+  "observedAt": "2026-10-30T16:35:40.071Z"
+}

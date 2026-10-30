@@ -1,0 +1,126 @@
+{
+  "id": "03-browser",
+  "device": "DI",
+  "locale": "en-US",
+  "headline": "Browse the web in Palmi",
+  "orientation": "portrait",
+  "fingerprint": "8b5cec195599ace6b62e611059e14d3cdd0e074f569e6ce83e21d22bab567ebd",
+  "entrySha256": "78a066c446050f1b7f28b15960f8ac20dd10b505fa2c2651f6d8c6f2d9ac0fd1",
+  "canvasWidth": 1206,
+  "canvasHeight": 2622,
+  "background": "mint",
+  "capture": {
+    "origin": "native-device-hub-window",
+    "deviceName": "iPhone 18 Pro",
+    "capturedAt": null,
+    "fileModifiedAt": "2026-10-30T15:34:18.682Z",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "sourceFormat": "jpeg"
+  },
+  "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/DI/en-US/03-browser.jpg",
+  "sourceSha256": "6f35498dd4283c193364afc2ba6cda14f16d84a2b3c31862df0ff81943baa57d",
+  "crop": {
+    "cropVersion": 2,
+    "captureOrigin": "native-device-hub-window",
+    "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/DI/en-US/03-browser.jpg",
+    "sourceSha256": "6f35498dd4283c193364afc2ba6cda14f16d84a2b3c31862df0ff81943baa57d",
+    "sourceFormat": "jpeg",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "crop": {
+      "left": 1773,
+      "top": 146,
+      "width": 805,
+      "height": 1641
+    },
+    "detectedHardwareBounds": {
+      "left": 1778,
+      "top": 151,
+      "width": 795,
+      "height": 1631
+    },
+    "detection": {
+      "bounds": {
+        "left": 1778,
+        "top": 151,
+        "width": 795,
+        "height": 1631
+      },
+      "threshold": 145,
+      "seedCandidates": [
+        {
+          "left": 1778,
+          "top": 151,
+          "width": 795,
+          "height": 1631,
+          "pixels": 126285
+        }
+      ],
+      "mergedSeeds": 1
+    },
+    "options": {
+      "mode": "auto",
+      "margin": 5,
+      "maskOuterWhite": true,
+      "whiteThreshold": 247,
+      "whiteChroma": 8
+    },
+    "operations": [
+      "integer-coordinate crop",
+      "edge-connected near-white background alpha mask"
+    ],
+    "rgbPixelsSourceIdentical": true,
+    "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+    "maskedPixels": 51637,
+    "cropSha256": "59d1b6e9979680e540048a2e3ed19179dfd3bf1a0df898c9e59e9f0e2b90c895",
+    "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/DI/en-US/03-browser.png"
+  },
+  "layout": {
+    "headline": {
+      "left": 48.234375,
+      "top": 40,
+      "width": 1109.515625,
+      "height": 110.15625,
+      "right": 1157.75,
+      "bottom": 150.15625,
+      "lines": 1,
+      "fontSize": 102
+    },
+    "device": {
+      "left": 15,
+      "top": 188.85652173913036,
+      "width": 1176,
+      "height": 2397.2869565217393,
+      "scale": 1.4608695652173913,
+      "areaFraction": 0.8751126813278239,
+      "cropAreaFraction": 0.891553376288392,
+      "heightFraction": 0.9142970848671774,
+      "widthFraction": 0.9751243781094527,
+      "dominantFraction": 0.9751243781094527
+    },
+    "hardware": {
+      "left": 22.304347826086957,
+      "top": 196.16086956521733,
+      "width": 1161.391304347826,
+      "height": 2382.6782608695653
+    },
+    "areaMetric": "detected hardware bounding box, excluding crop padding",
+    "upright": true,
+    "centered": true,
+    "textDeviceGap": 38.70027173913036
+  },
+  "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/DI/en-US/03-browser.png",
+  "outputSha256": "fa4ebe7bbfb5ba717d9f8d0089c712d4f0a086a9461caad1edff4c065f1f4718",
+  "acceptance": {
+    "width": 1206,
+    "height": 2622,
+    "format": "png",
+    "colourspace": "srgb",
+    "channels": 3,
+    "hasAlpha": false,
+    "headlineFits": true,
+    "rgbCropSourceIdentical": true
+  },
+  "visualReviewRequired": "Check actual rim, physical buttons, hinge, complete app UI and headline against source before upload."
+}

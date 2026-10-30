@@ -1,0 +1,51 @@
+{
+  "group": "iPad/en-US",
+  "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/proofs/contact-sheets/iPad--en-US.png",
+  "entries": [
+    {
+      "id": "01-play",
+      "sourceSha256": "cefa24f833207dbdeeca824c23fc2c0692e04b4162149f8d9501f8ef2e8f781f",
+      "outputSha256": "8b7d46f7a2e69bfa248b49e842e037621ce6aedc6024790fc577a81835f44934"
+    },
+    {
+      "id": "02-results",
+      "sourceSha256": "eedfdbcfadf5cfc91ca278a4659cf5d84a2473f00c58708607227eef5a98d7a9",
+      "outputSha256": "16e0a08a4499008dfe0ad4bc552e76e275af2a77de83308cdf4fbc621b00df14"
+    },
+    {
+      "id": "03-browser",
+      "sourceSha256": "7fa5abc83b1ce47f08a23e10a1342be3698cb88850efb813b7bc82c459778a59",
+      "outputSha256": "22012b006c20abd8f2555bf1fe33434f9875b20d76b537de038347dfbd54cbaf"
+    },
+    {
+      "id": "04-files",
+      "sourceSha256": "b6d8d12101db27f9aff3e7769b1b862465e8a34cefd09bafb701f0275ea73227",
+      "outputSha256": "e50592386ab44f427f6b99ad575434ba65abfd7c96611be7944fa89387ee40a9"
+    },
+    {
+      "id": "05-models",
+      "sourceSha256": "5276862c25a7630d5745a6798b6008d990362937d30722a6ff6869006a6859f4",
+      "outputSha256": "288bf0ef55c2f422153231f3bf49396b3824d66b2168050a91d88e8d579d1045"
+    },
+    {
+      "id": "06-sources",
+      "sourceSha256": "506889d48780090807b998ba8be5eae36c727861609a27250dc860d8d18d307d",
+      "outputSha256": "10a1b44bdb6dc5037519f16d9237cd2c38b852946275c2bce78e997a9514e393"
+    },
+    {
+      "id": "07-python",
+      "sourceSha256": "d36da5e8ba06656462ca82feaa034ac2ce825cb648caec0dced113d4cf0876b6",
+      "outputSha256": "b7da93e5f5f2311b62fd452db627de4b4831a91541d0368b2fa5ffe5ec0223c4"
+    },
+    {
+      "id": "08-skills",
+      "sourceSha256": "3f3fb28f9280bbeb92e8002e754303a95a848e57f7c69c3c0d18b75191d5ec16",
+      "outputSha256": "74a3208579e45ad4740a436ec55ba4399b68799b60f434102ff00a1609ddcf94"
+    },
+    {
+      "id": "09-palmi",
+      "sourceSha256": "5703b91d6ff2ba70b3952c453ac8b871ec23ed360e3e79381073d485588a2e42",
+      "outputSha256": "6f0aee3b3e8fbc0b5c60d0b6f6f47d4f22ee35477b75e4c7e2ff4f4e54bb623d"
+    }
+  ]
+}

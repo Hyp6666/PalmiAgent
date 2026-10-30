@@ -1,0 +1,126 @@
+{
+  "id": "04-files",
+  "device": "iPad",
+  "locale": "zh-Hans",
+  "headline": "打开项目文件",
+  "orientation": "landscape",
+  "fingerprint": "29f2b4609919212a112480d3c5e06d308b36b4d12e7186614b4700178bda9288",
+  "entrySha256": "5950131a444aa05676e0360898262af9552f8e5f2003937ad80cd3d653db0535",
+  "canvasWidth": 2752,
+  "canvasHeight": 2064,
+  "background": "blue",
+  "capture": {
+    "origin": "native-device-hub-window",
+    "deviceName": "iPad Pro 13-inch (M4)",
+    "capturedAt": null,
+    "fileModifiedAt": "2026-10-30T16:12:49.909Z",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "sourceFormat": "jpeg"
+  },
+  "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/zh-Hans/04-files.jpg",
+  "sourceSha256": "cf3d83478cfa71f7ef4b0e6cc8b804b0e63ddff2111e76458a3f586733560f84",
+  "crop": {
+    "cropVersion": 2,
+    "captureOrigin": "native-device-hub-window",
+    "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/zh-Hans/04-files.jpg",
+    "sourceSha256": "cf3d83478cfa71f7ef4b0e6cc8b804b0e63ddff2111e76458a3f586733560f84",
+    "sourceFormat": "jpeg",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "crop": {
+      "left": 1106,
+      "top": 144,
+      "width": 2133,
+      "height": 1637
+    },
+    "detectedHardwareBounds": {
+      "left": 1111,
+      "top": 149,
+      "width": 2123,
+      "height": 1627
+    },
+    "detection": {
+      "bounds": {
+        "left": 1111,
+        "top": 149,
+        "width": 2123,
+        "height": 1627
+      },
+      "threshold": 145,
+      "seedCandidates": [
+        {
+          "left": 1111,
+          "top": 149,
+          "width": 2123,
+          "height": 1627,
+          "pixels": 450908
+        }
+      ],
+      "mergedSeeds": 1
+    },
+    "options": {
+      "mode": "auto",
+      "margin": 5,
+      "maskOuterWhite": true,
+      "whiteThreshold": 247,
+      "whiteChroma": 8
+    },
+    "operations": [
+      "integer-coordinate crop",
+      "edge-connected near-white background alpha mask"
+    ],
+    "rgbPixelsSourceIdentical": true,
+    "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+    "maskedPixels": 56302,
+    "cropSha256": "dabdb6e99f934f2cb85e32ca694897d958c1f80a5a6e156ab86fbb2f9925dfab",
+    "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/iPad/zh-Hans/04-files.png"
+  },
+  "layout": {
+    "headline": {
+      "left": 110.078125,
+      "top": 42,
+      "width": 2531.828125,
+      "height": 131.75,
+      "right": 2641.90625,
+      "bottom": 173.75,
+      "lines": 1,
+      "fontSize": 122
+    },
+    "device": {
+      "left": 175.94318875992667,
+      "top": 197.9999999999999,
+      "width": 2400.1136224801467,
+      "height": 1842.0000000000002,
+      "scale": 1.1252290775809408,
+      "areaFraction": 0.7699478622087328,
+      "cropAreaFraction": 0.7783291666329404,
+      "heightFraction": 0.8924418604651164,
+      "widthFraction": 0.8721343104942393,
+      "dominantFraction": 0.8924418604651164
+    },
+    "hardware": {
+      "left": 181.56933414783137,
+      "top": 203.6261453879046,
+      "width": 2388.8613317043373,
+      "height": 1830.7477092241907
+    },
+    "areaMetric": "detected hardware bounding box, excluding crop padding",
+    "upright": true,
+    "centered": true,
+    "textDeviceGap": 24.249999999999886
+  },
+  "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/iPad/zh-Hans/04-files.png",
+  "outputSha256": "5fdd529dffcd1db4362fc6e83082573c3e0bc7d9c8231277cbc8593997299952",
+  "acceptance": {
+    "width": 2752,
+    "height": 2064,
+    "format": "png",
+    "colourspace": "srgb",
+    "channels": 3,
+    "hasAlpha": false,
+    "headlineFits": true,
+    "rgbCropSourceIdentical": true
+  },
+  "visualReviewRequired": "Check actual rim, physical buttons, hinge, complete app UI and headline against source before upload."
+}

@@ -1,0 +1,53 @@
+[
+  {
+    "group": "iPad/zh-Hans",
+    "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/proofs/contact-sheets/iPad--zh-Hans.png",
+    "entries": [
+      {
+        "id": "01-play",
+        "sourceSha256": "866dc4a8b9229d45f8df1ac50c84b94ed9378ff2421e4168a6dd9c14abc2a869",
+        "outputSha256": "a2367416bdfcf59b426f4769cca0752fde97c6ed733d14b36462b78b16e64558"
+      },
+      {
+        "id": "02-results",
+        "sourceSha256": "97f3e9cfb826991e5d2c127194fd4f99ebbaf07cc3fb960f8ed491861b392d09",
+        "outputSha256": "0f6b050da72de4e2d38313f465aa08c30386134001ed78f5850d79f69281cb44"
+      },
+      {
+        "id": "03-browser",
+        "sourceSha256": "9cebbe6d6e111a4e51e05354f7f79a8e69455699dfca5ee680bfb51c837fe288",
+        "outputSha256": "e819ee4b543f0064d60cac06c05721d90af42e4e0524d0f01bfdb0d85d537a15"
+      },
+      {
+        "id": "04-files",
+        "sourceSha256": "cf3d83478cfa71f7ef4b0e6cc8b804b0e63ddff2111e76458a3f586733560f84",
+        "outputSha256": "5fdd529dffcd1db4362fc6e83082573c3e0bc7d9c8231277cbc8593997299952"
+      },
+      {
+        "id": "05-models",
+        "sourceSha256": "e918a162a722c47545ebd57461482dd5ac449eb157b2aac495777e3791fd4383",
+        "outputSha256": "84790c4ce921fc16f021e2a2f8fffe5d3e8395d48ef6472583d32a26133d5857"
+      },
+      {
+        "id": "06-sources",
+        "sourceSha256": "dcdc3cfc9217ea1d190a24503d3c0a1d577463550a163f7ef9296cd44b6a6880",
+        "outputSha256": "a4e9d8b8ae3c3494e432837861338a7d5582dcd6fd941da9e7426d56409266a1"
+      },
+      {
+        "id": "07-python",
+        "sourceSha256": "8f532c75f7dc44710913c0a1d655fdb822fe6c698806070a61a79155714216c4",
+        "outputSha256": "a6ab971aaaa5b61ec812a1a20e31198ab250cc113abc082b01ca1180b24733f4"
+      },
+      {
+        "id": "08-skills",
+        "sourceSha256": "6143438866f31efa46254123da3b13a30001acb0ac27085d849c685c1a405505",
+        "outputSha256": "ad09b47d7a529222d4683dbfaa4f08ed70882cffd26d2ace5a52fbee99d5dba7"
+      },
+      {
+        "id": "09-palmi",
+        "sourceSha256": "5606d4da5ed663897da491399d26482ea9a7ee2b87b361450279a542a3a9f548",
+        "outputSha256": "3ff51992edf12d2afd9bb8f95616c811c292472f6e4e66d05b5336dc457e9b03"
+      }
+    ]
+  }
+]

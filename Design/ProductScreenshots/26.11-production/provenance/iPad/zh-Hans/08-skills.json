@@ -1,0 +1,126 @@
+{
+  "id": "08-skills",
+  "device": "iPad",
+  "locale": "zh-Hans",
+  "headline": "导入自己的技能",
+  "orientation": "landscape",
+  "fingerprint": "fe278f7d1a932ef4b8e2c4c103038874edfc6dac4fd71c043ec41060a050703a",
+  "entrySha256": "5230d33e4af56bf3b15f3ca5ad3ebbeadb4e7d3e726de6d1fd95abf906b624fa",
+  "canvasWidth": 2752,
+  "canvasHeight": 2064,
+  "background": "stone",
+  "capture": {
+    "origin": "native-device-hub-window",
+    "deviceName": "iPad Pro 13-inch (M4)",
+    "capturedAt": null,
+    "fileModifiedAt": "2026-10-30T16:11:09.926Z",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "sourceFormat": "jpeg"
+  },
+  "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/zh-Hans/08-skills.jpg",
+  "sourceSha256": "6143438866f31efa46254123da3b13a30001acb0ac27085d849c685c1a405505",
+  "crop": {
+    "cropVersion": 2,
+    "captureOrigin": "native-device-hub-window",
+    "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/zh-Hans/08-skills.jpg",
+    "sourceSha256": "6143438866f31efa46254123da3b13a30001acb0ac27085d849c685c1a405505",
+    "sourceFormat": "jpeg",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "crop": {
+      "left": 1106,
+      "top": 144,
+      "width": 2133,
+      "height": 1637
+    },
+    "detectedHardwareBounds": {
+      "left": 1111,
+      "top": 149,
+      "width": 2123,
+      "height": 1627
+    },
+    "detection": {
+      "bounds": {
+        "left": 1111,
+        "top": 149,
+        "width": 2123,
+        "height": 1627
+      },
+      "threshold": 145,
+      "seedCandidates": [
+        {
+          "left": 1111,
+          "top": 149,
+          "width": 2123,
+          "height": 1627,
+          "pixels": 450254
+        }
+      ],
+      "mergedSeeds": 1
+    },
+    "options": {
+      "mode": "auto",
+      "margin": 5,
+      "maskOuterWhite": true,
+      "whiteThreshold": 247,
+      "whiteChroma": 8
+    },
+    "operations": [
+      "integer-coordinate crop",
+      "edge-connected near-white background alpha mask"
+    ],
+    "rgbPixelsSourceIdentical": true,
+    "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+    "maskedPixels": 56302,
+    "cropSha256": "06bc1ce69fe219031d121aeadab36871ef2bd4f8b755eaa802d9e0f90a75327b",
+    "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/iPad/zh-Hans/08-skills.png"
+  },
+  "layout": {
+    "headline": {
+      "left": 110.078125,
+      "top": 42,
+      "width": 2531.828125,
+      "height": 131.75,
+      "right": 2641.90625,
+      "bottom": 173.75,
+      "lines": 1,
+      "fontSize": 122
+    },
+    "device": {
+      "left": 175.94318875992667,
+      "top": 197.9999999999999,
+      "width": 2400.1136224801467,
+      "height": 1842.0000000000002,
+      "scale": 1.1252290775809408,
+      "areaFraction": 0.7699478622087328,
+      "cropAreaFraction": 0.7783291666329404,
+      "heightFraction": 0.8924418604651164,
+      "widthFraction": 0.8721343104942393,
+      "dominantFraction": 0.8924418604651164
+    },
+    "hardware": {
+      "left": 181.56933414783137,
+      "top": 203.6261453879046,
+      "width": 2388.8613317043373,
+      "height": 1830.7477092241907
+    },
+    "areaMetric": "detected hardware bounding box, excluding crop padding",
+    "upright": true,
+    "centered": true,
+    "textDeviceGap": 24.249999999999886
+  },
+  "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/iPad/zh-Hans/08-skills.png",
+  "outputSha256": "ad09b47d7a529222d4683dbfaa4f08ed70882cffd26d2ace5a52fbee99d5dba7",
+  "acceptance": {
+    "width": 2752,
+    "height": 2064,
+    "format": "png",
+    "colourspace": "srgb",
+    "channels": 3,
+    "hasAlpha": false,
+    "headlineFits": true,
+    "rgbCropSourceIdentical": true
+  },
+  "visualReviewRequired": "Check actual rim, physical buttons, hinge, complete app UI and headline against source before upload."
+}

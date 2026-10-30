@@ -1,0 +1,108 @@
+{
+  "manifest": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/config/manifest.json",
+  "group": "Duo/zh-Hans",
+  "checked": [
+    {
+      "key": "Duo/zh-Hans/01-play",
+      "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/Duo/zh-Hans/01-play.png",
+      "width": 1398,
+      "height": 2034,
+      "rgbCropSourceIdentical": true,
+      "completeRecordedDeviceVisible": true,
+      "areaFraction": 0.848964824011432,
+      "areaMetric": "detected hardware bounding box, excluding crop padding",
+      "sourceSha256": "0da9ee50964c274d99d487ffdb463b1e64511a5d14f7e105304bcd9fafe0d54c"
+    },
+    {
+      "key": "Duo/zh-Hans/02-results",
+      "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/Duo/zh-Hans/02-results.png",
+      "width": 2853,
+      "height": 2007,
+      "rgbCropSourceIdentical": true,
+      "completeRecordedDeviceVisible": true,
+      "areaFraction": 0.7719170087419963,
+      "areaMetric": "detected hardware bounding box, excluding crop padding",
+      "sourceSha256": "91350f02991941d51341426af845ac0f3fb75e5b83e557b104542685f22fbe62"
+    },
+    {
+      "key": "Duo/zh-Hans/03-browser",
+      "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/Duo/zh-Hans/03-browser.png",
+      "width": 2853,
+      "height": 2007,
+      "rgbCropSourceIdentical": true,
+      "completeRecordedDeviceVisible": true,
+      "areaFraction": 0.7719170087419963,
+      "areaMetric": "detected hardware bounding box, excluding crop padding",
+      "sourceSha256": "fe6dd96c9324fd9a63de4cf7f8a89128e8c2865145953c10788f75003832d700"
+    },
+    {
+      "key": "Duo/zh-Hans/04-files",
+      "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/Duo/zh-Hans/04-files.png",
+      "width": 2853,
+      "height": 2007,
+      "rgbCropSourceIdentical": true,
+      "completeRecordedDeviceVisible": true,
+      "areaFraction": 0.7719170087419963,
+      "areaMetric": "detected hardware bounding box, excluding crop padding",
+      "sourceSha256": "055fe30bb1a207fa65da02495f4406daac26e95ecd0e87be33be42252c98b884"
+    },
+    {
+      "key": "Duo/zh-Hans/05-models",
+      "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/Duo/zh-Hans/05-models.png",
+      "width": 1398,
+      "height": 2034,
+      "rgbCropSourceIdentical": true,
+      "completeRecordedDeviceVisible": true,
+      "areaFraction": 0.848964824011432,
+      "areaMetric": "detected hardware bounding box, excluding crop padding",
+      "sourceSha256": "80f4f7a152bb244342a67324e5033b232c3790d6ba1cae7dfe34ad8a57b998f4"
+    },
+    {
+      "key": "Duo/zh-Hans/06-sources",
+      "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/Duo/zh-Hans/06-sources.png",
+      "width": 2853,
+      "height": 2007,
+      "rgbCropSourceIdentical": true,
+      "completeRecordedDeviceVisible": true,
+      "areaFraction": 0.7719170087419963,
+      "areaMetric": "detected hardware bounding box, excluding crop padding",
+      "sourceSha256": "36037c4f0db0364cae69b06bf09e0fb0cb22416e1088872a83935357b50f623f"
+    },
+    {
+      "key": "Duo/zh-Hans/07-python",
+      "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/Duo/zh-Hans/07-python.png",
+      "width": 2853,
+      "height": 2007,
+      "rgbCropSourceIdentical": true,
+      "completeRecordedDeviceVisible": true,
+      "areaFraction": 0.7719170087419963,
+      "areaMetric": "detected hardware bounding box, excluding crop padding",
+      "sourceSha256": "12cc8bd9ef6d248e0ecf45484e44af7061fa0cf96d08c8d8608c037002341250"
+    },
+    {
+      "key": "Duo/zh-Hans/08-skills",
+      "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/Duo/zh-Hans/08-skills.png",
+      "width": 2853,
+      "height": 2007,
+      "rgbCropSourceIdentical": true,
+      "completeRecordedDeviceVisible": true,
+      "areaFraction": 0.7719170087419963,
+      "areaMetric": "detected hardware bounding box, excluding crop padding",
+      "sourceSha256": "6c0b070bf413b30bb24e7b8e0d0c3324105e95a6071bb3b60dfb7e2293b65b1a"
+    },
+    {
+      "key": "Duo/zh-Hans/09-palmi",
+      "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/Duo/zh-Hans/09-palmi.png",
+      "width": 1398,
+      "height": 2034,
+      "rgbCropSourceIdentical": true,
+      "completeRecordedDeviceVisible": true,
+      "areaFraction": 0.848964824011432,
+      "areaMetric": "detected hardware bounding box, excluding crop padding",
+      "sourceSha256": "10a86618c3369e677a6e54737b471cb54cd91df7f3a7abaef5e2cee98d9edfad"
+    }
+  ],
+  "errors": [],
+  "count": 9,
+  "visualReviewRequired": "Compare source and poster for genuine device, complete screen, correct language and forbidden visible brand names. Pixel and geometry checks cannot interpret app text."
+}

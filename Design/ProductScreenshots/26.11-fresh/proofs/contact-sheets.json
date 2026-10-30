@@ -1,0 +1,24 @@
+[
+  {
+    "group": "Duo/en-US",
+    "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-fresh/proofs/contact-sheets/Duo--en-US.png",
+    "entries": [
+      {
+        "id": "01-overview",
+        "sourceSha256": "0e541ba94135af62f0a582e0b28fa8910e050230e3bb7b2e66e310f5a4c771d1",
+        "outputSha256": "341c89531bbcdb1323e8ae2cebabc3fbe2d2967c0664a782d337dcdfc4d56135"
+      }
+    ]
+  },
+  {
+    "group": "Duo/zh-Hans",
+    "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-fresh/proofs/contact-sheets/Duo--zh-Hans.png",
+    "entries": [
+      {
+        "id": "01-overview",
+        "sourceSha256": "8c8b99b882848c42640ba27ef663aa9e546220a9bdd2db54244e9603f14be676",
+        "outputSha256": "4671ae49132f1a45ff6542411cb07f3aa0eaebf6b97893b1a6fbe86021fd2f08"
+      }
+    ]
+  }
+]

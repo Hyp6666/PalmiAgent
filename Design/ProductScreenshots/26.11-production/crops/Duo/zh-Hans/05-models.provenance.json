@@ -1,0 +1,56 @@
+{
+  "cropVersion": 2,
+  "captureOrigin": "native-device-hub-window",
+  "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/Duo/zh-Hans/05-models.jpg",
+  "sourceSha256": "80f4f7a152bb244342a67324e5033b232c3790d6ba1cae7dfe34ad8a57b998f4",
+  "sourceFormat": "jpeg",
+  "sourceWidth": 3840,
+  "sourceHeight": 1916,
+  "crop": {
+    "left": 1685,
+    "top": 280,
+    "width": 988,
+    "height": 1366
+  },
+  "detectedHardwareBounds": {
+    "left": 1690,
+    "top": 285,
+    "width": 978,
+    "height": 1356
+  },
+  "detection": {
+    "bounds": {
+      "left": 1690,
+      "top": 285,
+      "width": 978,
+      "height": 1356
+    },
+    "threshold": 145,
+    "seedCandidates": [
+      {
+        "left": 1690,
+        "top": 285,
+        "width": 978,
+        "height": 1356,
+        "pixels": 159345
+      }
+    ],
+    "mergedSeeds": 1
+  },
+  "options": {
+    "mode": "auto",
+    "margin": 5,
+    "maskOuterWhite": true,
+    "whiteThreshold": 247,
+    "whiteChroma": 8
+  },
+  "operations": [
+    "integer-coordinate crop",
+    "edge-connected near-white background alpha mask"
+  ],
+  "rgbPixelsSourceIdentical": true,
+  "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+  "maskedPixels": 43037,
+  "cropSha256": "afbea466687869bac78c7f5f97f4bdb1d170d002d47013171ac157d978d5b5ca",
+  "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/Duo/zh-Hans/05-models.png"
+}

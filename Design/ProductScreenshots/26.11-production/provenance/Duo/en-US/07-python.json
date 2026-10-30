@@ -1,0 +1,126 @@
+{
+  "id": "07-python",
+  "device": "Duo",
+  "locale": "en-US",
+  "headline": "Run Python on device",
+  "orientation": "unfolded-landscape",
+  "fingerprint": "9052963859f13eba839dd25541294d41aeb023730f75b7e6bb0c77357dd7bedb",
+  "entrySha256": "a11183a6558aff51dfd5610281438dc9f57bb86faae3753f939af3610821830f",
+  "canvasWidth": 2853,
+  "canvasHeight": 2007,
+  "background": "stone",
+  "capture": {
+    "origin": "native-device-hub-window",
+    "deviceName": "iPhone Duo",
+    "capturedAt": null,
+    "fileModifiedAt": "2026-10-30T15:58:59.961Z",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "sourceFormat": "jpeg"
+  },
+  "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/Duo/en-US/07-python.jpg",
+  "sourceSha256": "c1515bce95ea776498e5997c48f50012f66a8f5ea01f0b8a6c6ed7afeb387278",
+  "crop": {
+    "cropVersion": 2,
+    "captureOrigin": "native-device-hub-window",
+    "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/Duo/en-US/07-python.jpg",
+    "sourceSha256": "c1515bce95ea776498e5997c48f50012f66a8f5ea01f0b8a6c6ed7afeb387278",
+    "sourceFormat": "jpeg",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "crop": {
+      "left": 1166,
+      "top": 239,
+      "width": 2025,
+      "height": 1449
+    },
+    "detectedHardwareBounds": {
+      "left": 1171,
+      "top": 244,
+      "width": 2015,
+      "height": 1439
+    },
+    "detection": {
+      "bounds": {
+        "left": 1171,
+        "top": 244,
+        "width": 2015,
+        "height": 1439
+      },
+      "threshold": 145,
+      "seedCandidates": [
+        {
+          "left": 1171,
+          "top": 244,
+          "width": 2015,
+          "height": 1439,
+          "pixels": 279010
+        }
+      ],
+      "mergedSeeds": 1
+    },
+    "options": {
+      "mode": "auto",
+      "margin": 5,
+      "maskOuterWhite": true,
+      "whiteThreshold": 247,
+      "whiteChroma": 8
+    },
+    "operations": [
+      "integer-coordinate crop",
+      "edge-connected near-white background alpha mask"
+    ],
+    "rgbPixelsSourceIdentical": true,
+    "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+    "maskedPixels": 69194,
+    "cropSha256": "129b1f3af772b6230525ae008c18c828323a2b26b22314f6e1b753e9c0ba2923",
+    "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/Duo/en-US/07-python.png"
+  },
+  "layout": {
+    "headline": {
+      "left": 114.109375,
+      "top": 40,
+      "width": 2624.75,
+      "height": 131.75,
+      "right": 2738.859375,
+      "bottom": 171.75,
+      "lines": 1,
+      "fontSize": 122
+    },
+    "device": {
+      "left": 176.42236024844738,
+      "top": 196.0000000000001,
+      "width": 2500.1552795031052,
+      "height": 1788.9999999999998,
+      "scale": 1.2346445824706693,
+      "areaFraction": 0.7719170087419963,
+      "cropAreaFraction": 0.7811387439843923,
+      "heightFraction": 0.8913801694070751,
+      "widthFraction": 0.8763250191037874,
+      "dominantFraction": 0.8913801694070751
+    },
+    "hardware": {
+      "left": 182.59558316080071,
+      "top": 202.17322291235345,
+      "width": 2487.8088336783985,
+      "height": 1776.6535541752933
+    },
+    "areaMetric": "detected hardware bounding box, excluding crop padding",
+    "upright": true,
+    "centered": true,
+    "textDeviceGap": 24.250000000000114
+  },
+  "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/Duo/en-US/07-python.png",
+  "outputSha256": "727687130bc31c368e650fc869643cc7583b7c313e619c29fcf446f9c042e907",
+  "acceptance": {
+    "width": 2853,
+    "height": 2007,
+    "format": "png",
+    "colourspace": "srgb",
+    "channels": 3,
+    "hasAlpha": false,
+    "headlineFits": true,
+    "rgbCropSourceIdentical": true
+  },
+  "visualReviewRequired": "Check actual rim, physical buttons, hinge, complete app UI and headline against source before upload."
+}

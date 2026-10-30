@@ -1,0 +1,56 @@
+{
+  "cropVersion": 2,
+  "captureOrigin": "native-device-hub-window",
+  "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/en-US/04-files.jpg",
+  "sourceSha256": "b6d8d12101db27f9aff3e7769b1b862465e8a34cefd09bafb701f0275ea73227",
+  "sourceFormat": "jpeg",
+  "sourceWidth": 3840,
+  "sourceHeight": 1916,
+  "crop": {
+    "left": 1106,
+    "top": 144,
+    "width": 2133,
+    "height": 1637
+  },
+  "detectedHardwareBounds": {
+    "left": 1111,
+    "top": 149,
+    "width": 2123,
+    "height": 1627
+  },
+  "detection": {
+    "bounds": {
+      "left": 1111,
+      "top": 149,
+      "width": 2123,
+      "height": 1627
+    },
+    "threshold": 145,
+    "seedCandidates": [
+      {
+        "left": 1111,
+        "top": 149,
+        "width": 2123,
+        "height": 1627,
+        "pixels": 450895
+      }
+    ],
+    "mergedSeeds": 1
+  },
+  "options": {
+    "mode": "auto",
+    "margin": 5,
+    "maskOuterWhite": true,
+    "whiteThreshold": 247,
+    "whiteChroma": 8
+  },
+  "operations": [
+    "integer-coordinate crop",
+    "edge-connected near-white background alpha mask"
+  ],
+  "rgbPixelsSourceIdentical": true,
+  "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+  "maskedPixels": 56302,
+  "cropSha256": "1016e4d3aa706b54e4f73fefdb54b212828f70ab612a71ddecc523fb69e7c810",
+  "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/iPad/en-US/04-files.png"
+}

@@ -1,0 +1,103 @@
+{
+  "id": "01-overview",
+  "device": "Duo",
+  "locale": "en-US",
+  "headline": "Your AI workspace",
+  "fingerprint": "8160867cb5e168add6c0c053aeb2b60b85d25da0155329b15c759685a6a61c1c",
+  "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-fresh/raw/Duo/en-US/01-overview.jpg",
+  "sourceSha256": "0e541ba94135af62f0a582e0b28fa8910e050230e3bb7b2e66e310f5a4c771d1",
+  "crop": {
+    "cropVersion": 1,
+    "captureOrigin": "native-device-hub-window",
+    "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-fresh/raw/Duo/en-US/01-overview.jpg",
+    "sourceSha256": "0e541ba94135af62f0a582e0b28fa8910e050230e3bb7b2e66e310f5a4c771d1",
+    "sourceFormat": "jpeg",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "crop": {
+      "left": 1335,
+      "top": 360,
+      "width": 1686,
+      "height": 1207
+    },
+    "detectedHardwareBounds": {
+      "left": 1340,
+      "top": 365,
+      "width": 1676,
+      "height": 1197
+    },
+    "detection": {
+      "bounds": {
+        "left": 1340,
+        "top": 365,
+        "width": 1676,
+        "height": 1197
+      },
+      "threshold": 145,
+      "seedCandidates": [
+        {
+          "left": 1340,
+          "top": 365,
+          "width": 1676,
+          "height": 1197,
+          "pixels": 180748
+        }
+      ],
+      "mergedSeeds": 1
+    },
+    "options": {
+      "mode": "auto",
+      "margin": 5,
+      "maskOuterWhite": true,
+      "whiteThreshold": 247,
+      "whiteChroma": 8
+    },
+    "operations": [
+      "integer-coordinate crop",
+      "edge-connected near-white background alpha mask"
+    ],
+    "rgbPixelsSourceIdentical": true,
+    "maskedPixels": 51094,
+    "cropSha256": "be764cdbed1c5432af2bf8f319e19e9914ad0d28bdd5e74ef0fc8a1ecad5285b",
+    "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-fresh/crops/Duo/en-US/01-overview.png"
+  },
+  "layout": {
+    "headline": {
+      "left": 128.375,
+      "top": 45,
+      "width": 2596.21875,
+      "height": 131.75,
+      "right": 2724.59375,
+      "bottom": 176.75,
+      "lines": 1,
+      "fontSize": 122
+    },
+    "device": {
+      "left": 181.2067108533554,
+      "top": 202,
+      "width": 2490.586578293289,
+      "height": 1783,
+      "scale": 1.4772162386081193,
+      "areaFraction": 0.7755393572717946,
+      "heightFraction": 0.8883906327852517,
+      "widthFraction": 0.8729711105128949,
+      "dominantFraction": 0.8883906327852517
+    },
+    "upright": true,
+    "centered": true,
+    "textDeviceGap": 25.25
+  },
+  "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-fresh/Duo/en-US/01-overview.png",
+  "outputSha256": "341c89531bbcdb1323e8ae2cebabc3fbe2d2967c0664a782d337dcdfc4d56135",
+  "acceptance": {
+    "width": 2853,
+    "height": 2007,
+    "format": "png",
+    "colourspace": "srgb",
+    "channels": 3,
+    "hasAlpha": false,
+    "headlineFits": true,
+    "rgbCropSourceIdentical": true
+  },
+  "visualReviewRequired": "Check actual rim, physical buttons, hinge, complete app UI and headline against source before upload."
+}

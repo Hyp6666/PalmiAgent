@@ -1,0 +1,316 @@
+{
+  "appVersion": "26.11",
+  "manifestFormat": 1,
+  "checkedAt": "2026-10-30T16:36:33.695582+00:00",
+  "placements": [
+    {
+      "device": "DI",
+      "locale": "en-US",
+      "count": 9,
+      "deviceTab": "120 标签 (selected) 带灵动岛的 iPhone （中等显示屏）, Value: 1",
+      "observedAfterReload": "2026-10-30T15:46:50.133Z",
+      "finalCheck": "2026-10-30T16:30:24.420Z",
+      "files": [
+        {
+          "file": "01-play.png",
+          "sha256": "d3e02729c00263626647078e7a9966d80b0402f2e98656dcf92390ad66e6b371"
+        },
+        {
+          "file": "02-results.png",
+          "sha256": "82ed509bdf3fd3902f3ef7fbf1ba9953828c818b012681c413f030c9cddf37b6"
+        },
+        {
+          "file": "03-browser.png",
+          "sha256": "fa4ebe7bbfb5ba717d9f8d0089c712d4f0a086a9461caad1edff4c065f1f4718"
+        },
+        {
+          "file": "04-files.png",
+          "sha256": "8110d8460b0c7a0ea27478d56f8bc9a0cab9a7b9b82bdf654ef17a96e9470ea0"
+        },
+        {
+          "file": "05-models.png",
+          "sha256": "984f52657f846cde35fd4677152d7c559fdc526037491353473dc4780be8b6a2"
+        },
+        {
+          "file": "06-sources.png",
+          "sha256": "7da71d8efb9ec7a05f17f9ef7f59755bd6385d7fd57d21443ce4bac80e532b31"
+        },
+        {
+          "file": "07-python.png",
+          "sha256": "39d57120f0f7ada9ba3c90e88e05686944ec298c2f5cab894156a055199ba63a"
+        },
+        {
+          "file": "08-skills.png",
+          "sha256": "defdaa333153cdb8bbf938c0bf56a49a272911ddac79eadb72c1644dfd0dbbd0"
+        },
+        {
+          "file": "09-palmi.png",
+          "sha256": "31a472f28f6743d5e8d4dee513c540b4a5ff58def4f3d5b7c975608505af00c0"
+        }
+      ]
+    },
+    {
+      "device": "Duo",
+      "locale": "en-US",
+      "count": 9,
+      "deviceTab": "123 标签 (selected) iPhone Duo, Value: 1",
+      "observedAfterReload": "2026-10-30T16:09:39.839Z",
+      "finalCheck": "2026-10-30T16:30:29.550Z",
+      "files": [
+        {
+          "file": "01-play.png",
+          "sha256": "8ab74da2d219866208fca69174a457f145d8b5c171a496bd5b1d1b1851bf6f22"
+        },
+        {
+          "file": "02-results.png",
+          "sha256": "4aae8ffc62ca047f505cc95b4973536e3e973fa3e1ed5ebc67d66a722d697a26"
+        },
+        {
+          "file": "03-browser.png",
+          "sha256": "3c45cd17aec0b8c7b47afc2b765796555e1cb8b1f57c318bb766924e86f1765e"
+        },
+        {
+          "file": "04-files.png",
+          "sha256": "060f4fea91a3895f1a0f333374b393e0b6de925bbd755f08e26a69315141bbaf"
+        },
+        {
+          "file": "05-models.png",
+          "sha256": "88d388f6d01577bfe64a19ad360e5d62f1dd86436f2d66a513783b578e3ca2e2"
+        },
+        {
+          "file": "06-sources.png",
+          "sha256": "78d7088944bee61dab38fec4fb4261d5e92c56d12fa6cc7b86258e7c4d88bda2"
+        },
+        {
+          "file": "07-python.png",
+          "sha256": "727687130bc31c368e650fc869643cc7583b7c313e619c29fcf446f9c042e907"
+        },
+        {
+          "file": "08-skills.png",
+          "sha256": "388f818a25e13b92c9aa89abd3221bf6f74bd075ddf55eeff79475e63690176c"
+        },
+        {
+          "file": "09-palmi.png",
+          "sha256": "904589550dfc0405f04fb63e035d86cac39e22f18111949f374b4a959fe29534"
+        }
+      ]
+    },
+    {
+      "device": "iPad",
+      "locale": "en-US",
+      "count": 9,
+      "deviceTab": "125 标签 (selected) iPad 13 英寸显示屏, Value: 1",
+      "observedAfterReload": "2026-10-30T16:36:08.141Z",
+      "finalCheck": "2026-10-30T16:36:08.808Z",
+      "files": [
+        {
+          "file": "01-play.png",
+          "sha256": "8b7d46f7a2e69bfa248b49e842e037621ce6aedc6024790fc577a81835f44934"
+        },
+        {
+          "file": "02-results.png",
+          "sha256": "16e0a08a4499008dfe0ad4bc552e76e275af2a77de83308cdf4fbc621b00df14"
+        },
+        {
+          "file": "03-browser.png",
+          "sha256": "22012b006c20abd8f2555bf1fe33434f9875b20d76b537de038347dfbd54cbaf"
+        },
+        {
+          "file": "04-files.png",
+          "sha256": "e50592386ab44f427f6b99ad575434ba65abfd7c96611be7944fa89387ee40a9"
+        },
+        {
+          "file": "05-models.png",
+          "sha256": "288bf0ef55c2f422153231f3bf49396b3824d66b2168050a91d88e8d579d1045"
+        },
+        {
+          "file": "06-sources.png",
+          "sha256": "10a1b44bdb6dc5037519f16d9237cd2c38b852946275c2bce78e997a9514e393"
+        },
+        {
+          "file": "07-python.png",
+          "sha256": "b7da93e5f5f2311b62fd452db627de4b4831a91541d0368b2fa5ffe5ec0223c4"
+        },
+        {
+          "file": "08-skills.png",
+          "sha256": "74a3208579e45ad4740a436ec55ba4399b68799b60f434102ff00a1609ddcf94"
+        },
+        {
+          "file": "09-palmi.png",
+          "sha256": "6f0aee3b3e8fbc0b5c60d0b6f6f47d4f22ee35477b75e4c7e2ff4f4e54bb623d"
+        }
+      ]
+    },
+    {
+      "device": "DI",
+      "locale": "zh-Hans",
+      "count": 9,
+      "deviceTab": "120 标签 (selected) 带灵动岛的 iPhone （中等显示屏）, Value: 1",
+      "observedAfterReload": "2026-10-30T15:34:56.959Z",
+      "finalCheck": "2026-10-30T16:30:33.875Z",
+      "files": [
+        {
+          "file": "01-play.png",
+          "sha256": "443aa792154e2a643f88eae8320967a6524847690b205a0028c01c0bd9e0326e"
+        },
+        {
+          "file": "02-results.png",
+          "sha256": "18c0d839050fd20aab2101ff482810614cf117091b4cfeb132bda1fb295eb57f"
+        },
+        {
+          "file": "03-browser.png",
+          "sha256": "0a194af03d639d7edeb20a35d87655cd264c577920fbb0c183bc8997e57bfe9c"
+        },
+        {
+          "file": "04-files.png",
+          "sha256": "5593f283d3a7df59b9b88c230e0df033ee9848c62710ca2916701be98af1fdd0"
+        },
+        {
+          "file": "05-models.png",
+          "sha256": "3b6332aa7f9a4488a4b345f50d73abe06adc0b607dc678f2b5ba116791ebb76f"
+        },
+        {
+          "file": "06-sources.png",
+          "sha256": "3c97999235a3f2c17a8614bc0e179ab8f013ae27fcbb5904904e059ed99b70d5"
+        },
+        {
+          "file": "07-python.png",
+          "sha256": "17d53d86290c045444fb9dcfbe0186910054835785604dad9af2f6adbf07f32a"
+        },
+        {
+          "file": "08-skills.png",
+          "sha256": "6c5100193431cdba00f9774aa4de12eacbc103f5a0727bfb59e3801f88363b54"
+        },
+        {
+          "file": "09-palmi.png",
+          "sha256": "9c08e62903712df2681f0c3c726bd738ccc4bd99e3d0e21623fbbe2f94e77fa1"
+        }
+      ]
+    },
+    {
+      "device": "Duo",
+      "locale": "zh-Hans",
+      "count": 9,
+      "deviceTab": "123 标签 (selected) iPhone Duo, Value: 1",
+      "observedAfterReload": "2026-10-30T16:00:52.099Z",
+      "finalCheck": "2026-10-30T16:30:35.701Z",
+      "files": [
+        {
+          "file": "01-play.png",
+          "sha256": "024248bf5fb45844ebe10d99a2b90725f9335bdf4330dd8fcb28ab3d0a4992e1"
+        },
+        {
+          "file": "02-results.png",
+          "sha256": "d98874a72320db1e1cf1b5c00990cdcb81372ed0a424a0a4f0c91737aeb5dd67"
+        },
+        {
+          "file": "03-browser.png",
+          "sha256": "6b4ed0fd89f806c9a95768626321377ac177c62940eed110812a52c6972e0d3a"
+        },
+        {
+          "file": "04-files.png",
+          "sha256": "ddf58fd513c336a5f28364d980338d004694588d730ae657192409082a7dcbcb"
+        },
+        {
+          "file": "05-models.png",
+          "sha256": "28df604af89aa70046be7a5b996c8260905d1508c3b50a3b991b409bc1bba3d8"
+        },
+        {
+          "file": "06-sources.png",
+          "sha256": "7cad142d1ebaf3a2f9a054cc215fed938708965592301d8ab74213852c917886"
+        },
+        {
+          "file": "07-python.png",
+          "sha256": "d74bb7ea0ec27fe7c323324ea9d498a6ee7bd37a05671f6e97e676fe799779fb"
+        },
+        {
+          "file": "08-skills.png",
+          "sha256": "17802019c666e582eb46ba77a64b1814409803569335168bedebc2113a4601fb"
+        },
+        {
+          "file": "09-palmi.png",
+          "sha256": "4749405dc8129eccff1d7bb62aee02bacf98e2c76daee0bf0cd61030dbf1eae3"
+        }
+      ]
+    },
+    {
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "count": 9,
+      "deviceTab": "125 标签 (selected) iPad 13 英寸显示屏, Value: 1",
+      "observedAfterReload": "2026-10-30T16:25:59.649Z",
+      "finalCheck": "2026-10-30T16:36:25.730Z",
+      "files": [
+        {
+          "file": "01-play.png",
+          "sha256": "a2367416bdfcf59b426f4769cca0752fde97c6ed733d14b36462b78b16e64558"
+        },
+        {
+          "file": "02-results.png",
+          "sha256": "0f6b050da72de4e2d38313f465aa08c30386134001ed78f5850d79f69281cb44"
+        },
+        {
+          "file": "03-browser.png",
+          "sha256": "e819ee4b543f0064d60cac06c05721d90af42e4e0524d0f01bfdb0d85d537a15"
+        },
+        {
+          "file": "04-files.png",
+          "sha256": "5fdd529dffcd1db4362fc6e83082573c3e0bc7d9c8231277cbc8593997299952"
+        },
+        {
+          "file": "05-models.png",
+          "sha256": "84790c4ce921fc16f021e2a2f8fffe5d3e8395d48ef6472583d32a26133d5857"
+        },
+        {
+          "file": "06-sources.png",
+          "sha256": "a4e9d8b8ae3c3494e432837861338a7d5582dcd6fd941da9e7426d56409266a1"
+        },
+        {
+          "file": "07-python.png",
+          "sha256": "a6ab971aaaa5b61ec812a1a20e31198ab250cc113abc082b01ca1180b24733f4"
+        },
+        {
+          "file": "08-skills.png",
+          "sha256": "ad09b47d7a529222d4683dbfaa4f08ed70882cffd26d2ace5a52fbee99d5dba7"
+        },
+        {
+          "file": "09-palmi.png",
+          "sha256": "3ff51992edf12d2afd9bb8f95616c811c292472f6e4e66d05b5336dc457e9b03"
+        }
+      ]
+    }
+  ],
+  "localizedFields": {
+    "en-US": {
+      "promotionalText": {
+        "exact": true,
+        "length": 154
+      },
+      "description": {
+        "exact": true,
+        "length": 2585
+      },
+      "whatsNew": {
+        "exact": true,
+        "length": 943
+      }
+    },
+    "zh-Hans": {
+      "promotionalText": {
+        "exact": true,
+        "length": 79
+      },
+      "description": {
+        "exact": true,
+        "length": 841
+      },
+      "whatsNew": {
+        "exact": true,
+        "length": 321
+      }
+    }
+  },
+  "totalScreenshots": 54,
+  "manifestSha256": "b57ad443034502bfed7269dab9a9aac7ce1a73d7891c301b90748b7cc3d7de44",
+  "submitted": false
+}

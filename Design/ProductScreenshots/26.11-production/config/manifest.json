@@ -1,0 +1,928 @@
+{
+  "version": 1,
+  "outputRoot": "../../../../Screenshots/AppStore/26.11-production",
+  "captureOrigin": "native-device-hub-window",
+  "defaults": {
+    "background": "sequence",
+    "minDeviceAreaFraction": 0.75,
+    "crop": {
+      "mode": "auto",
+      "margin": 5,
+      "maskOuterWhite": true,
+      "whiteThreshold": 247,
+      "whiteChroma": 8
+    }
+  },
+  "expectedCountPerDeviceLocale": 9,
+  "expectedDevices": [
+    "DI",
+    "Duo",
+    "iPad"
+  ],
+  "expectedLocales": [
+    "en-US",
+    "zh-Hans"
+  ],
+  "entries": [
+    {
+      "id": "01-play",
+      "device": "DI",
+      "locale": "en-US",
+      "source": "raw/DI/en-US/01-play.jpg",
+      "headline": "Play inside a reply",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone 18 Pro",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:35:32.827Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "02-results",
+      "device": "DI",
+      "locale": "en-US",
+      "source": "raw/DI/en-US/02-results.jpg",
+      "headline": "Turn data into charts",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone 18 Pro",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:37:50.315Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "03-browser",
+      "device": "DI",
+      "locale": "en-US",
+      "source": "raw/DI/en-US/03-browser.jpg",
+      "headline": "Browse the web in Palmi",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone 18 Pro",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:34:18.682Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "04-files",
+      "device": "DI",
+      "locale": "en-US",
+      "source": "raw/DI/en-US/04-files.jpg",
+      "headline": "Open your project files",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone 18 Pro",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:38:55.402Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "05-models",
+      "device": "DI",
+      "locale": "en-US",
+      "source": "raw/DI/en-US/05-models.jpg",
+      "headline": "Set the thinking level",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone 18 Pro",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:35:40.099Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "06-sources",
+      "device": "DI",
+      "locale": "en-US",
+      "source": "raw/DI/en-US/06-sources.jpg",
+      "headline": "Follow every step",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone 18 Pro",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:37:58.199Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "07-python",
+      "device": "DI",
+      "locale": "en-US",
+      "source": "raw/DI/en-US/07-python.jpg",
+      "headline": "Run Python on device",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone 18 Pro",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:39:08.548Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "08-skills",
+      "device": "DI",
+      "locale": "en-US",
+      "source": "raw/DI/en-US/08-skills.jpg",
+      "headline": "Import your own skills",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone 18 Pro",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:15:45.665Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "09-palmi",
+      "device": "DI",
+      "locale": "en-US",
+      "source": "raw/DI/en-US/09-palmi.jpg",
+      "headline": "Take a break with Palmi",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone 18 Pro",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:34:47.979Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "01-play",
+      "device": "DI",
+      "locale": "zh-Hans",
+      "source": "raw/DI/zh-Hans/01-play.jpg",
+      "headline": "一条回复，直接开玩",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone 18 Pro",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:25:35.156Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "02-results",
+      "device": "DI",
+      "locale": "zh-Hans",
+      "source": "raw/DI/zh-Hans/02-results.jpg",
+      "headline": "把数据画成图表",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone 18 Pro",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:27:54.781Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "03-browser",
+      "device": "DI",
+      "locale": "zh-Hans",
+      "source": "raw/DI/zh-Hans/03-browser.jpg",
+      "headline": "在应用里浏览网页",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone 18 Pro",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:24:50.615Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "04-files",
+      "device": "DI",
+      "locale": "zh-Hans",
+      "source": "raw/DI/zh-Hans/04-files.jpg",
+      "headline": "打开项目文件",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone 18 Pro",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:28:06.941Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "05-models",
+      "device": "DI",
+      "locale": "zh-Hans",
+      "source": "raw/DI/zh-Hans/05-models.jpg",
+      "headline": "调节思考强度",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone 18 Pro",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:26:13.249Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "06-sources",
+      "device": "DI",
+      "locale": "zh-Hans",
+      "source": "raw/DI/zh-Hans/06-sources.jpg",
+      "headline": "看见任务的每一步",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone 18 Pro",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:27:15.763Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "07-python",
+      "device": "DI",
+      "locale": "zh-Hans",
+      "source": "raw/DI/zh-Hans/07-python.jpg",
+      "headline": "在设备上运行 Python",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone 18 Pro",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:27:39.812Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "08-skills",
+      "device": "DI",
+      "locale": "zh-Hans",
+      "source": "raw/DI/zh-Hans/08-skills.jpg",
+      "headline": "导入自己的技能",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone 18 Pro",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:18:10.247Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "09-palmi",
+      "device": "DI",
+      "locale": "zh-Hans",
+      "source": "raw/DI/zh-Hans/09-palmi.jpg",
+      "headline": "和 Palmi 聊聊",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone 18 Pro",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:23:51.391Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "01-play",
+      "device": "Duo",
+      "locale": "en-US",
+      "source": "raw/Duo/en-US/01-play.jpg",
+      "headline": "Play inside a reply",
+      "orientation": "folded",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone Duo",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:02:07.280Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "02-results",
+      "device": "Duo",
+      "locale": "en-US",
+      "source": "raw/Duo/en-US/02-results.jpg",
+      "headline": "Turn data into charts",
+      "orientation": "unfolded-landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone Duo",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:58:03.500Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "03-browser",
+      "device": "Duo",
+      "locale": "en-US",
+      "source": "raw/Duo/en-US/03-browser.jpg",
+      "headline": "Browse the web in Palmi",
+      "orientation": "unfolded-landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone Duo",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:59:40.063Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "04-files",
+      "device": "Duo",
+      "locale": "en-US",
+      "source": "raw/Duo/en-US/04-files.jpg",
+      "headline": "Open your project files",
+      "orientation": "unfolded-landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone Duo",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:58:30.826Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "05-models",
+      "device": "Duo",
+      "locale": "en-US",
+      "source": "raw/Duo/en-US/05-models.jpg",
+      "headline": "Set the thinking level",
+      "orientation": "folded",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone Duo",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:59:56.433Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "06-sources",
+      "device": "Duo",
+      "locale": "en-US",
+      "source": "raw/Duo/en-US/06-sources.jpg",
+      "headline": "Follow every step",
+      "orientation": "unfolded-landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone Duo",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:58:12.859Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "07-python",
+      "device": "Duo",
+      "locale": "en-US",
+      "source": "raw/Duo/en-US/07-python.jpg",
+      "headline": "Run Python on device",
+      "orientation": "unfolded-landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone Duo",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:58:59.961Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "08-skills",
+      "device": "Duo",
+      "locale": "en-US",
+      "source": "raw/Duo/en-US/08-skills.jpg",
+      "headline": "Import your own skills",
+      "orientation": "unfolded-landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone Duo",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:59:09.992Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "09-palmi",
+      "device": "Duo",
+      "locale": "en-US",
+      "source": "raw/Duo/en-US/09-palmi.jpg",
+      "headline": "Take a break with Palmi",
+      "orientation": "folded",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone Duo",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:56:23.825Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "01-play",
+      "device": "Duo",
+      "locale": "zh-Hans",
+      "source": "raw/Duo/zh-Hans/01-play.jpg",
+      "headline": "一条回复，直接开玩",
+      "orientation": "folded",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone Duo",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:49:48.397Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "02-results",
+      "device": "Duo",
+      "locale": "zh-Hans",
+      "source": "raw/Duo/zh-Hans/02-results.jpg",
+      "headline": "把数据画成图表",
+      "orientation": "unfolded-landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone Duo",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:53:25.473Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "03-browser",
+      "device": "Duo",
+      "locale": "zh-Hans",
+      "source": "raw/Duo/zh-Hans/03-browser.jpg",
+      "headline": "在应用里浏览网页",
+      "orientation": "unfolded-landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone Duo",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:53:13.219Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "04-files",
+      "device": "Duo",
+      "locale": "zh-Hans",
+      "source": "raw/Duo/zh-Hans/04-files.jpg",
+      "headline": "打开项目文件",
+      "orientation": "unfolded-landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone Duo",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:53:42.257Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "05-models",
+      "device": "Duo",
+      "locale": "zh-Hans",
+      "source": "raw/Duo/zh-Hans/05-models.jpg",
+      "headline": "调节思考强度",
+      "orientation": "folded",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone Duo",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:49:51.107Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "06-sources",
+      "device": "Duo",
+      "locale": "zh-Hans",
+      "source": "raw/Duo/zh-Hans/06-sources.jpg",
+      "headline": "看见任务的每一步",
+      "orientation": "unfolded-landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone Duo",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:53:51.090Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "07-python",
+      "device": "Duo",
+      "locale": "zh-Hans",
+      "source": "raw/Duo/zh-Hans/07-python.jpg",
+      "headline": "在设备上运行 Python",
+      "orientation": "unfolded-landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone Duo",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:53:57.819Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "08-skills",
+      "device": "Duo",
+      "locale": "zh-Hans",
+      "source": "raw/Duo/zh-Hans/08-skills.jpg",
+      "headline": "导入自己的技能",
+      "orientation": "unfolded-landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone Duo",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:51:47.552Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "09-palmi",
+      "device": "Duo",
+      "locale": "zh-Hans",
+      "source": "raw/Duo/zh-Hans/09-palmi.jpg",
+      "headline": "和 Palmi 聊聊",
+      "orientation": "folded",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPhone Duo",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T15:51:13.123Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "01-play",
+      "device": "iPad",
+      "locale": "en-US",
+      "source": "raw/iPad/en-US/01-play.jpg",
+      "headline": "Play inside a reply",
+      "orientation": "landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:25:46.707Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "02-results",
+      "device": "iPad",
+      "locale": "en-US",
+      "source": "raw/iPad/en-US/02-results.jpg",
+      "headline": "Turn data into charts",
+      "orientation": "landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:22:33.738Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "03-browser",
+      "device": "iPad",
+      "locale": "en-US",
+      "source": "raw/iPad/en-US/03-browser.jpg",
+      "headline": "Browse the web in Palmi",
+      "orientation": "landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:24:39.793Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "04-files",
+      "device": "iPad",
+      "locale": "en-US",
+      "source": "raw/iPad/en-US/04-files.jpg",
+      "headline": "Open your project files",
+      "orientation": "landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:23:25.699Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "05-models",
+      "device": "iPad",
+      "locale": "en-US",
+      "source": "raw/iPad/en-US/05-models.jpg",
+      "headline": "Set the thinking level",
+      "orientation": "landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:22:43.551Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "06-sources",
+      "device": "iPad",
+      "locale": "en-US",
+      "source": "raw/iPad/en-US/06-sources.jpg",
+      "headline": "Follow every step",
+      "orientation": "landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:22:58.979Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "07-python",
+      "device": "iPad",
+      "locale": "en-US",
+      "source": "raw/iPad/en-US/07-python.jpg",
+      "headline": "Run Python on device",
+      "orientation": "landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:24:01.490Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "08-skills",
+      "device": "iPad",
+      "locale": "en-US",
+      "source": "raw/iPad/en-US/08-skills.jpg",
+      "headline": "Import your own skills",
+      "orientation": "landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:22:23.901Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "09-palmi",
+      "device": "iPad",
+      "locale": "en-US",
+      "source": "raw/iPad/en-US/09-palmi.jpg",
+      "headline": "Take a break with Palmi",
+      "orientation": "landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:25:01.714Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "01-play",
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "source": "raw/iPad/zh-Hans/01-play.jpg",
+      "headline": "一条回复，直接开玩",
+      "orientation": "landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:14:08.310Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "02-results",
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "source": "raw/iPad/zh-Hans/02-results.jpg",
+      "headline": "把数据画成图表",
+      "orientation": "landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:12:15.608Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "03-browser",
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "source": "raw/iPad/zh-Hans/03-browser.jpg",
+      "headline": "在应用里浏览网页",
+      "orientation": "landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:11:42.244Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "04-files",
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "source": "raw/iPad/zh-Hans/04-files.jpg",
+      "headline": "打开项目文件",
+      "orientation": "landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:12:49.909Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "05-models",
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "source": "raw/iPad/zh-Hans/05-models.jpg",
+      "headline": "调节思考强度",
+      "orientation": "landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:12:18.480Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "06-sources",
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "source": "raw/iPad/zh-Hans/06-sources.jpg",
+      "headline": "看见任务的每一步",
+      "orientation": "landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:12:28.125Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "07-python",
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "source": "raw/iPad/zh-Hans/07-python.jpg",
+      "headline": "在设备上运行 Python",
+      "orientation": "landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:12:37.005Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "08-skills",
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "source": "raw/iPad/zh-Hans/08-skills.jpg",
+      "headline": "导入自己的技能",
+      "orientation": "landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:11:09.926Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    },
+    {
+      "id": "09-palmi",
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "source": "raw/iPad/zh-Hans/09-palmi.jpg",
+      "headline": "和 Palmi 聊聊",
+      "orientation": "landscape",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:15:24.107Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      }
+    }
+  ]
+}

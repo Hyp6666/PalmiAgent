@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="{{LANG}}">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{TITLE}}</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: {{WIDTH}}px; height: {{HEIGHT}}px; overflow: hidden; }
+  body {
+    background: {{BACKGROUND}};
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", sans-serif;
+    color: #153b2b;
+    -webkit-font-smoothing: antialiased;
+  }
+  #headline {
+    position: absolute;
+    top: {{TOP}}px;
+    left: 4%;
+    width: 92%;
+    margin: 0;
+    font-size: {{FONT_SIZE}}px;
+    line-height: 1.08;
+    letter-spacing: -0.025em;
+    font-weight: 650;
+    text-align: center;
+    white-space: pre-line;
+    text-wrap: balance;
+  }
+  html:lang(zh) #headline { letter-spacing: 0; font-weight: 600; }
+  #device { position: absolute; display: block; object-fit: contain; }
+</style>
+<h1 id="headline">{{HEADLINE}}</h1>
+<img id="device" alt="Actual native Device Hub capture" src="{{DEVICE_DATA}}">
+</html>

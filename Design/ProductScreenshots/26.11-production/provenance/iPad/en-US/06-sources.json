@@ -1,0 +1,126 @@
+{
+  "id": "06-sources",
+  "device": "iPad",
+  "locale": "en-US",
+  "headline": "Follow every step",
+  "orientation": "landscape",
+  "fingerprint": "bc21dfe7b4ebdc38a2f8baf8da7936b822e2e66cf0d947a55461552011c3b01e",
+  "entrySha256": "45518f8ec70f3941fa56dee862ba7175a978929646caef0ed38c0bc0b999ef7d",
+  "canvasWidth": 2752,
+  "canvasHeight": 2064,
+  "background": "blue",
+  "capture": {
+    "origin": "native-device-hub-window",
+    "deviceName": "iPad Pro 13-inch (M4)",
+    "capturedAt": null,
+    "fileModifiedAt": "2026-10-30T16:22:58.979Z",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "sourceFormat": "jpeg"
+  },
+  "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/en-US/06-sources.jpg",
+  "sourceSha256": "506889d48780090807b998ba8be5eae36c727861609a27250dc860d8d18d307d",
+  "crop": {
+    "cropVersion": 2,
+    "captureOrigin": "native-device-hub-window",
+    "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/en-US/06-sources.jpg",
+    "sourceSha256": "506889d48780090807b998ba8be5eae36c727861609a27250dc860d8d18d307d",
+    "sourceFormat": "jpeg",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "crop": {
+      "left": 1106,
+      "top": 144,
+      "width": 2133,
+      "height": 1637
+    },
+    "detectedHardwareBounds": {
+      "left": 1111,
+      "top": 149,
+      "width": 2123,
+      "height": 1627
+    },
+    "detection": {
+      "bounds": {
+        "left": 1111,
+        "top": 149,
+        "width": 2123,
+        "height": 1627
+      },
+      "threshold": 145,
+      "seedCandidates": [
+        {
+          "left": 1111,
+          "top": 149,
+          "width": 2123,
+          "height": 1627,
+          "pixels": 450900
+        }
+      ],
+      "mergedSeeds": 1
+    },
+    "options": {
+      "mode": "auto",
+      "margin": 5,
+      "maskOuterWhite": true,
+      "whiteThreshold": 247,
+      "whiteChroma": 8
+    },
+    "operations": [
+      "integer-coordinate crop",
+      "edge-connected near-white background alpha mask"
+    ],
+    "rgbPixelsSourceIdentical": true,
+    "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+    "maskedPixels": 56302,
+    "cropSha256": "470cc9d9b27bf936af5795341dc7f72575c6cf3617504e08269ae4d5b132955b",
+    "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/iPad/en-US/06-sources.png"
+  },
+  "layout": {
+    "headline": {
+      "left": 110.078125,
+      "top": 42,
+      "width": 2531.828125,
+      "height": 131.75,
+      "right": 2641.90625,
+      "bottom": 173.75,
+      "lines": 1,
+      "fontSize": 122
+    },
+    "device": {
+      "left": 175.94318875992667,
+      "top": 197.9999999999999,
+      "width": 2400.1136224801467,
+      "height": 1842.0000000000002,
+      "scale": 1.1252290775809408,
+      "areaFraction": 0.7699478622087328,
+      "cropAreaFraction": 0.7783291666329404,
+      "heightFraction": 0.8924418604651164,
+      "widthFraction": 0.8721343104942393,
+      "dominantFraction": 0.8924418604651164
+    },
+    "hardware": {
+      "left": 181.56933414783137,
+      "top": 203.6261453879046,
+      "width": 2388.8613317043373,
+      "height": 1830.7477092241907
+    },
+    "areaMetric": "detected hardware bounding box, excluding crop padding",
+    "upright": true,
+    "centered": true,
+    "textDeviceGap": 24.249999999999886
+  },
+  "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/iPad/en-US/06-sources.png",
+  "outputSha256": "10a1b44bdb6dc5037519f16d9237cd2c38b852946275c2bce78e997a9514e393",
+  "acceptance": {
+    "width": 2752,
+    "height": 2064,
+    "format": "png",
+    "colourspace": "srgb",
+    "channels": 3,
+    "hasAlpha": false,
+    "headlineFits": true,
+    "rgbCropSourceIdentical": true
+  },
+  "visualReviewRequired": "Check actual rim, physical buttons, hinge, complete app UI and headline against source before upload."
+}

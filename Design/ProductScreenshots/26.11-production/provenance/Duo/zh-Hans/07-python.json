@@ -1,0 +1,126 @@
+{
+  "id": "07-python",
+  "device": "Duo",
+  "locale": "zh-Hans",
+  "headline": "在设备上运行 Python",
+  "orientation": "unfolded-landscape",
+  "fingerprint": "1fd17a637d7632cad06e9f7562d51b3552a80dd59391e036cc0dde06d6a027c5",
+  "entrySha256": "c0fef96df478b7bb821c2e684370fc3b2473d212c6380deba6f5a10be1cddc69",
+  "canvasWidth": 2853,
+  "canvasHeight": 2007,
+  "background": "stone",
+  "capture": {
+    "origin": "native-device-hub-window",
+    "deviceName": "iPhone Duo",
+    "capturedAt": null,
+    "fileModifiedAt": "2026-10-30T15:53:57.819Z",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "sourceFormat": "jpeg"
+  },
+  "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/Duo/zh-Hans/07-python.jpg",
+  "sourceSha256": "12cc8bd9ef6d248e0ecf45484e44af7061fa0cf96d08c8d8608c037002341250",
+  "crop": {
+    "cropVersion": 2,
+    "captureOrigin": "native-device-hub-window",
+    "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/Duo/zh-Hans/07-python.jpg",
+    "sourceSha256": "12cc8bd9ef6d248e0ecf45484e44af7061fa0cf96d08c8d8608c037002341250",
+    "sourceFormat": "jpeg",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "crop": {
+      "left": 1166,
+      "top": 239,
+      "width": 2025,
+      "height": 1449
+    },
+    "detectedHardwareBounds": {
+      "left": 1171,
+      "top": 244,
+      "width": 2015,
+      "height": 1439
+    },
+    "detection": {
+      "bounds": {
+        "left": 1171,
+        "top": 244,
+        "width": 2015,
+        "height": 1439
+      },
+      "threshold": 145,
+      "seedCandidates": [
+        {
+          "left": 1171,
+          "top": 244,
+          "width": 2015,
+          "height": 1439,
+          "pixels": 276774
+        }
+      ],
+      "mergedSeeds": 1
+    },
+    "options": {
+      "mode": "auto",
+      "margin": 5,
+      "maskOuterWhite": true,
+      "whiteThreshold": 247,
+      "whiteChroma": 8
+    },
+    "operations": [
+      "integer-coordinate crop",
+      "edge-connected near-white background alpha mask"
+    ],
+    "rgbPixelsSourceIdentical": true,
+    "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+    "maskedPixels": 69194,
+    "cropSha256": "6be2a3e9513d9b3b7f6d3a482d74156df34749258464cea6cc54ccd4c550a1fa",
+    "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/Duo/zh-Hans/07-python.png"
+  },
+  "layout": {
+    "headline": {
+      "left": 114.109375,
+      "top": 40,
+      "width": 2624.75,
+      "height": 131.75,
+      "right": 2738.859375,
+      "bottom": 171.75,
+      "lines": 1,
+      "fontSize": 122
+    },
+    "device": {
+      "left": 176.42236024844738,
+      "top": 196.0000000000001,
+      "width": 2500.1552795031052,
+      "height": 1788.9999999999998,
+      "scale": 1.2346445824706693,
+      "areaFraction": 0.7719170087419963,
+      "cropAreaFraction": 0.7811387439843923,
+      "heightFraction": 0.8913801694070751,
+      "widthFraction": 0.8763250191037874,
+      "dominantFraction": 0.8913801694070751
+    },
+    "hardware": {
+      "left": 182.59558316080071,
+      "top": 202.17322291235345,
+      "width": 2487.8088336783985,
+      "height": 1776.6535541752933
+    },
+    "areaMetric": "detected hardware bounding box, excluding crop padding",
+    "upright": true,
+    "centered": true,
+    "textDeviceGap": 24.250000000000114
+  },
+  "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/Duo/zh-Hans/07-python.png",
+  "outputSha256": "d74bb7ea0ec27fe7c323324ea9d498a6ee7bd37a05671f6e97e676fe799779fb",
+  "acceptance": {
+    "width": 2853,
+    "height": 2007,
+    "format": "png",
+    "colourspace": "srgb",
+    "channels": 3,
+    "hasAlpha": false,
+    "headlineFits": true,
+    "rgbCropSourceIdentical": true
+  },
+  "visualReviewRequired": "Check actual rim, physical buttons, hinge, complete app UI and headline against source before upload."
+}

@@ -1,0 +1,126 @@
+{
+  "id": "03-browser",
+  "device": "Duo",
+  "locale": "en-US",
+  "headline": "Browse the web in Palmi",
+  "orientation": "unfolded-landscape",
+  "fingerprint": "386a4a1bdc181a0e60b19e3b49797d2d46dc35d6f443689b3ea521c8618acc4b",
+  "entrySha256": "c8600bcdaf8f082a5ed8fa2107fa3a96fd1f656a44565697a09434c8b62be086",
+  "canvasWidth": 2853,
+  "canvasHeight": 2007,
+  "background": "mint",
+  "capture": {
+    "origin": "native-device-hub-window",
+    "deviceName": "iPhone Duo",
+    "capturedAt": null,
+    "fileModifiedAt": "2026-10-30T15:59:40.063Z",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "sourceFormat": "jpeg"
+  },
+  "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/Duo/en-US/03-browser.jpg",
+  "sourceSha256": "143555dfb11cb07aafc1926b09264f1ac15823e043bc0aecedd6ffb6d73297b2",
+  "crop": {
+    "cropVersion": 2,
+    "captureOrigin": "native-device-hub-window",
+    "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/Duo/en-US/03-browser.jpg",
+    "sourceSha256": "143555dfb11cb07aafc1926b09264f1ac15823e043bc0aecedd6ffb6d73297b2",
+    "sourceFormat": "jpeg",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "crop": {
+      "left": 1166,
+      "top": 239,
+      "width": 2025,
+      "height": 1449
+    },
+    "detectedHardwareBounds": {
+      "left": 1171,
+      "top": 244,
+      "width": 2015,
+      "height": 1439
+    },
+    "detection": {
+      "bounds": {
+        "left": 1171,
+        "top": 244,
+        "width": 2015,
+        "height": 1439
+      },
+      "threshold": 145,
+      "seedCandidates": [
+        {
+          "left": 1171,
+          "top": 244,
+          "width": 2015,
+          "height": 1439,
+          "pixels": 260113
+        }
+      ],
+      "mergedSeeds": 1
+    },
+    "options": {
+      "mode": "auto",
+      "margin": 5,
+      "maskOuterWhite": true,
+      "whiteThreshold": 247,
+      "whiteChroma": 8
+    },
+    "operations": [
+      "integer-coordinate crop",
+      "edge-connected near-white background alpha mask"
+    ],
+    "rgbPixelsSourceIdentical": true,
+    "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+    "maskedPixels": 69194,
+    "cropSha256": "e4a3a95a31aa0a1356265f41af000282b63c23ca75b444ba8a8b546b22bf431f",
+    "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/Duo/en-US/03-browser.png"
+  },
+  "layout": {
+    "headline": {
+      "left": 114.109375,
+      "top": 40,
+      "width": 2624.75,
+      "height": 131.75,
+      "right": 2738.859375,
+      "bottom": 171.75,
+      "lines": 1,
+      "fontSize": 122
+    },
+    "device": {
+      "left": 176.42236024844738,
+      "top": 196.0000000000001,
+      "width": 2500.1552795031052,
+      "height": 1788.9999999999998,
+      "scale": 1.2346445824706693,
+      "areaFraction": 0.7719170087419963,
+      "cropAreaFraction": 0.7811387439843923,
+      "heightFraction": 0.8913801694070751,
+      "widthFraction": 0.8763250191037874,
+      "dominantFraction": 0.8913801694070751
+    },
+    "hardware": {
+      "left": 182.59558316080071,
+      "top": 202.17322291235345,
+      "width": 2487.8088336783985,
+      "height": 1776.6535541752933
+    },
+    "areaMetric": "detected hardware bounding box, excluding crop padding",
+    "upright": true,
+    "centered": true,
+    "textDeviceGap": 24.250000000000114
+  },
+  "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/Duo/en-US/03-browser.png",
+  "outputSha256": "3c45cd17aec0b8c7b47afc2b765796555e1cb8b1f57c318bb766924e86f1765e",
+  "acceptance": {
+    "width": 2853,
+    "height": 2007,
+    "format": "png",
+    "colourspace": "srgb",
+    "channels": 3,
+    "hasAlpha": false,
+    "headlineFits": true,
+    "rgbCropSourceIdentical": true
+  },
+  "visualReviewRequired": "Check actual rim, physical buttons, hinge, complete app UI and headline against source before upload."
+}

@@ -1,0 +1,53 @@
+[
+  {
+    "group": "Duo/zh-Hans",
+    "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/proofs/contact-sheets/Duo--zh-Hans.png",
+    "entries": [
+      {
+        "id": "01-play",
+        "sourceSha256": "0da9ee50964c274d99d487ffdb463b1e64511a5d14f7e105304bcd9fafe0d54c",
+        "outputSha256": "024248bf5fb45844ebe10d99a2b90725f9335bdf4330dd8fcb28ab3d0a4992e1"
+      },
+      {
+        "id": "02-results",
+        "sourceSha256": "91350f02991941d51341426af845ac0f3fb75e5b83e557b104542685f22fbe62",
+        "outputSha256": "d98874a72320db1e1cf1b5c00990cdcb81372ed0a424a0a4f0c91737aeb5dd67"
+      },
+      {
+        "id": "03-browser",
+        "sourceSha256": "fe6dd96c9324fd9a63de4cf7f8a89128e8c2865145953c10788f75003832d700",
+        "outputSha256": "6b4ed0fd89f806c9a95768626321377ac177c62940eed110812a52c6972e0d3a"
+      },
+      {
+        "id": "04-files",
+        "sourceSha256": "055fe30bb1a207fa65da02495f4406daac26e95ecd0e87be33be42252c98b884",
+        "outputSha256": "ddf58fd513c336a5f28364d980338d004694588d730ae657192409082a7dcbcb"
+      },
+      {
+        "id": "05-models",
+        "sourceSha256": "80f4f7a152bb244342a67324e5033b232c3790d6ba1cae7dfe34ad8a57b998f4",
+        "outputSha256": "28df604af89aa70046be7a5b996c8260905d1508c3b50a3b991b409bc1bba3d8"
+      },
+      {
+        "id": "06-sources",
+        "sourceSha256": "36037c4f0db0364cae69b06bf09e0fb0cb22416e1088872a83935357b50f623f",
+        "outputSha256": "7cad142d1ebaf3a2f9a054cc215fed938708965592301d8ab74213852c917886"
+      },
+      {
+        "id": "07-python",
+        "sourceSha256": "12cc8bd9ef6d248e0ecf45484e44af7061fa0cf96d08c8d8608c037002341250",
+        "outputSha256": "d74bb7ea0ec27fe7c323324ea9d498a6ee7bd37a05671f6e97e676fe799779fb"
+      },
+      {
+        "id": "08-skills",
+        "sourceSha256": "6c0b070bf413b30bb24e7b8e0d0c3324105e95a6071bb3b60dfb7e2293b65b1a",
+        "outputSha256": "17802019c666e582eb46ba77a64b1814409803569335168bedebc2113a4601fb"
+      },
+      {
+        "id": "09-palmi",
+        "sourceSha256": "10a86618c3369e677a6e54737b471cb54cd91df7f3a7abaef5e2cee98d9edfad",
+        "outputSha256": "4749405dc8129eccff1d7bb62aee02bacf98e2c76daee0bf0cd61030dbf1eae3"
+      }
+    ]
+  }
+]

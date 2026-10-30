@@ -1,0 +1,126 @@
+{
+  "id": "08-skills",
+  "device": "Duo",
+  "locale": "zh-Hans",
+  "headline": "导入自己的技能",
+  "orientation": "unfolded-landscape",
+  "fingerprint": "f86d2d560ed5bd0783ee0a3e1e0293d17466b072faf67d8da995b899a56544b1",
+  "entrySha256": "8f4d35a81f67c88517bcd06647aea5a0bc93a71b9e3673431a51b8d7061bbe73",
+  "canvasWidth": 2853,
+  "canvasHeight": 2007,
+  "background": "stone",
+  "capture": {
+    "origin": "native-device-hub-window",
+    "deviceName": "iPhone Duo",
+    "capturedAt": null,
+    "fileModifiedAt": "2026-10-30T15:51:47.552Z",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "sourceFormat": "jpeg"
+  },
+  "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/Duo/zh-Hans/08-skills.jpg",
+  "sourceSha256": "6c0b070bf413b30bb24e7b8e0d0c3324105e95a6071bb3b60dfb7e2293b65b1a",
+  "crop": {
+    "cropVersion": 2,
+    "captureOrigin": "native-device-hub-window",
+    "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/Duo/zh-Hans/08-skills.jpg",
+    "sourceSha256": "6c0b070bf413b30bb24e7b8e0d0c3324105e95a6071bb3b60dfb7e2293b65b1a",
+    "sourceFormat": "jpeg",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "crop": {
+      "left": 1166,
+      "top": 239,
+      "width": 2025,
+      "height": 1449
+    },
+    "detectedHardwareBounds": {
+      "left": 1171,
+      "top": 244,
+      "width": 2015,
+      "height": 1439
+    },
+    "detection": {
+      "bounds": {
+        "left": 1171,
+        "top": 244,
+        "width": 2015,
+        "height": 1439
+      },
+      "threshold": 145,
+      "seedCandidates": [
+        {
+          "left": 1171,
+          "top": 244,
+          "width": 2015,
+          "height": 1439,
+          "pixels": 260247
+        }
+      ],
+      "mergedSeeds": 1
+    },
+    "options": {
+      "mode": "auto",
+      "margin": 5,
+      "maskOuterWhite": true,
+      "whiteThreshold": 247,
+      "whiteChroma": 8
+    },
+    "operations": [
+      "integer-coordinate crop",
+      "edge-connected near-white background alpha mask"
+    ],
+    "rgbPixelsSourceIdentical": true,
+    "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+    "maskedPixels": 69194,
+    "cropSha256": "a6dc05d30d12fb13ce46da668790be306c7313759ebce6795207cad89350b0d5",
+    "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/Duo/zh-Hans/08-skills.png"
+  },
+  "layout": {
+    "headline": {
+      "left": 114.109375,
+      "top": 40,
+      "width": 2624.75,
+      "height": 131.75,
+      "right": 2738.859375,
+      "bottom": 171.75,
+      "lines": 1,
+      "fontSize": 122
+    },
+    "device": {
+      "left": 176.42236024844738,
+      "top": 196.0000000000001,
+      "width": 2500.1552795031052,
+      "height": 1788.9999999999998,
+      "scale": 1.2346445824706693,
+      "areaFraction": 0.7719170087419963,
+      "cropAreaFraction": 0.7811387439843923,
+      "heightFraction": 0.8913801694070751,
+      "widthFraction": 0.8763250191037874,
+      "dominantFraction": 0.8913801694070751
+    },
+    "hardware": {
+      "left": 182.59558316080071,
+      "top": 202.17322291235345,
+      "width": 2487.8088336783985,
+      "height": 1776.6535541752933
+    },
+    "areaMetric": "detected hardware bounding box, excluding crop padding",
+    "upright": true,
+    "centered": true,
+    "textDeviceGap": 24.250000000000114
+  },
+  "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/Duo/zh-Hans/08-skills.png",
+  "outputSha256": "17802019c666e582eb46ba77a64b1814409803569335168bedebc2113a4601fb",
+  "acceptance": {
+    "width": 2853,
+    "height": 2007,
+    "format": "png",
+    "colourspace": "srgb",
+    "channels": 3,
+    "hasAlpha": false,
+    "headlineFits": true,
+    "rgbCropSourceIdentical": true
+  },
+  "visualReviewRequired": "Check actual rim, physical buttons, hinge, complete app UI and headline against source before upload."
+}

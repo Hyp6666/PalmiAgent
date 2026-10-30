@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-Hans">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Palmi 26.11 · App Store 展示图</title>
+<style>
+:root{color-scheme:light;--ink:#173c36;--line:#cddbd4;--paper:#fbfaf5}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.5 system-ui,-apple-system,sans-serif}
+header,main{max-width:1370px;margin:0 auto;padding:32px clamp(16px,4vw,60px)}header{padding-bottom:16px;border-bottom:1px solid var(--line)}
+h1{font-size:clamp(28px,4.2vw,58px);letter-spacing:-.055em;margin:0}p{margin:8px 0;color:#4e6961}
+nav{display:flex;gap:16px 30px;flex-wrap:wrap;margin:22px 0 4px}fieldset{border:0;padding:0;margin:0}
+legend{font-size:.74rem;color:#536a63;margin-bottom:5px}button{font:inherit;font-weight:550;border-radius:100px;border:1px solid var(--line);background:transparent;color:var(--ink);padding:5px 13px;cursor:pointer;margin:2px 3px 2px 0}
+button[aria-pressed=true]{color:white;background:var(--ink);border-color:var(--ink)}a:focus-visible,button:focus-visible{outline:3px solid #1477d0;outline-offset:3px}
+#gallery{display:grid;gap:28px 18px;grid-template-columns:repeat(auto-fill,minmax(min(100%,285px),1fr));align-items:start}
+figure{margin:0}figure a{background:#f1f0e8;border-radius:9px;overflow:hidden;display:block;width:100%;line-height:0}
+figure img{display:block;width:100%;height:auto}figcaption{font-size:.87rem;margin:7px 2px 0;color:#46645a}
+@media print{nav{display:none}main{padding:12px}#gallery{grid-template-columns:repeat(3,1fr)}figure{break-inside:avoid}}
+</style>
+<header><h1>Palmi 26.11</h1><p>App Store 展示图 · 选择设备和语言，点按海报可查看原尺寸 PNG。</p>
+<nav><fieldset id="devices"><legend>设备</legend></fieldset><fieldset id="languages"><legend>语言</legend></fieldset></nav></header>
+<main><div id="gallery" aria-live="polite"></div></main>
+<script>
+const state={device:'Duo',locale:'zh-Hans'};
+const devices=[['DI','iPhone 18 Pro'],['Duo','iPhone Duo'],['iPad','iPad Pro 13″']];
+const locales=[['zh-Hans','简体中文'],['en-US','English (US)']];
+const rows=[
+ ['01-play','一条回复，直接开玩','Play inside a reply'],
+ ['02-results','把数据画成图表','Turn data into charts'],
+ ['03-browser','在应用里浏览网页','Browse the web in Palmi'],
+ ['04-files','打开项目文件','Open your project files'],
+ ['05-models','调节思考强度','Set the thinking level'],
+ ['06-sources','看见任务的每一步','Follow every step'],
+ ['07-python','在设备上运行 Python','Run Python on device'],
+ ['08-skills','导入自己的技能','Import your own skills'],
+ ['09-palmi','和 Palmi 聊聊','Take a break with Palmi']];
+function control(id,key,choices){const box=document.getElementById(id);for(const [v,label] of choices){const b=document.createElement('button');b.type='button';b.textContent=label;b.dataset.key=key;b.dataset.value=v;b.onclick=()=>{state[key]=v;draw()};box.append(b)}}
+function draw(){for(const b of document.querySelectorAll('button'))b.setAttribute('aria-pressed',String(state[b.dataset.key]===b.dataset.value));const g=document.getElementById('gallery');g.replaceChildren();for(const [id,zh,en] of rows){const caption=state.locale==='en-US'?en:zh;const f=document.createElement('figure'),a=document.createElement('a'),i=document.createElement('img'),c=document.createElement('figcaption');a.href='../../../Screenshots/AppStore/26.11-production/'+state.device+'/'+state.locale+'/'+id+'.png';i.src=a.href;i.loading='lazy';i.alt=caption;c.textContent=id.slice(0,2)+' · '+caption;c.lang=state.locale;a.append(i);f.append(a,c);g.append(f)}}
+control('devices','device',devices);control('languages','locale',locales);draw();
+</script>
+</html>

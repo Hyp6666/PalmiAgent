@@ -1,0 +1,50 @@
+{
+  "manifest": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-fresh/config/manifest.json",
+  "checked": [
+    {
+      "key": "Duo/en-US/01-overview",
+      "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-fresh/Duo/en-US/01-overview.png",
+      "width": 2853,
+      "height": 2007,
+      "rgbCropSourceIdentical": true,
+      "areaFraction": 0.7755393572717946,
+      "sourceSha256": "0e541ba94135af62f0a582e0b28fa8910e050230e3bb7b2e66e310f5a4c771d1"
+    },
+    {
+      "key": "Duo/zh-Hans/01-overview",
+      "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-fresh/Duo/zh-Hans/01-overview.png",
+      "width": 2853,
+      "height": 2007,
+      "rgbCropSourceIdentical": true,
+      "areaFraction": 0.7755393572717946,
+      "sourceSha256": "8c8b99b882848c42640ba27ef663aa9e546220a9bdd2db54244e9603f14be676"
+    }
+  ],
+  "errors": [],
+  "groups": {
+    "Duo/en-US": {
+      "ready": 1,
+      "target": 9
+    },
+    "Duo/zh-Hans": {
+      "ready": 1,
+      "target": 9
+    },
+    "DI/en-US": {
+      "ready": 0,
+      "target": 9
+    },
+    "DI/zh-Hans": {
+      "ready": 0,
+      "target": 9
+    },
+    "iPad/en-US": {
+      "ready": 0,
+      "target": 9
+    },
+    "iPad/zh-Hans": {
+      "ready": 0,
+      "target": 9
+    }
+  }
+}

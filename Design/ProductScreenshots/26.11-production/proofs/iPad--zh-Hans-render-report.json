@@ -1,0 +1,1152 @@
+{
+  "renderVersion": 3,
+  "manifest": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/config/manifest.json",
+  "outputRoot": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production",
+  "expectedCountPerDeviceLocale": 9,
+  "completed": [
+    {
+      "id": "01-play",
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "headline": "一条回复，直接开玩",
+      "orientation": "landscape",
+      "fingerprint": "acde932977f6a433f28d397309b0d35ccf1c0ca94ff645e3e79b2f23e8c1e771",
+      "entrySha256": "fa95f1a375c7b4742f5234f09844704a9da741aa26d7c554823828a7d6a21031",
+      "canvasWidth": 2752,
+      "canvasHeight": 2064,
+      "background": "mint",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:14:08.310Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      },
+      "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/zh-Hans/01-play.jpg",
+      "sourceSha256": "866dc4a8b9229d45f8df1ac50c84b94ed9378ff2421e4168a6dd9c14abc2a869",
+      "crop": {
+        "cropVersion": 2,
+        "captureOrigin": "native-device-hub-window",
+        "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/zh-Hans/01-play.jpg",
+        "sourceSha256": "866dc4a8b9229d45f8df1ac50c84b94ed9378ff2421e4168a6dd9c14abc2a869",
+        "sourceFormat": "jpeg",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "crop": {
+          "left": 1106,
+          "top": 144,
+          "width": 2133,
+          "height": 1637
+        },
+        "detectedHardwareBounds": {
+          "left": 1111,
+          "top": 149,
+          "width": 2123,
+          "height": 1627
+        },
+        "detection": {
+          "bounds": {
+            "left": 1111,
+            "top": 149,
+            "width": 2123,
+            "height": 1627
+          },
+          "threshold": 145,
+          "seedCandidates": [
+            {
+              "left": 1111,
+              "top": 149,
+              "width": 2123,
+              "height": 1627,
+              "pixels": 447392
+            }
+          ],
+          "mergedSeeds": 1
+        },
+        "options": {
+          "mode": "auto",
+          "margin": 5,
+          "maskOuterWhite": true,
+          "whiteThreshold": 247,
+          "whiteChroma": 8
+        },
+        "operations": [
+          "integer-coordinate crop",
+          "edge-connected near-white background alpha mask"
+        ],
+        "rgbPixelsSourceIdentical": true,
+        "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+        "maskedPixels": 56302,
+        "cropSha256": "7e0254b706761eca68d7fe38aa0ba70f8a3be6a0ca70d2d04d400e95250a0b0e",
+        "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/iPad/zh-Hans/01-play.png"
+      },
+      "layout": {
+        "headline": {
+          "left": 110.078125,
+          "top": 42,
+          "width": 2531.828125,
+          "height": 131.75,
+          "right": 2641.90625,
+          "bottom": 173.75,
+          "lines": 1,
+          "fontSize": 122
+        },
+        "device": {
+          "left": 175.94318875992667,
+          "top": 197.9999999999999,
+          "width": 2400.1136224801467,
+          "height": 1842.0000000000002,
+          "scale": 1.1252290775809408,
+          "areaFraction": 0.7699478622087328,
+          "cropAreaFraction": 0.7783291666329404,
+          "heightFraction": 0.8924418604651164,
+          "widthFraction": 0.8721343104942393,
+          "dominantFraction": 0.8924418604651164
+        },
+        "hardware": {
+          "left": 181.56933414783137,
+          "top": 203.6261453879046,
+          "width": 2388.8613317043373,
+          "height": 1830.7477092241907
+        },
+        "areaMetric": "detected hardware bounding box, excluding crop padding",
+        "upright": true,
+        "centered": true,
+        "textDeviceGap": 24.249999999999886
+      },
+      "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/iPad/zh-Hans/01-play.png",
+      "outputSha256": "a2367416bdfcf59b426f4769cca0752fde97c6ed733d14b36462b78b16e64558",
+      "acceptance": {
+        "width": 2752,
+        "height": 2064,
+        "format": "png",
+        "colourspace": "srgb",
+        "channels": 3,
+        "hasAlpha": false,
+        "headlineFits": true,
+        "rgbCropSourceIdentical": true
+      },
+      "visualReviewRequired": "Check actual rim, physical buttons, hinge, complete app UI and headline against source before upload."
+    },
+    {
+      "id": "02-results",
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "headline": "把数据画成图表",
+      "orientation": "landscape",
+      "fingerprint": "0b3a7c229ead112b5185321b7da4a166a9f92643207b26ea34d802475ea0eaa5",
+      "entrySha256": "1430403bf207b3bc4b40d4537a1c72ee64d110a125d2faf245d20cfa03fdaa1a",
+      "canvasWidth": 2752,
+      "canvasHeight": 2064,
+      "background": "mint",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:12:15.608Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      },
+      "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/zh-Hans/02-results.jpg",
+      "sourceSha256": "97f3e9cfb826991e5d2c127194fd4f99ebbaf07cc3fb960f8ed491861b392d09",
+      "crop": {
+        "cropVersion": 2,
+        "captureOrigin": "native-device-hub-window",
+        "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/zh-Hans/02-results.jpg",
+        "sourceSha256": "97f3e9cfb826991e5d2c127194fd4f99ebbaf07cc3fb960f8ed491861b392d09",
+        "sourceFormat": "jpeg",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "crop": {
+          "left": 1106,
+          "top": 144,
+          "width": 2133,
+          "height": 1637
+        },
+        "detectedHardwareBounds": {
+          "left": 1111,
+          "top": 149,
+          "width": 2123,
+          "height": 1627
+        },
+        "detection": {
+          "bounds": {
+            "left": 1111,
+            "top": 149,
+            "width": 2123,
+            "height": 1627
+          },
+          "threshold": 145,
+          "seedCandidates": [
+            {
+              "left": 1111,
+              "top": 149,
+              "width": 2123,
+              "height": 1627,
+              "pixels": 447407
+            }
+          ],
+          "mergedSeeds": 1
+        },
+        "options": {
+          "mode": "auto",
+          "margin": 5,
+          "maskOuterWhite": true,
+          "whiteThreshold": 247,
+          "whiteChroma": 8
+        },
+        "operations": [
+          "integer-coordinate crop",
+          "edge-connected near-white background alpha mask"
+        ],
+        "rgbPixelsSourceIdentical": true,
+        "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+        "maskedPixels": 56302,
+        "cropSha256": "b55924aac8b2c96a6ccd4d7235e1f80d5b23c7bc7e5972cbcda83f5bb8c93ae0",
+        "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/iPad/zh-Hans/02-results.png"
+      },
+      "layout": {
+        "headline": {
+          "left": 110.078125,
+          "top": 42,
+          "width": 2531.828125,
+          "height": 131.75,
+          "right": 2641.90625,
+          "bottom": 173.75,
+          "lines": 1,
+          "fontSize": 122
+        },
+        "device": {
+          "left": 175.94318875992667,
+          "top": 197.9999999999999,
+          "width": 2400.1136224801467,
+          "height": 1842.0000000000002,
+          "scale": 1.1252290775809408,
+          "areaFraction": 0.7699478622087328,
+          "cropAreaFraction": 0.7783291666329404,
+          "heightFraction": 0.8924418604651164,
+          "widthFraction": 0.8721343104942393,
+          "dominantFraction": 0.8924418604651164
+        },
+        "hardware": {
+          "left": 181.56933414783137,
+          "top": 203.6261453879046,
+          "width": 2388.8613317043373,
+          "height": 1830.7477092241907
+        },
+        "areaMetric": "detected hardware bounding box, excluding crop padding",
+        "upright": true,
+        "centered": true,
+        "textDeviceGap": 24.249999999999886
+      },
+      "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/iPad/zh-Hans/02-results.png",
+      "outputSha256": "0f6b050da72de4e2d38313f465aa08c30386134001ed78f5850d79f69281cb44",
+      "acceptance": {
+        "width": 2752,
+        "height": 2064,
+        "format": "png",
+        "colourspace": "srgb",
+        "channels": 3,
+        "hasAlpha": false,
+        "headlineFits": true,
+        "rgbCropSourceIdentical": true
+      },
+      "visualReviewRequired": "Check actual rim, physical buttons, hinge, complete app UI and headline against source before upload."
+    },
+    {
+      "id": "03-browser",
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "headline": "在应用里浏览网页",
+      "orientation": "landscape",
+      "fingerprint": "b3da6699ca7b6ab8852106383ff1589c77aee4f546a654cd850fdd1ca0eeb86b",
+      "entrySha256": "e9bb5490be63fef4e60265336e82f7e7bdaa776f1521c9a9ea42c364c5f1964e",
+      "canvasWidth": 2752,
+      "canvasHeight": 2064,
+      "background": "mint",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:11:42.244Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      },
+      "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/zh-Hans/03-browser.jpg",
+      "sourceSha256": "9cebbe6d6e111a4e51e05354f7f79a8e69455699dfca5ee680bfb51c837fe288",
+      "crop": {
+        "cropVersion": 2,
+        "captureOrigin": "native-device-hub-window",
+        "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/zh-Hans/03-browser.jpg",
+        "sourceSha256": "9cebbe6d6e111a4e51e05354f7f79a8e69455699dfca5ee680bfb51c837fe288",
+        "sourceFormat": "jpeg",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "crop": {
+          "left": 1106,
+          "top": 144,
+          "width": 2133,
+          "height": 1637
+        },
+        "detectedHardwareBounds": {
+          "left": 1111,
+          "top": 149,
+          "width": 2123,
+          "height": 1627
+        },
+        "detection": {
+          "bounds": {
+            "left": 1111,
+            "top": 149,
+            "width": 2123,
+            "height": 1627
+          },
+          "threshold": 145,
+          "seedCandidates": [
+            {
+              "left": 1111,
+              "top": 149,
+              "width": 2123,
+              "height": 1627,
+              "pixels": 447391
+            }
+          ],
+          "mergedSeeds": 1
+        },
+        "options": {
+          "mode": "auto",
+          "margin": 5,
+          "maskOuterWhite": true,
+          "whiteThreshold": 247,
+          "whiteChroma": 8
+        },
+        "operations": [
+          "integer-coordinate crop",
+          "edge-connected near-white background alpha mask"
+        ],
+        "rgbPixelsSourceIdentical": true,
+        "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+        "maskedPixels": 56302,
+        "cropSha256": "594181ad4a1ef272556b745fb17bd544c07932c68c0d0087640b4bdad47c0563",
+        "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/iPad/zh-Hans/03-browser.png"
+      },
+      "layout": {
+        "headline": {
+          "left": 110.078125,
+          "top": 42,
+          "width": 2531.828125,
+          "height": 131.75,
+          "right": 2641.90625,
+          "bottom": 173.75,
+          "lines": 1,
+          "fontSize": 122
+        },
+        "device": {
+          "left": 175.94318875992667,
+          "top": 197.9999999999999,
+          "width": 2400.1136224801467,
+          "height": 1842.0000000000002,
+          "scale": 1.1252290775809408,
+          "areaFraction": 0.7699478622087328,
+          "cropAreaFraction": 0.7783291666329404,
+          "heightFraction": 0.8924418604651164,
+          "widthFraction": 0.8721343104942393,
+          "dominantFraction": 0.8924418604651164
+        },
+        "hardware": {
+          "left": 181.56933414783137,
+          "top": 203.6261453879046,
+          "width": 2388.8613317043373,
+          "height": 1830.7477092241907
+        },
+        "areaMetric": "detected hardware bounding box, excluding crop padding",
+        "upright": true,
+        "centered": true,
+        "textDeviceGap": 24.249999999999886
+      },
+      "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/iPad/zh-Hans/03-browser.png",
+      "outputSha256": "e819ee4b543f0064d60cac06c05721d90af42e4e0524d0f01bfdb0d85d537a15",
+      "acceptance": {
+        "width": 2752,
+        "height": 2064,
+        "format": "png",
+        "colourspace": "srgb",
+        "channels": 3,
+        "hasAlpha": false,
+        "headlineFits": true,
+        "rgbCropSourceIdentical": true
+      },
+      "visualReviewRequired": "Check actual rim, physical buttons, hinge, complete app UI and headline against source before upload."
+    },
+    {
+      "id": "04-files",
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "headline": "打开项目文件",
+      "orientation": "landscape",
+      "fingerprint": "29f2b4609919212a112480d3c5e06d308b36b4d12e7186614b4700178bda9288",
+      "entrySha256": "5950131a444aa05676e0360898262af9552f8e5f2003937ad80cd3d653db0535",
+      "canvasWidth": 2752,
+      "canvasHeight": 2064,
+      "background": "blue",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:12:49.909Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      },
+      "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/zh-Hans/04-files.jpg",
+      "sourceSha256": "cf3d83478cfa71f7ef4b0e6cc8b804b0e63ddff2111e76458a3f586733560f84",
+      "crop": {
+        "cropVersion": 2,
+        "captureOrigin": "native-device-hub-window",
+        "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/zh-Hans/04-files.jpg",
+        "sourceSha256": "cf3d83478cfa71f7ef4b0e6cc8b804b0e63ddff2111e76458a3f586733560f84",
+        "sourceFormat": "jpeg",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "crop": {
+          "left": 1106,
+          "top": 144,
+          "width": 2133,
+          "height": 1637
+        },
+        "detectedHardwareBounds": {
+          "left": 1111,
+          "top": 149,
+          "width": 2123,
+          "height": 1627
+        },
+        "detection": {
+          "bounds": {
+            "left": 1111,
+            "top": 149,
+            "width": 2123,
+            "height": 1627
+          },
+          "threshold": 145,
+          "seedCandidates": [
+            {
+              "left": 1111,
+              "top": 149,
+              "width": 2123,
+              "height": 1627,
+              "pixels": 450908
+            }
+          ],
+          "mergedSeeds": 1
+        },
+        "options": {
+          "mode": "auto",
+          "margin": 5,
+          "maskOuterWhite": true,
+          "whiteThreshold": 247,
+          "whiteChroma": 8
+        },
+        "operations": [
+          "integer-coordinate crop",
+          "edge-connected near-white background alpha mask"
+        ],
+        "rgbPixelsSourceIdentical": true,
+        "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+        "maskedPixels": 56302,
+        "cropSha256": "dabdb6e99f934f2cb85e32ca694897d958c1f80a5a6e156ab86fbb2f9925dfab",
+        "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/iPad/zh-Hans/04-files.png"
+      },
+      "layout": {
+        "headline": {
+          "left": 110.078125,
+          "top": 42,
+          "width": 2531.828125,
+          "height": 131.75,
+          "right": 2641.90625,
+          "bottom": 173.75,
+          "lines": 1,
+          "fontSize": 122
+        },
+        "device": {
+          "left": 175.94318875992667,
+          "top": 197.9999999999999,
+          "width": 2400.1136224801467,
+          "height": 1842.0000000000002,
+          "scale": 1.1252290775809408,
+          "areaFraction": 0.7699478622087328,
+          "cropAreaFraction": 0.7783291666329404,
+          "heightFraction": 0.8924418604651164,
+          "widthFraction": 0.8721343104942393,
+          "dominantFraction": 0.8924418604651164
+        },
+        "hardware": {
+          "left": 181.56933414783137,
+          "top": 203.6261453879046,
+          "width": 2388.8613317043373,
+          "height": 1830.7477092241907
+        },
+        "areaMetric": "detected hardware bounding box, excluding crop padding",
+        "upright": true,
+        "centered": true,
+        "textDeviceGap": 24.249999999999886
+      },
+      "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/iPad/zh-Hans/04-files.png",
+      "outputSha256": "5fdd529dffcd1db4362fc6e83082573c3e0bc7d9c8231277cbc8593997299952",
+      "acceptance": {
+        "width": 2752,
+        "height": 2064,
+        "format": "png",
+        "colourspace": "srgb",
+        "channels": 3,
+        "hasAlpha": false,
+        "headlineFits": true,
+        "rgbCropSourceIdentical": true
+      },
+      "visualReviewRequired": "Check actual rim, physical buttons, hinge, complete app UI and headline against source before upload."
+    },
+    {
+      "id": "05-models",
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "headline": "调节思考强度",
+      "orientation": "landscape",
+      "fingerprint": "2d76f6d143b959c09686f847a057fe450e6dbd3e04ba2eda27323e0afca0b8bb",
+      "entrySha256": "bd7b0be9933501bef113993dddd153feecb34a249731c3e41a02015f5c34e553",
+      "canvasWidth": 2752,
+      "canvasHeight": 2064,
+      "background": "blue",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:12:18.480Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      },
+      "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/zh-Hans/05-models.jpg",
+      "sourceSha256": "e918a162a722c47545ebd57461482dd5ac449eb157b2aac495777e3791fd4383",
+      "crop": {
+        "cropVersion": 2,
+        "captureOrigin": "native-device-hub-window",
+        "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/zh-Hans/05-models.jpg",
+        "sourceSha256": "e918a162a722c47545ebd57461482dd5ac449eb157b2aac495777e3791fd4383",
+        "sourceFormat": "jpeg",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "crop": {
+          "left": 1106,
+          "top": 144,
+          "width": 2133,
+          "height": 1637
+        },
+        "detectedHardwareBounds": {
+          "left": 1111,
+          "top": 149,
+          "width": 2123,
+          "height": 1627
+        },
+        "detection": {
+          "bounds": {
+            "left": 1111,
+            "top": 149,
+            "width": 2123,
+            "height": 1627
+          },
+          "threshold": 145,
+          "seedCandidates": [
+            {
+              "left": 1111,
+              "top": 149,
+              "width": 2123,
+              "height": 1627,
+              "pixels": 447407
+            }
+          ],
+          "mergedSeeds": 1
+        },
+        "options": {
+          "mode": "auto",
+          "margin": 5,
+          "maskOuterWhite": true,
+          "whiteThreshold": 247,
+          "whiteChroma": 8
+        },
+        "operations": [
+          "integer-coordinate crop",
+          "edge-connected near-white background alpha mask"
+        ],
+        "rgbPixelsSourceIdentical": true,
+        "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+        "maskedPixels": 56302,
+        "cropSha256": "44eeca561b0ae4c6214d318102395f3f1ecbc5e61236c29237e73a730b0a150c",
+        "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/iPad/zh-Hans/05-models.png"
+      },
+      "layout": {
+        "headline": {
+          "left": 110.078125,
+          "top": 42,
+          "width": 2531.828125,
+          "height": 131.75,
+          "right": 2641.90625,
+          "bottom": 173.75,
+          "lines": 1,
+          "fontSize": 122
+        },
+        "device": {
+          "left": 175.94318875992667,
+          "top": 197.9999999999999,
+          "width": 2400.1136224801467,
+          "height": 1842.0000000000002,
+          "scale": 1.1252290775809408,
+          "areaFraction": 0.7699478622087328,
+          "cropAreaFraction": 0.7783291666329404,
+          "heightFraction": 0.8924418604651164,
+          "widthFraction": 0.8721343104942393,
+          "dominantFraction": 0.8924418604651164
+        },
+        "hardware": {
+          "left": 181.56933414783137,
+          "top": 203.6261453879046,
+          "width": 2388.8613317043373,
+          "height": 1830.7477092241907
+        },
+        "areaMetric": "detected hardware bounding box, excluding crop padding",
+        "upright": true,
+        "centered": true,
+        "textDeviceGap": 24.249999999999886
+      },
+      "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/iPad/zh-Hans/05-models.png",
+      "outputSha256": "84790c4ce921fc16f021e2a2f8fffe5d3e8395d48ef6472583d32a26133d5857",
+      "acceptance": {
+        "width": 2752,
+        "height": 2064,
+        "format": "png",
+        "colourspace": "srgb",
+        "channels": 3,
+        "hasAlpha": false,
+        "headlineFits": true,
+        "rgbCropSourceIdentical": true
+      },
+      "visualReviewRequired": "Check actual rim, physical buttons, hinge, complete app UI and headline against source before upload."
+    },
+    {
+      "id": "06-sources",
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "headline": "看见任务的每一步",
+      "orientation": "landscape",
+      "fingerprint": "ba5556f52a169fcb4ac204d63551b6a610bba01d7bdf14ef7bf7a78fd2cb40a9",
+      "entrySha256": "5beb3ee018862b96c9349455d980702b931b637a7b23e3b04f014a5d77f5aec7",
+      "canvasWidth": 2752,
+      "canvasHeight": 2064,
+      "background": "blue",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:12:28.125Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      },
+      "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/zh-Hans/06-sources.jpg",
+      "sourceSha256": "dcdc3cfc9217ea1d190a24503d3c0a1d577463550a163f7ef9296cd44b6a6880",
+      "crop": {
+        "cropVersion": 2,
+        "captureOrigin": "native-device-hub-window",
+        "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/zh-Hans/06-sources.jpg",
+        "sourceSha256": "dcdc3cfc9217ea1d190a24503d3c0a1d577463550a163f7ef9296cd44b6a6880",
+        "sourceFormat": "jpeg",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "crop": {
+          "left": 1106,
+          "top": 144,
+          "width": 2133,
+          "height": 1637
+        },
+        "detectedHardwareBounds": {
+          "left": 1111,
+          "top": 149,
+          "width": 2123,
+          "height": 1627
+        },
+        "detection": {
+          "bounds": {
+            "left": 1111,
+            "top": 149,
+            "width": 2123,
+            "height": 1627
+          },
+          "threshold": 145,
+          "seedCandidates": [
+            {
+              "left": 1111,
+              "top": 149,
+              "width": 2123,
+              "height": 1627,
+              "pixels": 450915
+            }
+          ],
+          "mergedSeeds": 1
+        },
+        "options": {
+          "mode": "auto",
+          "margin": 5,
+          "maskOuterWhite": true,
+          "whiteThreshold": 247,
+          "whiteChroma": 8
+        },
+        "operations": [
+          "integer-coordinate crop",
+          "edge-connected near-white background alpha mask"
+        ],
+        "rgbPixelsSourceIdentical": true,
+        "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+        "maskedPixels": 56302,
+        "cropSha256": "c79cd060f3acbaae9c6c2237f15c87413c67291784c0b5940dd0576e5f463aeb",
+        "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/iPad/zh-Hans/06-sources.png"
+      },
+      "layout": {
+        "headline": {
+          "left": 110.078125,
+          "top": 42,
+          "width": 2531.828125,
+          "height": 131.75,
+          "right": 2641.90625,
+          "bottom": 173.75,
+          "lines": 1,
+          "fontSize": 122
+        },
+        "device": {
+          "left": 175.94318875992667,
+          "top": 197.9999999999999,
+          "width": 2400.1136224801467,
+          "height": 1842.0000000000002,
+          "scale": 1.1252290775809408,
+          "areaFraction": 0.7699478622087328,
+          "cropAreaFraction": 0.7783291666329404,
+          "heightFraction": 0.8924418604651164,
+          "widthFraction": 0.8721343104942393,
+          "dominantFraction": 0.8924418604651164
+        },
+        "hardware": {
+          "left": 181.56933414783137,
+          "top": 203.6261453879046,
+          "width": 2388.8613317043373,
+          "height": 1830.7477092241907
+        },
+        "areaMetric": "detected hardware bounding box, excluding crop padding",
+        "upright": true,
+        "centered": true,
+        "textDeviceGap": 24.249999999999886
+      },
+      "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/iPad/zh-Hans/06-sources.png",
+      "outputSha256": "a4e9d8b8ae3c3494e432837861338a7d5582dcd6fd941da9e7426d56409266a1",
+      "acceptance": {
+        "width": 2752,
+        "height": 2064,
+        "format": "png",
+        "colourspace": "srgb",
+        "channels": 3,
+        "hasAlpha": false,
+        "headlineFits": true,
+        "rgbCropSourceIdentical": true
+      },
+      "visualReviewRequired": "Check actual rim, physical buttons, hinge, complete app UI and headline against source before upload."
+    },
+    {
+      "id": "07-python",
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "headline": "在设备上运行 Python",
+      "orientation": "landscape",
+      "fingerprint": "7982aa98ea5d873d81adb34c54306ce2b95398c22f42b16e9c3cca4304e33e01",
+      "entrySha256": "22bb93b85c2b6f82f94d7b5fed2224798c5a91d664ffaf043a6866604e2bb669",
+      "canvasWidth": 2752,
+      "canvasHeight": 2064,
+      "background": "stone",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:12:37.005Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      },
+      "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/zh-Hans/07-python.jpg",
+      "sourceSha256": "8f532c75f7dc44710913c0a1d655fdb822fe6c698806070a61a79155714216c4",
+      "crop": {
+        "cropVersion": 2,
+        "captureOrigin": "native-device-hub-window",
+        "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/zh-Hans/07-python.jpg",
+        "sourceSha256": "8f532c75f7dc44710913c0a1d655fdb822fe6c698806070a61a79155714216c4",
+        "sourceFormat": "jpeg",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "crop": {
+          "left": 1106,
+          "top": 144,
+          "width": 2133,
+          "height": 1637
+        },
+        "detectedHardwareBounds": {
+          "left": 1111,
+          "top": 149,
+          "width": 2123,
+          "height": 1627
+        },
+        "detection": {
+          "bounds": {
+            "left": 1111,
+            "top": 149,
+            "width": 2123,
+            "height": 1627
+          },
+          "threshold": 145,
+          "seedCandidates": [
+            {
+              "left": 1111,
+              "top": 149,
+              "width": 2123,
+              "height": 1627,
+              "pixels": 511374
+            }
+          ],
+          "mergedSeeds": 1
+        },
+        "options": {
+          "mode": "auto",
+          "margin": 5,
+          "maskOuterWhite": true,
+          "whiteThreshold": 247,
+          "whiteChroma": 8
+        },
+        "operations": [
+          "integer-coordinate crop",
+          "edge-connected near-white background alpha mask"
+        ],
+        "rgbPixelsSourceIdentical": true,
+        "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+        "maskedPixels": 56302,
+        "cropSha256": "a41fe634c2390223d7a406f06773e0bcd7251934815fd6a83c4751c5ae14ab2d",
+        "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/iPad/zh-Hans/07-python.png"
+      },
+      "layout": {
+        "headline": {
+          "left": 110.078125,
+          "top": 42,
+          "width": 2531.828125,
+          "height": 131.75,
+          "right": 2641.90625,
+          "bottom": 173.75,
+          "lines": 1,
+          "fontSize": 122
+        },
+        "device": {
+          "left": 175.94318875992667,
+          "top": 197.9999999999999,
+          "width": 2400.1136224801467,
+          "height": 1842.0000000000002,
+          "scale": 1.1252290775809408,
+          "areaFraction": 0.7699478622087328,
+          "cropAreaFraction": 0.7783291666329404,
+          "heightFraction": 0.8924418604651164,
+          "widthFraction": 0.8721343104942393,
+          "dominantFraction": 0.8924418604651164
+        },
+        "hardware": {
+          "left": 181.56933414783137,
+          "top": 203.6261453879046,
+          "width": 2388.8613317043373,
+          "height": 1830.7477092241907
+        },
+        "areaMetric": "detected hardware bounding box, excluding crop padding",
+        "upright": true,
+        "centered": true,
+        "textDeviceGap": 24.249999999999886
+      },
+      "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/iPad/zh-Hans/07-python.png",
+      "outputSha256": "a6ab971aaaa5b61ec812a1a20e31198ab250cc113abc082b01ca1180b24733f4",
+      "acceptance": {
+        "width": 2752,
+        "height": 2064,
+        "format": "png",
+        "colourspace": "srgb",
+        "channels": 3,
+        "hasAlpha": false,
+        "headlineFits": true,
+        "rgbCropSourceIdentical": true
+      },
+      "visualReviewRequired": "Check actual rim, physical buttons, hinge, complete app UI and headline against source before upload."
+    },
+    {
+      "id": "08-skills",
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "headline": "导入自己的技能",
+      "orientation": "landscape",
+      "fingerprint": "fe278f7d1a932ef4b8e2c4c103038874edfc6dac4fd71c043ec41060a050703a",
+      "entrySha256": "5230d33e4af56bf3b15f3ca5ad3ebbeadb4e7d3e726de6d1fd95abf906b624fa",
+      "canvasWidth": 2752,
+      "canvasHeight": 2064,
+      "background": "stone",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:11:09.926Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      },
+      "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/zh-Hans/08-skills.jpg",
+      "sourceSha256": "6143438866f31efa46254123da3b13a30001acb0ac27085d849c685c1a405505",
+      "crop": {
+        "cropVersion": 2,
+        "captureOrigin": "native-device-hub-window",
+        "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/zh-Hans/08-skills.jpg",
+        "sourceSha256": "6143438866f31efa46254123da3b13a30001acb0ac27085d849c685c1a405505",
+        "sourceFormat": "jpeg",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "crop": {
+          "left": 1106,
+          "top": 144,
+          "width": 2133,
+          "height": 1637
+        },
+        "detectedHardwareBounds": {
+          "left": 1111,
+          "top": 149,
+          "width": 2123,
+          "height": 1627
+        },
+        "detection": {
+          "bounds": {
+            "left": 1111,
+            "top": 149,
+            "width": 2123,
+            "height": 1627
+          },
+          "threshold": 145,
+          "seedCandidates": [
+            {
+              "left": 1111,
+              "top": 149,
+              "width": 2123,
+              "height": 1627,
+              "pixels": 450254
+            }
+          ],
+          "mergedSeeds": 1
+        },
+        "options": {
+          "mode": "auto",
+          "margin": 5,
+          "maskOuterWhite": true,
+          "whiteThreshold": 247,
+          "whiteChroma": 8
+        },
+        "operations": [
+          "integer-coordinate crop",
+          "edge-connected near-white background alpha mask"
+        ],
+        "rgbPixelsSourceIdentical": true,
+        "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+        "maskedPixels": 56302,
+        "cropSha256": "06bc1ce69fe219031d121aeadab36871ef2bd4f8b755eaa802d9e0f90a75327b",
+        "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/iPad/zh-Hans/08-skills.png"
+      },
+      "layout": {
+        "headline": {
+          "left": 110.078125,
+          "top": 42,
+          "width": 2531.828125,
+          "height": 131.75,
+          "right": 2641.90625,
+          "bottom": 173.75,
+          "lines": 1,
+          "fontSize": 122
+        },
+        "device": {
+          "left": 175.94318875992667,
+          "top": 197.9999999999999,
+          "width": 2400.1136224801467,
+          "height": 1842.0000000000002,
+          "scale": 1.1252290775809408,
+          "areaFraction": 0.7699478622087328,
+          "cropAreaFraction": 0.7783291666329404,
+          "heightFraction": 0.8924418604651164,
+          "widthFraction": 0.8721343104942393,
+          "dominantFraction": 0.8924418604651164
+        },
+        "hardware": {
+          "left": 181.56933414783137,
+          "top": 203.6261453879046,
+          "width": 2388.8613317043373,
+          "height": 1830.7477092241907
+        },
+        "areaMetric": "detected hardware bounding box, excluding crop padding",
+        "upright": true,
+        "centered": true,
+        "textDeviceGap": 24.249999999999886
+      },
+      "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/iPad/zh-Hans/08-skills.png",
+      "outputSha256": "ad09b47d7a529222d4683dbfaa4f08ed70882cffd26d2ace5a52fbee99d5dba7",
+      "acceptance": {
+        "width": 2752,
+        "height": 2064,
+        "format": "png",
+        "colourspace": "srgb",
+        "channels": 3,
+        "hasAlpha": false,
+        "headlineFits": true,
+        "rgbCropSourceIdentical": true
+      },
+      "visualReviewRequired": "Check actual rim, physical buttons, hinge, complete app UI and headline against source before upload.",
+      "cached": true
+    },
+    {
+      "id": "09-palmi",
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "headline": "和 Palmi 聊聊",
+      "orientation": "landscape",
+      "fingerprint": "c6d43f8f8916e2955a4f2c8cb041778f587da9895cafec6f23dfdac90d9c3dfa",
+      "entrySha256": "b85155e6bb4e8758e9fe8fecddd3e667bb349dc7d11c1ff04737f8a699c03c6c",
+      "canvasWidth": 2752,
+      "canvasHeight": 2064,
+      "background": "stone",
+      "capture": {
+        "origin": "native-device-hub-window",
+        "deviceName": "iPad Pro 13-inch (M4)",
+        "capturedAt": null,
+        "fileModifiedAt": "2026-10-30T16:15:24.107Z",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "sourceFormat": "jpeg"
+      },
+      "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/zh-Hans/09-palmi.jpg",
+      "sourceSha256": "5606d4da5ed663897da491399d26482ea9a7ee2b87b361450279a542a3a9f548",
+      "crop": {
+        "cropVersion": 2,
+        "captureOrigin": "native-device-hub-window",
+        "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/iPad/zh-Hans/09-palmi.jpg",
+        "sourceSha256": "5606d4da5ed663897da491399d26482ea9a7ee2b87b361450279a542a3a9f548",
+        "sourceFormat": "jpeg",
+        "sourceWidth": 3840,
+        "sourceHeight": 1916,
+        "crop": {
+          "left": 1106,
+          "top": 144,
+          "width": 2133,
+          "height": 1637
+        },
+        "detectedHardwareBounds": {
+          "left": 1111,
+          "top": 149,
+          "width": 2123,
+          "height": 1627
+        },
+        "detection": {
+          "bounds": {
+            "left": 1111,
+            "top": 149,
+            "width": 2123,
+            "height": 1627
+          },
+          "threshold": 145,
+          "seedCandidates": [
+            {
+              "left": 1111,
+              "top": 149,
+              "width": 2123,
+              "height": 1627,
+              "pixels": 447399
+            }
+          ],
+          "mergedSeeds": 1
+        },
+        "options": {
+          "mode": "auto",
+          "margin": 5,
+          "maskOuterWhite": true,
+          "whiteThreshold": 247,
+          "whiteChroma": 8
+        },
+        "operations": [
+          "integer-coordinate crop",
+          "edge-connected near-white background alpha mask"
+        ],
+        "rgbPixelsSourceIdentical": true,
+        "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+        "maskedPixels": 56302,
+        "cropSha256": "2e640e5da54f1afad4170ce15165701817794e733b05b0bfef741ad3d302fd77",
+        "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/iPad/zh-Hans/09-palmi.png"
+      },
+      "layout": {
+        "headline": {
+          "left": 110.078125,
+          "top": 42,
+          "width": 2531.828125,
+          "height": 131.75,
+          "right": 2641.90625,
+          "bottom": 173.75,
+          "lines": 1,
+          "fontSize": 122
+        },
+        "device": {
+          "left": 175.94318875992667,
+          "top": 197.9999999999999,
+          "width": 2400.1136224801467,
+          "height": 1842.0000000000002,
+          "scale": 1.1252290775809408,
+          "areaFraction": 0.7699478622087328,
+          "cropAreaFraction": 0.7783291666329404,
+          "heightFraction": 0.8924418604651164,
+          "widthFraction": 0.8721343104942393,
+          "dominantFraction": 0.8924418604651164
+        },
+        "hardware": {
+          "left": 181.56933414783137,
+          "top": 203.6261453879046,
+          "width": 2388.8613317043373,
+          "height": 1830.7477092241907
+        },
+        "areaMetric": "detected hardware bounding box, excluding crop padding",
+        "upright": true,
+        "centered": true,
+        "textDeviceGap": 24.249999999999886
+      },
+      "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/iPad/zh-Hans/09-palmi.png",
+      "outputSha256": "3ff51992edf12d2afd9bb8f95616c811c292472f6e4e66d05b5336dc457e9b03",
+      "acceptance": {
+        "width": 2752,
+        "height": 2064,
+        "format": "png",
+        "colourspace": "srgb",
+        "channels": 3,
+        "hasAlpha": false,
+        "headlineFits": true,
+        "rgbCropSourceIdentical": true
+      },
+      "visualReviewRequired": "Check actual rim, physical buttons, hinge, complete app UI and headline against source before upload."
+    }
+  ],
+  "missing": [],
+  "failed": [],
+  "counts": {
+    "iPad/zh-Hans": {
+      "declared": 9,
+      "rendered": 9,
+      "target": 9
+    }
+  }
+}

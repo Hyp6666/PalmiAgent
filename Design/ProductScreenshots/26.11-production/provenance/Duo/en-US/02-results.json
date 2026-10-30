@@ -1,0 +1,126 @@
+{
+  "id": "02-results",
+  "device": "Duo",
+  "locale": "en-US",
+  "headline": "Turn data into charts",
+  "orientation": "unfolded-landscape",
+  "fingerprint": "51b3f6edd0f27ca6979ddc5002a9c4fb3488f298bf15f9da99e3cfd7a507ce59",
+  "entrySha256": "962e015d6584ba52fcc83069c8032dc78bf087b2dc716def310f6225b34d21f7",
+  "canvasWidth": 2853,
+  "canvasHeight": 2007,
+  "background": "mint",
+  "capture": {
+    "origin": "native-device-hub-window",
+    "deviceName": "iPhone Duo",
+    "capturedAt": null,
+    "fileModifiedAt": "2026-10-30T15:58:03.500Z",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "sourceFormat": "jpeg"
+  },
+  "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/Duo/en-US/02-results.jpg",
+  "sourceSha256": "ea1cf120a05fa78728417ca705ec545f132e64f877a28ada5e83dc2da1bc0f29",
+  "crop": {
+    "cropVersion": 2,
+    "captureOrigin": "native-device-hub-window",
+    "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/Duo/en-US/02-results.jpg",
+    "sourceSha256": "ea1cf120a05fa78728417ca705ec545f132e64f877a28ada5e83dc2da1bc0f29",
+    "sourceFormat": "jpeg",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "crop": {
+      "left": 1166,
+      "top": 239,
+      "width": 2025,
+      "height": 1449
+    },
+    "detectedHardwareBounds": {
+      "left": 1171,
+      "top": 244,
+      "width": 2015,
+      "height": 1439
+    },
+    "detection": {
+      "bounds": {
+        "left": 1171,
+        "top": 244,
+        "width": 2015,
+        "height": 1439
+      },
+      "threshold": 145,
+      "seedCandidates": [
+        {
+          "left": 1171,
+          "top": 244,
+          "width": 2015,
+          "height": 1439,
+          "pixels": 263751
+        }
+      ],
+      "mergedSeeds": 1
+    },
+    "options": {
+      "mode": "auto",
+      "margin": 5,
+      "maskOuterWhite": true,
+      "whiteThreshold": 247,
+      "whiteChroma": 8
+    },
+    "operations": [
+      "integer-coordinate crop",
+      "edge-connected near-white background alpha mask"
+    ],
+    "rgbPixelsSourceIdentical": true,
+    "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+    "maskedPixels": 69194,
+    "cropSha256": "243aa8a5869297ebb9eb825f747be1b5dcae4507f29ea24db79f0c94df92e656",
+    "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/Duo/en-US/02-results.png"
+  },
+  "layout": {
+    "headline": {
+      "left": 114.109375,
+      "top": 40,
+      "width": 2624.75,
+      "height": 131.75,
+      "right": 2738.859375,
+      "bottom": 171.75,
+      "lines": 1,
+      "fontSize": 122
+    },
+    "device": {
+      "left": 176.42236024844738,
+      "top": 196.0000000000001,
+      "width": 2500.1552795031052,
+      "height": 1788.9999999999998,
+      "scale": 1.2346445824706693,
+      "areaFraction": 0.7719170087419963,
+      "cropAreaFraction": 0.7811387439843923,
+      "heightFraction": 0.8913801694070751,
+      "widthFraction": 0.8763250191037874,
+      "dominantFraction": 0.8913801694070751
+    },
+    "hardware": {
+      "left": 182.59558316080071,
+      "top": 202.17322291235345,
+      "width": 2487.8088336783985,
+      "height": 1776.6535541752933
+    },
+    "areaMetric": "detected hardware bounding box, excluding crop padding",
+    "upright": true,
+    "centered": true,
+    "textDeviceGap": 24.250000000000114
+  },
+  "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/Duo/en-US/02-results.png",
+  "outputSha256": "4aae8ffc62ca047f505cc95b4973536e3e973fa3e1ed5ebc67d66a722d697a26",
+  "acceptance": {
+    "width": 2853,
+    "height": 2007,
+    "format": "png",
+    "colourspace": "srgb",
+    "channels": 3,
+    "hasAlpha": false,
+    "headlineFits": true,
+    "rgbCropSourceIdentical": true
+  },
+  "visualReviewRequired": "Check actual rim, physical buttons, hinge, complete app UI and headline against source before upload."
+}

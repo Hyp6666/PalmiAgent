@@ -1,0 +1,1392 @@
+{
+  "version": 1,
+  "purpose": "54 real localized capture candidates; planning is never capture evidence",
+  "status": "No capture claimed by this matrix",
+  "deviceOrder": [
+    {
+      "device": "DI",
+      "deviceName": "iPhone 18 Pro",
+      "udid": "99F459A7-5B0D-45B3-97C2-259E06FF5A0B"
+    },
+    {
+      "device": "Duo",
+      "deviceName": "iPhone Duo",
+      "udid": "6A321F29-6FD9-45B1-B6F7-062096BDDEF1"
+    },
+    {
+      "device": "iPad",
+      "deviceName": "iPad Pro 13-inch (M4)",
+      "udid": "85116E22-5725-4A59-8693-C4605BD06FEF"
+    }
+  ],
+  "sources": [
+    "STATE.md",
+    "PIPELINE.md",
+    "research/demo-recipes.md",
+    "research/visual-direction.md",
+    "scripts/register.mjs",
+    "config/manifest.json"
+  ],
+  "policy": {
+    "authorization": "新增标题不得有供应商名称；原应用UI允许保留真实供应商/模型名。此项按最新授权，覆盖 visual-direction.md 的旧全图禁令。",
+    "uiOwner": "Main operator only; this matrix and checklist never operate UI.",
+    "truth": "仅真实应用操作与原始 Device Hub 完整窗口；禁合成UI、宿主注入内容、改数据库、篡改原图。",
+    "localization": "每个设备每种语言独立真实内容；不得只翻标题、复用异语会话。",
+    "fallback": "可先做候选捕获，但替代场景只有经过标题重写、真实性、质量与全组去重检查后才可注册。无网络时不保证凑满九张；明确保留阻塞。",
+    "capture": "键盘/加载/错误提示清除后捕获稳定完整硬件，记录真实时间、设备、locale；注册后逐张对照 raw 与 poster。",
+    "completion": "每组01–09各一次且独立9场景，六组合计54；verify --complete与人工内容审阅均通过。",
+    "registration": "矩阵不写 manifest；注册仅由操作员核对真实 raw、标题、方向与捕获信息后运行现有 register.mjs。"
+  },
+  "entries": [
+    {
+      "device": "DI",
+      "locale": "en-US",
+      "id": "01-play",
+      "headline": "Play right in chat",
+      "scene": "聊天模式中真正渲染且已真实滑动的 2048 交互回复",
+      "orientation": "portrait",
+      "canvas": [
+        1206,
+        2622
+      ],
+      "raw": "raw/DI/en-US/01-play.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-chat",
+      "acceptance": [
+        "公开回复中的完整 palmi-ui HTML 块已渲染；棋盘、分数、重开可见，非源码/文件预览",
+        "真实手势至少确认一次合法局面变化；键盘关闭、无流式输出/加载状态"
+      ],
+      "withoutModelNetwork": {
+        "action": "若本设备本语言已有真实可玩的回复，直接打开并操作，不重发请求；否则可先捕获聊天起始页作候选，但不能沿用本标题或计作完成。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实本设备竖屏完整硬件；不得以其他 Dynamic Island 手机冒名。"
+    },
+    {
+      "device": "DI",
+      "locale": "en-US",
+      "id": "02-results",
+      "headline": "Ideas into action",
+      "scene": "专业项目的 LCP 演示数据成果：短结论、原生柱状图和文件链接",
+      "orientation": "portrait",
+      "canvas": [
+        1206,
+        2622
+      ],
+      "raw": "raw/DI/en-US/02-results.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "数据明确标为演示；W1–W6 为 3.8/3.4/3.1/2.7/2.4/2.2 秒",
+        "最终回复已经完成；图表真实渲染，三个文件链接对应真实存在文件；改善约42.1%、2/6周≤2.5秒须与真实工具输出一致"
+      ],
+      "withoutModelNetwork": {
+        "action": "只可复用此设备此语言的既有真实已完成项目；没有则拍专业工作区候选，改为“Your workspace / 你的工作空间”，不得宣称成果，不能自动替代主场景。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实本设备竖屏完整硬件；不得以其他 Dynamic Island 手机冒名。"
+    },
+    {
+      "device": "DI",
+      "locale": "en-US",
+      "id": "03-browser",
+      "headline": "Browse in one place",
+      "scene": "应用内浏览器实际打开 LCP 参考文章",
+      "orientation": "portrait",
+      "canvas": [
+        1206,
+        2622
+      ],
+      "raw": "raw/DI/en-US/03-browser.jpg",
+      "status": "planned-unverified",
+      "dependency": "public-web",
+      "acceptance": [
+        "实际页面内容已加载，可读而非空标签/地址框/错误页",
+        "保留真实浏览器 UI；可见页面与所述任务有关，主截图内容与当前语言相容"
+      ],
+      "withoutModelNetwork": {
+        "action": "若浏览器本身允许用户通过真实 UI 输入网址并导航，可直接打开参考文章，不调用模型；仍需网页网络成功。若已有完整真实页面可直接展示。不能用错误页替代。",
+        "canAttemptNow": true,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实本设备竖屏完整硬件；不得以其他 Dynamic Island 手机冒名。"
+    },
+    {
+      "device": "DI",
+      "locale": "en-US",
+      "id": "04-files",
+      "headline": "Files within reach",
+      "scene": "当前专业项目文件根目录或 report.md 可读预览",
+      "orientation": "portrait",
+      "canvas": [
+        1206,
+        2622
+      ],
+      "raw": "raw/DI/en-US/04-files.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "根目录真实存在 metrics.csv/chart.html/report.md，或 report.md 展示可读结论与来源",
+        "HTML 文件预览为源码时不冒称渲染图表；文件来自真实应用工具执行，未由宿主注入"
+      ],
+      "withoutModelNetwork": {
+        "action": "已有同设备同语言真实项目文件时打开目录或 Markdown，无需模型。空目录只可作“Project files / 项目文件”候选，不能冒称交付；与其他场景去重。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实本设备竖屏完整硬件；不得以其他 Dynamic Island 手机冒名。"
+    },
+    {
+      "device": "DI",
+      "locale": "en-US",
+      "id": "05-models",
+      "headline": "Choose how you think",
+      "scene": "输入栏脑图标→推理面板→右侧实际模型菜单",
+      "orientation": "portrait",
+      "canvas": [
+        1206,
+        2622
+      ],
+      "raw": "raw/DI/en-US/05-models.jpg",
+      "status": "planned-unverified",
+      "dependency": "none",
+      "acceptance": [
+        "仅展示真实已配置模型/推理选项；不输入假账号或模型",
+        "仅展开/选择无需发送请求；无密钥、账户敏感内容或401错误面板入镜；模型是否可用不由菜单证明"
+      ],
+      "withoutModelNetwork": {
+        "action": "真实 UI 直接打开推理面板与已配置模型菜单；未成功连接时可仅拍已有真实选项，并改成面板对应标题。不能把选择器称为联网成功。",
+        "canAttemptNow": true,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实本设备竖屏完整硬件；不得以其他 Dynamic Island 手机冒名。"
+    },
+    {
+      "device": "DI",
+      "locale": "en-US",
+      "id": "06-sources",
+      "headline": "See the sources",
+      "scene": "已完成任务的真实 browser 步骤/来源链接及已核实阈值",
+      "orientation": "portrait",
+      "canvas": [
+        1206,
+        2622
+      ],
+      "raw": "raw/DI/en-US/06-sources.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "只显示实际打开的来源与真实步骤输出；不得填充旧证据抽屉或存储",
+        "链接/事实/输出来自同一真实任务；静态说明或仅输入的网址不能证明研究已执行"
+      ],
+      "withoutModelNetwork": {
+        "action": "若本设备本语言已有真实 browser 步骤或来源回复，直接打开详情；没有则保持阻塞，不能拿浏览器地址栏重复充当第二张来源成果。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实本设备竖屏完整硬件；不得以其他 Dynamic Island 手机冒名。"
+    },
+    {
+      "device": "DI",
+      "locale": "en-US",
+      "id": "07-python",
+      "headline": "Compute on device",
+      "scene": "真实成功的 Python 步骤输入和输出，或 scripts/analyze.py 与真实日志",
+      "orientation": "portrait",
+      "canvas": [
+        1206,
+        2622
+      ],
+      "raw": "raw/DI/en-US/07-python.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "真实嵌入式 Python 已执行成功，显示实际输入/输出，不是模拟终端",
+        "输出与数据一致；脚本单独存在不证明运行成功；日志不可由宿主制造"
+      ],
+      "withoutModelNetwork": {
+        "action": "直接打开本设备已有真实成功 Python 步骤或日志，无需再次模型请求。若无执行记录则保持阻塞，不以编辑器静态代码冒充计算完成。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实本设备竖屏完整硬件；不得以其他 Dynamic Island 手机冒名。"
+    },
+    {
+      "device": "DI",
+      "locale": "en-US",
+      "id": "08-skills",
+      "headline": "Skills for your work",
+      "scene": "侧栏技能页内置系统技能或其中一个技能详情",
+      "orientation": "portrait",
+      "canvas": [
+        1206,
+        2622
+      ],
+      "raw": "raw/DI/en-US/08-skills.jpg",
+      "status": "planned-unverified",
+      "dependency": "none",
+      "acceptance": [
+        "真实系统技能库/技能详情可见；内置 skill-creator 与 bionic-persona-creator 不包装成已安装第三方技能",
+        "不后台导入虚假包、不为填满列表制造已启用状态；独立于模型菜单场景"
+      ],
+      "withoutModelNetwork": {
+        "action": "直接打开真实内置技能库或技能详情，无需模型/网页网络；以现有两个内置技能如实呈现。",
+        "canAttemptNow": true,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实本设备竖屏完整硬件；不得以其他 Dynamic Island 手机冒名。"
+    },
+    {
+      "device": "DI",
+      "locale": "en-US",
+      "id": "09-palmi",
+      "headline": "A little personality",
+      "scene": "专业页 Palmi 入口进入内置角色的真实自然短对话",
+      "orientation": "portrait",
+      "canvas": [
+        1206,
+        2622
+      ],
+      "raw": "raw/DI/en-US/09-palmi.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-bionic",
+      "acceptance": [
+        "使用内置 Palmi，等待真实角色回复并收键盘；禁止手工插入助手消息",
+        "该语言的用户内容与角色回复一致；确认内置角色母语，不能只切应用语言"
+      ],
+      "withoutModelNetwork": {
+        "action": "若已有同语言真实角色会话，直接打开。否则仅可捕获真实内置角色资料候选，标题改为“Meet Palmi / 认识 Palmi”；不能宣称已完成对话，须人工判断是否足够强且独立。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实本设备竖屏完整硬件；不得以其他 Dynamic Island 手机冒名。"
+    },
+    {
+      "device": "DI",
+      "locale": "zh-Hans",
+      "id": "01-play",
+      "headline": "聊天里，直接玩",
+      "scene": "聊天模式中真正渲染且已真实滑动的 2048 交互回复",
+      "orientation": "portrait",
+      "canvas": [
+        1206,
+        2622
+      ],
+      "raw": "raw/DI/zh-Hans/01-play.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-chat",
+      "acceptance": [
+        "公开回复中的完整 palmi-ui HTML 块已渲染；棋盘、分数、重开可见，非源码/文件预览",
+        "真实手势至少确认一次合法局面变化；键盘关闭、无流式输出/加载状态"
+      ],
+      "withoutModelNetwork": {
+        "action": "若本设备本语言已有真实可玩的回复，直接打开并操作，不重发请求；否则可先捕获聊天起始页作候选，但不能沿用本标题或计作完成。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实本设备竖屏完整硬件；不得以其他 Dynamic Island 手机冒名。"
+    },
+    {
+      "device": "DI",
+      "locale": "zh-Hans",
+      "id": "02-results",
+      "headline": "把想法变成行动",
+      "scene": "专业项目的 LCP 演示数据成果：短结论、原生柱状图和文件链接",
+      "orientation": "portrait",
+      "canvas": [
+        1206,
+        2622
+      ],
+      "raw": "raw/DI/zh-Hans/02-results.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "数据明确标为演示；W1–W6 为 3.8/3.4/3.1/2.7/2.4/2.2 秒",
+        "最终回复已经完成；图表真实渲染，三个文件链接对应真实存在文件；改善约42.1%、2/6周≤2.5秒须与真实工具输出一致"
+      ],
+      "withoutModelNetwork": {
+        "action": "只可复用此设备此语言的既有真实已完成项目；没有则拍专业工作区候选，改为“Your workspace / 你的工作空间”，不得宣称成果，不能自动替代主场景。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实本设备竖屏完整硬件；不得以其他 Dynamic Island 手机冒名。"
+    },
+    {
+      "device": "DI",
+      "locale": "zh-Hans",
+      "id": "03-browser",
+      "headline": "浏览，就在这里",
+      "scene": "应用内浏览器实际打开 LCP 参考文章",
+      "orientation": "portrait",
+      "canvas": [
+        1206,
+        2622
+      ],
+      "raw": "raw/DI/zh-Hans/03-browser.jpg",
+      "status": "planned-unverified",
+      "dependency": "public-web",
+      "acceptance": [
+        "实际页面内容已加载，可读而非空标签/地址框/错误页",
+        "保留真实浏览器 UI；可见页面与所述任务有关，主截图内容与当前语言相容"
+      ],
+      "withoutModelNetwork": {
+        "action": "若浏览器本身允许用户通过真实 UI 输入网址并导航，可直接打开参考文章，不调用模型；仍需网页网络成功。若已有完整真实页面可直接展示。不能用错误页替代。",
+        "canAttemptNow": true,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实本设备竖屏完整硬件；不得以其他 Dynamic Island 手机冒名。"
+    },
+    {
+      "device": "DI",
+      "locale": "zh-Hans",
+      "id": "04-files",
+      "headline": "文件，就在手边",
+      "scene": "当前专业项目文件根目录或 report.md 可读预览",
+      "orientation": "portrait",
+      "canvas": [
+        1206,
+        2622
+      ],
+      "raw": "raw/DI/zh-Hans/04-files.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "根目录真实存在 metrics.csv/chart.html/report.md，或 report.md 展示可读结论与来源",
+        "HTML 文件预览为源码时不冒称渲染图表；文件来自真实应用工具执行，未由宿主注入"
+      ],
+      "withoutModelNetwork": {
+        "action": "已有同设备同语言真实项目文件时打开目录或 Markdown，无需模型。空目录只可作“Project files / 项目文件”候选，不能冒称交付；与其他场景去重。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实本设备竖屏完整硬件；不得以其他 Dynamic Island 手机冒名。"
+    },
+    {
+      "device": "DI",
+      "locale": "zh-Hans",
+      "id": "05-models",
+      "headline": "选择思考方式",
+      "scene": "输入栏脑图标→推理面板→右侧实际模型菜单",
+      "orientation": "portrait",
+      "canvas": [
+        1206,
+        2622
+      ],
+      "raw": "raw/DI/zh-Hans/05-models.jpg",
+      "status": "planned-unverified",
+      "dependency": "none",
+      "acceptance": [
+        "仅展示真实已配置模型/推理选项；不输入假账号或模型",
+        "仅展开/选择无需发送请求；无密钥、账户敏感内容或401错误面板入镜；模型是否可用不由菜单证明"
+      ],
+      "withoutModelNetwork": {
+        "action": "真实 UI 直接打开推理面板与已配置模型菜单；未成功连接时可仅拍已有真实选项，并改成面板对应标题。不能把选择器称为联网成功。",
+        "canAttemptNow": true,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实本设备竖屏完整硬件；不得以其他 Dynamic Island 手机冒名。"
+    },
+    {
+      "device": "DI",
+      "locale": "zh-Hans",
+      "id": "06-sources",
+      "headline": "来源，清楚可见",
+      "scene": "已完成任务的真实 browser 步骤/来源链接及已核实阈值",
+      "orientation": "portrait",
+      "canvas": [
+        1206,
+        2622
+      ],
+      "raw": "raw/DI/zh-Hans/06-sources.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "只显示实际打开的来源与真实步骤输出；不得填充旧证据抽屉或存储",
+        "链接/事实/输出来自同一真实任务；静态说明或仅输入的网址不能证明研究已执行"
+      ],
+      "withoutModelNetwork": {
+        "action": "若本设备本语言已有真实 browser 步骤或来源回复，直接打开详情；没有则保持阻塞，不能拿浏览器地址栏重复充当第二张来源成果。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实本设备竖屏完整硬件；不得以其他 Dynamic Island 手机冒名。"
+    },
+    {
+      "device": "DI",
+      "locale": "zh-Hans",
+      "id": "07-python",
+      "headline": "计算，就在端侧",
+      "scene": "真实成功的 Python 步骤输入和输出，或 scripts/analyze.py 与真实日志",
+      "orientation": "portrait",
+      "canvas": [
+        1206,
+        2622
+      ],
+      "raw": "raw/DI/zh-Hans/07-python.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "真实嵌入式 Python 已执行成功，显示实际输入/输出，不是模拟终端",
+        "输出与数据一致；脚本单独存在不证明运行成功；日志不可由宿主制造"
+      ],
+      "withoutModelNetwork": {
+        "action": "直接打开本设备已有真实成功 Python 步骤或日志，无需再次模型请求。若无执行记录则保持阻塞，不以编辑器静态代码冒充计算完成。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实本设备竖屏完整硬件；不得以其他 Dynamic Island 手机冒名。"
+    },
+    {
+      "device": "DI",
+      "locale": "zh-Hans",
+      "id": "08-skills",
+      "headline": "为你所用的技能",
+      "scene": "侧栏技能页内置系统技能或其中一个技能详情",
+      "orientation": "portrait",
+      "canvas": [
+        1206,
+        2622
+      ],
+      "raw": "raw/DI/zh-Hans/08-skills.jpg",
+      "status": "planned-unverified",
+      "dependency": "none",
+      "acceptance": [
+        "真实系统技能库/技能详情可见；内置 skill-creator 与 bionic-persona-creator 不包装成已安装第三方技能",
+        "不后台导入虚假包、不为填满列表制造已启用状态；独立于模型菜单场景"
+      ],
+      "withoutModelNetwork": {
+        "action": "直接打开真实内置技能库或技能详情，无需模型/网页网络；以现有两个内置技能如实呈现。",
+        "canAttemptNow": true,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实本设备竖屏完整硬件；不得以其他 Dynamic Island 手机冒名。"
+    },
+    {
+      "device": "DI",
+      "locale": "zh-Hans",
+      "id": "09-palmi",
+      "headline": "聊天，也有个性",
+      "scene": "专业页 Palmi 入口进入内置角色的真实自然短对话",
+      "orientation": "portrait",
+      "canvas": [
+        1206,
+        2622
+      ],
+      "raw": "raw/DI/zh-Hans/09-palmi.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-bionic",
+      "acceptance": [
+        "使用内置 Palmi，等待真实角色回复并收键盘；禁止手工插入助手消息",
+        "该语言的用户内容与角色回复一致；确认内置角色母语，不能只切应用语言"
+      ],
+      "withoutModelNetwork": {
+        "action": "若已有同语言真实角色会话，直接打开。否则仅可捕获真实内置角色资料候选，标题改为“Meet Palmi / 认识 Palmi”；不能宣称已完成对话，须人工判断是否足够强且独立。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实本设备竖屏完整硬件；不得以其他 Dynamic Island 手机冒名。"
+    },
+    {
+      "device": "Duo",
+      "locale": "en-US",
+      "id": "01-play",
+      "headline": "Play right in chat",
+      "scene": "聊天模式中真正渲染且已真实滑动的 2048 交互回复",
+      "orientation": "unfolded-landscape",
+      "canvas": [
+        2853,
+        2007
+      ],
+      "raw": "raw/Duo/en-US/01-play.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-chat",
+      "acceptance": [
+        "公开回复中的完整 palmi-ui HTML 块已渲染；棋盘、分数、重开可见，非源码/文件预览",
+        "真实手势至少确认一次合法局面变化；键盘关闭、无流式输出/加载状态"
+      ],
+      "withoutModelNetwork": {
+        "action": "若本设备本语言已有真实可玩的回复，直接打开并操作，不重发请求；否则可先捕获聊天起始页作候选，但不能沿用本标题或计作完成。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "使用真实展开内屏；如选折叠态须独立捕获并把 orientation 改为 folded、canvas 改为1398×2034，禁止从内屏裁一半。"
+    },
+    {
+      "device": "Duo",
+      "locale": "en-US",
+      "id": "02-results",
+      "headline": "Ideas into action",
+      "scene": "专业项目的 LCP 演示数据成果：短结论、原生柱状图和文件链接",
+      "orientation": "unfolded-landscape",
+      "canvas": [
+        2853,
+        2007
+      ],
+      "raw": "raw/Duo/en-US/02-results.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "数据明确标为演示；W1–W6 为 3.8/3.4/3.1/2.7/2.4/2.2 秒",
+        "最终回复已经完成；图表真实渲染，三个文件链接对应真实存在文件；改善约42.1%、2/6周≤2.5秒须与真实工具输出一致"
+      ],
+      "withoutModelNetwork": {
+        "action": "只可复用此设备此语言的既有真实已完成项目；没有则拍专业工作区候选，改为“Your workspace / 你的工作空间”，不得宣称成果，不能自动替代主场景。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "使用真实展开内屏；如选折叠态须独立捕获并把 orientation 改为 folded、canvas 改为1398×2034，禁止从内屏裁一半。"
+    },
+    {
+      "device": "Duo",
+      "locale": "en-US",
+      "id": "03-browser",
+      "headline": "Browse in one place",
+      "scene": "应用内浏览器实际打开 LCP 参考文章",
+      "orientation": "unfolded-landscape",
+      "canvas": [
+        2853,
+        2007
+      ],
+      "raw": "raw/Duo/en-US/03-browser.jpg",
+      "status": "planned-unverified",
+      "dependency": "public-web",
+      "acceptance": [
+        "实际页面内容已加载，可读而非空标签/地址框/错误页",
+        "保留真实浏览器 UI；可见页面与所述任务有关，主截图内容与当前语言相容"
+      ],
+      "withoutModelNetwork": {
+        "action": "若浏览器本身允许用户通过真实 UI 输入网址并导航，可直接打开参考文章，不调用模型；仍需网页网络成功。若已有完整真实页面可直接展示。不能用错误页替代。",
+        "canAttemptNow": true,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "使用真实展开内屏；如选折叠态须独立捕获并把 orientation 改为 folded、canvas 改为1398×2034，禁止从内屏裁一半。"
+    },
+    {
+      "device": "Duo",
+      "locale": "en-US",
+      "id": "04-files",
+      "headline": "Files within reach",
+      "scene": "当前专业项目文件根目录或 report.md 可读预览",
+      "orientation": "unfolded-landscape",
+      "canvas": [
+        2853,
+        2007
+      ],
+      "raw": "raw/Duo/en-US/04-files.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "根目录真实存在 metrics.csv/chart.html/report.md，或 report.md 展示可读结论与来源",
+        "HTML 文件预览为源码时不冒称渲染图表；文件来自真实应用工具执行，未由宿主注入"
+      ],
+      "withoutModelNetwork": {
+        "action": "已有同设备同语言真实项目文件时打开目录或 Markdown，无需模型。空目录只可作“Project files / 项目文件”候选，不能冒称交付；与其他场景去重。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "使用真实展开内屏；如选折叠态须独立捕获并把 orientation 改为 folded、canvas 改为1398×2034，禁止从内屏裁一半。"
+    },
+    {
+      "device": "Duo",
+      "locale": "en-US",
+      "id": "05-models",
+      "headline": "Choose how you think",
+      "scene": "输入栏脑图标→推理面板→右侧实际模型菜单",
+      "orientation": "unfolded-landscape",
+      "canvas": [
+        2853,
+        2007
+      ],
+      "raw": "raw/Duo/en-US/05-models.jpg",
+      "status": "planned-unverified",
+      "dependency": "none",
+      "acceptance": [
+        "仅展示真实已配置模型/推理选项；不输入假账号或模型",
+        "仅展开/选择无需发送请求；无密钥、账户敏感内容或401错误面板入镜；模型是否可用不由菜单证明"
+      ],
+      "withoutModelNetwork": {
+        "action": "真实 UI 直接打开推理面板与已配置模型菜单；未成功连接时可仅拍已有真实选项，并改成面板对应标题。不能把选择器称为联网成功。",
+        "canAttemptNow": true,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "使用真实展开内屏；如选折叠态须独立捕获并把 orientation 改为 folded、canvas 改为1398×2034，禁止从内屏裁一半。"
+    },
+    {
+      "device": "Duo",
+      "locale": "en-US",
+      "id": "06-sources",
+      "headline": "See the sources",
+      "scene": "已完成任务的真实 browser 步骤/来源链接及已核实阈值",
+      "orientation": "unfolded-landscape",
+      "canvas": [
+        2853,
+        2007
+      ],
+      "raw": "raw/Duo/en-US/06-sources.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "只显示实际打开的来源与真实步骤输出；不得填充旧证据抽屉或存储",
+        "链接/事实/输出来自同一真实任务；静态说明或仅输入的网址不能证明研究已执行"
+      ],
+      "withoutModelNetwork": {
+        "action": "若本设备本语言已有真实 browser 步骤或来源回复，直接打开详情；没有则保持阻塞，不能拿浏览器地址栏重复充当第二张来源成果。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "使用真实展开内屏；如选折叠态须独立捕获并把 orientation 改为 folded、canvas 改为1398×2034，禁止从内屏裁一半。"
+    },
+    {
+      "device": "Duo",
+      "locale": "en-US",
+      "id": "07-python",
+      "headline": "Compute on device",
+      "scene": "真实成功的 Python 步骤输入和输出，或 scripts/analyze.py 与真实日志",
+      "orientation": "unfolded-landscape",
+      "canvas": [
+        2853,
+        2007
+      ],
+      "raw": "raw/Duo/en-US/07-python.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "真实嵌入式 Python 已执行成功，显示实际输入/输出，不是模拟终端",
+        "输出与数据一致；脚本单独存在不证明运行成功；日志不可由宿主制造"
+      ],
+      "withoutModelNetwork": {
+        "action": "直接打开本设备已有真实成功 Python 步骤或日志，无需再次模型请求。若无执行记录则保持阻塞，不以编辑器静态代码冒充计算完成。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "使用真实展开内屏；如选折叠态须独立捕获并把 orientation 改为 folded、canvas 改为1398×2034，禁止从内屏裁一半。"
+    },
+    {
+      "device": "Duo",
+      "locale": "en-US",
+      "id": "08-skills",
+      "headline": "Skills for your work",
+      "scene": "侧栏技能页内置系统技能或其中一个技能详情",
+      "orientation": "unfolded-landscape",
+      "canvas": [
+        2853,
+        2007
+      ],
+      "raw": "raw/Duo/en-US/08-skills.jpg",
+      "status": "planned-unverified",
+      "dependency": "none",
+      "acceptance": [
+        "真实系统技能库/技能详情可见；内置 skill-creator 与 bionic-persona-creator 不包装成已安装第三方技能",
+        "不后台导入虚假包、不为填满列表制造已启用状态；独立于模型菜单场景"
+      ],
+      "withoutModelNetwork": {
+        "action": "直接打开真实内置技能库或技能详情，无需模型/网页网络；以现有两个内置技能如实呈现。",
+        "canAttemptNow": true,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "使用真实展开内屏；如选折叠态须独立捕获并把 orientation 改为 folded、canvas 改为1398×2034，禁止从内屏裁一半。"
+    },
+    {
+      "device": "Duo",
+      "locale": "en-US",
+      "id": "09-palmi",
+      "headline": "A little personality",
+      "scene": "专业页 Palmi 入口进入内置角色的真实自然短对话",
+      "orientation": "unfolded-landscape",
+      "canvas": [
+        2853,
+        2007
+      ],
+      "raw": "raw/Duo/en-US/09-palmi.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-bionic",
+      "acceptance": [
+        "使用内置 Palmi，等待真实角色回复并收键盘；禁止手工插入助手消息",
+        "该语言的用户内容与角色回复一致；确认内置角色母语，不能只切应用语言"
+      ],
+      "withoutModelNetwork": {
+        "action": "若已有同语言真实角色会话，直接打开。否则仅可捕获真实内置角色资料候选，标题改为“Meet Palmi / 认识 Palmi”；不能宣称已完成对话，须人工判断是否足够强且独立。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "使用真实展开内屏；如选折叠态须独立捕获并把 orientation 改为 folded、canvas 改为1398×2034，禁止从内屏裁一半。"
+    },
+    {
+      "device": "Duo",
+      "locale": "zh-Hans",
+      "id": "01-play",
+      "headline": "聊天里，直接玩",
+      "scene": "聊天模式中真正渲染且已真实滑动的 2048 交互回复",
+      "orientation": "unfolded-landscape",
+      "canvas": [
+        2853,
+        2007
+      ],
+      "raw": "raw/Duo/zh-Hans/01-play.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-chat",
+      "acceptance": [
+        "公开回复中的完整 palmi-ui HTML 块已渲染；棋盘、分数、重开可见，非源码/文件预览",
+        "真实手势至少确认一次合法局面变化；键盘关闭、无流式输出/加载状态"
+      ],
+      "withoutModelNetwork": {
+        "action": "若本设备本语言已有真实可玩的回复，直接打开并操作，不重发请求；否则可先捕获聊天起始页作候选，但不能沿用本标题或计作完成。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "使用真实展开内屏；如选折叠态须独立捕获并把 orientation 改为 folded、canvas 改为1398×2034，禁止从内屏裁一半。"
+    },
+    {
+      "device": "Duo",
+      "locale": "zh-Hans",
+      "id": "02-results",
+      "headline": "把想法变成行动",
+      "scene": "专业项目的 LCP 演示数据成果：短结论、原生柱状图和文件链接",
+      "orientation": "unfolded-landscape",
+      "canvas": [
+        2853,
+        2007
+      ],
+      "raw": "raw/Duo/zh-Hans/02-results.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "数据明确标为演示；W1–W6 为 3.8/3.4/3.1/2.7/2.4/2.2 秒",
+        "最终回复已经完成；图表真实渲染，三个文件链接对应真实存在文件；改善约42.1%、2/6周≤2.5秒须与真实工具输出一致"
+      ],
+      "withoutModelNetwork": {
+        "action": "只可复用此设备此语言的既有真实已完成项目；没有则拍专业工作区候选，改为“Your workspace / 你的工作空间”，不得宣称成果，不能自动替代主场景。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "使用真实展开内屏；如选折叠态须独立捕获并把 orientation 改为 folded、canvas 改为1398×2034，禁止从内屏裁一半。"
+    },
+    {
+      "device": "Duo",
+      "locale": "zh-Hans",
+      "id": "03-browser",
+      "headline": "浏览，就在这里",
+      "scene": "应用内浏览器实际打开 LCP 参考文章",
+      "orientation": "unfolded-landscape",
+      "canvas": [
+        2853,
+        2007
+      ],
+      "raw": "raw/Duo/zh-Hans/03-browser.jpg",
+      "status": "planned-unverified",
+      "dependency": "public-web",
+      "acceptance": [
+        "实际页面内容已加载，可读而非空标签/地址框/错误页",
+        "保留真实浏览器 UI；可见页面与所述任务有关，主截图内容与当前语言相容"
+      ],
+      "withoutModelNetwork": {
+        "action": "若浏览器本身允许用户通过真实 UI 输入网址并导航，可直接打开参考文章，不调用模型；仍需网页网络成功。若已有完整真实页面可直接展示。不能用错误页替代。",
+        "canAttemptNow": true,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "使用真实展开内屏；如选折叠态须独立捕获并把 orientation 改为 folded、canvas 改为1398×2034，禁止从内屏裁一半。"
+    },
+    {
+      "device": "Duo",
+      "locale": "zh-Hans",
+      "id": "04-files",
+      "headline": "文件，就在手边",
+      "scene": "当前专业项目文件根目录或 report.md 可读预览",
+      "orientation": "unfolded-landscape",
+      "canvas": [
+        2853,
+        2007
+      ],
+      "raw": "raw/Duo/zh-Hans/04-files.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "根目录真实存在 metrics.csv/chart.html/report.md，或 report.md 展示可读结论与来源",
+        "HTML 文件预览为源码时不冒称渲染图表；文件来自真实应用工具执行，未由宿主注入"
+      ],
+      "withoutModelNetwork": {
+        "action": "已有同设备同语言真实项目文件时打开目录或 Markdown，无需模型。空目录只可作“Project files / 项目文件”候选，不能冒称交付；与其他场景去重。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "使用真实展开内屏；如选折叠态须独立捕获并把 orientation 改为 folded、canvas 改为1398×2034，禁止从内屏裁一半。"
+    },
+    {
+      "device": "Duo",
+      "locale": "zh-Hans",
+      "id": "05-models",
+      "headline": "选择思考方式",
+      "scene": "输入栏脑图标→推理面板→右侧实际模型菜单",
+      "orientation": "unfolded-landscape",
+      "canvas": [
+        2853,
+        2007
+      ],
+      "raw": "raw/Duo/zh-Hans/05-models.jpg",
+      "status": "planned-unverified",
+      "dependency": "none",
+      "acceptance": [
+        "仅展示真实已配置模型/推理选项；不输入假账号或模型",
+        "仅展开/选择无需发送请求；无密钥、账户敏感内容或401错误面板入镜；模型是否可用不由菜单证明"
+      ],
+      "withoutModelNetwork": {
+        "action": "真实 UI 直接打开推理面板与已配置模型菜单；未成功连接时可仅拍已有真实选项，并改成面板对应标题。不能把选择器称为联网成功。",
+        "canAttemptNow": true,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "使用真实展开内屏；如选折叠态须独立捕获并把 orientation 改为 folded、canvas 改为1398×2034，禁止从内屏裁一半。"
+    },
+    {
+      "device": "Duo",
+      "locale": "zh-Hans",
+      "id": "06-sources",
+      "headline": "来源，清楚可见",
+      "scene": "已完成任务的真实 browser 步骤/来源链接及已核实阈值",
+      "orientation": "unfolded-landscape",
+      "canvas": [
+        2853,
+        2007
+      ],
+      "raw": "raw/Duo/zh-Hans/06-sources.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "只显示实际打开的来源与真实步骤输出；不得填充旧证据抽屉或存储",
+        "链接/事实/输出来自同一真实任务；静态说明或仅输入的网址不能证明研究已执行"
+      ],
+      "withoutModelNetwork": {
+        "action": "若本设备本语言已有真实 browser 步骤或来源回复，直接打开详情；没有则保持阻塞，不能拿浏览器地址栏重复充当第二张来源成果。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "使用真实展开内屏；如选折叠态须独立捕获并把 orientation 改为 folded、canvas 改为1398×2034，禁止从内屏裁一半。"
+    },
+    {
+      "device": "Duo",
+      "locale": "zh-Hans",
+      "id": "07-python",
+      "headline": "计算，就在端侧",
+      "scene": "真实成功的 Python 步骤输入和输出，或 scripts/analyze.py 与真实日志",
+      "orientation": "unfolded-landscape",
+      "canvas": [
+        2853,
+        2007
+      ],
+      "raw": "raw/Duo/zh-Hans/07-python.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "真实嵌入式 Python 已执行成功，显示实际输入/输出，不是模拟终端",
+        "输出与数据一致；脚本单独存在不证明运行成功；日志不可由宿主制造"
+      ],
+      "withoutModelNetwork": {
+        "action": "直接打开本设备已有真实成功 Python 步骤或日志，无需再次模型请求。若无执行记录则保持阻塞，不以编辑器静态代码冒充计算完成。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "使用真实展开内屏；如选折叠态须独立捕获并把 orientation 改为 folded、canvas 改为1398×2034，禁止从内屏裁一半。"
+    },
+    {
+      "device": "Duo",
+      "locale": "zh-Hans",
+      "id": "08-skills",
+      "headline": "为你所用的技能",
+      "scene": "侧栏技能页内置系统技能或其中一个技能详情",
+      "orientation": "unfolded-landscape",
+      "canvas": [
+        2853,
+        2007
+      ],
+      "raw": "raw/Duo/zh-Hans/08-skills.jpg",
+      "status": "planned-unverified",
+      "dependency": "none",
+      "acceptance": [
+        "真实系统技能库/技能详情可见；内置 skill-creator 与 bionic-persona-creator 不包装成已安装第三方技能",
+        "不后台导入虚假包、不为填满列表制造已启用状态；独立于模型菜单场景"
+      ],
+      "withoutModelNetwork": {
+        "action": "直接打开真实内置技能库或技能详情，无需模型/网页网络；以现有两个内置技能如实呈现。",
+        "canAttemptNow": true,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "使用真实展开内屏；如选折叠态须独立捕获并把 orientation 改为 folded、canvas 改为1398×2034，禁止从内屏裁一半。"
+    },
+    {
+      "device": "Duo",
+      "locale": "zh-Hans",
+      "id": "09-palmi",
+      "headline": "聊天，也有个性",
+      "scene": "专业页 Palmi 入口进入内置角色的真实自然短对话",
+      "orientation": "unfolded-landscape",
+      "canvas": [
+        2853,
+        2007
+      ],
+      "raw": "raw/Duo/zh-Hans/09-palmi.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-bionic",
+      "acceptance": [
+        "使用内置 Palmi，等待真实角色回复并收键盘；禁止手工插入助手消息",
+        "该语言的用户内容与角色回复一致；确认内置角色母语，不能只切应用语言"
+      ],
+      "withoutModelNetwork": {
+        "action": "若已有同语言真实角色会话，直接打开。否则仅可捕获真实内置角色资料候选，标题改为“Meet Palmi / 认识 Palmi”；不能宣称已完成对话，须人工判断是否足够强且独立。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "使用真实展开内屏；如选折叠态须独立捕获并把 orientation 改为 folded、canvas 改为1398×2034，禁止从内屏裁一半。"
+    },
+    {
+      "device": "iPad",
+      "locale": "en-US",
+      "id": "01-play",
+      "headline": "Play right in chat",
+      "scene": "聊天模式中真正渲染且已真实滑动的 2048 交互回复",
+      "orientation": "landscape",
+      "canvas": [
+        2752,
+        2064
+      ],
+      "raw": "raw/iPad/en-US/01-play.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-chat",
+      "acceptance": [
+        "公开回复中的完整 palmi-ui HTML 块已渲染；棋盘、分数、重开可见，非源码/文件预览",
+        "真实手势至少确认一次合法局面变化；键盘关闭、无流式输出/加载状态"
+      ],
+      "withoutModelNetwork": {
+        "action": "若本设备本语言已有真实可玩的回复，直接打开并操作，不重发请求；否则可先捕获聊天起始页作候选，但不能沿用本标题或计作完成。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实 iPad 横屏布局、独立侧栏/面板；禁用手机截图或旧拼图。"
+    },
+    {
+      "device": "iPad",
+      "locale": "en-US",
+      "id": "02-results",
+      "headline": "Ideas into action",
+      "scene": "专业项目的 LCP 演示数据成果：短结论、原生柱状图和文件链接",
+      "orientation": "landscape",
+      "canvas": [
+        2752,
+        2064
+      ],
+      "raw": "raw/iPad/en-US/02-results.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "数据明确标为演示；W1–W6 为 3.8/3.4/3.1/2.7/2.4/2.2 秒",
+        "最终回复已经完成；图表真实渲染，三个文件链接对应真实存在文件；改善约42.1%、2/6周≤2.5秒须与真实工具输出一致"
+      ],
+      "withoutModelNetwork": {
+        "action": "只可复用此设备此语言的既有真实已完成项目；没有则拍专业工作区候选，改为“Your workspace / 你的工作空间”，不得宣称成果，不能自动替代主场景。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实 iPad 横屏布局、独立侧栏/面板；禁用手机截图或旧拼图。"
+    },
+    {
+      "device": "iPad",
+      "locale": "en-US",
+      "id": "03-browser",
+      "headline": "Browse in one place",
+      "scene": "应用内浏览器实际打开 LCP 参考文章",
+      "orientation": "landscape",
+      "canvas": [
+        2752,
+        2064
+      ],
+      "raw": "raw/iPad/en-US/03-browser.jpg",
+      "status": "planned-unverified",
+      "dependency": "public-web",
+      "acceptance": [
+        "实际页面内容已加载，可读而非空标签/地址框/错误页",
+        "保留真实浏览器 UI；可见页面与所述任务有关，主截图内容与当前语言相容"
+      ],
+      "withoutModelNetwork": {
+        "action": "若浏览器本身允许用户通过真实 UI 输入网址并导航，可直接打开参考文章，不调用模型；仍需网页网络成功。若已有完整真实页面可直接展示。不能用错误页替代。",
+        "canAttemptNow": true,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实 iPad 横屏布局、独立侧栏/面板；禁用手机截图或旧拼图。"
+    },
+    {
+      "device": "iPad",
+      "locale": "en-US",
+      "id": "04-files",
+      "headline": "Files within reach",
+      "scene": "当前专业项目文件根目录或 report.md 可读预览",
+      "orientation": "landscape",
+      "canvas": [
+        2752,
+        2064
+      ],
+      "raw": "raw/iPad/en-US/04-files.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "根目录真实存在 metrics.csv/chart.html/report.md，或 report.md 展示可读结论与来源",
+        "HTML 文件预览为源码时不冒称渲染图表；文件来自真实应用工具执行，未由宿主注入"
+      ],
+      "withoutModelNetwork": {
+        "action": "已有同设备同语言真实项目文件时打开目录或 Markdown，无需模型。空目录只可作“Project files / 项目文件”候选，不能冒称交付；与其他场景去重。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实 iPad 横屏布局、独立侧栏/面板；禁用手机截图或旧拼图。"
+    },
+    {
+      "device": "iPad",
+      "locale": "en-US",
+      "id": "05-models",
+      "headline": "Choose how you think",
+      "scene": "输入栏脑图标→推理面板→右侧实际模型菜单",
+      "orientation": "landscape",
+      "canvas": [
+        2752,
+        2064
+      ],
+      "raw": "raw/iPad/en-US/05-models.jpg",
+      "status": "planned-unverified",
+      "dependency": "none",
+      "acceptance": [
+        "仅展示真实已配置模型/推理选项；不输入假账号或模型",
+        "仅展开/选择无需发送请求；无密钥、账户敏感内容或401错误面板入镜；模型是否可用不由菜单证明"
+      ],
+      "withoutModelNetwork": {
+        "action": "真实 UI 直接打开推理面板与已配置模型菜单；未成功连接时可仅拍已有真实选项，并改成面板对应标题。不能把选择器称为联网成功。",
+        "canAttemptNow": true,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实 iPad 横屏布局、独立侧栏/面板；禁用手机截图或旧拼图。"
+    },
+    {
+      "device": "iPad",
+      "locale": "en-US",
+      "id": "06-sources",
+      "headline": "See the sources",
+      "scene": "已完成任务的真实 browser 步骤/来源链接及已核实阈值",
+      "orientation": "landscape",
+      "canvas": [
+        2752,
+        2064
+      ],
+      "raw": "raw/iPad/en-US/06-sources.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "只显示实际打开的来源与真实步骤输出；不得填充旧证据抽屉或存储",
+        "链接/事实/输出来自同一真实任务；静态说明或仅输入的网址不能证明研究已执行"
+      ],
+      "withoutModelNetwork": {
+        "action": "若本设备本语言已有真实 browser 步骤或来源回复，直接打开详情；没有则保持阻塞，不能拿浏览器地址栏重复充当第二张来源成果。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实 iPad 横屏布局、独立侧栏/面板；禁用手机截图或旧拼图。"
+    },
+    {
+      "device": "iPad",
+      "locale": "en-US",
+      "id": "07-python",
+      "headline": "Compute on device",
+      "scene": "真实成功的 Python 步骤输入和输出，或 scripts/analyze.py 与真实日志",
+      "orientation": "landscape",
+      "canvas": [
+        2752,
+        2064
+      ],
+      "raw": "raw/iPad/en-US/07-python.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "真实嵌入式 Python 已执行成功，显示实际输入/输出，不是模拟终端",
+        "输出与数据一致；脚本单独存在不证明运行成功；日志不可由宿主制造"
+      ],
+      "withoutModelNetwork": {
+        "action": "直接打开本设备已有真实成功 Python 步骤或日志，无需再次模型请求。若无执行记录则保持阻塞，不以编辑器静态代码冒充计算完成。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实 iPad 横屏布局、独立侧栏/面板；禁用手机截图或旧拼图。"
+    },
+    {
+      "device": "iPad",
+      "locale": "en-US",
+      "id": "08-skills",
+      "headline": "Skills for your work",
+      "scene": "侧栏技能页内置系统技能或其中一个技能详情",
+      "orientation": "landscape",
+      "canvas": [
+        2752,
+        2064
+      ],
+      "raw": "raw/iPad/en-US/08-skills.jpg",
+      "status": "planned-unverified",
+      "dependency": "none",
+      "acceptance": [
+        "真实系统技能库/技能详情可见；内置 skill-creator 与 bionic-persona-creator 不包装成已安装第三方技能",
+        "不后台导入虚假包、不为填满列表制造已启用状态；独立于模型菜单场景"
+      ],
+      "withoutModelNetwork": {
+        "action": "直接打开真实内置技能库或技能详情，无需模型/网页网络；以现有两个内置技能如实呈现。",
+        "canAttemptNow": true,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实 iPad 横屏布局、独立侧栏/面板；禁用手机截图或旧拼图。"
+    },
+    {
+      "device": "iPad",
+      "locale": "en-US",
+      "id": "09-palmi",
+      "headline": "A little personality",
+      "scene": "专业页 Palmi 入口进入内置角色的真实自然短对话",
+      "orientation": "landscape",
+      "canvas": [
+        2752,
+        2064
+      ],
+      "raw": "raw/iPad/en-US/09-palmi.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-bionic",
+      "acceptance": [
+        "使用内置 Palmi，等待真实角色回复并收键盘；禁止手工插入助手消息",
+        "该语言的用户内容与角色回复一致；确认内置角色母语，不能只切应用语言"
+      ],
+      "withoutModelNetwork": {
+        "action": "若已有同语言真实角色会话，直接打开。否则仅可捕获真实内置角色资料候选，标题改为“Meet Palmi / 认识 Palmi”；不能宣称已完成对话，须人工判断是否足够强且独立。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实 iPad 横屏布局、独立侧栏/面板；禁用手机截图或旧拼图。"
+    },
+    {
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "id": "01-play",
+      "headline": "聊天里，直接玩",
+      "scene": "聊天模式中真正渲染且已真实滑动的 2048 交互回复",
+      "orientation": "landscape",
+      "canvas": [
+        2752,
+        2064
+      ],
+      "raw": "raw/iPad/zh-Hans/01-play.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-chat",
+      "acceptance": [
+        "公开回复中的完整 palmi-ui HTML 块已渲染；棋盘、分数、重开可见，非源码/文件预览",
+        "真实手势至少确认一次合法局面变化；键盘关闭、无流式输出/加载状态"
+      ],
+      "withoutModelNetwork": {
+        "action": "若本设备本语言已有真实可玩的回复，直接打开并操作，不重发请求；否则可先捕获聊天起始页作候选，但不能沿用本标题或计作完成。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实 iPad 横屏布局、独立侧栏/面板；禁用手机截图或旧拼图。"
+    },
+    {
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "id": "02-results",
+      "headline": "把想法变成行动",
+      "scene": "专业项目的 LCP 演示数据成果：短结论、原生柱状图和文件链接",
+      "orientation": "landscape",
+      "canvas": [
+        2752,
+        2064
+      ],
+      "raw": "raw/iPad/zh-Hans/02-results.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "数据明确标为演示；W1–W6 为 3.8/3.4/3.1/2.7/2.4/2.2 秒",
+        "最终回复已经完成；图表真实渲染，三个文件链接对应真实存在文件；改善约42.1%、2/6周≤2.5秒须与真实工具输出一致"
+      ],
+      "withoutModelNetwork": {
+        "action": "只可复用此设备此语言的既有真实已完成项目；没有则拍专业工作区候选，改为“Your workspace / 你的工作空间”，不得宣称成果，不能自动替代主场景。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实 iPad 横屏布局、独立侧栏/面板；禁用手机截图或旧拼图。"
+    },
+    {
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "id": "03-browser",
+      "headline": "浏览，就在这里",
+      "scene": "应用内浏览器实际打开 LCP 参考文章",
+      "orientation": "landscape",
+      "canvas": [
+        2752,
+        2064
+      ],
+      "raw": "raw/iPad/zh-Hans/03-browser.jpg",
+      "status": "planned-unverified",
+      "dependency": "public-web",
+      "acceptance": [
+        "实际页面内容已加载，可读而非空标签/地址框/错误页",
+        "保留真实浏览器 UI；可见页面与所述任务有关，主截图内容与当前语言相容"
+      ],
+      "withoutModelNetwork": {
+        "action": "若浏览器本身允许用户通过真实 UI 输入网址并导航，可直接打开参考文章，不调用模型；仍需网页网络成功。若已有完整真实页面可直接展示。不能用错误页替代。",
+        "canAttemptNow": true,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实 iPad 横屏布局、独立侧栏/面板；禁用手机截图或旧拼图。"
+    },
+    {
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "id": "04-files",
+      "headline": "文件，就在手边",
+      "scene": "当前专业项目文件根目录或 report.md 可读预览",
+      "orientation": "landscape",
+      "canvas": [
+        2752,
+        2064
+      ],
+      "raw": "raw/iPad/zh-Hans/04-files.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "根目录真实存在 metrics.csv/chart.html/report.md，或 report.md 展示可读结论与来源",
+        "HTML 文件预览为源码时不冒称渲染图表；文件来自真实应用工具执行，未由宿主注入"
+      ],
+      "withoutModelNetwork": {
+        "action": "已有同设备同语言真实项目文件时打开目录或 Markdown，无需模型。空目录只可作“Project files / 项目文件”候选，不能冒称交付；与其他场景去重。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实 iPad 横屏布局、独立侧栏/面板；禁用手机截图或旧拼图。"
+    },
+    {
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "id": "05-models",
+      "headline": "选择思考方式",
+      "scene": "输入栏脑图标→推理面板→右侧实际模型菜单",
+      "orientation": "landscape",
+      "canvas": [
+        2752,
+        2064
+      ],
+      "raw": "raw/iPad/zh-Hans/05-models.jpg",
+      "status": "planned-unverified",
+      "dependency": "none",
+      "acceptance": [
+        "仅展示真实已配置模型/推理选项；不输入假账号或模型",
+        "仅展开/选择无需发送请求；无密钥、账户敏感内容或401错误面板入镜；模型是否可用不由菜单证明"
+      ],
+      "withoutModelNetwork": {
+        "action": "真实 UI 直接打开推理面板与已配置模型菜单；未成功连接时可仅拍已有真实选项，并改成面板对应标题。不能把选择器称为联网成功。",
+        "canAttemptNow": true,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实 iPad 横屏布局、独立侧栏/面板；禁用手机截图或旧拼图。"
+    },
+    {
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "id": "06-sources",
+      "headline": "来源，清楚可见",
+      "scene": "已完成任务的真实 browser 步骤/来源链接及已核实阈值",
+      "orientation": "landscape",
+      "canvas": [
+        2752,
+        2064
+      ],
+      "raw": "raw/iPad/zh-Hans/06-sources.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "只显示实际打开的来源与真实步骤输出；不得填充旧证据抽屉或存储",
+        "链接/事实/输出来自同一真实任务；静态说明或仅输入的网址不能证明研究已执行"
+      ],
+      "withoutModelNetwork": {
+        "action": "若本设备本语言已有真实 browser 步骤或来源回复，直接打开详情；没有则保持阻塞，不能拿浏览器地址栏重复充当第二张来源成果。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实 iPad 横屏布局、独立侧栏/面板；禁用手机截图或旧拼图。"
+    },
+    {
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "id": "07-python",
+      "headline": "计算，就在端侧",
+      "scene": "真实成功的 Python 步骤输入和输出，或 scripts/analyze.py 与真实日志",
+      "orientation": "landscape",
+      "canvas": [
+        2752,
+        2064
+      ],
+      "raw": "raw/iPad/zh-Hans/07-python.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-project",
+      "acceptance": [
+        "真实嵌入式 Python 已执行成功，显示实际输入/输出，不是模拟终端",
+        "输出与数据一致；脚本单独存在不证明运行成功；日志不可由宿主制造"
+      ],
+      "withoutModelNetwork": {
+        "action": "直接打开本设备已有真实成功 Python 步骤或日志，无需再次模型请求。若无执行记录则保持阻塞，不以编辑器静态代码冒充计算完成。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实 iPad 横屏布局、独立侧栏/面板；禁用手机截图或旧拼图。"
+    },
+    {
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "id": "08-skills",
+      "headline": "为你所用的技能",
+      "scene": "侧栏技能页内置系统技能或其中一个技能详情",
+      "orientation": "landscape",
+      "canvas": [
+        2752,
+        2064
+      ],
+      "raw": "raw/iPad/zh-Hans/08-skills.jpg",
+      "status": "planned-unverified",
+      "dependency": "none",
+      "acceptance": [
+        "真实系统技能库/技能详情可见；内置 skill-creator 与 bionic-persona-creator 不包装成已安装第三方技能",
+        "不后台导入虚假包、不为填满列表制造已启用状态；独立于模型菜单场景"
+      ],
+      "withoutModelNetwork": {
+        "action": "直接打开真实内置技能库或技能详情，无需模型/网页网络；以现有两个内置技能如实呈现。",
+        "canAttemptNow": true,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实 iPad 横屏布局、独立侧栏/面板；禁用手机截图或旧拼图。"
+    },
+    {
+      "device": "iPad",
+      "locale": "zh-Hans",
+      "id": "09-palmi",
+      "headline": "聊天，也有个性",
+      "scene": "专业页 Palmi 入口进入内置角色的真实自然短对话",
+      "orientation": "landscape",
+      "canvas": [
+        2752,
+        2064
+      ],
+      "raw": "raw/iPad/zh-Hans/09-palmi.jpg",
+      "status": "planned-unverified",
+      "dependency": "model-bionic",
+      "acceptance": [
+        "使用内置 Palmi，等待真实角色回复并收键盘；禁止手工插入助手消息",
+        "该语言的用户内容与角色回复一致；确认内置角色母语，不能只切应用语言"
+      ],
+      "withoutModelNetwork": {
+        "action": "若已有同语言真实角色会话，直接打开。否则仅可捕获真实内置角色资料候选，标题改为“Meet Palmi / 认识 Palmi”；不能宣称已完成对话，须人工判断是否足够强且独立。",
+        "canAttemptNow": false,
+        "requiresHumanReview": true
+      },
+      "deviceAcceptance": "真实 iPad 横屏布局、独立侧栏/面板；禁用手机截图或旧拼图。"
+    }
+  ]
+}

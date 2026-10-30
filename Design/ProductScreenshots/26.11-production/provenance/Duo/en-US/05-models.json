@@ -1,0 +1,126 @@
+{
+  "id": "05-models",
+  "device": "Duo",
+  "locale": "en-US",
+  "headline": "Set the thinking level",
+  "orientation": "folded",
+  "fingerprint": "8342ce7b8b21ed76d37e65cc60dcb76f80d143dbf21170cd2f5123c7be9122b9",
+  "entrySha256": "e59a31a81594d77b873dceb666ef8c63476c6f6f5f1f142111639fc5b9d377a5",
+  "canvasWidth": 1398,
+  "canvasHeight": 2034,
+  "background": "blue",
+  "capture": {
+    "origin": "native-device-hub-window",
+    "deviceName": "iPhone Duo",
+    "capturedAt": null,
+    "fileModifiedAt": "2026-10-30T15:59:56.433Z",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "sourceFormat": "jpeg"
+  },
+  "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/Duo/en-US/05-models.jpg",
+  "sourceSha256": "2d21957e527a9343709e37af7c3ead2e800c22e2262a9f79c89f725b61e8c8d1",
+  "crop": {
+    "cropVersion": 2,
+    "captureOrigin": "native-device-hub-window",
+    "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/Duo/en-US/05-models.jpg",
+    "sourceSha256": "2d21957e527a9343709e37af7c3ead2e800c22e2262a9f79c89f725b61e8c8d1",
+    "sourceFormat": "jpeg",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "crop": {
+      "left": 1653,
+      "top": 235,
+      "width": 1053,
+      "height": 1457
+    },
+    "detectedHardwareBounds": {
+      "left": 1658,
+      "top": 240,
+      "width": 1043,
+      "height": 1447
+    },
+    "detection": {
+      "bounds": {
+        "left": 1658,
+        "top": 240,
+        "width": 1043,
+        "height": 1447
+      },
+      "threshold": 145,
+      "seedCandidates": [
+        {
+          "left": 1658,
+          "top": 240,
+          "width": 1043,
+          "height": 1447,
+          "pixels": 181793
+        }
+      ],
+      "mergedSeeds": 1
+    },
+    "options": {
+      "mode": "auto",
+      "margin": 5,
+      "maskOuterWhite": true,
+      "whiteThreshold": 247,
+      "whiteChroma": 8
+    },
+    "operations": [
+      "integer-coordinate crop",
+      "edge-connected near-white background alpha mask"
+    ],
+    "rgbPixelsSourceIdentical": true,
+    "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+    "maskedPixels": 47251,
+    "cropSha256": "e3924f1cbdfbe3a53ba1353ef484c2ff2695973257cd31fd6d06c70642eb7978",
+    "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/Duo/en-US/05-models.png"
+  },
+  "layout": {
+    "headline": {
+      "left": 55.90625,
+      "top": 32,
+      "width": 1286.15625,
+      "height": 116.625,
+      "right": 1342.0625,
+      "bottom": 148.625,
+      "lines": 1,
+      "fontSize": 108
+    },
+    "device": {
+      "left": 33.01544269045985,
+      "top": 171,
+      "width": 1331.9691146190803,
+      "height": 1843,
+      "scale": 1.2649279341111874,
+      "areaFraction": 0.8492318747531574,
+      "cropAreaFraction": 0.8632992624113128,
+      "heightFraction": 0.9060963618485742,
+      "widthFraction": 0.9527676070236626,
+      "dominantFraction": 0.9527676070236626
+    },
+    "hardware": {
+      "left": 39.34008236101579,
+      "top": 177.32463967055594,
+      "width": 1319.3198352779684,
+      "height": 1830.3507206588881
+    },
+    "areaMetric": "detected hardware bounding box, excluding crop padding",
+    "upright": true,
+    "centered": true,
+    "textDeviceGap": 22.375
+  },
+  "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/Duo/en-US/05-models.png",
+  "outputSha256": "88d388f6d01577bfe64a19ad360e5d62f1dd86436f2d66a513783b578e3ca2e2",
+  "acceptance": {
+    "width": 1398,
+    "height": 2034,
+    "format": "png",
+    "colourspace": "srgb",
+    "channels": 3,
+    "hasAlpha": false,
+    "headlineFits": true,
+    "rgbCropSourceIdentical": true
+  },
+  "visualReviewRequired": "Check actual rim, physical buttons, hinge, complete app UI and headline against source before upload."
+}

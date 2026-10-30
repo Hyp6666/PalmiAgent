@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "outputRoot": "../../../../Screenshots/AppStore/26.11-fresh",
+  "captureOrigin": "native-device-hub-window",
+  "defaults": {
+    "background": "ice",
+    "minDeviceAreaFraction": 0.75,
+    "crop": {
+      "mode": "auto",
+      "margin": 5,
+      "maskOuterWhite": true,
+      "whiteThreshold": 247,
+      "whiteChroma": 8
+    }
+  },
+  "expectedCountPerDeviceLocale": 9,
+  "expectedDevices": ["Duo", "DI", "iPad"],
+  "expectedLocales": ["en-US", "zh-Hans"],
+  "entries": [
+    {
+      "id": "01-overview",
+      "device": "Duo",
+      "locale": "en-US",
+      "source": "raw/Duo/en-US/01-overview.jpg",
+      "headline": "Your AI workspace"
+    },
+    {
+      "id": "01-overview",
+      "device": "Duo",
+      "locale": "zh-Hans",
+      "source": "raw/Duo/zh-Hans/01-overview.jpg",
+      "headline": "你的 AI 工作空间"
+    }
+  ]
+}

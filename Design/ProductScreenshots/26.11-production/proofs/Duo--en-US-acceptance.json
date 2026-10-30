@@ -1,0 +1,195 @@
+{
+  "group": "Duo/en-US",
+  "reviewedAt": "2026-10-30T16:03:38.850Z",
+  "status": "accepted",
+  "deviceName": "iPhone Duo",
+  "reviewMethod": "Individually viewed all nine full native Device Hub raw windows, all nine real-device crops, all nine final PNG posters and the mixed-orientation contact sheet; compared original UI and hardware against output. Every saved crop additionally passed decoded per-pixel RGB equality and exact hash/geometry audit.",
+  "requiredRetakes": [],
+  "templatesOrAppModified": false,
+  "sourceIntegrity": {
+    "verified": 9,
+    "uniqueSourceHashes": 9,
+    "errors": [],
+    "pixelAudit": "Decoded source-to-crop RGB equality for every pixel, including transparent pixels; exact source/crop/output hashes passed."
+  },
+  "output": {
+    "directory": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/Duo/en-US",
+    "count": 9,
+    "format": "PNG",
+    "channels": 3,
+    "colourspace": "sRGB",
+    "alpha": false,
+    "orientations": [
+      {
+        "orientation": "folded",
+        "ids": [
+          "01-play",
+          "05-models",
+          "09-palmi"
+        ],
+        "width": 1398,
+        "height": 2034,
+        "hardwareBoundingBoxAreaFraction": 0.8492318747531574
+      },
+      {
+        "orientation": "unfolded-landscape",
+        "ids": [
+          "02-results",
+          "03-browser",
+          "04-files",
+          "06-sources",
+          "07-python",
+          "08-skills"
+        ],
+        "width": 2853,
+        "height": 2007,
+        "hardwareBoundingBoxAreaFraction": 0.7719170087419963
+      }
+    ],
+    "groupComplete": true,
+    "unregisteredPngs": []
+  },
+  "contactSheet": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/proofs/contact-sheets/Duo--en-US.png",
+  "commonVisualFindings": {
+    "completeHardware": true,
+    "correctEnglishUI": true,
+    "noChineseInAddedHeadlines": true,
+    "noCredentials": true,
+    "noMousePointerInPoster": true,
+    "noTransientFrames": true,
+    "noUnsupportedPromotionalClaims": true,
+    "headlinesMatchAssignedCopy": true,
+    "headlinesReadable": true,
+    "allHeadlinesOneLine": true,
+    "realHardwareStateMatchesOrientation": true,
+    "noRetouching": true
+  },
+  "entries": [
+    {
+      "id": "01-play",
+      "headline": "Play inside a reply",
+      "orientation": "folded",
+      "width": 1398,
+      "height": 2034,
+      "sourceSha256": "3175cc90687bb3d5f11d24fbda223d5b67632fc3e5c1af2ba2ad1481bd714f6f",
+      "outputSha256": "8ab74da2d219866208fca69174a457f145d8b5c171a496bd5b1d1b1851bf6f22",
+      "headlineLines": 1,
+      "fontSize": 108,
+      "hardwareBoundingBoxAreaFraction": 0.8492318747531574,
+      "visualReview": "accepted",
+      "observation": "Genuine folded English 2048 reply after 12 real swipes reported by the capture operator; visible Score 52, Best 52, a 16 tile, numbered board, restart control and Swipe to move. Complete left folded rear panel, camera hole, top and right physical buttons. Small diagonal arrows are the native expand control, not a mouse pointer."
+    },
+    {
+      "id": "02-results",
+      "headline": "Turn data into charts",
+      "orientation": "unfolded-landscape",
+      "width": 2853,
+      "height": 2007,
+      "sourceSha256": "ea1cf120a05fa78728417ca705ec545f132e64f877a28ada5e83dc2da1bc0f29",
+      "outputSha256": "4aae8ffc62ca047f505cc95b4973536e3e973fa3e1ed5ebc67d66a722d697a26",
+      "headlineLines": 1,
+      "fontSize": 122,
+      "hardwareBoundingBoxAreaFraction": 0.7719170087419963,
+      "visualReview": "accepted",
+      "observation": "Genuine unfolded landscape workspace with English six-week LCP chart: four orange and two green bars, 1.60 s / 42.1% improvement and 2 of 6 weeks good. Native sidebar and composer retained. Grey send arrow and blue-grey context-window control; top text continues beyond the native scroll viewport."
+    },
+    {
+      "id": "03-browser",
+      "headline": "Browse the web in Palmi",
+      "orientation": "unfolded-landscape",
+      "width": 2853,
+      "height": 2007,
+      "sourceSha256": "143555dfb11cb07aafc1926b09264f1ac15823e043bc0aecedd6ffb6d73297b2",
+      "outputSha256": "3c45cd17aec0b8c7b47afc2b765796555e1cb8b1f57c318bb766924e86f1765e",
+      "headlineLines": 1,
+      "fontSize": 122,
+      "hardwareBoundingBoxAreaFraction": 0.7719170087419963,
+      "visualReview": "accepted",
+      "observation": "Genuine unfolded landscape in-app English web.dev LCP page, good-score paragraph, 2.5 second threshold diagram, English menu and address bar. Complete rim, hinge and top/right physical buttons."
+    },
+    {
+      "id": "04-files",
+      "headline": "Open your project files",
+      "orientation": "unfolded-landscape",
+      "width": 2853,
+      "height": 2007,
+      "sourceSha256": "bb9ef3b47326ed59e5cb108a6fad9785fa995ad0c4059416d8611f6f16eab643",
+      "outputSha256": "060f4fea91a3895f1a0f333374b393e0b6de925bbd755f08e26a69315141bbaf",
+      "headlineLines": 1,
+      "fontSize": 122,
+      "hardwareBoundingBoxAreaFraction": 0.7719170087419963,
+      "visualReview": "accepted",
+      "observation": "Genuine unfolded landscape report.md preview with English Close, LCP trend report, 3.80 s to 2.20 s result, key numbers and weekly table. Table continues below the native scroll viewport; complete screen and hardware retained."
+    },
+    {
+      "id": "05-models",
+      "headline": "Set the thinking level",
+      "orientation": "folded",
+      "width": 1398,
+      "height": 2034,
+      "sourceSha256": "2d21957e527a9343709e37af7c3ead2e800c22e2262a9f79c89f725b61e8c8d1",
+      "outputSha256": "88d388f6d01577bfe64a19ad360e5d62f1dd86436f2d66a513783b578e3ca2e2",
+      "headlineLines": 1,
+      "fontSize": 108,
+      "hardwareBoundingBoxAreaFraction": 0.8492318747531574,
+      "visualReview": "accepted",
+      "observation": "Genuine folded Thinking Effort popover with Configure, Medium, slider and model field over the completed chart/file reply. Native model name and narrow Medium control wrapping preserved; full rear folded panel, camera hole and physical buttons retained."
+    },
+    {
+      "id": "06-sources",
+      "headline": "Follow every step",
+      "orientation": "unfolded-landscape",
+      "width": 2853,
+      "height": 2007,
+      "sourceSha256": "0b11fa7778a633bf2158a8f3561898589f5da26c0fe26e755f491de59a8cf371",
+      "outputSha256": "78d7088944bee61dab38fec4fb4261d5e92c56d12fa6cc7b86258e7c4d88bda2",
+      "headlineLines": 1,
+      "fontSize": 122,
+      "hardwareBoundingBoxAreaFraction": 0.7719170087419963,
+      "visualReview": "accepted",
+      "observation": "Genuine unfolded landscape English Reasoning process, Elapsed 1m 8s, with completed Thinking, List Directory, Get Time and Write File steps. Lower steps continue at the native viewport edge; complete hardware retained."
+    },
+    {
+      "id": "07-python",
+      "headline": "Run Python on device",
+      "orientation": "unfolded-landscape",
+      "width": 2853,
+      "height": 2007,
+      "sourceSha256": "c1515bce95ea776498e5997c48f50012f66a8f5ea01f0b8a6c6ed7afeb387278",
+      "outputSha256": "727687130bc31c368e650fc869643cc7583b7c313e619c29fcf446f9c042e907",
+      "headlineLines": 1,
+      "fontSize": 122,
+      "hardwareBoundingBoxAreaFraction": 0.7719170087419963,
+      "visualReview": "accepted",
+      "observation": "Genuine unfolded landscape native file preview of python-scripts_analyze.log. Original small monospace font preserved; English readings, 3.80 s to 2.20 s, 42.1%, mean 2.93 s and generated metrics.csv, report.md, chart.html are readable in the final PNG. No diagnostic-panel Chinese."
+    },
+    {
+      "id": "08-skills",
+      "headline": "Import your own skills",
+      "orientation": "unfolded-landscape",
+      "width": 2853,
+      "height": 2007,
+      "sourceSha256": "48bcb4ea05fa172420210ff0c028ba02bb153893cfc2e51fd20208397cbf2c00",
+      "outputSha256": "388f818a25e13b92c9aa89abd3221bf6f74bd075ddf55eeff79475e63690176c",
+      "headlineLines": 1,
+      "fontSize": 122,
+      "hardwareBoundingBoxAreaFraction": 0.7719170087419963,
+      "visualReview": "accepted",
+      "observation": "Genuine unfolded landscape English Skills panel with Done, Import File, support for .zip or SKILL.md, System skills, and two required built-in skills. Complete panel and hardware; original skill identifiers retained."
+    },
+    {
+      "id": "09-palmi",
+      "headline": "Take a break with Palmi",
+      "orientation": "folded",
+      "width": 1398,
+      "height": 2034,
+      "sourceSha256": "a04b74d131b05edfa332f6ce6326bc0d5b80c6e149cc348b598b7652884466c0",
+      "outputSha256": "904589550dfc0405f04fb63e035d86cac39e22f18111949f374b4a959fe29534",
+      "headlineLines": 1,
+      "fontSize": 108,
+      "hardwareBoundingBoxAreaFraction": 0.8492318747531574,
+      "visualReview": "accepted",
+      "observation": "Genuine folded Palmi conversation with visible English break/homepage/water/notebook messages and Message Palmi composer. No Chinese visible inside the poster; Chinese Device Hub sidebar labels remain only outside the hardware in the raw window. Original native header/composer glass blur preserved. No keyboard or active generation indicator."
+    }
+  ]
+}

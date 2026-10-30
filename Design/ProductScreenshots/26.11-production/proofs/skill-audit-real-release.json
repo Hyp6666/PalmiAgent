@@ -1,0 +1,70 @@
+{
+  "app": "6787664658",
+  "version": "26.11",
+  "directObservation": "connect-after-reload.json",
+  "assets": "PASS: 6 groups, 54 screenshots; post-reload receipt matches",
+  "copy": {
+    "ok": true,
+    "mode": "copy",
+    "observedCompared": true,
+    "fields": [
+      {
+        "locale": "en-US",
+        "field": "promotionalText",
+        "limit": 170,
+        "codePoints": 154,
+        "utf16Units": 154,
+        "utf8Bytes": 154,
+        "sha256": "235306d99af0ca85527b99d030adddec7a4f0ff43808747b9f23eac0140c7b33"
+      },
+      {
+        "locale": "en-US",
+        "field": "description",
+        "limit": 4000,
+        "codePoints": 2585,
+        "utf16Units": 2585,
+        "utf8Bytes": 2585,
+        "sha256": "b7f74133599bdb3a469b8d14973ff6453cba122c7abbf6383b8030784eb984b8"
+      },
+      {
+        "locale": "en-US",
+        "field": "whatsNew",
+        "limit": 4000,
+        "codePoints": 943,
+        "utf16Units": 943,
+        "utf8Bytes": 957,
+        "sha256": "e173b6f8303eba31d9893c57661faf7acc1fd3612f73922003c023e9b671b33d"
+      },
+      {
+        "locale": "zh-Hans",
+        "field": "promotionalText",
+        "limit": 170,
+        "codePoints": 79,
+        "utf16Units": 79,
+        "utf8Bytes": 197,
+        "sha256": "6528e8e2ba5738a200cd162ba69b87318ac1377566d7ea6af398d67b46be53e6"
+      },
+      {
+        "locale": "zh-Hans",
+        "field": "description",
+        "limit": 4000,
+        "codePoints": 841,
+        "utf16Units": 841,
+        "utf8Bytes": 2313,
+        "sha256": "1589f6be82d1fdf57d2edaf0374cea38cd3433deacd410bdd2eb784a94af7f9f"
+      },
+      {
+        "locale": "zh-Hans",
+        "field": "whatsNew",
+        "limit": 4000,
+        "codePoints": 321,
+        "utf16Units": 321,
+        "utf8Bytes": 911,
+        "sha256": "adde4a826ea1af367536df60a95686f69428a2a1ebd951976f8a42babe8b8760"
+      }
+    ],
+    "warnings": [],
+    "differences": [],
+    "countingNote": "Local counts use Unicode code points; Apple's UI is authoritative."
+  }
+}

@@ -1,0 +1,126 @@
+{
+  "id": "08-skills",
+  "device": "DI",
+  "locale": "zh-Hans",
+  "headline": "导入自己的技能",
+  "orientation": "portrait",
+  "fingerprint": "17cdba57bca7140a8b0a15f2792f88961984889bfc54f0a113e61dd06fa678fa",
+  "entrySha256": "a53210733ef0a1281d84c25d28663b55758a565038fae1b6a17a6bd5e4363c06",
+  "canvasWidth": 1206,
+  "canvasHeight": 2622,
+  "background": "stone",
+  "capture": {
+    "origin": "native-device-hub-window",
+    "deviceName": "iPhone 18 Pro",
+    "capturedAt": null,
+    "fileModifiedAt": "2026-10-30T15:18:10.247Z",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "sourceFormat": "jpeg"
+  },
+  "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/DI/zh-Hans/08-skills.jpg",
+  "sourceSha256": "c288002f9e0470ea1eef909efa59595de9bd4c528c98f7cdf2d213640db9b70e",
+  "crop": {
+    "cropVersion": 2,
+    "captureOrigin": "native-device-hub-window",
+    "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/DI/zh-Hans/08-skills.jpg",
+    "sourceSha256": "c288002f9e0470ea1eef909efa59595de9bd4c528c98f7cdf2d213640db9b70e",
+    "sourceFormat": "jpeg",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "crop": {
+      "left": 1773,
+      "top": 146,
+      "width": 805,
+      "height": 1641
+    },
+    "detectedHardwareBounds": {
+      "left": 1778,
+      "top": 151,
+      "width": 795,
+      "height": 1631
+    },
+    "detection": {
+      "bounds": {
+        "left": 1778,
+        "top": 151,
+        "width": 795,
+        "height": 1631
+      },
+      "threshold": 145,
+      "seedCandidates": [
+        {
+          "left": 1778,
+          "top": 151,
+          "width": 795,
+          "height": 1631,
+          "pixels": 126560
+        }
+      ],
+      "mergedSeeds": 1
+    },
+    "options": {
+      "mode": "auto",
+      "margin": 5,
+      "maskOuterWhite": true,
+      "whiteThreshold": 247,
+      "whiteChroma": 8
+    },
+    "operations": [
+      "integer-coordinate crop",
+      "edge-connected near-white background alpha mask"
+    ],
+    "rgbPixelsSourceIdentical": true,
+    "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+    "maskedPixels": 51637,
+    "cropSha256": "871f81812dfa047ffe8bd6cd174db1c01608a4fb1b1077ccb8b4f53836d313a5",
+    "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/DI/zh-Hans/08-skills.png"
+  },
+  "layout": {
+    "headline": {
+      "left": 48.234375,
+      "top": 40,
+      "width": 1109.515625,
+      "height": 110.15625,
+      "right": 1157.75,
+      "bottom": 150.15625,
+      "lines": 1,
+      "fontSize": 102
+    },
+    "device": {
+      "left": 15,
+      "top": 188.85652173913036,
+      "width": 1176,
+      "height": 2397.2869565217393,
+      "scale": 1.4608695652173913,
+      "areaFraction": 0.8751126813278239,
+      "cropAreaFraction": 0.891553376288392,
+      "heightFraction": 0.9142970848671774,
+      "widthFraction": 0.9751243781094527,
+      "dominantFraction": 0.9751243781094527
+    },
+    "hardware": {
+      "left": 22.304347826086957,
+      "top": 196.16086956521733,
+      "width": 1161.391304347826,
+      "height": 2382.6782608695653
+    },
+    "areaMetric": "detected hardware bounding box, excluding crop padding",
+    "upright": true,
+    "centered": true,
+    "textDeviceGap": 38.70027173913036
+  },
+  "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/DI/zh-Hans/08-skills.png",
+  "outputSha256": "6c5100193431cdba00f9774aa4de12eacbc103f5a0727bfb59e3801f88363b54",
+  "acceptance": {
+    "width": 1206,
+    "height": 2622,
+    "format": "png",
+    "colourspace": "srgb",
+    "channels": 3,
+    "hasAlpha": false,
+    "headlineFits": true,
+    "rgbCropSourceIdentical": true
+  },
+  "visualReviewRequired": "Check actual rim, physical buttons, hinge, complete app UI and headline against source before upload."
+}

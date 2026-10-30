@@ -1,0 +1,190 @@
+{
+  "group": "Duo/zh-Hans",
+  "reviewedAt": "2026-10-30T15:55:28.600Z",
+  "status": "accepted",
+  "deviceName": "iPhone Duo",
+  "reviewMethod": "逐一查看9个原始完整Device Hub窗口与9张最终PNG，对照真实硬件及中文UI，并检查混合姿态联系表；裁图通过逐像素RGB及几何验证，非仅脚本验收。",
+  "requiredRetakes": [],
+  "templatesOrAppModified": false,
+  "sourceIntegrity": {
+    "verified": 9,
+    "uniqueSourceHashes": 9,
+    "errors": [],
+    "pixelAudit": "Decoded source-to-crop RGB equality for every pixel; every source/crop/output hash passed."
+  },
+  "output": {
+    "directory": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/Duo/zh-Hans",
+    "count": 9,
+    "format": "PNG",
+    "channels": 3,
+    "colourspace": "sRGB",
+    "alpha": false,
+    "orientations": [
+      {
+        "orientation": "folded",
+        "ids": [
+          "01-play",
+          "05-models",
+          "09-palmi"
+        ],
+        "width": 1398,
+        "height": 2034,
+        "hardwareBoundingBoxAreaFraction": 0.848964824011432
+      },
+      {
+        "orientation": "unfolded-landscape",
+        "ids": [
+          "02-results",
+          "03-browser",
+          "04-files",
+          "06-sources",
+          "07-python",
+          "08-skills"
+        ],
+        "width": 2853,
+        "height": 2007,
+        "hardwareBoundingBoxAreaFraction": 0.7719170087419963
+      }
+    ]
+  },
+  "contactSheet": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/proofs/contact-sheets/Duo--zh-Hans.png",
+  "commonVisualFindings": {
+    "completeHardware": true,
+    "correctChineseUI": true,
+    "noCredentials": true,
+    "noMousePointerInPoster": true,
+    "headlinesMatchAssignedCopy": true,
+    "headlinesReadable": true,
+    "allHeadlinesOneLine": true,
+    "realHardwareStateMatchesOrientation": true,
+    "noRetouching": true
+  },
+  "entries": [
+    {
+      "id": "01-play",
+      "headline": "一条回复，直接开玩",
+      "orientation": "folded",
+      "width": 1398,
+      "height": 2034,
+      "sourceSha256": "0da9ee50964c274d99d487ffdb463b1e64511a5d14f7e105304bcd9fafe0d54c",
+      "outputSha256": "024248bf5fb45844ebe10d99a2b90725f9335bdf4330dd8fcb28ab3d0a4992e1",
+      "headlineLines": 1,
+      "fontSize": 108,
+      "hardwareBoundingBoxAreaFraction": 0.848964824011432,
+      "visualReview": "accepted",
+      "observation": "真实 folded 2048 场景，得分与最高分均为28，中文游戏提示、输入框、右侧常驻操作区清晰；左侧折叠背板、相机孔、顶部与右侧实体按钮完整。"
+    },
+    {
+      "id": "02-results",
+      "headline": "把数据画成图表",
+      "orientation": "unfolded-landscape",
+      "width": 2853,
+      "height": 2007,
+      "sourceSha256": "91350f02991941d51341426af845ac0f3fb75e5b83e557b104542685f22fbe62",
+      "outputSha256": "d98874a72320db1e1cf1b5c00990cdcb81372ed0a424a0a4f0c91737aeb5dd67",
+      "headlineLines": 1,
+      "fontSize": 122,
+      "hardwareBoundingBoxAreaFraction": 0.7719170087419963,
+      "visualReview": "accepted",
+      "observation": "真实 unfolded-landscape 专业工作区，侧栏与六周 LCP 柱图完整；3.8秒到2.2秒、改善42.1%、达标2/6周等中文完成结果可读。发送按钮为灰色上箭头，旁侧蓝灰环保留原生上下文窗口控件。"
+    },
+    {
+      "id": "03-browser",
+      "headline": "在应用里浏览网页",
+      "orientation": "unfolded-landscape",
+      "width": 2853,
+      "height": 2007,
+      "sourceSha256": "fe6dd96c9324fd9a63de4cf7f8a89128e8c2865145953c10788f75003832d700",
+      "outputSha256": "6b4ed0fd89f806c9a95768626321377ac177c62940eed110812a52c6972e0d3a",
+      "headlineLines": 1,
+      "fontSize": 122,
+      "hardwareBoundingBoxAreaFraction": 0.7719170087419963,
+      "visualReview": "accepted",
+      "observation": "真实 unfolded-landscape 内置浏览器，中文简体 web.dev LCP 正文、2.5秒阈值、分段图和地址栏完整；文章英文标题与图中英文标签属于原网页内容。"
+    },
+    {
+      "id": "04-files",
+      "headline": "打开项目文件",
+      "orientation": "unfolded-landscape",
+      "width": 2853,
+      "height": 2007,
+      "sourceSha256": "055fe30bb1a207fa65da02495f4406daac26e95ecd0e87be33be42252c98b884",
+      "outputSha256": "ddf58fd513c336a5f28364d980338d004694588d730ae657192409082a7dcbcb",
+      "headlineLines": 1,
+      "fontSize": 122,
+      "hardwareBoundingBoxAreaFraction": 0.7719170087419963,
+      "visualReview": "accepted",
+      "observation": "真实 unfolded-landscape 中文文件面板，网站体验复盘工作区含 logs、scripts、chart.html、metrics.csv、report.md；文件列表、加号和更多操作完整，无凭证。"
+    },
+    {
+      "id": "05-models",
+      "headline": "调节思考强度",
+      "orientation": "folded",
+      "width": 1398,
+      "height": 2034,
+      "sourceSha256": "80f4f7a152bb244342a67324e5033b232c3790d6ba1cae7dfe34ad8a57b998f4",
+      "outputSha256": "28df604af89aa70046be7a5b996c8260905d1508c3b50a3b991b409bc1bba3d8",
+      "headlineLines": 1,
+      "fontSize": 108,
+      "hardwareBoundingBoxAreaFraction": 0.848964824011432,
+      "visualReview": "accepted",
+      "observation": "真实 folded 思考强度浮层，配置、思考强度、中档、滑块与模型字段可读；后方2048为稳定真实界面，模型原生名称保留。"
+    },
+    {
+      "id": "06-sources",
+      "headline": "看见任务的每一步",
+      "orientation": "unfolded-landscape",
+      "width": 2853,
+      "height": 2007,
+      "sourceSha256": "36037c4f0db0364cae69b06bf09e0fb0cb22416e1088872a83935357b50f623f",
+      "outputSha256": "7cad142d1ebaf3a2f9a054cc215fed938708965592301d8ab74213852c917886",
+      "headlineLines": 1,
+      "fontSize": 122,
+      "hardwareBoundingBoxAreaFraction": 0.7719170087419963,
+      "visualReview": "accepted",
+      "observation": "真实 unfolded-landscape 中文推理过程，用时36秒，列出已完成思考、列出目录、文件管理、写入文件与执行Python等步骤；底部内容按原生滚动区域边界显示，机身无裁切。"
+    },
+    {
+      "id": "07-python",
+      "headline": "在设备上运行 Python",
+      "orientation": "unfolded-landscape",
+      "width": 2853,
+      "height": 2007,
+      "sourceSha256": "12cc8bd9ef6d248e0ecf45484e44af7061fa0cf96d08c8d8608c037002341250",
+      "outputSha256": "d74bb7ea0ec27fe7c323324ea9d498a6ee7bd37a05671f6e97e676fe799779fb",
+      "headlineLines": 1,
+      "fontSize": 122,
+      "hardwareBoundingBoxAreaFraction": 0.7719170087419963,
+      "visualReview": "accepted",
+      "observation": "真实 unfolded-landscape 执行Python完成面板，scripts/analyze.py输入、六周LCP输出、42.1%改善、三份文件写入结果与CPython 3.14运行时可读；面板及完整硬件均保留。"
+    },
+    {
+      "id": "08-skills",
+      "headline": "导入自己的技能",
+      "orientation": "unfolded-landscape",
+      "width": 2853,
+      "height": 2007,
+      "sourceSha256": "6c0b070bf413b30bb24e7b8e0d0c3324105e95a6071bb3b60dfb7e2293b65b1a",
+      "outputSha256": "17802019c666e582eb46ba77a64b1814409803569335168bedebc2113a4601fb",
+      "headlineLines": 1,
+      "fontSize": 122,
+      "hardwareBoundingBoxAreaFraction": 0.7719170087419963,
+      "visualReview": "accepted",
+      "observation": "真实 unfolded-landscape 中文技能管理面板，完成、技能、导入文件、系统技能和两项系统技能可读；英文skill标识为原生内容，面板完整。"
+    },
+    {
+      "id": "09-palmi",
+      "headline": "和 Palmi 聊聊",
+      "orientation": "folded",
+      "width": 1398,
+      "height": 2034,
+      "sourceSha256": "10a86618c3369e677a6e54737b471cb54cd91df7f3a7abaef5e2cee98d9edfad",
+      "outputSha256": "4749405dc8129eccff1d7bb62aee02bacf98e2c76daee0bf0cd61030dbf1eae3",
+      "headlineLines": 1,
+      "fontSize": 108,
+      "hardwareBoundingBoxAreaFraction": 0.848964824011432,
+      "visualReview": "accepted",
+      "observation": "真实 folded Palmi 中文对话，网站变快后的两分钟庆祝内容完整可读；输入框为原生文本插入光标，没有鼠标指针或键盘遮挡，完整折叠背板与相机孔保留。"
+    }
+  ]
+}

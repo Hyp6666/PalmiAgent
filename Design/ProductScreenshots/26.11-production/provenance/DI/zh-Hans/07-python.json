@@ -1,0 +1,126 @@
+{
+  "id": "07-python",
+  "device": "DI",
+  "locale": "zh-Hans",
+  "headline": "在设备上运行 Python",
+  "orientation": "portrait",
+  "fingerprint": "7ac90c99faf833ab607102128cd0383ef23aade9a3e653d12716db15f106b2c6",
+  "entrySha256": "e593a4b8b2875d7009cae5b4bdeeec50c297a5ccf3c8599b79c0ace4d10a4247",
+  "canvasWidth": 1206,
+  "canvasHeight": 2622,
+  "background": "stone",
+  "capture": {
+    "origin": "native-device-hub-window",
+    "deviceName": "iPhone 18 Pro",
+    "capturedAt": null,
+    "fileModifiedAt": "2026-10-30T15:27:39.812Z",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "sourceFormat": "jpeg"
+  },
+  "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/DI/zh-Hans/07-python.jpg",
+  "sourceSha256": "5e59135212d2ab89156cec9122910f0ea7d078a6e4b6bd7606d6afbdb55aab6c",
+  "crop": {
+    "cropVersion": 2,
+    "captureOrigin": "native-device-hub-window",
+    "source": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/raw/DI/zh-Hans/07-python.jpg",
+    "sourceSha256": "5e59135212d2ab89156cec9122910f0ea7d078a6e4b6bd7606d6afbdb55aab6c",
+    "sourceFormat": "jpeg",
+    "sourceWidth": 3840,
+    "sourceHeight": 1916,
+    "crop": {
+      "left": 1773,
+      "top": 146,
+      "width": 805,
+      "height": 1641
+    },
+    "detectedHardwareBounds": {
+      "left": 1778,
+      "top": 151,
+      "width": 795,
+      "height": 1631
+    },
+    "detection": {
+      "bounds": {
+        "left": 1778,
+        "top": 151,
+        "width": 795,
+        "height": 1631
+      },
+      "threshold": 145,
+      "seedCandidates": [
+        {
+          "left": 1778,
+          "top": 151,
+          "width": 795,
+          "height": 1631,
+          "pixels": 126702
+        }
+      ],
+      "mergedSeeds": 1
+    },
+    "options": {
+      "mode": "auto",
+      "margin": 5,
+      "maskOuterWhite": true,
+      "whiteThreshold": 247,
+      "whiteChroma": 8
+    },
+    "operations": [
+      "integer-coordinate crop",
+      "edge-connected near-white background alpha mask"
+    ],
+    "rgbPixelsSourceIdentical": true,
+    "pixelReference": "decoded source converted to sRGB; alpha masking never edits RGB samples",
+    "maskedPixels": 51637,
+    "cropSha256": "6badaac41e23ee19ae65eead7a74f77cf09b4be06c5119366b8d1416b68b8bc0",
+    "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/crops/DI/zh-Hans/07-python.png"
+  },
+  "layout": {
+    "headline": {
+      "left": 48.234375,
+      "top": 40,
+      "width": 1109.515625,
+      "height": 110.15625,
+      "right": 1157.75,
+      "bottom": 150.15625,
+      "lines": 1,
+      "fontSize": 102
+    },
+    "device": {
+      "left": 15,
+      "top": 188.85652173913036,
+      "width": 1176,
+      "height": 2397.2869565217393,
+      "scale": 1.4608695652173913,
+      "areaFraction": 0.8751126813278239,
+      "cropAreaFraction": 0.891553376288392,
+      "heightFraction": 0.9142970848671774,
+      "widthFraction": 0.9751243781094527,
+      "dominantFraction": 0.9751243781094527
+    },
+    "hardware": {
+      "left": 22.304347826086957,
+      "top": 196.16086956521733,
+      "width": 1161.391304347826,
+      "height": 2382.6782608695653
+    },
+    "areaMetric": "detected hardware bounding box, excluding crop padding",
+    "upright": true,
+    "centered": true,
+    "textDeviceGap": 38.70027173913036
+  },
+  "output": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/DI/zh-Hans/07-python.png",
+  "outputSha256": "17d53d86290c045444fb9dcfbe0186910054835785604dad9af2f6adbf07f32a",
+  "acceptance": {
+    "width": 1206,
+    "height": 2622,
+    "format": "png",
+    "colourspace": "srgb",
+    "channels": 3,
+    "hasAlpha": false,
+    "headlineFits": true,
+    "rgbCropSourceIdentical": true
+  },
+  "visualReviewRequired": "Check actual rim, physical buttons, hinge, complete app UI and headline against source before upload."
+}

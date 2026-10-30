@@ -1,0 +1,31 @@
+{
+  "group": "iPad/en-US",
+  "deviceName": "iPad Pro 13-inch (M4)",
+  "reviewedAt": "2026-10-30T16:34:27.772521+00:00",
+  "status": "accepted",
+  "requiredRetakes": [],
+  "reviewMethod": "Primary capture operator compared the nine finished posters on the complete contact sheet with the live capture sessions and individually inspected the last three original windows again. Full verification checked decoded source RGB, geometry and output hashes.",
+  "scenesReviewed": [
+    "Played 2048; score and best both 48",
+    "Six-week chart with project files",
+    "Native browser showing the English source and threshold graphic",
+    "Open project report with readings and results",
+    "Thinking Effort control and Medium",
+    "Completed tool steps with run and file reads",
+    "Real analyze.py file preview, with no absolute host path",
+    "English skill importer",
+    "Real English two-photo postcard conversation"
+  ],
+  "sourceIntegrity": {
+    "verified": 9,
+    "errors": []
+  },
+  "output": {
+    "count": 9,
+    "width": 2752,
+    "height": 2064,
+    "alpha": false,
+    "minimumHardwareBoundingBoxAreaFraction": 0.7699478622087328
+  },
+  "contactSheet": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/proofs/contact-sheets/iPad--en-US.png"
+}

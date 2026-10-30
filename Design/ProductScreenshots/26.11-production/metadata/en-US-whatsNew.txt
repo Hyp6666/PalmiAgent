@@ -1,0 +1,9 @@
+Palmi 26.11 brings a fresh conversation and workspace experience.
+
+• Replies you can interact with: Explore charts, calculators, animations, and small games alongside text and images in a conversation.
+• Browser control, in beta: Give the built-in browser a task in Professional mode, view multiple pages, and take over whenever you need to.
+• A clearer interface: Open straight into a chat. A new sidebar brings together conversations, files, skills, and settings.
+• A new model library: Organize models into groups, choose a default, switch models in a conversation, and select suitable models for individual tools.
+• A smoother workspace: Browse project folders, preview and share results, and answer follow-up questions without leaving your current screen in Palmi.
+• Bionic conversation improvements: Better replies, read status, unread reminders, and background progress.
+• Added German, Swedish, Arabic, Turkish, Indonesian, and French.

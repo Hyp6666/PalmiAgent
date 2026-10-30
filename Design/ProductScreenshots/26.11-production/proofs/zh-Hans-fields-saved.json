@@ -1,0 +1,18 @@
+{
+  "locale": "zh-Hans",
+  "verifiedAt": "2026-10-30T14:39:56.853Z",
+  "check": {
+    "promotionalText": {
+      "length": 79,
+      "exact": true
+    },
+    "description": {
+      "length": 841,
+      "exact": true
+    },
+    "whatsNew": {
+      "length": 321,
+      "exact": true
+    }
+  }
+}

@@ -1,0 +1,117 @@
+{
+  "group": "DI/zh-Hans",
+  "reviewedAt": "2026-10-30T15:30:50.719Z",
+  "reviewMethod": "逐一查看9个原始完整Device Hub窗口、9个真实裁图、9张最终PNG及整组联系表，并与源图对照；非仅脚本检查。",
+  "deviceName": "iPhone 18 Pro",
+  "status": "accepted",
+  "requiredRetakes": [],
+  "templatesOrAppModified": false,
+  "sourceIntegrity": {
+    "verified": 9,
+    "errors": [],
+    "pixelAudit": "Decoded source-to-crop RGB equality for every pixel; unique source hash per scene; all source/crop/output hashes passed."
+  },
+  "output": {
+    "directory": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Screenshots/AppStore/26.11-production/DI/zh-Hans",
+    "count": 9,
+    "width": 1206,
+    "height": 2622,
+    "format": "PNG",
+    "channels": 3,
+    "colourspace": "sRGB",
+    "alpha": false,
+    "hardwareBoundingBoxAreaFraction": 0.8751126813278239
+  },
+  "contactSheet": "/Users/hongyupeng/Code/Xcode/PalmiAgent/Design/ProductScreenshots/26.11-production/proofs/contact-sheets/DI--zh-Hans.png",
+  "commonVisualFindings": {
+    "completeHardware": true,
+    "correctChineseUI": true,
+    "noCredentials": true,
+    "noMousePointerInPoster": true,
+    "noTransientFrames": true,
+    "headlinesMatchAssignedCopy": true
+  },
+  "entries": [
+    {
+      "id": "01-play",
+      "headline": "一条回复，直接开玩",
+      "sourceSha256": "5131ccb93f9d65e2d005cf05ced565ef06d097f14f802b1f8d3c14f868e36012",
+      "outputSha256": "443aa792154e2a643f88eae8320967a6524847690b205a0028c01c0bd9e0326e",
+      "headlineLines": 1,
+      "visualReview": "accepted",
+      "observation": "2048 真实可玩场景，分数 28，中文提示；完整机身、实体按钮和灵动岛。顶部文字模糊为原生玻璃区域。"
+    },
+    {
+      "id": "02-results",
+      "headline": "把数据画成图表",
+      "sourceSha256": "1f970bc6bf4ad5e1059936f20bada49fe9c5915c7a02713fd799bce1c75c4419",
+      "outputSha256": "18c0d839050fd20aab2101ff482810614cf117091b4cfeb132bda1fb295eb57f",
+      "headlineLines": 1,
+      "visualReview": "accepted",
+      "observation": "六周 LCP 柱图、42.11% 与 2.2 秒结果已完成。发送按钮灰色上箭头；旁边蓝灰圆环为上下文窗口常驻控件。采集主代理提供 AX 证据：上下文窗口 / 发送 disabled / 用时 3分32秒·已完成。"
+    },
+    {
+      "id": "03-browser",
+      "headline": "在应用里浏览网页",
+      "sourceSha256": "b50383523c45433e55c85ff7ead3c39ee5f931db4316039127a71e6bec6f4311",
+      "outputSha256": "0a194af03d639d7edeb20a35d87655cd264c577920fbb0c183bc8997e57bfe9c",
+      "headlineLines": 1,
+      "visualReview": "accepted",
+      "observation": "应用内浏览器，中文 web.dev LCP 正文与 2.5 秒阈值图。英文文章标题和图表标签为真实网页内容；完成、登录均为中文。"
+    },
+    {
+      "id": "04-files",
+      "headline": "打开项目文件",
+      "sourceSha256": "583cbedba46880938d7df622107601630bef79873aec7e9015b285c15aec1f9e",
+      "outputSha256": "5593f283d3a7df59b9b88c230e0df033ee9848c62710ca2916701be98af1fdd0",
+      "headlineLines": 1,
+      "visualReview": "accepted",
+      "observation": "中文文件面板，项目含 logs、scripts、chart.html、metrics.csv、report.md；无凭证。"
+    },
+    {
+      "id": "05-models",
+      "headline": "调节思考强度",
+      "sourceSha256": "61c65f2df7f72003cc98027fc4252f365adfd7af8ff3338e27daf867c2234d9b",
+      "outputSha256": "3b6332aa7f9a4488a4b345f50d73abe06adc0b607dc678f2b5ba116791ebb76f",
+      "headlineLines": 1,
+      "visualReview": "accepted",
+      "observation": "真实思考强度面板，中档可读，滑块及模型控件完整；后方 2048 稳定。"
+    },
+    {
+      "id": "06-sources",
+      "headline": "看见任务的每一步",
+      "sourceSha256": "71af69b048a9ad3bffb21e528b017c867bc8ee034421c35ef1de5703e3e87ba2",
+      "outputSha256": "3c97999235a3f2c17a8614bc0e179ab8f013ae27fcbb5904904e059ed99b70d5",
+      "headlineLines": 1,
+      "visualReview": "accepted",
+      "observation": "专业推理过程列表，网页浏览/目录/写入文件等已完成步骤，含 web.dev 中文阈值核实与来源一致说明。底部列表内容按真实屏幕滚动边界截断，机身完整。文字中 **2.5秒** 为原图原生内容。"
+    },
+    {
+      "id": "07-python",
+      "headline": "在设备上运行 Python",
+      "sourceSha256": "5e59135212d2ab89156cec9122910f0ea7d078a6e4b6bd7606d6afbdb55aab6c",
+      "outputSha256": "17d53d86290c045444fb9dcfbe0186910054835785604dad9af2f6adbf07f32a",
+      "headlineLines": 1,
+      "visualReview": "accepted",
+      "observation": "执行 Python 完成面板，输入 scripts/analyze.py、六周统计、首末改善、首次达标周及运行时输出；中文界面。"
+    },
+    {
+      "id": "08-skills",
+      "headline": "导入自己的技能",
+      "sourceSha256": "c288002f9e0470ea1eef909efa59595de9bd4c528c98f7cdf2d213640db9b70e",
+      "outputSha256": "6c5100193431cdba00f9774aa4de12eacbc103f5a0727bfb59e3801f88363b54",
+      "headlineLines": 1,
+      "visualReview": "accepted",
+      "observation": "中文技能管理面板，完成、技能、导入文件、系统技能；系统 skill 名为英文标识。原图与海报均完整机身。"
+    },
+    {
+      "id": "09-palmi",
+      "headline": "和 Palmi 聊聊",
+      "sourceSha256": "64e6a1b762e83f8ee882362a41f333dbcc1a6ef38d0d8423cd51be442b55ae36",
+      "outputSha256": "9c08e62903712df2681f0c3c726bd738ccc4bd99e3d0e21623fbbe2f94e77fa1",
+      "headlineLines": 1,
+      "visualReview": "accepted",
+      "observation": "完整中文 Palmi 对话，输入框有原生文本插入光标，无鼠标指针；无键盘覆盖、无生成中标志。"
+    }
+  ]
+}

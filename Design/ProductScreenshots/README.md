@@ -1,5 +1,13 @@
 # Product screenshot templates
 
+## 26.11 product page
+
+[Browse the six finished 26.11 screenshot sets](26.11-production/gallery.html) · [Delivery and reloaded Connect evidence](26.11-production/DELIVERY.md)
+
+The current [26.11 production pipeline](26.11-production/PIPELINE.md) builds the [upload PNGs](../../Screenshots/AppStore/26.11-production/) from real simulator captures. Each device has nine ordered scenes in U.S. English and Simplified Chinese. `DI` is the Dynamic Island iPhone; `Duo` includes separate folded and unfolded captures; `iPad` uses the actual 13-inch M4 iPad in landscape. The [localized store text](26.11-production/metadata/) and [review evidence](26.11-production/proofs/) accompany these files.
+
+## Earlier templates
+
 These templates preserve the original July 2026 product artwork: blue gradients, orbit lines, localized typography, translucent frames, and shadows. The iPad template rotates the supplied portrait-encoded landscape screenshot by −90° inside its frame. Both iPad artwork languages use the supplied Chinese app screenshot; their promotional headings are localized.
 
 ## Render

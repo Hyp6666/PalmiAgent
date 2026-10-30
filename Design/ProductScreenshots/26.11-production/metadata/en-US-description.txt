@@ -1,0 +1,24 @@
+Palmi brings AI conversations and a practical workspace to iPhone and iPad. Connect your chosen model service to ask questions, work on your writing, understand images, research a topic, or analyze data and save the results as files.
+
+Answers you can explore
+Try adjustable charts, calculators, animations, or small games inside a reply. Text, images, and interactive content stay together in the conversation so you can compare options and try out an idea.
+
+Keep your work in projects
+Use Professional mode to organize conversations, source material, and results in projects. Follow task progress, inspect tool activity, and add instructions as work continues. Browse folders, preview files, and share the results.
+
+Research with sources in view
+Search the web, read pages and supported documents, follow leads, and turn findings into answers and files. Browser control is available in beta in Professional mode: direct the built-in browser in everyday language, view multiple pages, and take over for sign-in or verification.
+
+Work with data on your device
+Run local Python calculations and data processing, recognize text in images, and read supported PDF, Office, and iWork documents. Keep source material, intermediate files, and results in your project workspace.
+
+Your models and methods
+Connect compatible model services, organize models into groups, choose a default, and switch models in a conversation. Tools such as image generation can use a separately selected model. Import skills to reuse your methods across the app or in a specific project.
+
+Characters and ongoing stories
+Bionic mode supports custom fictional characters, conversations, and memories. The free version includes the built-in Palmi character and up to two custom characters. A one-time Bionic Pro purchase raises the custom-character limit to 99 and unlocks memory details, editing, links to source messages, diary reading, and more. Characters, stories, and generated images are fictional.
+
+Bring a model service
+You need to configure a compatible model service to get started. Palmi does not include third-party model credits. Available models, web search, image features, and their costs depend on the services you choose. Bionic Pro does not include model credits.
+
+Conversations, project files, and task state are stored on your device by default. Content needed for a request goes directly to your configured model or search service, subject to that service's terms and privacy policy. Access to device data follows system permissions and app tool settings. iOS manages background execution time.
