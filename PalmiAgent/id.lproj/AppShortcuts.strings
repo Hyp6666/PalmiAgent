@@ -1,0 +1,4 @@
+"Open ${applicationName}" = "Buka ${applicationName}";
+"Launch ${applicationName} developer mode" = "Jalankan mode pengembang ${applicationName}";
+"Create a workspace with ${applicationName}" = "Buat ruang kerja dengan ${applicationName}";
+"Make a test workspace in ${applicationName}" = "Buat ruang kerja pengujian di ${applicationName}";

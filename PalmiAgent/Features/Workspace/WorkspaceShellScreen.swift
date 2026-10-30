@@ -16,14 +16,6 @@ enum OnboardingStorage {
     }
 }
 
-private enum CompactWorkspaceRoute: Hashable {
-    case chat
-}
-
-private enum ChatModeRoute: Hashable {
-    case conversation(UUID)
-}
-
 struct WorkspaceShellScreen: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @AppStorage("palmi.app-shell-mode") private var storedShellMode = AppShellMode.professional.rawValue
@@ -34,17 +26,24 @@ struct WorkspaceShellScreen: View {
     @Bindable var skillRegistry: SkillRegistry
     @State private var chatStore: ChatStore
     @State private var bionicStore: BionicStore
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var compactPath: [CompactWorkspaceRoute] = []
     @State private var isShowingWorkspaceBrowser = false
     @State private var isShowingAllProjectFiles = false
     @State private var isShowingSettings = false
     @State private var isShowingProjectSkills = false
-    @State private var isShowingModePicker = false
+    @State private var isShowingGlobalSkills = false
     @State private var isShowingOnboarding = false
-    @State private var chatModePath: [ChatModeRoute] = []
-    @State private var openingPalmi = false
     @State private var isShowingReleaseNotes = false
+    /// 当前模式与 iPhone 侧栏开合的唯一状态（会话页在上层，左缘右滑拉出侧栏，侧栏上左滑收回）。
+    @State private var navigation: AppShellNavigation
+    /// 专业模式「Palmi」入口异步打开仿生会话；任何新的导航意图都取消它。
+    @State private var bionicOpenTask: Task<Void, Never>?
+    @State private var hasInitializedShell = false
+    /// iPad：侧栏是分栏的左栏。
+    @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
+    /// 会话页身份：切换到另一个会话时重建；草稿落库成会话时保持不变（不打断输入和弹层）。
+    @State private var chatScreenKey = UUID()
+    /// 专业草稿选中的工作区；nil 表示默认工作区。
+    @State private var draftProjectID: UUID?
     @AppStorage(ReleaseNotesCatalog.acknowledgedKey) private var acknowledgedRelease = ""
     @Environment(UserQuestionService.self) private var questionService: UserQuestionService?
     @Environment(BrowserOperatorService.self) private var browserOperator: BrowserOperatorService?
@@ -56,11 +55,22 @@ struct WorkspaceShellScreen: View {
         self._skillRegistry = Bindable(wrappedValue: skillRegistry)
         self._chatStore = State(initialValue: chatStore)
         self._bionicStore = State(initialValue: bionicStore)
+        let defaults = UserDefaults.standard
+        let mode = defaults.string(forKey: "palmi.app-shell-mode").flatMap(AppShellMode.init(rawValue:)) ?? .professional
+        self._navigation = State(initialValue: AppShellNavigation(mode: mode))
     }
 
     private var readingAllowed: Bool {
-        !isShowingWorkspaceBrowser && !isShowingAllProjectFiles && !isShowingSettings && !isShowingProjectSkills
-            && !isShowingModePicker && !isShowingOnboarding && !isShowingReleaseNotes && !bionicStore.showingPurchase
+        !isShowingWorkspaceBrowser && !isShowingAllProjectFiles && !isShowingSettings && !isShowingProjectSkills && !isShowingGlobalSkills
+            && !isShowingOnboarding && !isShowingReleaseNotes && !bionicStore.showingPurchase
+            && !isShowingSidebarRoot && browserOperator?.isPresented != true
+    }
+
+    private var isCompact: Bool { horizontalSizeClass == .compact }
+
+    /// iPhone 上侧栏盖住了会话页。
+    private var isShowingSidebarRoot: Bool {
+        isCompact && isDrawerOpen
     }
     private var unreadSnapshot: PalmiUnreadSnapshot {
         let keys = Set((workspaceStore.projects + workspaceStore.chatProjects).flatMap { project in
@@ -77,21 +87,10 @@ struct WorkspaceShellScreen: View {
     }
 
     var body: some View {
-        Group {
-            if shellMode == .bionic {
-                BionicRootScreen(store: bionicStore,
-                                  onOpenSettings: { isShowingSettings = true },
-                                  onSelectMode: selectShellMode)
-            } else if shellMode == .chat {
-                chatModeBody
-            } else if horizontalSizeClass == .compact {
-                compactBody
-            } else {
-                regularBody
-            }
-        }
+        mainContent
         .environment(\.palmiUnread, unreadSnapshot)
         .environment(\.locale, PalmiLanguage.resolve(selectedOnboardingLanguageID).locale)
+        .environment(\.layoutDirection, PalmiLanguage.resolve(selectedOnboardingLanguageID).isRightToLeft ? .rightToLeft : .leftToRight)
         .sheet(
             isPresented: $isShowingWorkspaceBrowser,
             onDismiss: {
@@ -116,7 +115,6 @@ struct WorkspaceShellScreen: View {
             AppSettingsScreen(
                 purchases: bionicStore.purchases,
                 store: manualLabStore,
-                skillRegistry: skillRegistry,
                 onContinuedProcessingPreferenceChange: { isEnabled in
                     chatStore.handleContinuedProcessingPreferenceChange(isEnabled: isEnabled)
                 },
@@ -144,16 +142,15 @@ struct WorkspaceShellScreen: View {
                 }
             }
         }
-        .fullScreenCover(isPresented: $isShowingModePicker) {
-            AppShellModePickerScreen(
-                currentMode: shellMode,
-                onSelect: { newMode in
-                    selectShellMode(newMode)
-                    isShowingModePicker = false
-                },
-                onDismiss: { isShowingModePicker = false }
-            )
-            .environment(\.palmiUnread, unreadSnapshot)
+        .sheet(isPresented: $isShowingGlobalSkills) {
+            NavigationStack {
+                SkillCatalogScreen(registry: skillRegistry, mode: .global)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button(PalmiL10n.tr("common.done")) { isShowingGlobalSkills = false }
+                        }
+                    }
+            }
         }
         .fullScreenCover(isPresented: $isShowingOnboarding) {
             OnboardingFlowScreen(
@@ -169,11 +166,18 @@ struct WorkspaceShellScreen: View {
             .interactiveDismissDisabled(true)
         }
         .onAppear {
+            // Full-screen browser dismissal also triggers onAppear. Launch work must run once per shell.
+            guard !hasInitializedShell else { return }
+            hasInitializedShell = true
             if !hasCompletedOnboarding {
                 // A new install has onboarding; the update remains available in Settings.
                 acknowledgedRelease = ReleaseNotesCatalog.currentID
             } else if acknowledgedRelease != ReleaseNotesCatalog.currentID {
                 isShowingReleaseNotes = true
+            }
+            // 每次打开 App 都从一个新会话开始；历史会话在侧栏里。
+            if hasCompletedOnboarding && shellMode != .bionic {
+                workspaceStore.beginDraft()
             }
             presentOnboardingIfNeeded()
             bionicStore.visibleMode(shellMode == .bionic && readingAllowed)
@@ -191,13 +195,21 @@ struct WorkspaceShellScreen: View {
                 presentOnboardingIfNeeded()
             }
         }
+        .onChange(of: workspaceStore.selectedThreadID) { oldID, newID in
+            // 会话之间切换（含子任务跳转）时重建会话页；草稿落库（nil → 新会话）不重建。
+            if oldID != nil, newID != nil, oldID != newID { chatScreenKey = UUID() }
+        }
         .task(id: workspaceStore.selectedProjectID) {
             guard shellMode != .bionic else { return }
             do { try skillRegistry.reloadProjectSkills(for: workspaceStore.selectedProjectID) }
             catch { /* Preserve the existing non-fatal project-skill reload behavior. */ }
         }
-        .task(id: storedShellMode) {
-            synchronizeShellModeSelection()
+        .onChange(of: navigation.mode) { _, mode in
+            storedShellMode = mode.rawValue
+            cancelBionicOpen()
+        }
+        .onChange(of: horizontalSizeClass) { _, _ in navigation.isDrawerOpen = false }
+        .task(id: navigation.mode) {
             bionicStore.visibleMode(shellMode == .bionic && readingAllowed)
         }
         .onChange(of: readingAllowed) { _, _ in
@@ -211,62 +223,233 @@ struct WorkspaceShellScreen: View {
         }
     }
 
-    private var shellMode: AppShellMode {
-        get { AppShellMode(rawValue: storedShellMode) ?? .professional }
-        nonmutating set { storedShellMode = newValue.rawValue }
+    private var shellMode: AppShellMode { navigation.mode }
+    private var isDrawerOpen: Bool { navigation.isDrawerOpen }
+
+    private func beginDrawerDrag() {
+        cancelBionicOpen()
+        dismissKeyboard()
     }
 
-    private func openPalmiConversation() {
-        guard !openingPalmi else { return }
-        openingPalmi = true
-        Task { @MainActor in
-            defer { openingPalmi = false }
-            do {
-                let role = try await bionicStore.ensureSystemRole()
-                bionicStore.globalError = nil
-                await bionicStore.open(role.installationID)
-                guard bionicStore.selectedID == role.installationID,
-                      bionicStore.globalError == nil else {
-                    chatStore.errorMessage = bionicStore.globalError
-                        ?? PalmiL10n.tr("bionic.error.operationFailed")
-                    return
-                }
-                selectShellMode(.bionic)
-            } catch is CancellationError { return }
-            catch { chatStore.errorMessage = BionicStore.errorText(error) }
+    // MARK: - 侧栏
+
+    private func openDrawer() {
+        cancelBionicOpen()
+        dismissKeyboard()
+        if isCompact {
+            withAnimation(.palmiDrawer) { navigation.isDrawerOpen = true }
+        } else {
+            withAnimation { sidebarVisibility = sidebarVisibility == .detailOnly ? .all : .detailOnly }
         }
     }
 
-    /// 询问用户浮窗的「回到对话」：收起外壳层的弹出界面和浏览器，再跳到发起提问的会话。
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
+    /// 侧栏里的操作直接执行。浏览器、文件、技能、设置都盖在侧栏上面，收起后回到侧栏。
+    private var drawerActions: PalmiDrawerActions {
+        PalmiDrawerActions(
+            onSelectMode: { mode in selectShellMode(mode, keepsDrawerOpen: true) },
+            onOpenChat: openChatConversation,
+            onOpenThread: openThread,
+            onNewConversation: { mode, projectID in startNewConversation(mode, in: projectID) },
+            onOpenBionicRole: openBionicRole,
+            onOpenBrowser: browserOperator.map { browser in { browser.openBrowser(overview: true) } },
+            onOpenFiles: { isShowingAllProjectFiles = true },
+            onOpenSkills: { isShowingGlobalSkills = true },
+            onBrowseProjectFiles: browseProjectFiles,
+            onOpenSettings: { isShowingSettings = true }
+        )
+    }
+
+    private var drawer: some View {
+        PalmiDrawer(
+            workspaceStore: workspaceStore,
+            chatStore: chatStore,
+            bionicStore: bionicStore,
+            mode: shellMode,
+            actions: drawerActions
+        )
+        .toolbar(.hidden, for: .navigationBar)
+    }
+
+    // MARK: - 主内容
+
+    /// iPhone：侧栏在下、会话页在上，两个方向都能跟手滑动；iPad：系统分栏。
+    @ViewBuilder
+    private var mainContent: some View {
+        if isCompact {
+            PalmiDrawerContainer(
+                isOpen: Binding(get: { isDrawerOpen }, set: { navigation.isDrawerOpen = $0 }),
+                allowsOpeningSwipe: shellMode != .bionic || bionicStore.path.isEmpty,
+                onDragBegan: beginDrawerDrag
+            ) {
+                drawer
+            } content: {
+                shellDetail
+            }
+            .transition(.opacity)
+        } else {
+            NavigationSplitView(columnVisibility: $sidebarVisibility) {
+                drawer
+            } detail: {
+                shellDetail
+            }
+            .transition(.opacity)
+        }
+    }
+
+    @ViewBuilder
+    private var shellDetail: some View {
+        if shellMode == .bionic {
+            BionicRootScreen(store: bionicStore,
+                             onOpenSettings: { isShowingSettings = true },
+                             onOpenDrawer: openDrawer)
+        } else {
+            NavigationStack { unifiedChatScreen }
+        }
+    }
+
+    /// 聊天与专业共用同一个会话页：草稿时顶部分段切换聊天 / 专业，输入框随模式变化。
+    private var unifiedChatScreen: some View {
+        let isProfessional = shellMode == .professional
+        let onOpenSkills: (() -> Void)? = isProfessional ? { isShowingProjectSkills = true } : nil
+        let onShowFiles: (() -> Void)? = isProfessional ? { isShowingWorkspaceBrowser = true } : nil
+        let onOpenBionic: (() -> Void)? = isProfessional ? { openPalmiConversation() } : nil
+        let chrome = ChatShellChrome(
+            onOpenDrawer: openDrawer,
+            onSelectMode: { mode in selectShellMode(mode) },
+            onNewConversation: { startNewConversation(shellMode) },
+            onOpenRelatedThread: openRelatedConversation,
+            materializeDraft: materializeDraft,
+            draftProjectID: draftProjectID,
+            onSelectDraftProject: { project in draftProjectID = project }
+        )
+        return ChatScreen(
+            store: chatStore,
+            workspaceStore: workspaceStore,
+            skillRegistry: skillRegistry,
+            onOpenSkills: onOpenSkills,
+            onShowFiles: onShowFiles,
+            shellMode: shellMode,
+            onOpenBionic: onOpenBionic,
+            shellChrome: chrome
+        )
+        .id(chatScreenKey)
+    }
+
+    // MARK: - 会话导航
+
+    private func startNewConversation(_ mode: AppShellMode, in projectID: UUID? = nil) {
+        dismissKeyboard()
+        guard mode != .bionic, navigation.navigate(to: mode, activate: {
+            workspaceStore.beginDraft()
+            return true
+        }) else { return }
+        draftProjectID = mode == .professional ? projectID : nil
+        chatScreenKey = UUID()
+    }
+
+    private func openChatConversation(_ project: WorkspaceProjectRecord) {
+        dismissKeyboard()
+        guard navigation.navigate(to: .chat, activate: { workspaceStore.selectChatConversation(project) }) else { return }
+        chatScreenKey = UUID()
+    }
+
+    private func openThread(_ thread: WorkspaceThreadRecord) {
+        dismissKeyboard()
+        guard navigation.navigate(to: .professional, activate: { workspaceStore.selectThread(thread) }) else { return }
+        chatScreenKey = UUID()
+    }
+
+    private func openRelatedConversation(_ threadID: UUID) {
+        for project in workspaceStore.projects + workspaceStore.chatProjects {
+            if let thread = workspaceStore.threads(for: project.id).first(where: { $0.id == threadID }) {
+                returnToConversation(WorkspaceSelection(projectID: project.id, threadID: thread.id))
+                return
+            }
+        }
+    }
+
+    private func materializeDraft() -> WorkspaceSelection? {
+        switch shellMode {
+        case .professional:
+            return workspaceStore.materializeProfessionalDraft(in: draftProjectID)
+        case .chat, .bionic:
+            return workspaceStore.materializeChatDraft()
+        }
+    }
+
+    /// 专业模式的「Palmi」入口：准备好系统角色并打开它的仿生会话后，才切到仿生模式。
+    private func openPalmiConversation() {
+        guard shellMode == .professional, bionicOpenTask == nil else { return }
+        bionicOpenTask = Task { @MainActor in
+            defer { bionicOpenTask = nil }
+            do {
+                let role = try await bionicStore.ensureSystemRole()
+                try Task.checkCancellation()
+                bionicStore.globalError = nil
+                await bionicStore.open(role.installationID)
+                try Task.checkCancellation()
+                guard bionicStore.selectedID == role.installationID, bionicStore.globalError == nil else {
+                    throw AppError.invalidState(bionicStore.globalError ?? PalmiL10n.tr("bionic.error.operationFailed"))
+                }
+                navigation.navigate(to: .bionic) { true }
+            } catch is CancellationError {
+                return
+            } catch {
+                chatStore.errorMessage = BionicStore.errorText(error)
+            }
+        }
+    }
+
+    private func cancelBionicOpen() {
+        bionicOpenTask?.cancel()
+        bionicOpenTask = nil
+    }
+
+    /// 侧栏仿生列表里点角色：收起侧栏，进入该角色会话。
+    private func openBionicRole(_ instance: String) {
+        dismissKeyboard()
+        bionicStore.markConversationRead(instance)
+        withAnimation(.palmiDrawer) { navigation.isDrawerOpen = false }
+        Task { await bionicStore.open(instance) }
+    }
+
+    /// Return to the exact project/thread for either assistant mode.
     private func returnToConversation(_ source: WorkspaceSelection?) {
+        guard let source,
+              let project = (workspaceStore.projects + workspaceStore.chatProjects).first(where: { $0.id == source.projectID }) else { return }
+        let mode: AppShellMode = project.surface == .chat ? .chat : .professional
+        guard navigation.navigate(to: mode, activate: { workspaceStore.activateConversation(source) }) else { return }
         isShowingWorkspaceBrowser = false
         isShowingAllProjectFiles = false
         isShowingSettings = false
         isShowingProjectSkills = false
-        isShowingModePicker = false
-        // 用户正在接手网页（登录、验证）时不打断接手。
+        isShowingGlobalSkills = false
         if let browserOperator, browserOperator.handoffTabID == nil { browserOperator.dismissBrowser() }
-        guard let source else { return }
-        if let project = workspaceStore.chatProjects.first(where: { $0.id == source.projectID }) {
-            workspaceStore.selectChatConversation(project)
-            selectShellMode(.chat)
-            chatModePath = [.conversation(project.id)]
-        } else if workspaceStore.projects.contains(where: { $0.id == source.projectID }),
-                  let thread = workspaceStore.thread(for: source) ?? {
-                      // 该项目的会话列表可能还没加载过。
-                      workspaceStore.refreshThreadMetadata(in: source.projectID)
-                      return workspaceStore.thread(for: source)
-                  }() {
-            workspaceStore.selectThread(thread)
-            selectShellMode(.professional)
-            if horizontalSizeClass == .compact { compactPath = [.chat] }
-        }
+        dismissKeyboard()
+        chatScreenKey = UUID()
     }
 
-    private func selectShellMode(_ newMode: AppShellMode) {
-        shellMode = newMode
-        if newMode == .professional {
-            compactPath = []
+    /// 切模式：聊天 / 专业保留同一模式下正在看的会话，否则换成该模式的新会话；仿生回到仿生首页。
+    /// 侧栏滑块切换时侧栏保持打开，背后页面同步换掉。
+    private func selectShellMode(_ newMode: AppShellMode, keepsDrawerOpen: Bool = false) {
+        dismissKeyboard()
+        withAnimation(.snappy(duration: 0.3)) {
+            _ = navigation.navigate(to: newMode, keepsDrawerOpen: keepsDrawerOpen, activate: {
+                if newMode != .bionic {
+                    let surface = workspaceStore.selectedSelection == nil ? nil : workspaceStore.selectedProject?.surface
+                    let matches = (newMode == .chat && surface == .chat)
+                        || (newMode == .professional && surface == .professional)
+                    if !matches {
+                        if surface != nil { chatScreenKey = UUID() }
+                        workspaceStore.beginDraft()
+                    }
+                }
+                return true
+            })
         }
     }
 
@@ -299,396 +482,25 @@ struct WorkspaceShellScreen: View {
         isShowingOnboarding = false
 
         let resolvedMode = selectedMode ?? shellMode
-        selectShellMode(resolvedMode)
-
         switch resolvedMode {
         case .bionic:
-            compactPath = []
-            chatModePath = []
+            selectShellMode(.bionic)
             bionicStore.visibleMode(readingAllowed)
-        case .chat:
-            let project = workspaceStore.ensureDefaultChatConversation()
-            workspaceStore.activateChatSurface()
-            if let project {
-                chatModePath = [.conversation(project.id)]
-            } else if let selectedChatProjectID = workspaceStore.selectedChatProjectID {
-                chatModePath = [.conversation(selectedChatProjectID)]
-            } else {
-                chatModePath = []
-            }
-
-        case .professional:
-            _ = workspaceStore.ensureDefaultProfessionalProject()
-            workspaceStore.activateProfessionalSurface()
-            chatModePath = []
-            if horizontalSizeClass == .compact {
-                compactPath = [.chat]
-            } else {
-                compactPath = []
-            }
+        case .chat, .professional:
+            startNewConversation(resolvedMode)
         }
     }
 
-    // 从项目列表的「查看文件夹」进入：文件夹属于项目、与是否有会话无关，
+    // 从工作区的「查看文件夹」进入：文件夹属于项目、与是否有会话无关，
     // 直接锁定该项目工作区并弹出浏览器（空项目也能看自己的文件夹）。
     private func browseProjectFiles(_ project: WorkspaceProjectRecord) {
         workspaceStore.browsedProjectID = project.id
         workspaceStore.refreshCurrentThreadContents()
         isShowingWorkspaceBrowser = true
     }
-
-    private var regularBody: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            WorkspaceSidebar(
-                store: workspaceStore,
-                onSelectThread: {},
-                chatStore: chatStore,
-                onOpenSettings: { isShowingSettings = true },
-                shellMode: .professional,
-                onSelectMode: selectShellMode,
-                onBrowseProjectFiles: browseProjectFiles,
-                onOpenAllProjectFiles: { isShowingAllProjectFiles = true }
-            )
-        } content: {
-            WorkspaceBrowser(store: workspaceStore)
-        } detail: {
-            NavigationStack {
-                ChatScreen(
-                    store: chatStore,
-                    workspaceStore: workspaceStore,
-                    skillRegistry: skillRegistry,
-                    onOpenSkills: { isShowingProjectSkills = true },
-                    shellMode: .professional,
-                    onOpenModeSwitcher: { isShowingModePicker = true },
-                    onOpenBionic: openPalmiConversation
-                )
-                .id(workspaceStore.selectedThreadID)
-            }
-        }
-    }
-
-    private var chatModeBody: some View {
-        NavigationStack(path: $chatModePath) {
-            ChatHistoryHomeScreen(
-                store: workspaceStore,
-                chatStore: chatStore,
-                onOpenConversation: { project in
-                    workspaceStore.selectChatConversation(project)
-                    chatModePath = [.conversation(project.id)]
-                },
-                onOpenSettings: { isShowingSettings = true },
-                onSelectMode: selectShellMode
-            )
-            .navigationDestination(for: ChatModeRoute.self) { route in
-                switch route {
-                case .conversation:
-                    ChatScreen(
-                        store: chatStore,
-                        workspaceStore: workspaceStore,
-                        skillRegistry: skillRegistry,
-                        onOpenSkills: nil,
-                        onShowWorkspace: { chatModePath = [] },
-                        onShowFiles: nil,
-                        shellMode: .chat,
-                        onOpenModeSwitcher: { isShowingModePicker = true }
-                    )
-                    .id(workspaceStore.selectedThreadID)
-                }
-            }
-        }
-    }
-
-    private var compactBody: some View {
-        NavigationStack(path: $compactPath) {
-            WorkspaceSidebar(
-                store: workspaceStore,
-                onSelectThread: { compactPath = [.chat] },
-                chatStore: chatStore,
-                onOpenSettings: { isShowingSettings = true },
-                shellMode: .professional,
-                onSelectMode: selectShellMode,
-                onBrowseProjectFiles: browseProjectFiles,
-                onOpenAllProjectFiles: { isShowingAllProjectFiles = true }
-            )
-            .navigationDestination(for: CompactWorkspaceRoute.self) { route in
-                switch route {
-                case .chat:
-                    ChatScreen(
-                        store: chatStore,
-                        workspaceStore: workspaceStore,
-                        skillRegistry: skillRegistry,
-                        onOpenSkills: { isShowingProjectSkills = true },
-                        onShowWorkspace: { compactPath = [] },
-                        onShowFiles: { isShowingWorkspaceBrowser = true },
-                        shellMode: .professional,
-                        onOpenModeSwitcher: { isShowingModePicker = true },
-                        onOpenBionic: openPalmiConversation
-                    )
-                    .id(workspaceStore.selectedThreadID)
-                }
-            }
-        }
-    }
-
-    private func synchronizeShellModeSelection() {
-        switch shellMode {
-        case .chat:
-            workspaceStore.activateChatSurface()
-            if workspaceStore.selectedChatProjectID == nil { chatModePath = [] }
-        case .professional:
-            chatModePath = []
-            workspaceStore.activateProfessionalSurface()
-        case .bionic:
-            chatModePath = []
-            compactPath = []
-        }
-    }
 }
 
-private struct WorkspaceSidebar: View {
-    @Bindable var store: WorkspaceStore
-    let onSelectThread: () -> Void
-    @Bindable var chatStore: ChatStore
-    let onOpenSettings: () -> Void
-    let shellMode: AppShellMode
-    let onSelectMode: (AppShellMode) -> Void
-    let onBrowseProjectFiles: (WorkspaceProjectRecord) -> Void
-    let onOpenAllProjectFiles: () -> Void
-    @Environment(BrowserOperatorService.self) private var browserOperator: BrowserOperatorService?
-    @State private var expandedProjectIDs: Set<UUID> = []
-    @State private var presentedNameEditor: WorkspaceNameEditorRoute?
-    @State private var nameDraft = ""
-    @State private var pendingDeletion: WorkspaceDeletionTarget?
-
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            sidebarBackground
-                .ignoresSafeArea()
-
-            List {
-                sidebarHeaderSpacer
-
-                Section {
-                    if store.projects.isEmpty {
-                        Text(PalmiL10n.tr("common.empty"))
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 32)
-                            .sidebarListRow()
-                    } else {
-                        ForEach(store.projects) { project in
-                            let isExpanded = expandedProjectIDs.contains(project.id)
-                            WorkspaceProjectRow(
-                                project: project,
-                                isExpanded: isExpanded,
-                                unreadCount: store.threads(for: project.id).reduce(0) { count, thread in
-                                    count + (thread.subagentOrigin == nil ? chatStore.unreadStore.count(for:
-                                        WorkspaceSelection(projectID: project.id, threadID: thread.id)) : 0)
-                                },
-                                onToggleProject: { toggleProject(project) },
-                                onCreateThread: { presentThreadCreation(for: project) },
-                                onRenameProject: { presentedNameEditor = .renameProject(project) },
-                                onDeleteProject: { pendingDeletion = .project(project) },
-                                onBrowseFiles: { onBrowseProjectFiles(project) }
-                            )
-                            .sidebarListRow()
-
-                            // 每个会话都是独立的列表行，长按只作用于这一个会话。
-                            if isExpanded {
-                                ForEach(WorkspaceProjectRow.orderedThreads(store.threads(for: project.id))) { thread in
-                                    WorkspaceThreadRow(
-                                        thread: thread,
-                                        runningBadgeText: chatStore.runningBadgeText(
-                                            for: WorkspaceSelection(projectID: project.id, threadID: thread.id)
-                                        ),
-                                        unreadCount: thread.subagentOrigin == nil ? chatStore.unreadStore.count(for:
-                                            WorkspaceSelection(projectID: project.id, threadID: thread.id)) : 0,
-                                        onSelect: {
-                                            store.selectThread(thread)
-                                            onSelectThread()
-                                        },
-                                        onRename: { presentedNameEditor = .renameThread(thread) },
-                                        onDelete: { pendingDeletion = .thread(thread) }
-                                    )
-                                    .sidebarListRow(leading: thread.subagentOrigin == nil ? 54 : 72)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            .listStyle(.insetGrouped)
-            .listSectionSpacing(0)
-            .scrollContentBackground(.hidden)
-            .background(Color.clear)
-            .scrollDismissesKeyboard(.interactively)
-
-            VStack(spacing: 0) {
-                AppShellTopFade()
-                    .allowsHitTesting(false)
-
-                Spacer()
-            }
-            .ignoresSafeArea()
-
-            VStack {
-                AppShellTopBar(
-                    mode: shellMode,
-                    trailingSystemName: "plus",
-                    trailingAccessibilityLabel: PalmiL10n.tr("workspace.action.addMenu"),
-                    onOpenSettings: onOpenSettings,
-                    onTrailingAction: { presentedNameEditor = .createProject },
-                    onSelectMode: onSelectMode,
-                    workspaceMenu: WorkspaceAddMenu(
-                        onNewProject: { presentedNameEditor = .createProject },
-                        onOpenBrowser: browserOperator.map { browser in { browser.openBrowser(overview: true) } },
-                        onOpenFiles: onOpenAllProjectFiles
-                    )
-                )
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
-
-                Spacer()
-            }
-        }
-        .toolbar(.hidden, for: .navigationBar)
-        .ignoresSafeArea(.keyboard, edges: .bottom)
-        .confirmationDialog(
-            pendingDeletion?.title ?? "",
-            isPresented: Binding(
-                get: { pendingDeletion != nil },
-                set: { if !$0 { pendingDeletion = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            if let pendingDeletion {
-                Button(pendingDeletion.confirmTitle, role: .destructive) {
-                    handleDeletion(pendingDeletion)
-                }
-            }
-            Button(PalmiL10n.tr("common.cancel"), role: .cancel) {
-                pendingDeletion = nil
-            }
-        } message: {
-            if let pendingDeletion {
-                Text(pendingDeletion.message)
-            }
-        }
-        .alert(
-            presentedNameEditor?.title ?? "",
-            isPresented: Binding(
-                get: { presentedNameEditor != nil },
-                set: { if !$0 { presentedNameEditor = nil } }
-            )
-        ) {
-            if let route = presentedNameEditor {
-                TextField(route.placeholder, text: $nameDraft)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                Button(PalmiL10n.tr("common.cancel"), role: .cancel) {
-                    presentedNameEditor = nil
-                }
-                Button(route.confirmTitle) {
-                    let trimmed = nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty else { return }
-                    handleNameEditorSubmit(route, name: trimmed)
-                    presentedNameEditor = nil
-                }
-            }
-        } message: {
-            if presentedNameEditor != nil {
-                Text(PalmiL10n.tr("workspace.nameEditor.message"))
-            }
-        }
-        .onChange(of: presentedNameEditor?.id) {
-            nameDraft = presentedNameEditor?.initialName ?? ""
-        }
-    }
-
-    private var sidebarBackground: Color {
-        Color(uiColor: .systemGroupedBackground)
-    }
-
-    private var sidebarHeaderSpacer: some View {
-        Color.clear
-            .frame(height: 84)
-            .listRowInsets(EdgeInsets())
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
-    }
-
-    private func toggleProject(_ project: WorkspaceProjectRecord) {
-        if expandedProjectIDs.contains(project.id) {
-            expandedProjectIDs.remove(project.id)
-            return
-        }
-
-        expandedProjectIDs.insert(project.id)
-        store.selectProject(project)
-    }
-
-    private func presentThreadCreation(for project: WorkspaceProjectRecord) {
-        let previousThreadCount = store.threadCount(for: project.id)
-        expandedProjectIDs.insert(project.id)
-        store.selectProject(project)
-        store.createThread(in: project.id)
-        guard store.threadCount(for: project.id) > previousThreadCount else { return }
-        // Let the sidebar list settle before pushing the compact chat screen.
-        DispatchQueue.main.async {
-            onSelectThread()
-        }
-    }
-
-    private func handleNameEditorSubmit(_ route: WorkspaceNameEditorRoute, name: String) {
-        switch route {
-        case .createProject:
-            store.createProject(named: name)
-        case .renameProject(let project):
-            store.renameProject(project, to: name)
-        case .renameThread(let thread):
-            store.renameThread(thread, to: name)
-        }
-    }
-
-    private func handleDeletion(_ target: WorkspaceDeletionTarget) {
-        switch target {
-        case .project(let project):
-            let hasRunningThread = store.threads(for: project.id).contains { thread in
-                chatStore.isRunning(
-                    selection: WorkspaceSelection(projectID: project.id, threadID: thread.id)
-                )
-            }
-            guard !hasRunningThread else {
-                store.statusMessage = PalmiL10n.tr("workspace.delete.runningBlocked")
-                pendingDeletion = nil
-                return
-            }
-            expandedProjectIDs.remove(project.id)
-            store.deleteProject(project)
-        case .thread(let thread):
-            let selection = WorkspaceSelection(projectID: thread.projectID, threadID: thread.id)
-            let hasRunningChild = store.threads(for: thread.projectID).contains { candidate in
-                candidate.subagentOrigin?.parentThreadID == thread.id &&
-                    chatStore.isRunning(
-                        selection: WorkspaceSelection(projectID: candidate.projectID, threadID: candidate.id)
-                    )
-            }
-            guard !chatStore.isRunning(selection: selection),
-                  !chatStore.isOwnedByRunningParent(selection: selection),
-                  !hasRunningChild else {
-                store.statusMessage = PalmiL10n.tr("workspace.delete.runningBlocked")
-                pendingDeletion = nil
-                return
-            }
-            store.deleteThread(thread)
-        }
-        pendingDeletion = nil
-    }
-
-}
-
-private struct WorkspaceProjectRow: View {
+struct WorkspaceProjectRow: View {
     let project: WorkspaceProjectRecord
     let isExpanded: Bool
     let unreadCount: Int
@@ -761,7 +573,7 @@ extension View {
     }
 }
 
-private struct WorkspaceThreadRow: View {
+struct WorkspaceThreadRow: View {
     let thread: WorkspaceThreadRecord
     let runningBadgeText: String?
     let unreadCount: Int
@@ -852,90 +664,6 @@ private struct WorkspaceThreadRow: View {
             return .orange
         case .queued, .running, nil:
             return .blue
-        }
-    }
-}
-
-private enum WorkspaceNameEditorRoute: Identifiable {
-    case createProject
-    case renameProject(WorkspaceProjectRecord)
-    case renameThread(WorkspaceThreadRecord)
-
-    var id: String {
-        switch self {
-        case .createProject:
-            return "create-project"
-        case .renameProject(let project):
-            return "rename-project-\(project.id.uuidString)"
-        case .renameThread(let thread):
-            return "rename-thread-\(thread.id.uuidString)"
-        }
-    }
-
-    var title: String {
-        switch self {
-        case .createProject:
-            return PalmiL10n.tr("workspace.action.newProject")
-        case .renameProject:
-            return PalmiL10n.tr("workspace.action.renameProject")
-        case .renameThread:
-            return PalmiL10n.tr("workspace.action.renameThread")
-        }
-    }
-
-    var confirmTitle: String {
-        switch self {
-        case .createProject:
-            return PalmiL10n.tr("common.create")
-        case .renameProject, .renameThread:
-            return PalmiL10n.tr("common.save")
-        }
-    }
-
-    var initialName: String {
-        switch self {
-        case .createProject:
-            return ""
-        case .renameProject(let project):
-            return project.name
-        case .renameThread(let thread):
-            return thread.name
-        }
-    }
-
-    var placeholder: String {
-        switch self {
-        case .createProject, .renameProject:
-            return PalmiL10n.tr("workspace.placeholder.projectName")
-        case .renameThread:
-            return PalmiL10n.tr("workspace.placeholder.threadName")
-        }
-    }
-}
-
-private enum WorkspaceDeletionTarget {
-    case project(WorkspaceProjectRecord)
-    case thread(WorkspaceThreadRecord)
-
-    var title: String {
-        switch self {
-        case .project:
-            return PalmiL10n.tr("workspace.action.deleteProject")
-        case .thread:
-            return PalmiL10n.tr("workspace.action.deleteThread")
-        }
-    }
-
-    var confirmTitle: String {
-        PalmiL10n.tr("common.delete")
-    }
-
-    var message: String {
-        switch self {
-        case .project(let project):
-            return PalmiL10n.tr("workspace.delete.project.message", project.name)
-        case .thread(let thread):
-            return PalmiL10n.tr("workspace.delete.thread.message", thread.name)
         }
     }
 }
@@ -1143,7 +871,13 @@ private struct RotatingLanguageTitle: View {
         "選擇語言",
         "Select Language",
         "言語を選択",
-        "언어 선택"
+        "언어 선택",
+        "Sprache wählen",
+        "Välj språk",
+        "اختر اللغة",
+        "Dil seçin",
+        "Pilih bahasa",
+        "Choisir la langue"
     ]
 
     var body: some View {
@@ -1382,6 +1116,8 @@ private enum PalmiPolicyDocumentResource {
         switch languageID {
         case "zh-Hans", "zh-Hant":
             return "PalmiUserNotice.zh-Hans"
+        case "de", "sv", "ar-EG", "tr", "id", "fr":
+            return "PalmiUserNotice.\(languageID)"
         default:
             return "PalmiUserNotice.en"
         }
@@ -1395,6 +1131,12 @@ private enum PalmiPolicyDocumentResource {
         switch languageID {
         case "zh-Hans", "zh-Hant":
             return 2
+        case "de", "sv", "ar-EG", "tr", "id", "fr":
+            guard let url = url(for: languageID), let document = PDFDocument(url: url) else { return 0 }
+            // Translated prose has different pagination. Locate section 9 rather than assuming an English page number.
+            return (0..<document.pageCount).first { index in
+                document.page(at: index)?.string?.range(of: #"(?m)^\s*9\.\s"#, options: .regularExpression) != nil
+            } ?? 0
         default:
             return 3
         }
@@ -1579,7 +1321,6 @@ private struct AppSettingsScreen: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage(PalmiLanguage.storageKey) private var selectedLanguageID = PalmiLanguage.zhHans.rawValue
     @Bindable var store: ManualLabStore
-    @Bindable var skillRegistry: SkillRegistry
     let onContinuedProcessingPreferenceChange: (Bool) -> Void
     let onStartOnboarding: () -> Void
     let onFactoryResetCompleted: () -> Void
@@ -1629,8 +1370,6 @@ private struct AppSettingsScreen: View {
                 permissionStore: store.toolPermissionStore,
                 actions: store.actions
             )
-        case .skills:
-            SkillCatalogScreen(registry: skillRegistry, mode: .global)
         case .personalization:
             PersonalizationSettingsScreen()
         case .runtime:

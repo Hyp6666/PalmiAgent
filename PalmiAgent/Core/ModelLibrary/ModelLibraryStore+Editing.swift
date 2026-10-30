@@ -27,7 +27,7 @@ nonisolated struct ConnectionTemplate: Identifiable, Hashable, Sendable {
 }
 
 nonisolated enum ConnectionTemplateCatalog {
-    static let all: [ConnectionTemplate] = [
+    static var all: [ConnectionTemplate] { [
         .init(id: "openai", title: "OpenAI", protocolPreference: .responses, apiBase: "https://api.openai.com/v1",
               chatCompletionsURL: "https://api.openai.com/v1/chat/completions", responsesURL: "https://api.openai.com/v1/responses",
               messagesURL: nil, modelsURL: "https://api.openai.com/v1/models", geminiNativeBaseURL: nil, note: "Responses"),
@@ -40,18 +40,18 @@ nonisolated enum ConnectionTemplateCatalog {
         .init(id: "kimi", title: "Kimi", protocolPreference: .chatCompletions, apiBase: "https://api.moonshot.cn/v1",
               chatCompletionsURL: "https://api.moonshot.cn/v1/chat/completions", responsesURL: nil, messagesURL: nil,
               modelsURL: "https://api.moonshot.cn/v1/models", geminiNativeBaseURL: nil, note: "Chat Completions"),
-        .init(id: "zhipu", title: "智谱", protocolPreference: .chatCompletions, apiBase: "https://open.bigmodel.cn/api/paas/v4",
+        .init(id: "zhipu", title: PalmiL10n.tr("provider.glm"), protocolPreference: .chatCompletions, apiBase: "https://open.bigmodel.cn/api/paas/v4",
               chatCompletionsURL: "https://open.bigmodel.cn/api/paas/v4/chat/completions", responsesURL: nil, messagesURL: nil,
               modelsURL: "https://open.bigmodel.cn/api/paas/v4/models", geminiNativeBaseURL: nil, note: "Chat Completions"),
-        .init(id: "zhipu.codingPlan", title: "智谱 Coding Plan", protocolPreference: .anthropicMessages,
+        .init(id: "zhipu.codingPlan", title: "\(PalmiL10n.tr("provider.glm")) · \(PalmiL10n.tr("model.badge.codingPlan"))", protocolPreference: .anthropicMessages,
               apiBase: "https://open.bigmodel.cn/api/anthropic", chatCompletionsURL: nil, responsesURL: nil,
               messagesURL: "https://open.bigmodel.cn/api/anthropic/v1/messages", modelsURL: nil, geminiNativeBaseURL: nil,
-              note: "Messages 兼容；与普通 API 是不同预设"),
-        .init(id: "bailian", title: "阿里云百炼", protocolPreference: .chatCompletions,
+              note: PalmiL10n.tr("ml.template.zhipuCodingNote")),
+        .init(id: "bailian", title: PalmiL10n.tr("ml.template.bailian"), protocolPreference: .chatCompletions,
               apiBase: "https://dashscope.aliyuncs.com/compatible-mode/v1",
               chatCompletionsURL: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", responsesURL: nil,
               messagesURL: nil, modelsURL: "https://dashscope.aliyuncs.com/compatible-mode/v1/models", geminiNativeBaseURL: nil,
-              note: "中国内地兼容入口"),
+              note: PalmiL10n.tr("ml.template.bailianNote")),
         .init(id: "xai", title: "xAI", protocolPreference: .responses, apiBase: "https://api.x.ai/v1",
               chatCompletionsURL: "https://api.x.ai/v1/chat/completions", responsesURL: "https://api.x.ai/v1/responses",
               messagesURL: nil, modelsURL: "https://api.x.ai/v1/models", geminiNativeBaseURL: nil, note: "Responses"),
@@ -61,8 +61,8 @@ nonisolated enum ConnectionTemplateCatalog {
               responsesURL: nil, messagesURL: nil,
               modelsURL: "https://generativelanguage.googleapis.com/v1beta/openai/models",
               geminiNativeBaseURL: "https://generativelanguage.googleapis.com/v1beta",
-              note: "OpenAI 兼容入口；原生联网使用单独声明的 generateContent 端点")
-    ]
+              note: PalmiL10n.tr("ml.template.geminiNote"))
+    ] }
 
     static func template(_ id: String?) -> ConnectionTemplate? {
         guard let id else { return nil }
@@ -174,20 +174,20 @@ extension ModelLibraryStore {
     /// 引用该记录的设置（主模型、工具绑定、会话、联网）。删除前必须向用户展示。
     func references(toModel id: UUID) -> [String] {
         var names: [String] = []
-        if state.defaultMainModel.modelID == id { names.append("默认主模型") }
-        if state.toolBindings.permissionReview.modelID == id { names.append("权限自动审核") }
-        if state.toolBindings.vision.modelID == id { names.append("视觉") }
+        if state.defaultMainModel.modelID == id { names.append(PalmiL10n.tr("ml.mainModel")) }
+        if state.toolBindings.permissionReview.modelID == id { names.append(PalmiL10n.tr("tool.authorization.autoReview")) }
+        if state.toolBindings.vision.modelID == id { names.append(PalmiL10n.tr("tool.facade.vision")) }
         let sessions = state.sessionBindings.values.filter { $0.explicitModelID == id }.count
-        if sessions > 0 { names.append("\(sessions) 个会话或角色") }
+        if sessions > 0 { names.append(PalmiL10n.tr("ml.references.sessions", sessions)) }
         let web = state.web.bindings.filter { $0.modelRecordID == id }.count
-        if web > 0 { names.append("\(web) 个联网工具") }
+        if web > 0 { names.append(PalmiL10n.tr("ml.references.webTools", web)) }
         return names
     }
 
     func references(toConnection id: UUID) -> [String] {
         var names = state.models.filter { $0.connectionID == id }.flatMap { references(toModel: $0.id) }
         let web = state.web.bindings.filter { $0.connectionID == id }.count
-        if web > 0 { names.append("\(web) 个联网工具") }
+        if web > 0 { names.append(PalmiL10n.tr("ml.references.webTools", web)) }
         return Array(NSOrderedSet(array: names)) as? [String] ?? names
     }
 
@@ -223,7 +223,7 @@ extension ModelLibraryStore {
         try commit { state in
             for draft in drafts {
                 let providerModelID = draft.providerModelID.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !providerModelID.isEmpty else { throw ModelLibraryError.invalidInput("模型标识不能为空。") }
+                guard !providerModelID.isEmpty else { throw ModelLibraryError.invalidInput(PalmiL10n.tr("model.error.requestModelRequired")) }
                 // 业务身份 = 连接 + 远端模型标识；同一连接已存在时只补全显示信息。
                 if let index = state.models.firstIndex(where: { $0.connectionID == connectionID && $0.providerModelID == providerModelID }) {
                     if let alias = draft.userAlias?.trimmingCharacters(in: .whitespacesAndNewlines), !alias.isEmpty {
@@ -259,7 +259,7 @@ extension ModelLibraryStore {
 
     func updateModel(_ id: UUID, alias: String?, providerModelID: String) throws {
         let trimmed = providerModelID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { throw ModelLibraryError.invalidInput("模型标识不能为空。") }
+        guard !trimmed.isEmpty else { throw ModelLibraryError.invalidInput(PalmiL10n.tr("model.error.requestModelRequired")) }
         try commit { state in
             guard let index = state.models.firstIndex(where: { $0.id == id }) else { throw ModelLibraryError.modelMissing }
             let cleanAlias = alias?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -403,7 +403,7 @@ extension ModelLibraryStore {
             case .model:
                 guard var model = try? JSONDecoder().decode(ModelRecord.self, from: tombstone.snapshot) else { return }
                 guard state.connection(model.connectionID) != nil else {
-                    throw ModelLibraryError.invalidInput("请先恢复该模型所属的连接。")
+                    throw ModelLibraryError.invalidInput(PalmiL10n.tr("ml.error.restoreConnection"))
                 }
                 model.updatedAt = .now
                 state.models.append(model)

@@ -38,7 +38,7 @@ nonisolated enum WebEndpoint: Codable, Hashable, Sendable {
             let baseURL = try WebEndpointValidator.validated(base)
             guard !relativePath.hasPrefix("/") else {
                 // 以斜杠开头的相对路径会覆盖 base 的已有前缀，明确拒绝。
-                throw WebCapabilityError.invalidEndpoint("相对路径不能以 / 开头：\(relativePath)")
+                throw WebCapabilityError.invalidEndpoint(PalmiL10n.tr("ml.web.error.relativePath", relativePath))
             }
             guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
                 throw WebCapabilityError.invalidEndpoint(base)
@@ -73,7 +73,7 @@ nonisolated enum WebEndpointValidator {
             throw WebCapabilityError.invalidEndpoint(trimmed)
         }
         guard components.user == nil, components.password == nil else {
-            throw WebCapabilityError.invalidEndpoint("地址中不允许包含用户名或密码。")
+            throw WebCapabilityError.invalidEndpoint(PalmiL10n.tr("ml.error.credentialsInAddress"))
         }
         guard let url = components.url else { throw WebCapabilityError.invalidEndpoint(trimmed) }
         return url
@@ -145,16 +145,16 @@ nonisolated enum WebCapabilityError: Error, LocalizedError, Equatable, Sendable 
 
     var errorDescription: String? {
         switch self {
-        case .invalidEndpoint(let value): "网页工具地址无效：\(value)"
-        case .notConfigured(let operation): operation == .search ? "未配置网页搜索服务。" : "未配置网页抓取服务。"
-        case .bindingMissing: "网页工具配置已不存在。"
-        case .connectionMismatch: "服务端工具的模型与绑定的连接不一致，已拒绝发送凭据。"
-        case .modelRequired: "服务端网页工具需要选择一个模型。"
+        case .invalidEndpoint(let value): PalmiL10n.tr("ml.web.error.invalidEndpoint", value)
+        case .notConfigured(let operation): PalmiL10n.tr(operation == .search ? "ml.web.error.notConfiguredSearch" : "ml.web.error.notConfiguredFetch")
+        case .bindingMissing: PalmiL10n.tr("ml.web.error.bindingMissing")
+        case .connectionMismatch: PalmiL10n.tr("ml.web.error.connectionMismatch")
+        case .modelRequired: PalmiL10n.tr("ml.web.error.modelRequired")
         case .credentialUnavailable(let message): message
         case .invalidQuery(let message): message
-        case .resultCapabilityMismatch(let capability): "所选网页服务不能提供需要的结果类型：\(capability.rawValue)。"
-        case .budgetExceeded: "网页操作超出时限或续传预算。"
-        case .unexpectedClientTool(let name): "网页服务意外要求执行客户端工具 \(name)，已拒绝执行。"
+        case .resultCapabilityMismatch(let capability): PalmiL10n.tr("ml.web.error.resultMismatch", capability.rawValue)
+        case .budgetExceeded: PalmiL10n.tr("ml.web.error.budget")
+        case .unexpectedClientTool(let name): PalmiL10n.tr("ml.web.error.clientTool", name)
         }
     }
 }

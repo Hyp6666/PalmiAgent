@@ -332,7 +332,7 @@ private struct ToolManagementFacadeRow: View {
             settingsIcon
                 .frame(width: 24, height: 24)
 
-            Text(facade.localizedTitle)
+            Text(facade.name == .browser ? PalmiL10n.tr("tool.management.browser.beta") : facade.localizedTitle)
                 .font(.body.weight(.semibold))
                 .foregroundStyle(.primary)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -369,6 +369,8 @@ private struct ToolManagementFacadeRow: View {
 private extension ToolManagementGroupDefinition {
     var localizedSettingsTitle: String {
         switch id {
+        case .webResearch:
+            PalmiL10n.tr("tool.management.webResearch.beta")
         case .timeAlarms:
             ToolActionID.getCurrentDateTime.localizedTitleForUI
         case .mapsLocation:

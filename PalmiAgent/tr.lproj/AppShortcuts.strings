@@ -1,0 +1,4 @@
+"Open ${applicationName}" = "${applicationName} uygulamasını aç";
+"Launch ${applicationName} developer mode" = "${applicationName} geliştirici modunu başlat";
+"Create a workspace with ${applicationName}" = "${applicationName} ile çalışma alanı oluştur";
+"Make a test workspace in ${applicationName}" = "${applicationName} içinde test çalışma alanı oluştur";

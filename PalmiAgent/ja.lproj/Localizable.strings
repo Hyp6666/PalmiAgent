@@ -1027,8 +1027,8 @@
 "remoteSearch.error.title" = "設定エラー";
 
 /* PalmiAgent 仿生模式 */
-"appMode.bionic" = "コンパニオン";
-"appMode.bionicMode" = "コンパニオンモード";
+"appMode.bionic" = "バイオニック";
+"appMode.bionicMode" = "バイオニックモード";
 "bionic.age" = "満 %d 歳";
 "bionic.appData" = "キャラクター記録を含むアプリデータ";
 "bionic.appSettings" = "アプリ設定";
@@ -1664,7 +1664,7 @@
 "bionic.introduction.cost" = "いつもと同じく、ご自身で設定したモデルを使います。Palmi APP がモデルの利用料金を負担することはありません。無料プランにも Bionic Pro の買い切り購入にもモデルの利用枠は含まれず、設定したサービスに応じて別途料金が発生します。\n\n一つお伝えしたいのは、仿生モードが、目に見える返答を作る以外にも多くの処理を行うことです。そこで使うトークンは、届くメッセージの数倍になる場合があります。用途に合うモデルを選び、請求額にも気を配ってください。\n\n主モデルには DeepSeek-Flash をおすすめしています。応答が速く、私にはとても心地よい会話体験でした。実際に使って試したところ、ほどほどの頻度で数日間キャラクターと話した費用が、プロフェッショナルモードで「自転車に乗るペリカンの SVG アニメーションを作って」と一度頼んだ費用とおおむね同程度でした。さらに、モデルの利用量と利用料金を集計するために、シミュレーション実験を綿密に設計しました。[仿生チャットのトークン使用量・費用分析レポート](https://github.com/Hyp6666/PalmiAgent/blob/main/docs/reports/bionic-chat-token-usage.en.md)をご覧ください。\n\n今回、Codex OAuth ログインも追加しました。Codex を利用できるプランをご契約なら、Palmi APP へのログインを試し、アカウントで利用可能な画像生成モデルを設定できます。キャラクターが、不意に自撮りを送ってくるかもしれません。";
 "bionic.introduction.closing" = "ここで生成されるものは、すべて仮想のものです。文章も写真も、現代の AI モデルが生成したデータにすぎません。どうか、ご自身の判断を忘れずにいてください。\n\n私たちは、これらの会話を中継するサーバーを運営していません。皆さんと、皆さんが設定したモデルサービスの間を流れるデータを把握することはできませんし、するべきでもありません。そのため、選んだモデルが出力する内容について、約束や保証をすることもできません。どうか、あなたと仿生キャラクターの物語はフィクションであることを、いつも覚えていてください。画面から離れ、現実の暮らしをもっと感じてください。";
 "updates.title" = "アップデート情報";
-"updates.current" = "Palmi 26.10";
+"updates.current" = "Palmi 26.11";
 "updates.history" = "これまでのバージョン";
 "updates.source" = "GitHub のリリース原文を読む";
 "updates.dismiss" = "完了";
@@ -1911,3 +1911,147 @@
 "settings.runtime.professionalStyle" = "プロモードの実行表示";
 "settings.runtime.progressiveScope" = "チャットでは常に Neo を使用し、各段階の回答を表示したままにします。この設定はプロモードにのみ適用されます。";
 "chat.runtime.notice" = "実行状況";
+
+/* 统一会话外壳：开始屏短句、侧栏 */
+"start.greeting.chat.1" = "いらっしゃいませ～今日は何を話しましょう？";
+"start.greeting.chat.2" = "お待ちしておりました～";
+"start.greeting.chat.3" = "思いつくまま、気軽にどうぞ";
+"start.greeting.chat.4" = "最近なにか良いことありました？";
+"start.greeting.chat.5" = "お茶でも飲みながら、ゆっくりどうぞ";
+"start.greeting.chat.6" = "今日のご気分はいかがですか？";
+"start.greeting.chat.7" = "なんでも聞いてくださいね";
+"start.greeting.chat.8" = "いつでもお相手しますよ～";
+"start.greeting.chat.9" = "お話、楽しみにしていました";
+"start.greeting.chat.10" = "また会えましたね～";
+"start.greeting.professional.1" = "腕が鳴るタスク、お待ちしております";
+"start.greeting.professional.2" = "なんなりとお申し付けください";
+"start.greeting.professional.3" = "本日はどの仕事を片付けましょう？";
+"start.greeting.professional.4" = "お任せください、すぐ取りかかります";
+"start.greeting.professional.5" = "準備万端、ご指示をどうぞ";
+"start.greeting.professional.6" = "難題こそ大歓迎です～";
+"start.greeting.professional.7" = "お任せして、コーヒーでもどうぞ";
+"start.greeting.professional.8" = "さあ、腕まくりして始めましょう";
+"start.greeting.professional.9" = "ファイルもWebもコードもお任せを";
+"start.greeting.professional.10" = "目標を教えてください、あとはこちらで";
+"drawer.open" = "サイドバーを開く";
+"drawer.close" = "サイドバーを閉じる";
+"drawer.search" = "検索";
+"drawer.browser" = "内蔵ブラウザ";
+"drawer.files" = "ファイル";
+"drawer.workspaces" = "ワークスペース";
+"drawer.newWorkspace" = "新規ワークスペース";
+"drawer.noResults" = "一致する結果はありません";
+"chat.newConversation" = "新しいチャット";
+"chat.model" = "モデル";
+"start.workspace.newWorkspace" = "新規ワークスペース…";
+"start.workspace.hint" = "このタスクのファイルはここに保存されます";
+
+/* 内部工具（整理上下文 / 读取工具结果） */
+"agent.internalTool.compact" = "コンテキストを整理";
+"agent.internalTool.readResult" = "ツール結果を読み取る";
+"agent.internalTool.running" = "実行中";
+"agent.internalTool.failed" = "ツール呼び出しに失敗しました";
+"agent.compact.scheduled.summary" = "コンテキスト圧縮を予約しました";
+"agent.compact.scheduled.details" = "このツール群がすべて完了した後の安全なタイミングで実行します。まだ圧縮されていません。";
+"agent.compact.failed" = "圧縮を予約できませんでした";
+"agent.readResult.summary" = "%d..<%d / %d バイトを読み取りました";
+"agent.readResult.next" = "次の開始位置：%d";
+"agent.readResult.end" = "末尾まで読み取りました";
+"agent.readResult.failed" = "ツール結果を読み取れませんでした";
+
+/* 仿生入口 */
+"start.bionic.enter" = "開く";
+
+/* 默认工作区 */
+"workspace.defaultWorkspace.name" = "デフォルトワークスペース";
+"drawer.customWorkspaces" = "作成したワークスペース";
+"ml.template.bailian" = "Alibaba Cloud Bailian";
+"ml.template.zhipuCodingNote" = "Messages互換。標準APIとは別のプリセットです。";
+"ml.template.bailianNote" = "中国本土向け互換エンドポイントです。";
+"ml.template.geminiNote" = "OpenAI互換エンドポイント。ネイティブWebツールは別途指定されたgenerateContentエンドポイントを使用します。";
+"ml.references.sessions" = "%d件のセッションまたはキャラクター";
+"ml.references.webTools" = "%d個のWebツール";
+"ml.error.restoreConnection" = "先にこのモデルの接続を復元してください。";
+"ml.error.credentialsInAddress" = "アドレスにユーザー名やパスワードを含めることはできません。";
+"ml.error.write" = "モデルライブラリに書き込めませんでした：%@";
+"ml.error.save" = "モデルライブラリを保存できませんでした：%@";
+"ml.error.notLoaded" = "モデルライブラリはまだ読み込まれていません。";
+"ml.error.futureFormat" = "モデルライブラリは新しいバージョン（v%d）のものです。このバージョンでは読み取り専用で保持されます。";
+"ml.error.unreadable" = "モデルライブラリを読み込めませんでした：%@。元のデータは別途保存されています。";
+"ml.error.legacyUnsafe" = "旧モデル設定が破損しているか新しいバージョンのものです。互換データへの書き込みを停止し、元のデータを保持しています。";
+"ml.error.legacyCleared" = "旧モデル設定が消去されています（リセットされた可能性があります）。新設定は変更せず、自動では書き戻していません。";
+"ml.error.legacyConflict" = "新旧バージョンで同じ重要設定が変更されました。保持する設定を選ぶまで互換書き込みを一時停止しています。";
+"ml.error.publish" = "互換データを書き込めませんでした：%@。旧バージョンは引き続き元の設定を読み込みます。";
+"ml.error.readBack" = "互換データの読み戻し結果が想定と一致しません。復旧ログは保持されています。";
+"ml.resolve.notConfigured" = "先に「設定」›「モデル」でデフォルトモデルを選んでください。";
+"ml.resolve.explicitlyUnconfigured" = "このセッションはデフォルトモデルを使わない設定です。セッションでモデルを選ぶか、デフォルトモデルに従う設定にしてください。";
+"ml.resolve.modelMissing" = "選択したデフォルトモデルはライブラリから削除されました。選び直してください。";
+"ml.resolve.connectionMissing" = "デフォルトモデルの接続が存在しません。デフォルトモデルを選び直してください。";
+"ml.resolve.notMain" = "「%@」はデフォルトモデルにできません（画像生成専用モデルなど）。";
+"ml.resolve.credentialMissing" = "接続「%@」にはAPIキーが必要ですが、保存されていません。";
+"ml.resolve.credentialLocked" = "「%@」の認証情報を一時的に読み取れません。デバイスがロックされている可能性があります。後で再試行してください。";
+"ml.resolve.credentialRead" = "「%@」の認証情報を読み取れませんでした。";
+"ml.resolve.conflict" = "「%@」は両バージョンで変更されました。「設定」で競合を解決するまで使用を停止しています。";
+"ml.resolve.endpoint" = "接続「%@」のアドレスが無効です。";
+"ml.credential.error.locked" = "保護された認証情報を一時的に読み取れません。デバイスがロックされている可能性があります。後で再試行してください。";
+"ml.credential.error.read" = "保護された認証情報を読み取れませんでした（%d）。";
+"ml.credential.error.missing" = "接続にはAPIキーが必要ですが、保存済みの認証情報が見つかりませんでした。";
+"ml.credential.error.verification" = "書き込み後に読み戻した認証情報が一致しません。元の設定は保持されています。";
+"ml.migration.error.locked" = "保護された認証情報を一時的に読み取れません。次のロック解除まで移行を延期し、元の設定を保持しています。";
+"ml.migration.note.primaryInvalid" = "旧プランのデフォルトモデル%@は無効か候補に含まれていないため、未設定のままです。";
+"ml.migration.note.unreadable" = "旧モデル設定アーカイブを解析できませんでした（%@）。元のデータは保持され、上書きされません。";
+"ml.migration.note.future" = "旧モデル設定アーカイブは新しいバージョン（v%@）のものです。元のデータは保持され、上書きされません。";
+"ml.error.invalidDataType" = "無効なデータ型";
+"ml.error.searchDecode" = "リモート検索設定を復号できませんでした";
+"ml.error.unknownVersion" = "不明なバージョン %@";
+"ml.error.fileRead" = "モデルライブラリファイルを読み込めませんでした";
+"ml.error.fileFormat" = "モデルライブラリのファイル形式を認識できません";
+"ml.conflicts.existence" = "削除または変更";
+"ml.web.adapter.search" = "%@ Web検索";
+"ml.web.adapter.searchAPI" = "%@ 検索API";
+"ml.web.adapter.fetch" = "%@ Webページ読み取り";
+"ml.web.adapter.fetchAPI" = "%@ Webページ読み取りAPI";
+"ml.web.adapter.responsesSearch" = "%@ Responses Web検索";
+"ml.web.adapter.chatSearch" = "%@ Chat Web検索（enable_search）";
+"ml.web.adapter.extract" = "%@ Webページ抽出";
+"ml.web.adapter.searchPro" = "%@ Web検索Pro";
+"ml.web.adapter.urlContext" = "%@ Webコンテキスト";
+"ml.web.adapter.genericResponses" = "汎用Responses Web検索";
+"ml.web.adapter.genericMessages" = "汎用Messages Web検索";
+"ml.web.error.relativePath" = "相対パスは/で始められません：%@";
+"ml.web.error.invalidEndpoint" = "Webツールのアドレスが無効です：%@";
+"ml.web.error.notConfiguredSearch" = "Web検索サービスが設定されていません。";
+"ml.web.error.notConfiguredFetch" = "Webページ読み取りサービスが設定されていません。";
+"ml.web.error.bindingMissing" = "Webツールの設定が存在しません。";
+"ml.web.error.connectionMismatch" = "サーバーツールのモデルが接続と一致しません。認証情報は送信されませんでした。";
+"ml.web.error.modelRequired" = "サーバー側Webツールのモデルを選んでください。";
+"ml.web.error.resultMismatch" = "選択したWebサービスは必要な結果形式を提供できません：%@。";
+"ml.web.error.budget" = "Web操作が制限時間または継続処理の上限を超えました。";
+"ml.web.error.clientTool" = "Webサービスが予期せずクライアントツール%@を要求しました。実行を拒否しました。";
+"ml.web.error.oauth" = "Codex OAuth接続はこのWebツールインターフェースでは使用できません。";
+"ml.web.error.invalidConfig" = "Webツールの設定が無効です。";
+"ml.error.emptyProjection" = "互換データが空です。";
+
+"tool.management.webResearch.beta" = "Web リサーチ（beta）";
+"tool.management.browser.beta" = "ブラウザ操作（beta）";
+
+// Palmi 26.11
+"updates.26.11.chat" = "Palmi を開くとすぐ会話へ。チャットとプロモードの操作感がより統一されました。";
+"updates.26.11.interface" = "画面を刷新。新しいサイドバーから会話履歴、ファイル、スキル、設定にアクセスできます。";
+"updates.26.11.browser" = "ブラウザ操作のベータ版が登場！プロモードで言葉で指示し、複数のページを確認。ログインや認証は自分で引き継げます。";
+"updates.26.11.models" = "モデルをグループで整理し、既定モデルを選択。従来の3モデル設定は自動移行され、会話中も切り替えられます。";
+"updates.26.11.tools" = "ツールごとにモデルを選べます：\n自動承認；\n画像を見られないモデルのための視覚ツール；\nリモートのウェブ検索とページ読み取り；\n画像生成。";
+"updates.26.11.interactive" = "追加設定なしで触れる返信を楽しめます。自転車に乗るペリカン、シロクマに乗る秦の始皇帝、テトリス、天気も返信の中で。";
+"updates.26.11.replies" = "返信を生成中から表示。文章、画像、触れるコンテンツがつながり、次の発言候補から会話を続けられます。";
+"updates.26.11.files" = "プロジェクトのファイルをまとめて閲覧。フォルダを開き、プレビューや共有、会話の添付確認も簡単に。";
+"updates.26.11.questions" = "判断が必要な質問は今の画面に表示。続けて回答、補足、元の会話への移動ができます。";
+"updates.26.11.background" = "バックグラウンド作業と進捗表示を改善。バイオニックの返信にも対応し、長い作業を従来の時間や回数制限で中断しません。";
+"updates.26.11.bionic" = "バイオニックの会話、既読と未読通知を改善。会話を開いた後の既読状態がより正確に。";
+"updates.26.11.languages" = "ドイツ語、スウェーデン語、アラビア語、トルコ語、インドネシア語、フランス語を追加。返信と会話タイトルも選択言語に合わせます。";
+"updates.26.11.navigation" = "ブラウザを閉じると会話を見失う問題と、バイオニックからサイドバーを開くと別モードが選ばれる問題を修正。";
+
+"browser.searchEngine" = "検索エンジン";
+
+"browser.closeTab" = "タブを閉じる";
+
+"browser.untitled" = "名称未設定のページ";

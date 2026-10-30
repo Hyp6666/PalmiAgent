@@ -60,23 +60,9 @@ final class BrowserToolContractTests: XCTestCase {
         XCTAssertNotEqual(other.issue(), first)
     }
 
-    func testCSPPreservesServerNoncesWithoutAllowingJavaScriptURLs() {
-        let nonces = BrowserNavigationGuard.nonces(in: "script-src 'nonce-abc==' 'nonce-abc==' 'nonce-DEF_123' 'unsafe-inline' 'nonce-bad value'")
-        XCTAssertEqual(nonces, ["DEF_123", "abc=="])
-        let policy = BrowserNavigationGuard.scriptPolicy(nonce: "browser123", serverNonces: nonces)
-        let elementPolicy = policy.components(separatedBy: ";").first { $0.contains("script-src-elem") } ?? ""
-        XCTAssertTrue(elementPolicy.contains("'nonce-browser123'"))
-        XCTAssertTrue(elementPolicy.contains("'nonce-abc=='"))
-        XCTAssertFalse(elementPolicy.contains("'unsafe-inline'"))
-        XCTAssertFalse(elementPolicy.contains("'unsafe-hashes'"))
-        XCTAssertTrue(policy.contains("script-src-attr 'unsafe-inline'"))
-        XCTAssertTrue(policy.contains("form-action http: https:"))
-    }
-
     func testInjectedJavaScriptHasValidSyntax() throws {
         let context = try XCTUnwrap(JSContext())
-        let scripts = [BrowserDOMScript.body, BrowserNavigationGuard.isolatedScript(nonce: "test123", serverNonces: ["server456"]),
-                       BrowserNavigationGuard.pageScript(nonce: "test123")]
+        let scripts = [BrowserDOMScript.body, BrowserNavigationGuard.isolatedScript]
         for script in scripts {
             let encoded = try XCTUnwrap(String(data: JSONEncoder().encode(script), encoding: .utf8))
             context.exception = nil

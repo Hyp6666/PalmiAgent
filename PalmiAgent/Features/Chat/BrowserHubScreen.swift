@@ -1,8 +1,7 @@
 import SwiftUI
 import WebKit
 
-/// App 级浏览器界面：与内置浏览器同一套全屏顶部栏，支持多标签页。
-/// 显示的是 Palmi 正在操作的同一个 WKWebView；收起后网页回到幕后，Palmi 继续静默操控。
+/// The same WKWebView is shared by the user and agent; previews never replace its live state.
 struct BrowserHubScreen: View {
     @Bindable var service: BrowserOperatorService
     @State private var address = ""
@@ -12,58 +11,68 @@ struct BrowserHubScreen: View {
     private var isHandoff: Bool { service.handoffTabID != nil && service.handoffTabID == service.liveTabID }
     private var isLiveBusy: Bool { service.liveTabID.map(service.busyTabIDs.contains) ?? false }
     private var isLiveControlled: Bool { service.liveTabID.map(service.isControlled) ?? false }
+    private var navigation: BrowserNavigationState {
+        service.liveTabID.flatMap { service.navigationStates[$0] } ?? .init()
+    }
 
     var body: some View {
-        GeometryReader { proxy in
-            VStack(spacing: 0) {
-                PalmiBrowserChrome(
-                    title: liveRecord?.displayTitle ?? PalmiL10n.tr("browser.tabs"),
-                    leadingSystemImage: "chevron.down",
-                    leadingAccessibilityLabel: PalmiL10n.tr("browser.live.collapse"),
-                    safeAreaTop: proxy.safeAreaInsets.top,
-                    onLeading: service.dismissBrowser
-                ) {
-                    if isHandoff {
-                        Button(action: service.dismissBrowser) {
-                            Text(PalmiL10n.tr("browser.handoff.done"))
-                                .font(.system(size: 16, weight: .semibold, design: .rounded))
-                                .foregroundStyle(.primary)
-                                .padding(.horizontal, 18)
-                                .frame(height: 46)
-                                .contentShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .glassEffect(.regular.interactive(), in: .capsule)
-                    } else if liveRecord != nil {
-                        PalmiBrowserChromeButton(systemImage: "square.on.square", accessibilityLabel: PalmiL10n.tr("browser.tabs")) {
-                            service.showOverview()
-                        }
-                    }
+        VStack(spacing: 0) {
+            PalmiBrowserChrome(
+                title: liveRecord?.displayTitle ?? PalmiL10n.tr("browser.tabs"),
+                leadingSystemImage: "chevron.down",
+                leadingAccessibilityLabel: PalmiL10n.tr("browser.live.collapse"),
+                safeAreaTop: 0,
+                onLeading: {
+                    isEditingAddress = false
+                    service.dismissBrowser()
                 }
-                .background(PalmiBrowserChromeBackdrop())
-                .zIndex(1)
+            ) {
+                if isHandoff {
+                    Button(action: service.dismissBrowser) {
+                        Text(PalmiL10n.tr("browser.handoff.done"))
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 18)
+                            .frame(height: 46)
+                    }
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                } else if liveRecord != nil {
+                    PalmiBrowserChromeButton(systemImage: "square.on.square", accessibilityLabel: PalmiL10n.tr("browser.tabs")) {
+                        isEditingAddress = false
+                        service.showOverview()
+                    }
+                } else {
+                    searchEngineMenu
+                }
+            }
+            .background(PalmiBrowserChromeBackdrop())
 
-                if liveRecord != nil, let session = service.liveSession() {
+            if liveRecord != nil, let session = service.liveSession() {
+                // Explicitly flexible viewport: WKWebView's intrinsic sizing must not push the
+                // entire stack upward when SwiftUI subtracts the keyboard's safe area.
+                GeometryReader { viewport in
                     BrowserHubWebViewHost(webView: session.webView, isInteractive: isHandoff || !isLiveBusy)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .frame(width: viewport.size.width, height: viewport.size.height)
                         .overlay {
                             if isLiveControlled && !isHandoff, let id = service.liveTabID {
                                 BrowserPointerOverlay(pointer: service.pointers[id] ?? BrowserPointer())
                             }
                         }
                         .palmiAIGlow(Rectangle(), isActive: isLiveControlled && !isHandoff, lineWidth: 6)
-                    if !isHandoff {
-                        bottomBar(webView: session.webView, safeAreaBottom: proxy.safeAreaInsets.bottom)
-                    }
-                } else {
-                    BrowserTabOverview(service: service)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+                .clipped()
+            } else {
+                BrowserTabOverview(service: service)
             }
-            .background(Color(.systemBackground))
-            .ignoresSafeArea(.container)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if liveRecord != nil && !isHandoff { bottomBar }
+        }
+        .background(Color(.systemBackground).ignoresSafeArea())
         .onChange(of: service.liveTabID, initial: true) { _, _ in
+            isEditingAddress = false
             address = liveRecord?.url ?? ""
         }
         .onChange(of: liveRecord?.url) { _, url in
@@ -71,38 +80,66 @@ struct BrowserHubScreen: View {
         }
     }
 
-    private func bottomBar(webView: WKWebView, safeAreaBottom: CGFloat) -> some View {
-        HStack(spacing: 10) {
-            PalmiBrowserChromeButton(systemImage: "chevron.left", accessibilityLabel: PalmiL10n.tr("browser.back")) {
-                if !isLiveBusy { webView.goBack() }
+    private var searchEngineMenu: some View {
+        Menu {
+            Picker(PalmiL10n.tr("browser.searchEngine"), selection: $service.searchEngine) {
+                ForEach(BrowserSearchEngine.allCases) { engine in
+                    Text(engine.title).tag(engine)
+                }
             }
-            PalmiBrowserChromeButton(systemImage: "chevron.right", accessibilityLabel: PalmiL10n.tr("browser.forward")) {
-                if !isLiveBusy { webView.goForward() }
-            }
-            TextField(PalmiL10n.tr("browser.address.placeholder"), text: $address)
-                .font(.system(size: 15, design: .rounded))
-                .keyboardType(.webSearch)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .submitLabel(.go)
-                .focused($isEditingAddress)
-                .disabled(isLiveBusy)
-                .onSubmit { service.userNavigate(address) }
-                .padding(.horizontal, 16)
-                .frame(height: 46)
-                .glassEffect(.regular.interactive(), in: .capsule)
-            PalmiBrowserChromeButton(systemImage: "plus", accessibilityLabel: PalmiL10n.tr("browser.newTab")) {
-                service.userNewTab()
+        } label: {
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 46, height: 46)
+                .glassEffect(.regular.interactive(), in: .circle)
+        }
+        .accessibilityLabel(PalmiL10n.tr("browser.searchEngine"))
+        .accessibilityValue(service.searchEngine.title)
+    }
+
+    private var bottomBar: some View {
+        GlassEffectContainer(spacing: 10) {
+            HStack(spacing: 10) {
+                PalmiBrowserChromeButton(systemImage: "chevron.left", accessibilityLabel: PalmiL10n.tr("browser.back")) {
+                    isEditingAddress = false
+                    service.userGoBack()
+                }
+                .disabled(isLiveBusy || !navigation.canGoBack)
+                .opacity(navigation.canGoBack && !isLiveBusy ? 1 : 0.35)
+                PalmiBrowserChromeButton(systemImage: "chevron.right", accessibilityLabel: PalmiL10n.tr("browser.forward")) {
+                    isEditingAddress = false
+                    service.userGoForward()
+                }
+                .disabled(isLiveBusy || !navigation.canGoForward)
+                .opacity(navigation.canGoForward && !isLiveBusy ? 1 : 0.35)
+                TextField(PalmiL10n.tr("browser.address.placeholder"), text: $address)
+                    .font(.system(size: 15, design: .rounded))
+                    .keyboardType(.webSearch)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.go)
+                    .focused($isEditingAddress)
+                    .disabled(isLiveBusy)
+                    .onSubmit {
+                        isEditingAddress = false
+                        service.userNavigate(address)
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(height: 46)
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                PalmiBrowserChromeButton(systemImage: "plus", accessibilityLabel: PalmiL10n.tr("browser.newTab")) {
+                    isEditingAddress = false
+                    service.userNewTab()
+                }
             }
         }
         .padding(.horizontal, 16)
-        .padding(.top, 10)
-        .padding(.bottom, max(safeAreaBottom, 10))
+        .padding(.vertical, 10)
         .background(Color(.systemBackground))
     }
 }
 
-/// 标签页总览：卡片网格，点按切换，可关闭、可新建。
 private struct BrowserTabOverview: View {
     let service: BrowserOperatorService
     private let columns = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
@@ -111,14 +148,17 @@ private struct BrowserTabOverview: View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: 14) {
                 ForEach(service.tabs) { tab in
-                    card(tab)
+                    BrowserTabCard(tab: tab, service: service)
                 }
                 Button(action: service.userNewTab) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 26, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, minHeight: 120)
-                        .background(RoundedRectangle(cornerRadius: 22).strokeBorder(Color.secondary.opacity(0.35), style: StrokeStyle(lineWidth: 1.5, dash: [6, 5])))
+                    RoundedRectangle(cornerRadius: 22)
+                        .strokeBorder(Color.secondary.opacity(0.35), style: StrokeStyle(lineWidth: 1.5, dash: [6, 5]))
+                        .aspectRatio(3.0 / 4.0, contentMode: .fit)
+                        .overlay {
+                            Image(systemName: "plus")
+                                .font(.system(size: 26, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
                         .contentShape(RoundedRectangle(cornerRadius: 22))
                 }
                 .buttonStyle(.plain)
@@ -127,64 +167,78 @@ private struct BrowserTabOverview: View {
             .padding(16)
         }
     }
+}
 
-    private func card(_ tab: BrowserTabRecord) -> some View {
+private struct BrowserTabCard: View {
+    let tab: BrowserTabRecord
+    let service: BrowserOperatorService
+    @State private var preview: UIImage?
+    @State private var isVisible = false
+
+    private var title: String {
+        let title = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty ? PalmiL10n.tr(tab.url.isEmpty ? "browser.newTab" : "browser.untitled") : title
+    }
+
+    var body: some View {
         Button { service.showTab(tab.id) } label: {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 6) {
-                    if service.isControlled(tab.id) { palmiBadge }
-                    Spacer(minLength: 0)
+            Color(.secondarySystemBackground)
+                .aspectRatio(3.0 / 4.0, contentMode: .fit)
+                .overlay {
+                    if let preview {
+                        Image(uiImage: preview)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        Image(systemName: tab.url.isEmpty ? "plus.square.on.square" : "globe")
+                            .font(.system(size: 32, weight: .light))
+                            .foregroundStyle(.tertiary)
+                    }
                 }
-                .frame(height: 22)
-                Text(tab.displayTitle)
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                Spacer(minLength: 0)
-                Text(URL(string: tab.url)?.host ?? "")
-                    .font(.system(size: 12, design: .rounded))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
-            // 柔光在卡片底色之上、文字之下。
-            .background {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 22).fill(Color(.secondarySystemBackground))
-                    PalmiAIGlowLayer(shape: RoundedRectangle(cornerRadius: 22), isActive: service.isControlled(tab.id), lineWidth: 4)
+                .overlay(alignment: .bottom) {
+                    Text(title)
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .padding(.horizontal, 10)
+                        .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+                        .background(.ultraThinMaterial)
                 }
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 22))
+                .clipShape(RoundedRectangle(cornerRadius: 22))
+                .palmiAIGlow(RoundedRectangle(cornerRadius: 22), isActive: service.isControlled(tab.id), lineWidth: 4)
+                .contentShape(RoundedRectangle(cornerRadius: 22))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(title)
         .overlay(alignment: .topTrailing) {
             Button { service.closeTab(tab.id) } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 28, height: 28)
+                    .foregroundStyle(.primary)
+                    .frame(width: 30, height: 30)
+                    .glassEffect(.regular.interactive(), in: .circle)
+                    .frame(width: 44, height: 44)
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .padding(8)
+            .padding(3)
+            .accessibilityLabel(PalmiL10n.tr("browser.closeTab"))
             .disabled(service.isControlled(tab.id) || service.handoffTabID == tab.id)
+        }
+        .onAppear { isVisible = true; loadPreview() }
+        .onDisappear { isVisible = false; preview = nil }
+        .onChange(of: service.previewRevisions[tab.id]) { _, _ in
+            if isVisible { loadPreview() }
         }
     }
 
-    /// “Palmi 正在处理”标记：文字用柔光配色渐变。
-    private var palmiBadge: some View {
-        Text(PalmiL10n.tr("browser.badge.busy"))
-            .font(.system(size: 11, weight: .bold, design: .rounded))
-            .foregroundStyle(LinearGradient(colors: PalmiAIGlowPalette.colors, startPoint: .leading, endPoint: .trailing))
-            .padding(.horizontal, 8)
-            .frame(height: 22)
-            .background(Capsule().fill(Color(.systemBackground).opacity(0.85)))
+    private func loadPreview() {
+        service.loadPreview(tab.id) { image in
+            if isVisible { preview = image }
+        }
     }
 }
 
-/// 把已有的 WKWebView 挂进 SwiftUI；Palmi 正在操作时只看不点，避免与 Palmi 抢页面。
 private struct BrowserHubWebViewHost: UIViewRepresentable {
     let webView: WKWebView
     let isInteractive: Bool

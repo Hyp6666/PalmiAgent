@@ -39,6 +39,14 @@ struct BrowserPointer: Equatable, Sendable {
 @Observable
 final class BrowserOperatorService: NSObject {
     private(set) var tabs: [BrowserTabRecord] = []
+    var searchEngine: BrowserSearchEngine = .bing {
+        didSet { defaults.set(searchEngine.rawValue, forKey: Self.searchEngineKey) }
+    }
+    private(set) var navigationStates: [String: BrowserNavigationState] = [:]
+    private(set) var previewRevisions: [String: Int] = [:]
+    @ObservationIgnored private let previews = BrowserPreviewStore()
+    private static let searchEngineKey = "palmi.browser.search-engine"
+
     /// 对话 → 该对话当前操作的标签页。出现过就一直保留，聊天页据此显示“查看浏览器”。
     private(set) var conversationTabs: [String: String] = [:]
     /// 浏览器界面是否正在显示，以及显示的标签页（nil 表示显示标签页总览）。
@@ -78,6 +86,7 @@ final class BrowserOperatorService: NSObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         super.init()
+        searchEngine = defaults.string(forKey: Self.searchEngineKey).flatMap(BrowserSearchEngine.init(rawValue:)) ?? .bing
         if let data = defaults.data(forKey: Self.tabsKey),
            let restored = try? JSONDecoder().decode([BrowserTabRecord].self, from: data) {
             tabs = restored
@@ -85,15 +94,28 @@ final class BrowserOperatorService: NSObject {
         conversationTabs = defaults.dictionary(forKey: Self.conversationTabsKey) as? [String: String] ?? [:]
         nextTabNumber = max(1, defaults.integer(forKey: Self.nextTabNumberKey))
         hiddenShortcuts = Set(defaults.stringArray(forKey: Self.hiddenShortcutsKey) ?? [])
+        NotificationCenter.default.addObserver(self, selector: #selector(didReceiveMemoryWarning),
+                                               name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(didEnterBackground),
                                                name: UIApplication.didEnterBackgroundNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(resumeForegroundWaiters),
                                                name: UIApplication.didBecomeActiveNotification, object: nil)
     }
 
+    @objc private func didReceiveMemoryWarning() {
+        previews.clearMemory()
+        // Never evict live sessions: reconstructing from URL loses drafts, POST state and history.
+        for (id, session) in sessions where !session.isBusy && !isControlled(id) && liveTabID != id && handoffTabID != id {
+            session.webView.removeFromSuperview()
+        }
+        releaseBackstageWindowIfEmpty()
+    }
+
     @objc private func didEnterBackground() {
         // 真正进入后台才中止进行中的网页操作；用户接管可继续等待。
         for session in sessions.values where session.isBusy { session.abort(BrowserToolError.foreground) }
+        for (id, session) in sessions where id != liveTabID { try? placeWebView(session, tabID: id) }
+        previews.clearMemory()
     }
 
     private func waitUntilNotInBackground(selection: WorkspaceSelection) async throws {
@@ -316,6 +338,9 @@ final class BrowserOperatorService: NSObject {
         defer {
             session.end()
             busyTabIDs.remove(tabID)
+            capturePreview(tabID) { [weak self, weak session] in
+                if let self, let session { try? self.placeWebView(session, tabID: tabID) }
+            }
             if Task.isCancelled { pointers.removeValue(forKey: tabID) }
         }
         var resultPrefix = "tab: \(tabID)\n"
@@ -415,6 +440,10 @@ final class BrowserOperatorService: NSObject {
     func closeTab(_ id: String) {
         if handoffTabID == id { endHandoff() }
         sessions.removeValue(forKey: id)?.dispose()
+        previews.remove(id)
+        navigationStates.removeValue(forKey: id)
+        previewRevisions.removeValue(forKey: id)
+        releaseBackstageWindowIfEmpty()
         tabs.removeAll { $0.id == id }
         busyTabIDs.remove(id)
         pointers.removeValue(forKey: id)
@@ -429,6 +458,8 @@ final class BrowserOperatorService: NSObject {
         if let existing = sessions[id], !existing.disposed { return (existing, false) }
         let session = BrowserSession(dataStore: WKWebsiteDataStore(forIdentifier: Self.sharedDataStoreID))
         session.onPageChanged = { [weak self] url, title in self?.updateRecord(id, url: url, title: title) }
+        session.onNavigationChanged = { [weak self] state in self?.navigationStates[id] = state }
+        session.onPageRendered = { [weak self] in self?.capturePreview(id) }
         sessions[id] = session
         var identifiers = defaults.stringArray(forKey: Self.dataStoresKey) ?? []
         if !identifiers.contains(Self.sharedDataStoreID.uuidString) {
@@ -475,23 +506,61 @@ final class BrowserOperatorService: NSObject {
         if needsRestore, let url = record(id).flatMap({ URL(string: $0.url) }) {
             session.webView.load(URLRequest(url: url))
         }
+        session.dialogPresenter = hubController
+        session.webView.setAllMediaPlaybackSuspended(false, completionHandler: nil)
+        session.recoverIfNeeded()
         return session
+    }
+
+    func loadPreview(_ id: String, completion: @escaping (UIImage?) -> Void) {
+        previews.load(id, completion: completion)
+    }
+
+    private func capturePreview(_ id: String, completion: @escaping () -> Void = {}) {
+        guard UIApplication.shared.applicationState != .background,
+              let session = sessions[id], !session.webView.isLoading, !(record(id)?.url.isEmpty ?? true) else {
+            completion()
+            return
+        }
+        // A tab may finish loading after the user has opened the overview. Render it once,
+        // then detach again; do not leave every card backed by a running web view.
+        var temporarilyMounted = false
+        if session.webView.window == nil, !(isPresented && liveTabID == id),
+           let container = try? backstageContainer() {
+            if session.webView.bounds.isEmpty { session.webView.frame = container.bounds }
+            container.addSubview(session.webView)
+            container.layoutIfNeeded()
+            temporarilyMounted = true
+        }
+        session.capturePreview(afterScreenUpdates: temporarilyMounted) { [weak self, weak session] image in
+            if let self, let session, self.sessions[id] === session, let image {
+                self.previews.save(image, for: id)
+                self.previewRevisions[id, default: 0] += 1
+            }
+            if temporarilyMounted, let self, let session, self.sessions[id] === session {
+                try? self.placeWebView(session, tabID: id)
+            }
+            completion()
+        }
+    }
+
+    func userGoBack() { userHistoryNavigation(back: true) }
+    func userGoForward() { userHistoryNavigation(back: false) }
+
+    private func userHistoryNavigation(back: Bool) {
+        guard let id = liveTabID, !busyTabIDs.contains(id), handoffTabID == nil,
+              let session = liveSession() else { return }
+        guard back ? session.webView.canGoBack : session.webView.canGoForward else { return }
+        session.ledger.invalidate()
+        if back { session.webView.goBack() } else { session.webView.goForward() }
     }
 
     /// 地址栏输入：网址直接打开，其他内容作为搜索词。
     func userNavigate(_ input: String) {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let id = liveTabID, !busyTabIDs.contains(id), let session = liveSession() else { return }
-        let candidate = trimmed.contains("://") ? URL(string: trimmed) : (trimmed.contains(".") && !trimmed.contains(" ") ? URL(string: "https://" + trimmed) : nil)
-        let target: URL?
-        if let candidate, BrowserSafety.allowsNavigation(candidate) {
-            target = candidate
-        } else {
-            var components = URLComponents(string: "https://www.bing.com/search")
-            components?.queryItems = [URLQueryItem(name: "q", value: trimmed)]
-            target = components?.url
-        }
-        guard let target else { return }
+        guard let target = searchEngine.destination(for: trimmed) else { return }
+        session.ledger.invalidate()
         session.webView.load(URLRequest(url: target))
     }
 
@@ -528,19 +597,20 @@ final class BrowserOperatorService: NSObject {
         liveTabID = id
         lastViewedTabID = id
         movePointer(id, to: CGPoint(x: 0.5, y: 0.5), gesture: .idle)
-        if let previous, previous != id, let session = sessions[previous] { try? placeWebView(session, tabID: previous) }
+        if let previous, previous != id { parkTab(previous) }
     }
 
     func showOverview() {
         guard handoffTabID == nil else { return }
         let previous = liveTabID
         liveTabID = nil
-        if let previous, let session = sessions[previous] { try? placeWebView(session, tabID: previous) }
+        if let previous { parkTab(previous) }
     }
 
     /// 收起浏览器界面；若正处于用户接管，同时结束接管让任务继续。网页回到幕后，Palmi 可继续操控。
     func dismissBrowser() {
         guard isPresented else { return }
+        if let id = liveTabID { capturePreview(id) }
         endHandoff()
         let controller = hubController
         let previous = liveTabID
@@ -582,10 +652,35 @@ final class BrowserOperatorService: NSObject {
         return controller.view
     }
 
-    /// 网页放在当前应在的位置：浏览器界面正在显示该标签页时留在界面中，否则回到幕后窗口。
+    private func parkTab(_ id: String) {
+        capturePreview(id) { [weak self] in
+            guard let self, let session = self.sessions[id] else { return }
+            try? self.placeWebView(session, tabID: id)
+        }
+    }
+
+    private func releaseBackstageWindowIfEmpty() {
+        if backstageWindow?.rootViewController?.view.subviews.isEmpty == true {
+            backstageWindow?.isHidden = true
+            backstageWindow = nil
+        }
+    }
+
+    /// Only agent operations need a mounted offscreen renderer. Idle tabs keep their WKWebView,
+    /// back/forward list, DOM, scroll position and drafts. WebKit's inactive scheduling policy
+    /// suspends JavaScript and layout once the detached page finishes loading.
     private func placeWebView(_ session: BrowserSession, tabID: String) throws {
         guard !(isPresented && liveTabID == tabID) else { return }
+        session.dialogPresenter = nil
+        guard session.isBusy || session.isHandedOff else {
+            session.webView.setAllMediaPlaybackSuspended(true, completionHandler: nil)
+            session.webView.removeFromSuperview()
+            releaseBackstageWindowIfEmpty()
+            return
+        }
         let container = try backstageContainer()
+        session.recoverIfNeeded()
+        session.webView.setAllMediaPlaybackSuspended(false, completionHandler: nil)
         guard session.webView.superview !== container else { return }
         session.webView.removeFromSuperview()
         session.webView.frame = container.bounds

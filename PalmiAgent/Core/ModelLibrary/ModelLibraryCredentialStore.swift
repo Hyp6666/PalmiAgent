@@ -69,10 +69,10 @@ nonisolated enum ModelLibraryCredentialError: Error, LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .temporarilyUnavailable: "受保护凭据暂时不可读（设备可能处于锁定状态），稍后再试。"
-        case .readFailed(let status): "无法读取受保护凭据（\(status)）。"
-        case .missing: "连接需要 API Key，但没有找到已保存的凭据。"
-        case .verificationFailed: "凭据写入后读回不一致，已保留原配置。"
+        case .temporarilyUnavailable: PalmiL10n.tr("ml.credential.error.locked")
+        case .readFailed(let status): PalmiL10n.tr("ml.credential.error.read", status)
+        case .missing: PalmiL10n.tr("ml.credential.error.missing")
+        case .verificationFailed: PalmiL10n.tr("ml.credential.error.verification")
         }
     }
 }

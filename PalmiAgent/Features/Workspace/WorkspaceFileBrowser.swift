@@ -53,19 +53,13 @@ struct WorkspaceAllProjectsFilesSheet: View {
                 if store.projects.isEmpty {
                     ContentUnavailableView(PalmiL10n.tr("workspace.files.noProjects"), systemImage: "folder")
                 } else {
-                    List(store.projects) { project in
-                        NavigationLink(value: WorkspaceProjectFilesRoute(projectID: project.id)) {
-                            HStack(spacing: 12) {
-                                PalmiFileIcon(name: project.name, isDirectory: true, size: 30)
-                                    .frame(width: 30)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(project.name).lineLimit(1)
-                                    Text(PalmiL10n.tr("workspace.project.threadCount", store.threadCount(for: project.id)))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .padding(.vertical, 4)
+                    // 默认工作区单独一组，自建工作区在下面另一组。
+                    List {
+                        if let defaultWorkspace = store.defaultWorkspace {
+                            Section { projectRow(defaultWorkspace) }
+                        }
+                        if !store.workspaceProjects.isEmpty {
+                            Section { ForEach(store.workspaceProjects) { projectRow($0) } }
                         }
                     }
                 }
@@ -85,6 +79,17 @@ struct WorkspaceAllProjectsFilesSheet: View {
             }
         }
         .workspaceShareSheet(store)
+    }
+
+    private func projectRow(_ project: WorkspaceProjectRecord) -> some View {
+        NavigationLink(value: WorkspaceProjectFilesRoute(projectID: project.id)) {
+            HStack(spacing: 12) {
+                PalmiFileIcon(name: project.name, isDirectory: true, size: 30)
+                    .frame(width: 30)
+                Text(project.name).lineLimit(1)
+            }
+            .padding(.vertical, 4)
+        }
     }
 }
 

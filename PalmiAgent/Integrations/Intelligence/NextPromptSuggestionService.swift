@@ -18,20 +18,21 @@ final class NextPromptSuggestionService {
         userMessage: String,
         finalReply: String,
         isChatSurface: Bool,
+        language: PalmiLanguage,
         providerID: APIProviderID,
         modelOverrides: AgentModelBindings
     ) async throws -> String? {
-        let user = Self.tail(userMessage)
+        let user = Self.userContextExcerpt(userMessage)
         let reply = Self.tail(finalReply)
         guard !user.isEmpty || !reply.isEmpty else { return nil }
 
         let messages: [AgentModelMessage] = [
-            .system(Self.systemPrompt(isChatSurface: isChatSurface)),
+            .system(Self.systemPrompt(isChatSurface: isChatSurface, userMessage: userMessage, language: language)),
             .user("""
-            [用户上一句]
+            [Previous user message]
             \(user)
 
-            [助手刚完成的回答]
+            [Completed assistant reply — context only, not a language preference]
             \(reply)
             """)
         ]
@@ -79,19 +80,20 @@ final class NextPromptSuggestionService {
     private static var tool: AgentModelToolDefinition {
         AgentModelToolDefinition(function: AgentModelFunctionDefinition(
             name: toolName,
-            description: "填写用户接下来最可能发送的下一句 prompt。必须调用且只调用一次。",
+            description: "Provide the user's likely next message. Call exactly once. Follow the output-language policy in the system message.",
             parameters: ToolJSONSchema.object(properties: [
-                "next_prompt": ToolJSONSchema.string(description: "必填。用户接下来可能发送的下一句话：简短、一句话说完、纯文本、不用 Markdown。")
+                "next_prompt": ToolJSONSchema.string(description: "Required. One short plain-text sentence the user might send next, in the user's language according to the system policy. No Markdown.")
             ], required: ["next_prompt"])
         ))
     }
 
-    private static func systemPrompt(isChatSurface: Bool) -> String {
+    static func systemPrompt(isChatSurface: Bool, userMessage: String, language: PalmiLanguage) -> String {
         """
-        你只负责预测用户的下一句话，不回答问题，也不继续对话。
-        使用用户的发言的语言，请模仿用户的语气和风格（如果是聊天则幽默诙谐和侃侃而谈，如果是专业问题则正规发言），填写用户接下来可能会发送的下一句prompt，不要太长，请用简短的话直接说完，不能用md格式。
-        当前场景：\(isChatSurface ? "聊天" : "专业问题")。
-        必须调用 \(toolName) 工具，把这句话写进 next_prompt；不要输出其他内容。
+        Predict only the user's next message. Do not answer the question or continue as the assistant.
+        Match the user's tone and style: conversational for chat, formal for professional questions. Write one short, direct sentence in plain text without Markdown.
+        Current context: \(isChatSurface ? "chat" : "professional question").
+        \(GeneratedTextLanguagePolicy.instruction(userMessage: userMessage, fallback: language))
+        Call \(toolName) exactly once, putting the sentence in next_prompt. Output nothing else.
         """
     }
 
@@ -99,6 +101,14 @@ final class NextPromptSuggestionService {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count > contextLimit else { return trimmed }
         return "…" + String(trimmed.suffix(contextLimit))
+    }
+
+    static func userContextExcerpt(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > contextLimit else { return trimmed }
+        // Keep opening preferences as well as the latest question when a pasted document is long.
+        let half = contextLimit / 2
+        return String(trimmed.prefix(half)) + "\n[…]\n" + String(trimmed.suffix(half))
     }
 
     /// 只保留一行纯文本：去掉 Markdown 记号、包裹引号和过长部分。
@@ -112,7 +122,7 @@ final class NextPromptSuggestionService {
         text = text.replacingOccurrences(of: "**", with: "")
             .replacingOccurrences(of: "`", with: "")
         while let first = text.first, "#>-*• ".contains(first) { text.removeFirst() }
-        let quotes: Set<Character> = ["\"", "“", "”", "'", "「", "」"]
+        let quotes: Set<Character> = ["\"", "“", "”", "„", "'", "«", "»", "「", "」"]
         while let first = text.first, quotes.contains(first) { text.removeFirst() }
         while let last = text.last, quotes.contains(last) { text.removeLast() }
         text = text.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -7,7 +7,7 @@ struct ModelLibraryMigrator {
         case credentialTemporarilyUnavailable
 
         var errorDescription: String? {
-            "受保护凭据暂时不可读，模型配置迁移已推迟到下次解锁后进行，原配置保持不变。"
+            PalmiL10n.tr("ml.migration.error.locked")
         }
     }
 

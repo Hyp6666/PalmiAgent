@@ -1,0 +1,13 @@
+"CFBundleDisplayName" = "PalmiAgent";
+"CFBundleName" = "PalmiAgent";
+"NSAlarmKitUsageDescription" = "PalmiAgent benötigt Zugriff auf Systemwecker, um Wecker und Timer zu erstellen, anzuzeigen und zu verwalten.";
+"NSCalendarsFullAccessUsageDescription" = "PalmiAgent benötigt Kalenderzugriff, um Testereignisse zu erstellen und zu lesen.";
+"NSCameraUsageDescription" = "PalmiAgent benötigt Kamerazugriff zum Fotografieren, Scannen von Dokumenten und Erkennen von Live Text.";
+"NSContactsUsageDescription" = "PalmiAgent benötigt Kontaktzugriff, um Testkontakte zu erstellen und zu suchen.";
+"NSLocalNetworkUsageDescription" = "PalmiAgent benötigt Zugriff auf das lokale Netzwerk, um LM Studio-Server im selben Netzwerk zu finden und sich mit ihnen zu verbinden.";
+"NSLocationWhenInUseUsageDescription" = "PalmiAgent benötigt Standortzugriff für Ortssuche, Routenvorschauen und Adresssuche.";
+"NSMicrophoneUsageDescription" = "PalmiAgent benötigt Mikrofonzugriff für Spracherkennung und künftige Sprachinteraktionen.";
+"NSPhotoLibraryAddUsageDescription" = "PalmiAgent benötigt die Erlaubnis, Inhalte zur Fotomediathek hinzuzufügen, um erzeugte Testbilder zu speichern.";
+"NSPhotoLibraryUsageDescription" = "PalmiAgent benötigt Zugriff auf die Fotomediathek, um Bilder auszuwählen und Medien zu verarbeiten.";
+"NSRemindersFullAccessUsageDescription" = "PalmiAgent benötigt Zugriff auf Erinnerungen, um Testerinnerungen zu erstellen und zu lesen.";
+"NSSpeechRecognitionUsageDescription" = "PalmiAgent benötigt Zugriff auf die Spracherkennung für Spracheingabe und Sprachexperimente.";

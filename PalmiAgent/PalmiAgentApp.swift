@@ -5,9 +5,11 @@ import UIKit
 struct PalmiAgentApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var container = AppContainer()
+    @AppStorage(PalmiLanguage.storageKey) private var languageID = PalmiLanguage.zhHans.rawValue
 
     init() {
         PalmiReasoningUIStyle.migrateDefaultIfNeeded()
+        AppShellModeSegmentedPicker.configureAppearance()
     }
 
     var body: some Scene {
@@ -17,6 +19,8 @@ struct PalmiAgentApp: App {
                         bionicStore: container.bionicStore)
             .environment(container.browserOperatorService)
             .environment(container.userQuestionService)
+            .environment(\.locale, PalmiLanguage.resolve(languageID).locale)
+            .environment(\.layoutDirection, PalmiLanguage.resolve(languageID).isRightToLeft ? .rightToLeft : .leftToRight)
             .task {
                 await container.bionicStore.purchases.start()
                 await container.bionicStore.bootstrap()

@@ -629,7 +629,7 @@ struct ConnectionDetailScreen: View {
             }
         } message: {
             let references = library.references(toConnection: connectionID)
-            if !references.isEmpty { Text(PalmiL10n.tr("ml.delete.references", references.joined(separator: "、"))) }
+            if !references.isEmpty { Text(PalmiL10n.tr("ml.delete.references", references.joined(separator: PalmiL10n.tr("common.listSeparator")))) }
         }
     }
 
@@ -741,7 +741,7 @@ struct ModelDetailScreen: View {
             }
         } message: {
             let references = library.references(toModel: modelID)
-            if !references.isEmpty { Text(PalmiL10n.tr("ml.delete.references", references.joined(separator: "、"))) }
+            if !references.isEmpty { Text(PalmiL10n.tr("ml.delete.references", references.joined(separator: PalmiL10n.tr("common.listSeparator")))) }
         }
     }
 
@@ -768,7 +768,7 @@ struct ModelLibraryConflictsScreen: View {
     var body: some View {
         List {
             ForEach(library.state.conflicts) { conflict in
-                Section(conflict.field) {
+                Section(conflict.localizedFieldTitle) {
                     LabeledContent(PalmiL10n.tr("ml.conflicts.current"), value: conflict.currentValue ?? "—")
                     LabeledContent(PalmiL10n.tr("ml.conflicts.legacy"), value: conflict.legacyValue ?? PalmiL10n.tr("ml.conflicts.deleted"))
                     Button(PalmiL10n.tr("ml.conflicts.keepCurrent")) { resolve(conflict, keepCurrent: true) }

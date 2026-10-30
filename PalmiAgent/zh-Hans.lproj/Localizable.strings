@@ -1665,7 +1665,7 @@
 "bionic.introduction.cost" = "同样，这会使用您自己配置的模型，Palmi APP 会和往常一样，不承担您的模型额度费用。基础权益和仿生 Pro 的一次性购买均不包含模型额度；模型服务按您的配置另行计费。\n\n不过我需要提醒您的是，仿生模式会进行大量直接生成回复以外的操作。这些操作可能消耗数倍于直接展示给您的消息的词元数量，所以请选择合适的模型，并关注自己的账单。\n\n我推荐您使用 DeepSeek-Flash 模型作为主模型配置：回复速度快，交互体验一流。在实际体验中，我测试得到在中等强度地和仿生角色聊天的情况下，数天累计的真实额度费用，大致相当于我在专业模式下“生成一个 SVG 画鹈鹕骑自行车的动画”的一次费用。除此之外，我们精心设计了模拟实验来统计模型用量和额度消耗，可查看[仿生聊天模拟使用的额度消耗分析报告](https://github.com/Hyp6666/PalmiAgent/blob/main/docs/reports/bionic-chat-token-usage.zh-CN.md)。\n\n除此之外，我们本次还做了 Codex OAuth 登录。如果您订阅了支持 Codex 的会员方案，可以尝试登录进 Palmi APP，并在账号权限允许的情况下配置可用的生图模型。这样，仿生角色可能会出其不意地发一张自拍照给您哦～";
 "bionic.introduction.closing" = "注意，这里生成的一切都是虚拟的，都是假的。文字也好，照片也罢，它们只不过是现代人工智能模型生成的一堆数据，请您具备明辨是非的能力。\n\n我们没有用于中转这些对话的服务器，您与所配置模型服务之间的数据流动，我们无法掌握，也不应该掌握。因此，我们也不可能对您主动配置的某一模型的输出内容做出任何承诺与兜底。请始终记得，您与仿生角色的故事属于虚构，放下屏幕，多感受真实的生活。";
 "updates.title" = "版本更新内容";
-"updates.current" = "Palmi 26.10";
+"updates.current" = "Palmi 26.11";
 "updates.history" = "历代版本";
 "updates.source" = "查看 GitHub Release 原文";
 "updates.dismiss" = "完成";
@@ -1912,3 +1912,147 @@
 "settings.runtime.professionalStyle" = "专业模式的运行过程";
 "settings.runtime.progressiveScope" = "聊天模式始终使用 Neo 展示过程，回答持续保留。此处选择仅影响专业模式。";
 "chat.runtime.notice" = "运行提示";
+
+/* 统一会话外壳：开始屏短句、侧栏 */
+"start.greeting.chat.1" = "您来啦～今天聊点什么？";
+"start.greeting.chat.2" = "终于等到您～";
+"start.greeting.chat.3" = "随心输入，开始畅谈";
+"start.greeting.chat.4" = "有什么新鲜事，说来听听？";
+"start.greeting.chat.5" = "泡杯茶，慢慢聊～";
+"start.greeting.chat.6" = "今天心情怎么样？";
+"start.greeting.chat.7" = "想到什么就聊什么吧";
+"start.greeting.chat.8" = "我在呢，随时奉陪～";
+"start.greeting.chat.9" = "有问题尽管问，我洗耳恭听";
+"start.greeting.chat.10" = "嗨～又见面啦";
+"start.greeting.professional.1" = "来点有力气的任务～";
+"start.greeting.professional.2" = "请您吩咐～愿意为您效劳";
+"start.greeting.professional.3" = "今天要搞定什么大事？";
+"start.greeting.professional.4" = "交给我吧，说干就干";
+"start.greeting.professional.5" = "准备就绪，静候差遣";
+"start.greeting.professional.6" = "难题尽管抛过来～";
+"start.greeting.professional.7" = "把任务交给我，您去喝杯咖啡";
+"start.greeting.professional.8" = "撸起袖子，开工啦！";
+"start.greeting.professional.9" = "文件、网页、代码，统统拿下";
+"start.greeting.professional.10" = "说出目标，剩下的我来";
+"drawer.open" = "打开侧栏";
+"drawer.close" = "收起侧栏";
+"drawer.search" = "搜索";
+"drawer.browser" = "内置浏览器";
+"drawer.files" = "文件";
+"drawer.workspaces" = "工作区";
+"drawer.newWorkspace" = "新建工作区";
+"drawer.noResults" = "没有匹配的结果";
+"chat.newConversation" = "新会话";
+"chat.model" = "模型";
+"start.workspace.newWorkspace" = "新建工作区…";
+"start.workspace.hint" = "本次任务的文件会放在这里";
+
+/* 内部工具（整理上下文 / 读取工具结果） */
+"agent.internalTool.compact" = "整理上下文";
+"agent.internalTool.readResult" = "读取工具结果";
+"agent.internalTool.running" = "正在执行";
+"agent.internalTool.failed" = "工具调用失败";
+"agent.compact.scheduled.summary" = "已登记上下文压缩";
+"agent.compact.scheduled.details" = "将在本批工具全部完成后的安全点执行；这不表示已经压缩。";
+"agent.compact.failed" = "压缩登记失败";
+"agent.readResult.summary" = "已读取 %d..<%d / %d 字节";
+"agent.readResult.next" = "下一段起点：%d";
+"agent.readResult.end" = "已读到末尾";
+"agent.readResult.failed" = "读取工具结果失败";
+
+/* 仿生入口 */
+"start.bionic.enter" = "进入";
+
+/* 默认工作区 */
+"workspace.defaultWorkspace.name" = "默认工作区";
+"drawer.customWorkspaces" = "自建工作区";
+"ml.template.bailian" = "阿里云百炼";
+"ml.template.zhipuCodingNote" = "兼容 Messages；与标准 API 使用不同预设。";
+"ml.template.bailianNote" = "中国内地兼容入口。";
+"ml.template.geminiNote" = "OpenAI 兼容入口；原生联网工具使用单独声明的 generateContent 端点。";
+"ml.references.sessions" = "%d 个会话或角色";
+"ml.references.webTools" = "%d 个联网工具";
+"ml.error.restoreConnection" = "请先恢复该模型所属的连接。";
+"ml.error.credentialsInAddress" = "地址中不允许包含用户名或密码。";
+"ml.error.write" = "无法写入模型库：%@";
+"ml.error.save" = "无法保存模型库：%@";
+"ml.error.notLoaded" = "模型库尚未加载。";
+"ml.error.futureFormat" = "模型库来自更新版本（v%d），当前版本只能只读保留。";
+"ml.error.unreadable" = "模型库文件无法读取：%@。原始数据已另存。";
+"ml.error.legacyUnsafe" = "旧版模型配置数据损坏或来自更新版本，已停止写入兼容数据，原始数据保持不变。";
+"ml.error.legacyCleared" = "旧版模型配置已被清除（可能执行过重置）。新版配置保持不变，未自动写回。";
+"ml.error.legacyConflict" = "新旧版本修改了同一项关键配置，已暂停兼容写入，等待你选择保留哪一份。";
+"ml.error.publish" = "兼容数据写入未完成：%@。旧版仍读取原配置。";
+"ml.error.readBack" = "兼容数据读回与预期不一致，已保留恢复日志。";
+"ml.resolve.notConfigured" = "请先在设置 › 模型中选择默认模型。";
+"ml.resolve.explicitlyUnconfigured" = "此会话明确设为不使用默认模型。请在会话中选择模型，或改为跟随默认模型。";
+"ml.resolve.modelMissing" = "所选默认模型已从模型库删除，请重新选择。";
+"ml.resolve.connectionMissing" = "默认模型所属的连接已不存在，请重新选择默认模型。";
+"ml.resolve.notMain" = "“%@”不能作为默认模型，例如仅支持图像生成的模型。";
+"ml.resolve.credentialMissing" = "连接“%@”需要 API Key，但未保存凭据。";
+"ml.resolve.credentialLocked" = "“%@”的凭据暂时不可读，设备可能已锁定，请稍后重试。";
+"ml.resolve.credentialRead" = "无法读取“%@”的凭据。";
+"ml.resolve.conflict" = "“%@”在新旧版本中均被修改，已暂停使用，请先在设置中处理冲突。";
+"ml.resolve.endpoint" = "连接“%@”的地址无效。";
+"ml.credential.error.locked" = "受保护凭据暂时不可读，设备可能处于锁定状态，请稍后重试。";
+"ml.credential.error.read" = "无法读取受保护凭据（%d）。";
+"ml.credential.error.missing" = "连接需要 API Key，但未找到已保存的凭据。";
+"ml.credential.error.verification" = "凭据写入后读回不一致，已保留原配置。";
+"ml.migration.error.locked" = "受保护凭据暂时不可读，迁移已推迟到下次解锁后进行，原配置保持不变。";
+"ml.migration.note.primaryInvalid" = "旧方案的默认模型 %@ 已失效或不在候选列表中，保持未配置。";
+"ml.migration.note.unreadable" = "无法解析旧模型配置归档（%@），原始数据已保留且不会被覆盖。";
+"ml.migration.note.future" = "旧模型配置归档来自更新版本（v%@），原始数据已保留且不会被覆盖。";
+"ml.error.invalidDataType" = "数据类型无效";
+"ml.error.searchDecode" = "无法解码远程搜索配置";
+"ml.error.unknownVersion" = "未知版本 %@";
+"ml.error.fileRead" = "无法读取模型库文件";
+"ml.error.fileFormat" = "无法识别模型库文件格式";
+"ml.conflicts.existence" = "删除或修改";
+"ml.web.adapter.search" = "%@ 网络搜索";
+"ml.web.adapter.searchAPI" = "%@ 搜索 API";
+"ml.web.adapter.fetch" = "%@ 网页读取";
+"ml.web.adapter.fetchAPI" = "%@ 网页读取 API";
+"ml.web.adapter.responsesSearch" = "%@ Responses 联网搜索";
+"ml.web.adapter.chatSearch" = "%@ Chat 联网搜索（enable_search）";
+"ml.web.adapter.extract" = "%@ 网页提取";
+"ml.web.adapter.searchPro" = "%@ 网络搜索 Pro";
+"ml.web.adapter.urlContext" = "%@ 网页上下文";
+"ml.web.adapter.genericResponses" = "通用 Responses 联网搜索";
+"ml.web.adapter.genericMessages" = "通用 Messages 联网搜索";
+"ml.web.error.relativePath" = "相对路径不能以 / 开头：%@";
+"ml.web.error.invalidEndpoint" = "网页工具地址无效：%@";
+"ml.web.error.notConfiguredSearch" = "未配置网页搜索服务。";
+"ml.web.error.notConfiguredFetch" = "未配置网页读取服务。";
+"ml.web.error.bindingMissing" = "网页工具配置已不存在。";
+"ml.web.error.connectionMismatch" = "服务端工具的模型与连接不匹配，未发送凭据。";
+"ml.web.error.modelRequired" = "请为服务端网页工具选择模型。";
+"ml.web.error.resultMismatch" = "所选网页服务无法提供所需结果类型：%@。";
+"ml.web.error.budget" = "网页操作超出时限或续传预算。";
+"ml.web.error.clientTool" = "网页服务意外请求客户端工具 %@，已拒绝执行。";
+"ml.web.error.oauth" = "Codex OAuth 连接不能用于此网页工具接口。";
+"ml.web.error.invalidConfig" = "网页工具配置无效。";
+"ml.error.emptyProjection" = "兼容数据为空。";
+
+"tool.management.webResearch.beta" = "网页研究（beta）";
+"tool.management.browser.beta" = "浏览器操控（beta）";
+
+// Palmi 26.11
+"updates.26.11.chat" = "重构了交互体感，现在打开 Palmi 直接进入聊天，聊天与专业模式的体验更加统一。";
+"updates.26.11.interface" = "系统化升级了整体界面。全新侧栏集中收纳历史会话、文件、技能与设置，切换更顺手。";
+"updates.26.11.browser" = "浏览器操控测试版来了！现可在专业模式下用自然语言指挥内置浏览器，查看多个网页，需要登录或验证时也能亲自接手。";
+"updates.26.11.models" = "全新的模型分组与默认模型选择，告别过去的三模型分工方案。已有配置自动迁移，会话中也能随时切换模型。";
+"updates.26.11.tools" = "更多工具可单独选择模型：\n自动审核；\n专为无法看图的模型准备的视觉工具；\n远端网页搜索与网页读取；\n图片生成。";
+"updates.26.11.interactive" = "可交互式输出现已就绪，无须额外配置。鹈鹕骑自行车？秦始皇骑北极熊？俄罗斯方块？天气查询？丰富的可交互体验直接呈现在回复中。";
+"updates.26.11.replies" = "回复边生成边呈现，文字、图片和交互内容自然衔接。也可以从下一句建议继续聊下去。";
+"updates.26.11.files" = "文件浏览更完整，可统一查看项目文件、展开文件夹、预览与分享文件，会话中的附件也更方便查看。";
+"updates.26.11.questions" = "Palmi 需要你做决定时，问题会浮现在当前界面。支持连续回答、补充说明，也能直接回到发起提问的会话。";
+"updates.26.11.background" = "加强后台持续运行体验，进度展示更及时，仿生回复也能显示后台进度。长任务不再受原先固定时长与轮数限制打断。";
+"updates.26.11.bionic" = "优化仿生角色的聊天表现、消息已读与未读提醒，打开会话后阅读状态更准确。";
+"updates.26.11.languages" = "新增德语、瑞典语、阿拉伯语、土耳其语、印尼语和法语，回复与会话标题也更贴合所选语言。";
+"updates.26.11.navigation" = "修复收起浏览器后丢失当前会话，以及从仿生模式打开侧栏时选错模式的问题。";
+
+"browser.searchEngine" = "搜索引擎";
+
+"browser.closeTab" = "关闭标签页";
+
+"browser.untitled" = "未命名网页";

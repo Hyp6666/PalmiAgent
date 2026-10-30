@@ -233,7 +233,7 @@ extension BionicReadReceiptTests {
         defer { fixture.removeFiles() }
         fixture.store.globalError = "Fixture error"
         let host = UIHostingController(rootView: BionicRootScreen(store: fixture.store,
-            onOpenSettings: {}, onSelectMode: { _ in })
+            onOpenSettings: {})
             .environment(\.horizontalSizeClass, .regular)
             .environment(\.palmiUnread, PalmiUnreadSnapshot()))
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)

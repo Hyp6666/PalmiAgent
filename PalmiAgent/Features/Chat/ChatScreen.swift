@@ -81,8 +81,16 @@ struct ChatScreen: View {
     let shellMode: AppShellMode?
     let onOpenModeSwitcher: (() -> Void)?
     let onOpenBionic: (() -> Void)?
+    /// 统一会话外壳（侧栏 + 聊天/专业切换 + 新会话草稿）。nil 时保持旧的顶栏。
+    let shellChrome: ChatShellChrome?
 
     @FocusState private var isFocused: Bool
+    @State private var greetingSeed = Int.random(in: 0..<ChatStartGreeting.count)
+    /// 新会话草稿里选的模型：草稿还没有会话作用域，落库时再写进会话绑定。
+    @State private var draftModelID: UUID?
+    /// 统一外壳：系统导航栏（含状态栏）的高度。消息列表为了能滚到导航栏底下而忽略了顶部安全区，
+    /// 在它里面量不到导航栏，所以在外层量好再交给它让位。
+    @State private var navigationBarHeight: CGFloat = 0
     @State private var expandedToolMessageIDs: Set<UUID> = []
     @State private var collapsedTurnIDs: Set<UUID> = []
     @State private var pendingAutoCollapseTurnID: UUID?
@@ -96,6 +104,7 @@ struct ChatScreen: View {
     @State private var isShowingPlusMenu = false
     @State private var isShowingModeInfo = false
     @State private var isShowingQuickConfiguration = false
+    @State private var isShowingReasoningPanel = false
     @State private var measuredExtremeCapabilityValueCenter: CGPoint?
     @State private var attachmentPresentation: PalmiAttachmentImportPresentation?
     @State private var composerSectionHeight: CGFloat = 128
@@ -155,7 +164,8 @@ struct ChatScreen: View {
         onShowFiles: (() -> Void)? = nil,
         shellMode: AppShellMode? = nil,
         onOpenModeSwitcher: (() -> Void)? = nil,
-        onOpenBionic: (() -> Void)? = nil
+        onOpenBionic: (() -> Void)? = nil,
+        shellChrome: ChatShellChrome? = nil
     ) {
         self._store = Bindable(wrappedValue: store)
         self._workspaceStore = Bindable(wrappedValue: workspaceStore)
@@ -166,6 +176,19 @@ struct ChatScreen: View {
         self.shellMode = shellMode
         self.onOpenModeSwitcher = onOpenModeSwitcher
         self.onOpenBionic = onOpenBionic
+        self.shellChrome = shellChrome
+    }
+
+    /// 新会话草稿：外壳下尚未选中任何会话，第一次发送时才落库。
+    private var isDraft: Bool {
+        shellChrome != nil && workspaceStore.selectedSelection == nil
+    }
+
+    /// 会话还没开始：屏幕中间显示问候（专业草稿再加工作区选择），一发送就消失。
+    private var showsStartScreen: Bool {
+        guard shellChrome != nil else { return false }
+        if isDraft { return store.messages.isEmpty }
+        return store.hasLoadedDisplayedConversation && store.messages.isEmpty && !store.isLoading
     }
 
     private var otherConversationUnreadCount: Int {
@@ -179,7 +202,7 @@ struct ChatScreen: View {
             && previewedWorkspaceFile == nil && previewedAttachmentFiles == nil
             && linkSharePayload == nil && attachmentPresentation == nil
             && !isShowingPlusMenu && !isShowingContextInfo && pendingLinkAction == nil
-            && !isShowingModeInfo && !showingMarkdownImage
+            && !isShowingModeInfo && !showingMarkdownImage && !isShowingReasoningPanel
     }
     @State private var openBionicAfterSuggestion = false
     /// 长会话只渲染最近若干轮；滚到最早一轮时再逐批展开。按会话记忆，切换会话自动回到默认窗口。
@@ -195,7 +218,7 @@ struct ChatScreen: View {
             && store.isLoading && onOpenBionic != nil && !neverSuggestBionic
             && unreadSnapshot.readingAllowed
             && store.pendingApprovalRequest == nil && store.browserPresentation == nil
-            && !isShowingQuickConfiguration && !isShowingPlusMenu
+            && !isShowingQuickConfiguration && !isShowingPlusMenu && !isShowingReasoningPanel
             && !isShowingContextInfo && !isShowingModeInfo && !isShowingBionicSuggestion
             && previewedWorkspaceFile == nil && previewedAttachmentFiles == nil
             && linkSharePayload == nil && attachmentPresentation == nil
@@ -236,8 +259,10 @@ struct ChatScreen: View {
     private var computedModelSelectionState: ModelSelectionState {
         let library = store.modelLibrary
         let scope = workspaceStore.selectedSelection.map { ModelLibraryScope.thread($0.threadID) }
-        let binding = scope.map(library.scopeBinding) ?? .inherit
+        let draftModel = scope == nil ? draftModelID.flatMap { library.state.model($0) } : nil
+        let binding = scope.map(library.scopeBinding) ?? (draftModel.map { .explicitModel($0.id) } ?? .inherit)
         let modelID: UUID? = {
+            if let draftModel { return draftModel.id }
             if case .success(let id) = library.mainModelSelection(scope: scope) { return id }
             return nil
         }()
@@ -416,6 +441,164 @@ struct ChatScreen: View {
         .simultaneousGesture(TapGesture().onEnded { scheduleQuickSettingsPreparation() })
     }
 
+    // MARK: - 推理面板（统一外壳）：配置 · 思考强度滑条 · 模型
+
+    private struct ThinkingLevel {
+        let title: String
+        /// nil 表示关闭思考。
+        let effort: String?
+    }
+
+    private var thinkingLevels: [ThinkingLevel] {
+        [ThinkingLevel(title: PalmiL10n.tr("chat.thinking.off"), effort: nil)]
+            + modelEffortMenuOptions.compactMap { option in
+                guard case .effort(let effort, _) = option.action else { return nil }
+                return ThinkingLevel(title: thinkingLevelTitle(effort.rawValue), effort: effort.rawValue)
+            }
+    }
+
+    private var selectedThinkingLevelIndex: Int {
+        guard isSelectedModelThinkingEnabled else { return 0 }
+        let efforts = modelEffortMenuOptions
+        guard let index = efforts.firstIndex(where: { isSelectedModelReasoningOption($0) }) else { return 0 }
+        return index + 1
+    }
+
+    private func applyThinkingLevel(_ index: Int) {
+        let levels = thinkingLevels
+        guard levels.indices.contains(index), index != selectedThinkingLevelIndex else { return }
+        performQuickSettingsMutation {
+            if let effort = levels[index].effort {
+                setModelThinkingEnabled(true)
+                setSelectedModelEffort(effort)
+            } else {
+                setModelThinkingEnabled(false)
+            }
+        }
+    }
+
+    /// 聊天与专业共用：输入栏上一颗「🧠 档位」按钮，点开是推理面板。
+    private var unifiedReasoningButton: some View {
+        Button {
+            prepareQuickSettingsMenu()
+            isShowingReasoningPanel = true
+        } label: {
+            Label(selectedThinkingTitle, systemImage: "brain")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .padding(.horizontal, 12)
+                .frame(height: composerControlSize)
+                .glassEffect(.regular.interactive(), in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(PalmiL10n.tr("chat.thinking.title"))
+        .accessibilityValue(selectedThinkingTitle)
+        .popover(isPresented: $isShowingReasoningPanel, arrowEdge: .bottom) {
+            reasoningPanel
+                .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    private var reasoningPanel: some View {
+        let levels = thinkingLevels
+        let selectedIndex = min(selectedThinkingLevelIndex, levels.count - 1)
+        let state = modelSelectionState
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                isShowingReasoningPanel = false
+                // 等 popover 收起再弹配置页，避免同一帧两个弹层打架。
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 260_000_000)
+                    presentQuickConfiguration()
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 17, weight: .medium))
+                        .frame(width: 24)
+                    Text(PalmiL10n.tr("common.configure"))
+                        .font(.body)
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 16)
+                .frame(height: 50)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Divider().padding(.leading, 52)
+
+            VStack(spacing: 14) {
+                HStack {
+                    Label(PalmiL10n.tr("chat.quickConfig.thinkingStrength"), systemImage: "brain")
+                        .font(.body)
+                    Spacer()
+                    Text(levels[selectedIndex].title)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .contentTransition(.numericText())
+                        .animation(.snappy(duration: 0.2), value: selectedIndex)
+                }
+                Slider(
+                    value: Binding(
+                        get: { Double(selectedIndex) },
+                        set: { applyThinkingLevel(Int($0.rounded())) }
+                    ),
+                    in: 0...Double(max(1, levels.count - 1)),
+                    step: 1
+                )
+                .disabled(store.isLoading || state.model == nil)
+                .sensoryFeedback(.selection, trigger: selectedIndex)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+
+            Divider().padding(.leading, 52)
+
+            // 只有右侧的模型名是菜单按钮（系统弹出菜单从它本身展开），整行其余部分只是标签。
+            HStack(spacing: 12) {
+                Image(systemName: "cpu")
+                    .font(.system(size: 17, weight: .medium))
+                    .frame(width: 24)
+                Text(PalmiL10n.tr("chat.model"))
+                    .font(.body)
+                Spacer(minLength: 8)
+                Menu {
+                    topModelMenuContent
+                        .transaction { transaction in
+                            transaction.animation = nil
+                            transaction.disablesAnimations = true
+                        }
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(compactTopModelMenuTitle(state.model?.title ?? PalmiL10n.tr("ml.mainModel.notConfigured")))
+                            .font(.subheadline)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 8)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .menuOrder(.fixed)
+                .simultaneousGesture(TapGesture().onEnded { prepareTopModelMenu() })
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 16)
+            .frame(height: 50)
+        }
+        .padding(.vertical, 6)
+        .frame(width: 310)
+    }
+
     private func makeSelectedModelReasoningOptions(
         isThinkingEnabled: (Bool) -> Bool
     ) -> [ModelReasoningControlOption] {
@@ -425,7 +608,8 @@ struct ChatScreen: View {
     }
 
     private var topChromeReservedHeight: CGFloat {
-        120
+        // 统一外壳的导航栏高度已单独量出，列表行距就是第一条消息与导航栏之间的留白。
+        shellChrome == nil ? 120 : 0
     }
 
     private var topChromeControlSize: CGFloat {
@@ -480,21 +664,32 @@ struct ChatScreen: View {
             ZStack(alignment: .bottom) {
                 ZStack(alignment: .top) {
                     messageList
-                    topChromeVisualMask
+                    startScreen
+                    if shellChrome == nil {
+                        topChromeVisualMask
+                    }
                     overlayBackdrop
                 }
+                .animation(.easeOut(duration: 0.25), value: showsStartScreen)
                 bottomChromeVisualMask
                 composerSection
             }
         }
         .coordinateSpace(name: "chat-root")
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.safeAreaInsets.top
+        } action: { top in
+            navigationBarHeight = top
+        }
         .palmiKeyboardDismissOnOutsideTap(excludingBottom: composerSectionHeight) { isFocused = false }
         .overlay(alignment: .top) {
-            topChromeBar()
-                .frame(height: 90)
-                .background {
-                    Color.clear.contentShape(Rectangle()).onTapGesture { }
-                }
+            if shellChrome == nil {
+                topChromeBar()
+                    .frame(height: 90)
+                    .background {
+                        Color.clear.contentShape(Rectangle()).onTapGesture { }
+                    }
+            }
         }
         // 内置浏览器入口位于上下文窗口等弹层之下，弹层展开时不会被它遮住。
         .overlay(alignment: .bottomTrailing) {
@@ -650,7 +845,8 @@ struct ChatScreen: View {
             onComplete: handleAttachmentImportCompletion,
             onError: { store.errorMessage = $0 }
         )
-        .toolbar(.hidden, for: .navigationBar)
+        .toolbar(shellChrome == nil ? .hidden : .visible, for: .navigationBar)
+        .toolbar { unifiedToolbar }
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -739,8 +935,10 @@ struct ChatScreen: View {
                         // 顶部让位：与底部 messageBottomClearance 对称的清空高度。
                         // 让最早的消息滚到顶时停在顶部 chrome（状态栏 + topChromeReservedHeight）
                         // 下方，而不是被 3 个按钮 / 顶部蒙版永久遮挡。
+                        // 统一外壳用外层量到的系统导航栏高度。
                         Color.clear
-                            .frame(height: geometry.safeAreaInsets.top + topChromeReservedHeight)
+                            .frame(height: (shellChrome == nil ? geometry.safeAreaInsets.top : navigationBarHeight)
+                                + topChromeReservedHeight)
 
                         if allTurns.isEmpty {
                             emptyState
@@ -778,6 +976,8 @@ struct ChatScreen: View {
                     store.unreadStore.markRead(Set(ids.compactMap(UUID.init(uuidString:))), selection: selection)
                 }
                 .scrollDismissesKeyboard(.interactively)
+                // 统一外壳：导航栏下沿始终用柔和渐隐，不随内容多少切成带分隔线的硬边。
+                .scrollEdgeEffectStyle(shellChrome == nil ? nil : .soft, for: .top)
                 .defaultScrollAnchor(.bottom, for: .initialOffset)
                 .onScrollPhaseChange { _, phase in
                     messageScrollIsInteracting = phase == .interacting || phase == .decelerating
@@ -1075,6 +1275,10 @@ struct ChatScreen: View {
     }
 
     private func openRelatedThread(_ threadID: UUID) {
+        if let shellChrome {
+            shellChrome.onOpenRelatedThread(threadID)
+            return
+        }
         for project in workspaceStore.projects {
             if let thread = workspaceStore.threads(for: project.id).first(where: { $0.id == threadID }) {
                 workspaceStore.selectThread(thread)
@@ -1713,7 +1917,11 @@ struct ChatScreen: View {
         HStack(spacing: 10) {
             composerPlusButton
 
-            quickSettingsHost
+            if shellChrome != nil {
+                unifiedReasoningButton
+            } else {
+                quickSettingsHost
+            }
 
             composerModeChip
 
@@ -2538,6 +2746,88 @@ struct ChatScreen: View {
     }
 
     private func topChromeBar() -> some View {
+        legacyTopChromeBar()
+    }
+
+    // MARK: - 统一会话外壳
+
+    @ViewBuilder
+    private var startScreen: some View {
+        if showsStartScreen, let shellChrome {
+            ChatStartScreen(
+                mode: shellMode ?? .chat,
+                isDraft: isDraft,
+                greetingSeed: greetingSeed,
+                workspaceStore: workspaceStore,
+                chrome: shellChrome
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.top, topChromeReservedHeight)
+            .padding(.bottom, composerSectionHeight)
+            .transition(.opacity)
+            .onChange(of: shellMode) { _, _ in
+                withAnimation(.snappy(duration: 0.3)) { greetingSeed = Int.random(in: 0..<ChatStartGreeting.count) }
+            }
+        }
+    }
+
+    /// 系统导航栏：左侧栏按钮 · 草稿时中间系统分段控件切换聊天/专业 ·
+    /// 会话开始后右上角一组按钮（系统自动合成一颗玻璃胶囊）：新会话，专业模式另加文件/浏览器。
+    @ToolbarContentBuilder
+    private var unifiedToolbar: some ToolbarContent {
+        if let shellChrome {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    dismissTransientUI()
+                    isFocused = false
+                    shellChrome.onOpenDrawer()
+                } label: {
+                    Image(systemName: "line.3.horizontal")
+                        .overlay(alignment: .topTrailing) {
+                            PalmiUnreadBadge(count: otherConversationUnreadCount).offset(x: 10, y: -10)
+                        }
+                }
+                .accessibilityLabel(PalmiL10n.tr("drawer.open"))
+            }
+
+            if isDraft {
+                ToolbarItem(placement: .principal) {
+                    AppShellModeSegmentedPicker(
+                        selection: shellMode == .professional ? .professional : .chat
+                    ) { newMode in
+                        dismissTransientUI()
+                        isFocused = false
+                        shellChrome.onSelectMode(newMode)
+                    }
+                }
+            } else {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        dismissTransientUI()
+                        isFocused = false
+                        shellChrome.onNewConversation()
+                    } label: {
+                        Image(systemName: "square.and.pencil")
+                    }
+                    .accessibilityLabel(PalmiL10n.tr("chat.newConversation"))
+
+                    if shellMode == .professional, let toolbox = trailingTopChromeButton {
+                        Menu {
+                            ForEach(toolbox.menuItems) { item in
+                                Button(item.title, systemImage: item.systemImage, action: item.action)
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                        }
+                        .menuOrder(.fixed)
+                        .accessibilityLabel(toolbox.accessibilityLabel)
+                    }
+                }
+            }
+        }
+    }
+
+    private func legacyTopChromeBar() -> some View {
         let buttonSize = topChromeControlSize
 
         // 显式占满全宽：让三个控件像其它图标一样“固有定位”，
@@ -2854,7 +3144,26 @@ struct ChatScreen: View {
         dismissTransientUI()
         isFocused = false
         isMessageAutoFollowEnabled = true
-        store.send()
+        if isDraft {
+            store.sendFromDraft(materialize: materializeDraft)
+        } else {
+            store.send()
+        }
+    }
+
+    /// 草稿落库：建好会话后把草稿里选的模型写进会话绑定。
+    private func materializeDraft() -> WorkspaceSelection? {
+        guard let shellChrome, let selection = shellChrome.materializeDraft() else { return nil }
+        if let draftModelID {
+            do {
+                try store.modelLibrary.setScopeBinding(.explicitModel(draftModelID), scope: .thread(selection.threadID))
+            } catch {
+                store.errorMessage = error.localizedDescription
+            }
+            self.draftModelID = nil
+        }
+        cachedModelSelectionState = computedModelSelectionState
+        return selection
     }
 
     private func handleAttachmentImportCompletion(_ completion: PalmiAttachmentImportCompletion) {
@@ -2867,6 +3176,8 @@ struct ChatScreen: View {
     }
 
     private func presentAttachmentImport(_ presentation: PalmiAttachmentImportPresentation) {
+        // 附件要放进会话工作区：草稿先落库，再导入。
+        if isDraft, materializeDraft() == nil { return }
         attachmentPresentation = presentation
     }
 
@@ -2881,7 +3192,14 @@ struct ChatScreen: View {
 
     /// nil 表示跟随默认主模型。修改只影响后续新请求，不改变正在执行的请求。
     private func selectSessionMainModel(_ modelID: UUID?) {
-        guard let selection = workspaceStore.selectedSelection else { return }
+        guard let selection = workspaceStore.selectedSelection else {
+            if isDraft {
+                draftModelID = modelID
+                cachedModelSelectionState = computedModelSelectionState
+                modelReasoningRevision &+= 1
+            }
+            return
+        }
         do {
             try store.modelLibrary.setScopeBinding(
                 modelID.map(ScopedMainModelBinding.explicitModel) ?? .inherit,
@@ -5072,6 +5390,7 @@ private struct TopChromeIconButton: View {
     var assetImage: String? = nil
     var menuItems: [TopChromeMenuItem] = []
     var unreadCount: Int = 0
+    var size: CGFloat = 52
     let action: () -> Void
 
     var body: some View {
@@ -5113,10 +5432,10 @@ private struct TopChromeIconButton: View {
             }
         }
         .foregroundStyle(Color.black.opacity(0.88))
-        .frame(width: 52, height: 52)
+        .frame(width: size, height: size)
         .contentShape(Circle())
         .chatGlassSurface(
-            cornerRadius: 26,
+            cornerRadius: size / 2,
             interactive: true,
             backgroundOpacity: 0.26,
             tintOpacity: 0.32

@@ -148,6 +148,13 @@ struct BrowserRequest: Sendable {
 }
 
 enum BrowserSafety {
+    /// Empty child frames are used to bootstrap widgets, including browser challenges.
+    /// They are not valid top-level URLs or agent navigation targets.
+    static func allowsFrameNavigation(_ url: URL?, isMainFrame: Bool) -> Bool {
+        if !isMainFrame, let url, ["about:blank", "about:srcdoc"].contains(url.absoluteString) { return true }
+        return allowsNavigation(url)
+    }
+
     static func allowsNavigation(_ url: URL?) -> Bool {
         guard let url, let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
               let host = url.host, !host.isEmpty, url.user == nil, url.password == nil else { return false }

@@ -75,8 +75,12 @@ final class ConversationTitleService {
     }
 
     static let titleTaskTemplate = """
-    这是宿主发起的会话命名任务。根据这段会话的首个真实用户请求，为会话生成简短、自然的标题。只输出一行标题，不加引号、解释或前缀，不调用工具，不执行用户任务。保留主题，不照抄整句；中文通常控制在四到十二个汉字，最多十八个可见字符。不使用新聊天、未命名、会话标题等占位名称。不要改写既有会话内容。
+    This is a host-initiated conversation-naming task. Create a short, natural title for the first real user request. Output only one line, without quotes, explanation or a prefix. Do not call tools, execute the user's task, or rewrite conversation history. Capture the topic rather than copying the entire request. Use a few words; for Chinese or Japanese, aim for 4–12 characters (at most 18); for other languages, at most 60 visible characters. Do not use placeholders such as New chat, Untitled, or Conversation title in any language.
     """
+
+    static func titleTask(userMessage: String, language: PalmiLanguage) -> String {
+        titleTaskTemplate + "\n\n" + GeneratedTextLanguagePolicy.instruction(userMessage: userMessage, fallback: language)
+    }
 
     struct Outcome {
         let title: String?
@@ -85,10 +89,16 @@ final class ConversationTitleService {
     }
 
     /// 不对标题做透明重试；网络超时或未知结果保持失败状态，后续轮次不再补发。
-    func generateTitle(target: WorkspaceAutoTitleTarget, frozen: FrozenModelRequest) async -> Outcome? {
+    func generateTitle(
+        target: WorkspaceAutoTitleTarget,
+        frozen: FrozenModelRequest,
+        userMessage: String,
+        language: PalmiLanguage
+    ) async -> Outcome? {
         guard let claim = claims.claim(target, firstRequestID: frozen.requestID) else { return nil }
         let (result, usage) = await MaintenanceRequestRunner.run(
-            frozen, purpose: .conversationTitle, task: Self.titleTaskTemplate, runtime: modelRuntime
+            frozen, purpose: .conversationTitle,
+            task: Self.titleTask(userMessage: userMessage, language: language), runtime: modelRuntime
         )
         switch result {
         case .success(let output):
@@ -107,7 +117,12 @@ final class ConversationTitleService {
         claims.update(claim.operationID, threadID: claim.threadID, state: applied ? .applied : .discarded)
     }
 
-    private static let placeholders: Set<String> = ["新聊天", "新会话", "新绘画", "未命名", "会话标题", "聊天标题", "标题"]
+    private static let placeholders: Set<String> = [
+        "新聊天", "新会话", "新绘画", "未命名", "会话标题", "聊天标题", "标题",
+        "新對話", "未命名對話", "對話標題", "new chat", "new conversation", "untitled", "conversation title", "title",
+        "新しいチャット", "無題", "새 채팅", "제목 없음", "neuer chat", "unbenannt", "ny chatt", "namnlös",
+        "محادثة جديدة", "بدون عنوان", "yeni sohbet", "başlıksız", "percakapan baru", "tanpa judul", "nouvelle discussion", "sans titre"
+    ]
 
     /// 按 Unicode 可见字符处理：去除外围引号与空白，拒绝空结果与占位词，不截坏字符。
     static func sanitize(_ rawTitle: String) -> String? {
@@ -115,13 +130,26 @@ final class ConversationTitleService {
             !$0.trimmingCharacters(in: .whitespaces).isEmpty
         }) else { return nil }
         var cleaned = String(line).trimmingCharacters(in: .whitespacesAndNewlines)
-        let quotes: Set<Character> = ["\"", "“", "”", "'", "「", "」", "《", "》", "`"]
+        let quotes: Set<Character> = ["\"", "“", "”", "„", "'", "«", "»", "「", "」", "《", "》", "`"]
         while let first = cleaned.first, quotes.contains(first) { cleaned.removeFirst() }
         while let last = cleaned.last, quotes.contains(last) { cleaned.removeLast() }
         cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
         while let last = cleaned.last, "。.！!？?，,".contains(last) { cleaned.removeLast() }
-        guard !cleaned.isEmpty, !placeholders.contains(cleaned) else { return nil }
-        if cleaned.count > 18 { cleaned = String(cleaned.prefix(18)).trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard !cleaned.isEmpty, !placeholders.contains(cleaned.lowercased()) else { return nil }
+        // Eighteen characters cuts ordinary European/Arabic titles off mid-word.
+        let cjkCount = cleaned.unicodeScalars.filter {
+            (0x3400...0x9FFF).contains($0.value) || (0x3040...0x30FF).contains($0.value)
+        }.count
+        let limit = cjkCount > cleaned.count / 2 ? 18 : 60
+        if cleaned.count > limit {
+            let prefix = String(cleaned.prefix(limit))
+            if limit == 60, let boundary = prefix.lastIndex(of: " "), prefix.distance(from: prefix.startIndex, to: boundary) >= 30 {
+                cleaned = String(prefix[..<boundary])
+            } else {
+                cleaned = prefix
+            }
+            cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         return cleaned.isEmpty ? nil : cleaned
     }
 }

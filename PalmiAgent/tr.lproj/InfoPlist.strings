@@ -1,0 +1,13 @@
+"CFBundleDisplayName" = "PalmiAgent";
+"CFBundleName" = "PalmiAgent";
+"NSAlarmKitUsageDescription" = "PalmiAgent, alarm ve sayaç oluşturmak, görüntülemek ve yönetmek için sistem alarmlarına erişim gerektirir.";
+"NSCalendarsFullAccessUsageDescription" = "PalmiAgent, test etkinlikleri oluşturmak ve okumak için takvim erişimi gerektirir.";
+"NSCameraUsageDescription" = "PalmiAgent; fotoğraf çekmek, belge taramak ve Canlı Metin tanıma için kamera erişimi gerektirir.";
+"NSContactsUsageDescription" = "PalmiAgent, test kişileri oluşturmak ve aramak için kişiler erişimi gerektirir.";
+"NSLocalNetworkUsageDescription" = "PalmiAgent, aynı ağdaki LM Studio sunucularını keşfetmek ve bu sunuculara bağlanmak için yerel ağ erişimi gerektirir.";
+"NSLocationWhenInUseUsageDescription" = "PalmiAgent; yer arama, rota önizleme ve adres bulma için konum erişimi gerektirir.";
+"NSMicrophoneUsageDescription" = "PalmiAgent, konuşma tanıma ve gelecekteki sesli etkileşimler için mikrofon erişimi gerektirir.";
+"NSPhotoLibraryAddUsageDescription" = "PalmiAgent, üretilen test görüntülerini kaydetmek için fotoğraf arşivinize ekleme izni gerektirir.";
+"NSPhotoLibraryUsageDescription" = "PalmiAgent, görüntü seçmek ve medyayı işlemek için fotoğraf arşivi erişimi gerektirir.";
+"NSRemindersFullAccessUsageDescription" = "PalmiAgent, test anımsatıcıları oluşturmak ve okumak için anımsatıcı erişimi gerektirir.";
+"NSSpeechRecognitionUsageDescription" = "PalmiAgent, sesli girdi ve ses deneyleri için konuşma tanıma erişimi gerektirir.";
