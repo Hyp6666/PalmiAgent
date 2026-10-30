@@ -2782,12 +2782,10 @@ struct ChatScreen: View {
                     isFocused = false
                     shellChrome.onOpenDrawer()
                 } label: {
-                    Image(systemName: "line.3.horizontal")
-                        .overlay(alignment: .topTrailing) {
-                            PalmiUnreadBadge(count: otherConversationUnreadCount).offset(x: 10, y: -10)
-                        }
+                    PalmiDrawerGlyph(unreadCount: otherConversationUnreadCount)
                 }
                 .accessibilityLabel(PalmiL10n.tr("drawer.open"))
+                .accessibilityValue(otherConversationUnreadCount > 0 ? PalmiL10n.tr("chat.unread.count", otherConversationUnreadCount) : "")
             }
 
             if isDraft {

@@ -22,6 +22,7 @@ struct PalmiDrawerActions {
 /// 底部搜索框 + 设置；右下角蓝色圆按钮：聊天 / 专业直接开新会话，仿生展开添加菜单。
 struct PalmiDrawer: View {
     @AppStorage(PalmiLanguage.storageKey) private var languageID = PalmiLanguage.zhHans.rawValue
+    @Environment(\.palmiUnread) private var unread
     @Bindable var workspaceStore: WorkspaceStore
     @Bindable var chatStore: ChatStore
     let bionicStore: BionicStore
@@ -127,7 +128,8 @@ struct PalmiDrawer: View {
     private var modePicker: some View {
         DrawerModeSegmentedControl(
             selection: Binding(get: { mode }, set: { actions.onSelectMode($0) }),
-            language: PalmiLanguage.resolve(languageID)
+            language: PalmiLanguage.resolve(languageID),
+            unread: unread
         )
         .accessibilityIdentifier("drawer.modePicker")
     }

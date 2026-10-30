@@ -28,9 +28,10 @@ extension EnvironmentValues {
 }
 struct PalmiUnreadBadge: View {
     let count: Int
+    static func text(_ count: Int) -> String { count > 99 ? "99+" : String(count) }
     var body: some View {
         if count > 0 {
-            Text(count > 99 ? "99+" : String(count))
+            Text(Self.text(count))
                 .font(.system(size: 11, weight: .bold)).monospacedDigit()
                 .foregroundStyle(.white)
                 .lineLimit(1)
@@ -40,6 +41,22 @@ struct PalmiUnreadBadge: View {
                 .fixedSize()
                 .accessibilityLabel(PalmiL10n.tr("chat.unread.count", count))
                 .allowsHitTesting(false)
+        }
+    }
+}
+/// 侧栏按钮图标：有未读时整颗图标换成蓝色数字，不再在图标上叠角标。
+struct PalmiDrawerGlyph: View {
+    let unreadCount: Int
+    var body: some View {
+        if unreadCount > 0 {
+            Text(PalmiUnreadBadge.text(unreadCount))
+                .fontWeight(.bold).monospacedDigit()
+                .foregroundStyle(.blue)
+                .lineLimit(1)
+                .fixedSize()
+                .contentTransition(.numericText())
+        } else {
+            Image(systemName: "line.3.horizontal")
         }
     }
 }

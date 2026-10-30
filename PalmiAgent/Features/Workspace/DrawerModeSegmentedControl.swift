@@ -6,6 +6,8 @@ import UIKit
 struct DrawerModeSegmentedControl: UIViewRepresentable {
     @Binding var selection: AppShellMode
     let language: PalmiLanguage
+    /// 各模式未读数：有未读的段把图标换成蓝色数字。
+    var unread: PalmiUnreadSnapshot = .init()
 
     private static let modes: [AppShellMode] = [.chat, .professional, .bionic]
 
@@ -26,6 +28,7 @@ struct DrawerModeSegmentedControl: UIViewRepresentable {
         control.accessibilityLabel = PalmiL10n.tr("common.mode", language: language)
         control.semanticContentAttribute = language.isRightToLeft ? .forceRightToLeft : .forceLeftToRight
         control.language = language
+        control.unreadCounts = Self.modes.map { unread.count(for: $0) }
         control.selectedSegmentIndex = Self.modes.firstIndex(of: selection) ?? 0
         control.setNeedsLayout()
         control.invalidateIntrinsicContentSize()
@@ -47,7 +50,16 @@ struct DrawerModeSegmentedControl: UIViewRepresentable {
 
     final class ModeControl: UISegmentedControl {
         var language: PalmiLanguage = .zhHans
+        var unreadCounts: [Int] = []
         private var renderedKey = ""
+
+        override init(items: [Any]?) {
+            super.init(items: items)
+            // 带未读数字的段是原色图片，深浅色切换时要重画。
+            registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (control: Self, _) in control.setNeedsLayout() }
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
         private var captionFont: UIFont { .preferredFont(forTextStyle: .footnote, compatibleWith: traitCollection) }
         private var symbolSize: CGFloat { UIFontMetrics(forTextStyle: .footnote).scaledValue(for: 19, compatibleWith: traitCollection) }
@@ -61,27 +73,39 @@ struct DrawerModeSegmentedControl: UIViewRepresentable {
             super.layoutSubviews()
             guard bounds.width > 0 else { return }
             let imageWidth = max(1, floor(bounds.width / 3) - 20)
-            let key = "\(language.rawValue)|\(imageWidth)|\(captionFont.pointSize)|\(traitCollection.displayScale)"
+            let key = "\(language.rawValue)|\(imageWidth)|\(captionFont.pointSize)|\(traitCollection.displayScale)|\(traitCollection.userInterfaceStyle.rawValue)|\(unreadCounts)"
             guard key != renderedKey else { return }
             renderedKey = key
             // Replacing segment actions can change UIKit's selection. Rendering must be read-only.
             let selection = selectedSegmentIndex
             for (index, mode) in DrawerModeSegmentedControl.modes.enumerated() {
                 let title = mode.localizedTitle(language: language)
-                let image = segmentImage(symbol: mode.symbolName, title: title, width: imageWidth)
+                let unread = unreadCounts.indices.contains(index) ? unreadCounts[index] : 0
+                let image = segmentImage(symbol: mode.symbolName, title: title, unread: unread, width: imageWidth)
+                let spoken = unread > 0 ? title + ", " + PalmiL10n.tr("chat.unread.count", unread) : title
                 // UIAction preserves the spoken title even though the segment displays an image.
-                setAction(UIAction(title: title, image: image) { _ in }, forSegmentAt: index)
+                setAction(UIAction(title: spoken, image: image) { _ in }, forSegmentAt: index)
             }
             selectedSegmentIndex = selection
         }
 
-        private func segmentImage(symbol: String, title: String, width: CGFloat) -> UIImage {
+        private func segmentImage(symbol: String, title: String, unread: Int, width: CGFloat) -> UIImage {
             let format = UIGraphicsImageRendererFormat()
             format.scale = traitCollection.displayScale
             let size = CGSize(width: width, height: contentHeight)
+            // 无未读时整张图走模板色；有未读时数字用系统蓝、文字用当前外观的 label 色，整张原色绘制。
+            let titleColor = unread > 0 ? UIColor.label.resolvedColor(with: traitCollection) : UIColor.black
             let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
                 let configuration = UIImage.SymbolConfiguration(pointSize: symbolSize, weight: .medium)
-                if let icon = UIImage(systemName: symbol, withConfiguration: configuration)?.withTintColor(.black, renderingMode: .alwaysOriginal) {
+                if unread > 0 {
+                    let digits = PalmiUnreadBadge.text(unread) as NSString
+                    let base = UIFont.monospacedDigitSystemFont(ofSize: symbolSize, weight: .bold)
+                    let natural = digits.size(withAttributes: [.font: base])
+                    let font = base.withSize(base.pointSize * min(1, width / max(1, natural.width)))
+                    let fitted = digits.size(withAttributes: [.font: font])
+                    digits.draw(at: CGPoint(x: (width - fitted.width) / 2, y: (symbolSize - fitted.height) / 2),
+                                withAttributes: [.font: font, .foregroundColor: UIColor.systemBlue])
+                } else if let icon = UIImage(systemName: symbol, withConfiguration: configuration)?.withTintColor(.black, renderingMode: .alwaysOriginal) {
                     let ratio = min(width / icon.size.width, symbolSize / icon.size.height)
                     let iconSize = CGSize(width: icon.size.width * ratio, height: icon.size.height * ratio)
                     icon.draw(in: CGRect(x: (width - iconSize.width) / 2, y: (symbolSize - iconSize.height) / 2,
@@ -92,9 +116,9 @@ struct DrawerModeSegmentedControl: UIViewRepresentable {
                 let paragraph = NSMutableParagraphStyle()
                 paragraph.alignment = .center
                 (title as NSString).draw(in: CGRect(x: 0, y: symbolSize + 5, width: width, height: captionFont.lineHeight),
-                                         withAttributes: [.font: font, .foregroundColor: UIColor.black, .paragraphStyle: paragraph])
+                                         withAttributes: [.font: font, .foregroundColor: titleColor, .paragraphStyle: paragraph])
             }
-            return image.withRenderingMode(.alwaysTemplate)
+            return image.withRenderingMode(unread > 0 ? .alwaysOriginal : .alwaysTemplate)
         }
     }
 }

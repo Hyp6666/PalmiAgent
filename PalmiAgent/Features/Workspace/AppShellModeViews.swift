@@ -81,7 +81,7 @@ struct AppShellTopBar: View {
     @ViewBuilder private var leadingButton: some View {
         if let onOpenDrawer {
             Button(action: onOpenDrawer) {
-                Image(systemName: "line.3.horizontal")
+                PalmiDrawerGlyph(unreadCount: unreadSnapshot.countOutside(mode))
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(.primary)
                     .frame(width: 50, height: 50)
@@ -89,10 +89,8 @@ struct AppShellTopBar: View {
             }
             .buttonStyle(.plain)
             .glassEffect(.regular.tint(.white.opacity(0.10)).interactive(), in: .capsule)
-            .overlay(alignment: .topTrailing) {
-                PalmiUnreadBadge(count: unreadSnapshot.countOutside(mode)).offset(x: 2, y: -2)
-            }
             .accessibilityLabel(PalmiL10n.tr("drawer.open"))
+            .accessibilityValue(unreadSnapshot.countOutside(mode) > 0 ? PalmiL10n.tr("chat.unread.count", unreadSnapshot.countOutside(mode)) : "")
         } else {
             Button(action: onOpenSettings) {
                 Image(systemName: "gearshape")
