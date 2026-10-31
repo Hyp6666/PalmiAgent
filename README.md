@@ -2,87 +2,121 @@
   <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a>
 </p>
 
-<h1 align="center">
-  <img src="Screenshots/palmi-icon-github.png" width="88" alt="Palmi icon"><br>
-  Palmi
-</h1>
-
 <p align="center">
-  <a href="https://apps.apple.com/us/app/palmiagent/id6787664658"><strong>Download on the App Store</strong></a>
+  <img src="Screenshots/palmi-icon-github.png" width="108" alt="Palmi icon">
 </p>
 
-Palmi is a native AI application for iPhone and iPad. It combines everyday conversations, a project-based agent workspace, and conversations with virtual characters. Users connect their own model services and manage conversations, files, tools, and reusable workflows within the app.
+<h1 align="center">Palmi</h1>
 
-The app stores its workspace on the device and sends model requests directly to the configured provider. It supports compatible cloud APIs, model services on a local network, and Codex OAuth accounts with the required access. The open-source repository retains the name **PalmiAgent**.
+<p align="center">
+  An AI client for iPhone and iPad.<br>
+  Connect your own model providers for everyday chat, agent tasks, and fictional characters.
+</p>
 
-## Modes and conversations
+<p align="center">
+  <a href="https://apps.apple.com/us/app/palmiagent/id6787664658"><img src="https://img.shields.io/badge/App%20Store-Free-0D96F6?logo=appstore&logoColor=white" alt="Free on the App Store"></a>
+  <img src="https://img.shields.io/badge/Requires-iOS%20%C2%B7%20iPadOS%2026.1%2B-1C1C1E?logo=apple&logoColor=white" alt="Requires iOS or iPadOS 26.1 or later">
+  <img src="https://img.shields.io/badge/Languages-11-F59E0B" alt="11 interface languages">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-D22128" alt="Apache 2.0 license"></a>
+</p>
 
-Palmi provides three modes for different uses:
+<p align="center">
+  <a href="https://apps.apple.com/us/app/palmiagent/id6787664658"><img src="https://toolbox.marketingtools.apple.com/api/v2/badges/download-on-the-app-store/black/en-us" height="48" alt="Download on the App Store"></a>
+</p>
 
-| Mode | Main functions |
+Palmi is an AI client for iPhone and iPad, and it does not ship with a model of its own. Presets are included for OpenAI, Claude, Gemini, DeepSeek, Kimi, Qwen, Zhipu GLM, and other services, and models hosted on your own computer can be reached over the local network.
+
+## Three modes
+
+| Mode | Purpose |
 | --- | --- |
-| Chat | General questions, writing, image understanding, and tool-assisted conversations. |
-| Professional | Projects, files, multi-step tasks, research, and generated deliverables. The agent can divide independent work among child agents and bring their results back into the main conversation. |
-| Bionic | Conversations with virtual characters whose profiles, memories, fictional diaries, and proactive messages provide continuity across exchanges. |
+| Chat | Everyday conversation and writing. Replies can include native charts, interactive controls, and small HTML apps. |
+| Professional | An agent that runs in a sandbox on the device, plans its own steps, and calls tools. Every step can be inspected. |
+| Bionic | Fictional characters with names, personalities, and long-term memory. They reply at their own pace and sometimes message you first. |
 
-Professional mode offers standard chat, Goal mode, and Deep Research mode. Runs show progress, tool calls, approvals, and results. Users can add messages while work is in progress and inspect the recorded process. Chat and Professional modes use Neo by default, with Hardcore available in runtime settings. The selected display style is saved. Neo presents the task process as a timeline with expandable steps and elapsed time.
+## Chat: charts and small apps in replies
 
-Bionic characters can be created manually, imported from an archive, or created with the built-in character-creation skill in Professional mode. Character settings include a name, avatar, background, personality, and model configuration. Conversations support history search, immediate or natural reply timing, pinned chats, muted notifications, custom backgrounds, and archive export and import. Generated characters, stories, and images are fictional.
-
-Bionic Basic includes the built-in Palmi character and up to two custom characters. Characters form memories and generate diaries on the free plan. A one-time Bionic Pro purchase increases the custom-character limit to 99 and adds memory detail viewing, navigation to source messages, manual memory editing, diary reading, and the developer inspection panel. Model usage is separate from this purchase.
+When a question involves data or the relationship between parameters, Palmi builds a native chart in the reply, together with sliders, toggles, or calculators; change a value and the chart updates. Animations, simulations, and small games are embedded in the reply as HTML apps that run inside the conversation, such as a round of 2048.
 
 <p align="center">
-  <a href="Screenshots/AppStore/26.10/iPhone/en/02-Bionic-Mode.png"><img src="Screenshots/AppStore/26.10/iPhone/en/02-Bionic-Mode.png" width="300" alt="Bionic character conversations"></a>
-  <a href="Screenshots/AppStore/26.10/iPhone/en/04-Execution-Timeline.png"><img src="Screenshots/AppStore/26.10/iPhone/en/04-Execution-Timeline.png" width="300" alt="Neo process timeline with expandable steps"></a>
+  <img src="Screenshots/AppStore/26.11-final/posters/DI/en-US/01-play-final.png" width="260" alt="A small game generated and played inside the conversation">
+  <img src="Screenshots/AppStore/26.11-final/posters/DI/en-US/02-results-final.png" width="260" alt="A colorful chart in a reply">
 </p>
 
-## Model connections
+## Professional mode: an agent in a sandbox
 
-Users can add a service address, API key, and model ID, select OpenAI Chat Completions, OpenAI Responses, or Anthropic Messages, or use automatic protocol matching. Built-in provider presets cover services such as OpenAI, Azure OpenAI, DeepSeek, GLM / Z.AI, Qwen, Kimi, MiniMax, OpenRouter, SiliconFlow, Ollama, and LM Studio. Other compatible services can be added manually.
+Professional mode is an agent that runs on the device. Given a task, it breaks the work into steps and calls tools: it searches and reads web pages, extracts text from PDF, DOCX, and PPTX files, processes data and runs calculations in a built-in Python environment, and writes reports, tables, and charts to the workspace. The Python environment includes libraries for spreadsheets, symbolic math, and HTML parsing, and code and files stay in the workspace inside the app's sandbox. With system permission, it can also create calendar events, reminders, and contacts.
 
-The global model library supports remote model discovery, manual entries, and connection validation. Model plans assign primary, multimodal, and lightweight roles; saved plans can be reused and selected per conversation. Supported models expose controls for thinking modes and reasoning effort. Response styles can be selected or described with a custom instruction.
+Larger tasks can be split into up to four subtasks that run at the same time. As a conversation grows, its context is compacted automatically, so long tasks can keep going. For research questions, Deep Research mode has the agent consult more sources before it reaches a conclusion.
 
-Codex OAuth sign-in imports account-associated models into the library. Image Generation Settings selects an available image model for supported image-generation tools and Bionic interactions. Model availability, image access, usage limits, and charges depend on the connected account or provider.
+Each workspace holds the conversations and files for one project, and output files can be browsed, previewed, and shared in the app. Every run is recorded step by step: the pages visited, files read, code executed, and time taken by each step can all be expanded. Tool approval has three levels: Ask Every Time, Auto Review (with review rules you can customize), and Allow All.
+
+Workflows you rely on can be saved as skills. Skills use the SKILL.md format; you can import existing skill packages or have the agent write new ones.
 
 <p align="center">
-  <a href="Screenshots/AppStore/26.10/iPhone/en/09-Model-Protocols.png"><img src="Screenshots/AppStore/26.10/iPhone/en/09-Model-Protocols.png" width="300" alt="API protocol and provider configuration"></a>
-  <a href="Screenshots/AppStore/26.10/iPhone/en/08-Codex-OAuth.png"><img src="Screenshots/AppStore/26.10/iPhone/en/08-Codex-OAuth.png" width="300" alt="Codex OAuth models in the global model library"></a>
+  <img src="Screenshots/AppStore/26.11-final/posters/DI/en-US/05-models-final.png" width="260" alt="Professional mode with thinking level and model settings">
+  <img src="Screenshots/AppStore/26.11-final/posters/DI/en-US/04-files-final.png" width="260" alt="Files in a workspace">
+  <img src="Screenshots/AppStore/26.11-final/posters/DI/en-US/06-sources-final.png" width="260" alt="Reasoning steps laid out one by one">
 </p>
 
-## Workspace and tools
+## Built-in browser
 
-Professional mode organizes work into projects and conversations. Attachments, source material, intermediate files, and deliverables stay in the relevant workspace. Users can browse and preview files, open generated HTML tools and visualizations, and export projects. The agent can read, create, append, move, copy, rename, and organize workspace files. Document tools extract text and assets from PDF, Office and iWork documents, and supported archives.
-
-Web research supports local search with Baidu, Bing, DuckDuckGo, Sogou, or 360 Search, and separately configured remote search services using Responses or Messages. The agent can read web pages and PDFs, follow links, retrieve sources in batches, and use selected ranges from long documents. Supporting sources and tool results remain available in the conversation.
-
-Local computation tools support calculations and data processing on the device. They can read task inputs and write result files inside the workspace.
-
-Images can be interpreted by a vision-capable primary model or a separate multimodal model. Bundled PP-OCRv6 Tiny resources provide on-device text recognition, including line content, confidence values, and bounding boxes. The app also supports native document and live text scanning.
-
-Skills supply reusable instructions for specific workflows. Users can import a `SKILL.md` file or a ZIP package, make it available globally or within a project, and manage it from the app. The built-in Skill Creator helps produce additional skills. Device integrations include Calendar, Reminders, Contacts, location and Maps, Camera, Photos, notifications, and speech input and output, subject to system permissions and the selected tools.
-
-Conversation and task state persist locally. Long tasks can condense earlier context while preserving task state. Background processing can continue for the time allowed by iOS; it does not guarantee uninterrupted execution while the app is closed.
+Professional mode includes a built-in browser. Tasks that have no API and can only be completed on a web page can be handed to the agent, which opens pages, clicks, types, and moves between tabs. When a page asks for a sign-in or human verification, you can take over and complete it yourself. Browser control is a beta feature.
 
 <p align="center">
-  <a href="Screenshots/Product/05-On-Device-OCR.png"><img src="Screenshots/Product/05-On-Device-OCR.png" width="300" alt="On-device text recognition"></a>
-  <a href="Screenshots/Product/09-Skills.png"><img src="Screenshots/Product/09-Skills.png" width="300" alt="Imported and built-in skills"></a>
+  <img src="Screenshots/AppStore/26.11-final/posters/DI/en-US/03-browser-final.png" width="260" alt="A web page open in Palmi's built-in browser">
 </p>
 
-## Data and permissions
+## Bionic mode
 
-Conversations, project files, character archives, task state, and settings are stored on the device by default. API keys and Codex OAuth credentials use the system Keychain. Palmi does not operate a server that relays model conversations. Requests send the content needed for the task directly to the model or search service selected by the user; those services apply their own terms and privacy policies.
+In Bionic mode, you define each character's name, avatar, personality, and background. Characters have long-term memory and remember past conversations. Replies can arrive instantly or at intervals closer to a real person's, and characters occasionally message you first. Palmi comes with a built-in character named Palmi; others can be created by hand, imported from an archive, or generated by the agent in Professional mode. Any character can be exported as a ZIP archive along with its chat history, memories, and avatar.
 
-Tool authorization can ask for approval each time, allow enabled tools, or apply automatic review with a user-defined policy. Tool activity, approvals, and file changes are recorded in the task process. Access to protected device data also follows iOS permissions. Local file operations, Python execution, and OCR can run on the device.
+<p align="center">
+  <img src="Screenshots/AppStore/26.11-final/posters/DI/en-US/09-palmi-final.png" width="260" alt="A chat with the Bionic character Palmi">
+</p>
 
-## Installation and source
+## Bring your own models
 
-Download [Palmi from the App Store](https://apps.apple.com/us/app/palmiagent/id6787664658), configure a compatible model service or an eligible Codex OAuth account, and select a model plan. The app requires **iOS or iPadOS 26.1 or later**. Its interface is available in Simplified Chinese, Traditional Chinese, English, Japanese, and Korean.
+The model library organizes models by provider. OpenAI, Claude, Gemini, xAI, DeepSeek, Kimi, Zhipu AI, and Alibaba Cloud Bailian come preconfigured and are ready once you enter an API key. ChatGPT account holders can sign in through Codex and use the models their account includes. LM Studio and Ollama running on a computer can be connected over the local network. Any other service compatible with the OpenAI or Claude API format can be added by its endpoint URL.
 
-Palmi does not include general-purpose model weights or third-party model credits. Network features require connectivity and provider availability. Bionic Basic and Bionic Pro both use the model services configured by the user and do not include model-service credits.
+Each conversation can use its own model and thinking level. Image understanding, web search, and page reading can each be assigned a separate model or service, using either a model's built-in web tools or standalone search APIs such as Kimi, Zhipu AI, and Baidu Qianfan.
 
-The source is released under the [Apache License 2.0](LICENSE).
+<p align="center">
+  <img src="Screenshots/AppStore/26.11-final/posters/DI/en-US/08-skills-final.png" width="260" alt="Model details with the API format menu">
+</p>
 
-- [Source repository](https://github.com/Hyp6666/PalmiAgent)
+## iPad and larger screens
+
+On iPad and other large screens, the browser, files, skills, and conversation list sit together in the sidebar, and web pages, charts, and file previews get more of the screen.
+
+<p align="center">
+  <img src="Screenshots/AppStore/26.11-final/posters/iPad/en-US/03-browser-final.png" width="400" alt="The built-in browser on iPad">
+  <img src="Screenshots/AppStore/26.11-final/posters/iPad/en-US/04-files-final.png" width="400" alt="File management on iPad">
+</p>
+<p align="center">
+  <img src="Screenshots/AppStore/26.11-final/posters/Duo/en-US/02-results-final.png" width="400" alt="A chart reply on a larger screen">
+  <img src="Screenshots/AppStore/26.11-final/posters/Duo/en-US/06-sources-final.png" width="400" alt="Reasoning steps on a larger screen">
+</p>
+
+## Your data
+
+Conversations, files, characters, and settings are stored on the device, and API keys are kept in the system Keychain. Palmi has no relay server: requests go directly from the device to the model service you chose, and that provider handles the data under its own terms and privacy policy. Access to Calendar, Reminders, Contacts, location, the camera, Photos, and the microphone requires system permission.
+
+## Download
+
+- Search for **Palmi** on the App Store, or open the [App Store page](https://apps.apple.com/us/app/palmiagent/id6787664658).
+- Requires iOS or iPadOS 26.1 or later.
+- Palmi is free to download. Model usage is billed by the provider you connect, and neither the app nor Bionic Pro includes model credits.
+- Interface languages: English, Simplified Chinese, Traditional Chinese, Japanese, Korean, German, French, Swedish, Turkish, Indonesian, and Arabic.
+
+## Links
+
+- App Store: [United States](https://apps.apple.com/us/app/palmiagent/id6787664658) · [China mainland](https://apps.apple.com/cn/app/palmiagent/id6787664658)
 - [Issues and feature requests](https://github.com/Hyp6666/PalmiAgent/issues)
 - [Releases](https://github.com/Hyp6666/PalmiAgent/releases)
+- [Contributing](CONTRIBUTING.md)
 - [Third-party components and licenses](THIRD_PARTY_NOTICES.md)
+
+## Open source
+
+Palmi's source code is released under the [Apache License 2.0](LICENSE). The repository name, PalmiAgent, comes from the app's earlier name.
