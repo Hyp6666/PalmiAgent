@@ -445,9 +445,6 @@
 "privacy.local.keychain" = "Les clés API sont stockées dans le trousseau système.";
 "privacy.local.noServer" = "PalmiAgent n’utilise pas de serveur cloud propre.";
 "privacy.local.storedOnDevice" = "Les sessions et fichiers sont stockés sur cet appareil.";
-"privacy.policy.currentLanguage" = "Politique dans la langue actuelle";
-"privacy.policy.en" = "Politique en anglais";
-"privacy.policy.zhHans" = "Politique en chinois simplifié/traditionnel";
 "privacy.section.localData" = "Données locales";
 "privacy.section.policyDocuments" = "Documents de politique";
 "privacy.section.thirdParty" = "Tiers";
@@ -1642,8 +1639,7 @@
 "updates.source" = "Lire la publication GitHub Release d’origine";
 "updates.dismiss" = "Terminé";
 "updates.more.title" = "Autres améliorations";
-"updates.link.repository" = "Dépôt GitHub";
-"updates.link.release" = "Notes de version de Palmi v26.11";
+"updates.link.release" = "Notes de version";
 "updates.openBionic" = "Ouvrir le mode Bionic";
 "updates.bionic.title" = "Mode Bionic";
 "updates.bionic.characters.title" = "Personnages et souvenirs";
@@ -1966,11 +1962,11 @@
 "updates.26.11.continued" = "Correction du traitement en arrière-plan : les tâches se poursuivent pendant la durée autorisée par le système lorsque vous quittez Palmi ou verrouillez l’appareil, avec la progression en direct sur l’écran verrouillé et dans la Dynamic Island. Cette fonction est activée par défaut et peut être désactivée dans Réglages.";
 "updates.26.11.chat" = "Palmi ouvre directement une conversation. Les modes Discussion et Professionnel offrent une expérience plus cohérente.";
 "updates.26.11.interface" = "Une interface renouvelée rassemble historique, fichiers, compétences et réglages dans une nouvelle barre latérale.";
-"updates.26.11.browser" = "Le contrôle du navigateur arrive en bêta ! En mode Professionnel, guidez-le avec vos mots, consultez plusieurs pages et reprenez la main pour vous connecter ou confirmer votre identité.";
-"updates.26.11.models" = "Regroupez vos modèles et choisissez celui par défaut. Les anciens réglages à trois modèles sont transférés automatiquement. Changez aussi de modèle en pleine conversation.";
+"updates.26.11.browser" = "Un navigateur intégré plus abouti :\n\nLa gestion et l’utilisation du navigateur intégré ont été entièrement améliorées.\nPalmi peut désormais piloter lui-même le navigateur intégré 🎉";
+"updates.26.11.models" = "Une nouvelle configuration des modèles :\n\nLes modèles sont regroupés par service avec un modèle par défaut, en remplacement de l’ancienne répartition sur trois modèles. Les réglages existants sont repris automatiquement et vous pouvez changer de modèle dans chaque conversation.\nLa compréhension d’images, l’approbation automatique, la recherche web et la génération d’images peuvent chacune utiliser leur propre modèle ⚙️";
 "updates.26.11.tools" = "Choisissez un modèle pour chaque outil :\nApprobation automatique ;\nAide visuelle pour les modèles sans vision ;\nRecherche web distante et lecture de pages ;\nCréation d’images.";
-"updates.26.11.interactive" = "Des réponses interactives sans réglage supplémentaire : un pélican à vélo, Qin Shi Huang sur un ours polaire, Tetris ou la météo, à explorer dans la réponse.";
-"updates.26.11.replies" = "Les réponses apparaissent pendant leur rédaction, mêlant texte, images et contenus interactifs. Continuez avec les suggestions de messages.";
+"updates.26.11.interactive" = "Les modes Discussion et Professionnel prennent désormais en charge les réponses interactives : décrivez votre souhait en une phrase et une vue interactive apparaît.\nCréez des jeux 🎮 et bien d’autres contenus amusants 🎉 sans toucher au code ni aux fichiers, et utilisez-les dès leur création.";
+"updates.26.11.replies" = "Le texte enrichi est désormais pris en charge, et d’autres formes de réponse n’attendent que vous.\nPalmi peut aussi vous poser des questions et propose automatiquement la suite à la fin de chaque réponse, pour une expérience nettement plus fluide 👍";
 "updates.26.11.files" = "Parcourez les fichiers des projets, ouvrez les dossiers, prévisualisez et partagez les fichiers, et consultez plus facilement les pièces jointes.";
 "updates.26.11.questions" = "Les questions s’affichent sur votre écran actuel. Répondez à la suite, ajoutez des précisions, ou retrouvez la conversation à l’origine de la question.";
 "updates.26.11.background" = "Travail en arrière-plan amélioré avec une progression plus réactive, y compris pour les réponses Bioniques. Les anciennes limites de durée et de tours n’interrompent plus les longues tâches.";

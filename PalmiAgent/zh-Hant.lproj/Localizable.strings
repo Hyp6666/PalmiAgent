@@ -445,9 +445,6 @@
 "privacy.local.keychain" = "API Key 儲存空間在系統 Keychain。";
 "privacy.local.noServer" = "PalmiAgent 不使用自有云端服務器。";
 "privacy.local.storedOnDevice" = "對話和檔案儲存空間在本機。";
-"privacy.policy.currentLanguage" = "目前語言政策檔案";
-"privacy.policy.en" = "英文政策檔案";
-"privacy.policy.zhHans" = "簡體/繁體中文政策檔案";
 "privacy.section.localData" = "本地資料";
 "privacy.section.policyDocuments" = "政策檔案";
 "privacy.section.thirdParty" = "第三方服務";
@@ -1654,8 +1651,7 @@
 "updates.source" = "查看 GitHub Release 原文";
 "updates.dismiss" = "完成";
 "updates.more.title" = "更多改進";
-"updates.link.repository" = "GitHub 儲存庫";
-"updates.link.release" = "Palmi v26.11 發布說明";
+"updates.link.release" = "發布說明";
 "updates.openBionic" = "開啟仿生模式";
 "updates.bionic.title" = "仿生模式";
 "updates.bionic.characters.title" = "角色與記憶";
@@ -2014,11 +2010,11 @@
 "updates.26.11.continued" = "修復了背景繼續處理：離開 Palmi 或鎖定螢幕後，任務會在系統允許的時間內繼續執行，鎖定畫面和動態島會顯示即時進度。此功能現已預設開啟，可在設定中關閉。";
 "updates.26.11.chat" = "重整互動體驗，現在開啟 Palmi 直接進入聊天，聊天與專業模式更加一致。";
 "updates.26.11.interface" = "全新介面與側欄集中收納歷史對話、檔案、技能與設定，切換更順手。";
-"updates.26.11.browser" = "瀏覽器操控測試版登場！可在專業模式用自然語言指揮內建瀏覽器，查看多個網頁，登入或驗證時也能親自接手。";
-"updates.26.11.models" = "全新模型分組與預設模型選擇，舊有三模型設定會自動遷移，對話中也能隨時切換模型。";
+"updates.26.11.browser" = "更完善的內建瀏覽器：\n\n內建瀏覽器的管理與使用體驗全面完善。\n同時，Palmi 現已可以操控內建瀏覽器🎉";
+"updates.26.11.models" = "全新的模型設定：\n\n模型依服務分組管理，可設定預設模型，告別過去的三模型分工方案；既有設定自動遷移，對話中也能隨時切換模型。\n看圖、自動審查、網頁搜尋與圖片生成等工具，現可分別指定模型⚙️";
 "updates.26.11.tools" = "更多工具可單獨選擇模型：\n自動審核；\n為無法看圖的模型準備的視覺工具；\n遠端網頁搜尋與讀取；\n圖片生成。";
-"updates.26.11.interactive" = "互動式回覆已就緒，無須額外設定。騎腳踏車的鵜鶘？秦始皇騎北極熊？俄羅斯方塊？天氣查詢？直接在回覆中體驗。";
-"updates.26.11.replies" = "回覆邊生成邊呈現，文字、圖片與互動內容自然銜接，也能從下一句建議繼續聊。";
+"updates.26.11.interactive" = "聊天模式與專業模式現已支援互動式輸出，一句話即可像許願一樣創造出可互動的畫面。\n創造遊戲🎮和更多有趣🎉的內容時，無需接觸程式碼和檔案，產生後即可當場使用。";
+"updates.26.11.replies" = "現已支援富文字輸出，更多輸出介面等你親自探索。\n同時，Palmi 現在會主動向你提問，並在回答結束後自動產生建議輸入，整體互動體驗大幅提升👍";
 "updates.26.11.files" = "統一瀏覽專案檔案、展開資料夾、預覽與分享檔案，對話附件也更方便查看。";
 "updates.26.11.questions" = "需要你決定時，問題會浮現在目前畫面。可連續回答、補充說明或回到提問的對話。";
 "updates.26.11.background" = "強化背景執行與進度顯示，仿生回覆也能顯示背景進度，長任務不再受原先固定時長與輪數限制。";

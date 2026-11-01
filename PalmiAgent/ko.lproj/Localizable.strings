@@ -445,9 +445,6 @@
 "privacy.local.keychain" = "API Key는 시스템 Keychain에 저장됩니다.";
 "privacy.local.noServer" = "PalmiAgent는 자체 클라우드 서버를 사용하지 않습니다.";
 "privacy.local.storedOnDevice" = "세션과 파일은 이 기기에 저장됩니다.";
-"privacy.policy.currentLanguage" = "현재 언어 정책 파일";
-"privacy.policy.en" = "영어 정책 파일";
-"privacy.policy.zhHans" = "간체/번체 중국어 정책 파일";
 "privacy.section.localData" = "로컬 데이터";
 "privacy.section.policyDocuments" = "정책 파일";
 "privacy.section.thirdParty" = "제3자 서비스";
@@ -1654,8 +1651,7 @@
 "updates.source" = "GitHub 릴리스 원문 보기";
 "updates.dismiss" = "완료";
 "updates.more.title" = "기타 개선 사항";
-"updates.link.repository" = "GitHub 저장소";
-"updates.link.release" = "Palmi v26.11 릴리스 노트";
+"updates.link.release" = "릴리스 노트";
 "updates.openBionic" = "바이오닉 모드 열기";
 "updates.bionic.title" = "바이오닉 모드";
 "updates.bionic.characters.title" = "캐릭터와 기억";
@@ -2014,11 +2010,11 @@
 "updates.26.11.continued" = "백그라운드 계속 처리를 수정했습니다. Palmi를 떠나거나 화면을 잠가도 시스템이 허용하는 시간 동안 작업이 계속되며, 잠금 화면과 Dynamic Island에 진행 상황이 표시됩니다. 이 기능은 기본적으로 켜져 있으며 설정에서 끌 수 있습니다.";
 "updates.26.11.chat" = "Palmi를 열면 바로 대화로 들어갑니다. 채팅과 전문가 모드의 사용 경험이 더욱 일관됩니다.";
 "updates.26.11.interface" = "새로운 화면과 사이드바에서 대화 기록, 파일, 스킬, 설정을 한곳에서 찾으세요.";
-"updates.26.11.browser" = "브라우저 조작 베타가 왔습니다! 전문가 모드에서 말로 브라우저를 지시하고 여러 페이지를 확인하세요. 로그인이나 인증은 직접 이어받을 수 있습니다.";
-"updates.26.11.models" = "모델을 그룹으로 정리하고 기본 모델을 선택하세요. 기존 3개 모델 설정은 자동 이전되며 대화 중에도 바꿀 수 있습니다.";
+"updates.26.11.browser" = "더욱 완성된 내장 브라우저:\n\n내장 브라우저의 관리와 사용 경험을 전반적으로 개선했습니다.\n또한 이제 Palmi가 내장 브라우저를 직접 조작할 수 있습니다🎉";
+"updates.26.11.models" = "새로운 모델 구성:\n\n모델을 서비스별로 그룹화하고 기본 모델을 지정할 수 있어 이전의 3개 모델 분담 방식을 대체합니다. 기존 설정은 자동으로 이전되며 대화 중에도 언제든 모델을 바꿀 수 있습니다.\n이미지 이해, 자동 검토, 웹 검색, 이미지 생성 등의 도구에 각각 다른 모델을 지정할 수 있습니다⚙️";
 "updates.26.11.tools" = "더 많은 도구에 개별 모델을 선택하세요:\n자동 승인;\n이미지를 보지 못하는 모델을 위한 시각 도구;\n원격 웹 검색과 페이지 읽기;\n이미지 생성.";
-"updates.26.11.interactive" = "추가 설정 없이 대화형 답변을 즐기세요. 자전거 타는 펠리컨, 북극곰을 탄 진시황, 테트리스, 날씨까지 답변 안에서 만나보세요.";
-"updates.26.11.replies" = "답변이 작성되는 대로 표시되며 글, 이미지, 대화형 콘텐츠가 자연스럽게 이어집니다. 다음 메시지 제안으로 대화를 계속하세요.";
+"updates.26.11.interactive" = "채팅 모드와 전문 모드에서 인터랙티브 출력을 지원합니다. 한 문장으로 소원을 빌듯 조작 가능한 화면을 만들어 보세요.\n게임🎮과 다양한 재미있는🎉 콘텐츠도 코드나 파일을 다룰 필요 없이 생성 즉시 사용할 수 있습니다.";
+"updates.26.11.replies" = "리치 텍스트 출력을 지원합니다. 더 많은 출력 UI를 직접 살펴보세요.\n또한 이제 Palmi가 먼저 질문하고, 답변이 끝나면 추천 입력을 자동으로 제시해 전반적인 사용 경험이 크게 좋아졌습니다👍";
 "updates.26.11.files" = "프로젝트 파일을 모아 보고 폴더 열기, 미리 보기, 공유와 대화 첨부 확인도 더 쉽게 하세요.";
 "updates.26.11.questions" = "결정이 필요하면 현재 화면에 질문이 나타납니다. 연속 답변, 설명 추가, 질문한 대화로 돌아가기를 지원합니다.";
 "updates.26.11.background" = "백그라운드 작업과 진행 표시를 개선하고 바이오닉 답변도 지원합니다. 긴 작업이 기존 시간이나 횟수 제한으로 중단되지 않습니다.";

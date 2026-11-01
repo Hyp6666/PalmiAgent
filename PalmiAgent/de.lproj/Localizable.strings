@@ -445,9 +445,6 @@
 "privacy.local.keychain" = "API-Schlüssel werden im Systemschlüsselbund gespeichert.";
 "privacy.local.noServer" = "PalmiAgent verwendet keinen eigenen Cloudserver.";
 "privacy.local.storedOnDevice" = "Sitzungen und Dateien werden auf diesem Gerät gespeichert.";
-"privacy.policy.currentLanguage" = "Richtliniendatei für die aktuelle Sprache";
-"privacy.policy.en" = "Englische Richtliniendatei";
-"privacy.policy.zhHans" = "Richtliniendatei auf vereinfachtem/traditionellem Chinesisch";
 "privacy.section.localData" = "Lokale Daten";
 "privacy.section.policyDocuments" = "Richtliniendokumente";
 "privacy.section.thirdParty" = "Drittanbieter";
@@ -1642,8 +1639,7 @@
 "updates.source" = "Originalveröffentlichung auf GitHub lesen";
 "updates.dismiss" = "Fertig";
 "updates.more.title" = "Weitere Verbesserungen";
-"updates.link.repository" = "GitHub-Repository";
-"updates.link.release" = "Versionshinweise zu Palmi v26.11";
+"updates.link.release" = "Versionshinweise";
 "updates.openBionic" = "Bionic-Modus öffnen";
 "updates.bionic.title" = "Bionic-Modus";
 "updates.bionic.characters.title" = "Figuren und Erinnerungen";
@@ -1966,11 +1962,11 @@
 "updates.26.11.continued" = "Fortsetzung im Hintergrund behoben: Aufgaben laufen im vom System erlaubten Zeitraum weiter, wenn du Palmi verlässt oder das Gerät sperrst, mit Live-Fortschritt auf dem Sperrbildschirm und in der Dynamic Island. Die Funktion ist standardmäßig aktiviert und kann in den Einstellungen ausgeschaltet werden.";
 "updates.26.11.chat" = "Palmi öffnet direkt eine Unterhaltung. Chat und Profi-Modus lassen sich jetzt einheitlicher bedienen.";
 "updates.26.11.interface" = "Die neue Oberfläche bündelt Verlauf, Dateien, Skills und Einstellungen in einer Seitenleiste.";
-"updates.26.11.browser" = "Browsersteuerung als Beta: Im Profi-Modus den Browser in Alltagssprache steuern, mehrere Seiten ansehen und Anmeldung oder Bestätigung selbst übernehmen.";
-"updates.26.11.models" = "Modelle gruppieren und ein Standardmodell wählen. Die bisherige Drei-Modell-Einrichtung wird automatisch übernommen. Modelle lassen sich auch im Gespräch wechseln.";
+"updates.26.11.browser" = "Ein ausgereifterer integrierter Browser:\n\nVerwaltung und Bedienung des integrierten Browsers wurden umfassend verbessert.\nAußerdem kann Palmi den integrierten Browser jetzt selbst steuern 🎉";
+"updates.26.11.models" = "Eine neue Modellkonfiguration:\n\nModelle werden nach Dienst gruppiert und erhalten ein Standardmodell; die bisherige Aufteilung auf drei Modelle entfällt. Bestehende Einstellungen werden automatisch übernommen, und Modelle lassen sich in jeder Unterhaltung wechseln.\nBildverständnis, automatische Prüfung, Websuche und Bildgenerierung können jeweils ein eigenes Modell verwenden ⚙️";
 "updates.26.11.tools" = "Für weitere Werkzeuge eigene Modelle wählen:\nAutomatische Freigabe;\nSehhilfe für Modelle ohne Bildverständnis;\nEntfernte Websuche und Seitenlesen;\nBilderzeugung.";
-"updates.26.11.interactive" = "Interaktive Antworten ohne zusätzliche Einrichtung: ein radelnder Pelikan, Qin Shi Huang auf einem Eisbären, Tetris oder das Wetter – direkt in der Antwort.";
-"updates.26.11.replies" = "Antworten erscheinen beim Schreiben und verbinden Text, Bilder und interaktive Inhalte. Vorschläge helfen, das Gespräch fortzusetzen.";
+"updates.26.11.interactive" = "Die Modi Chat und Professionell unterstützen jetzt interaktive Ausgaben: Ein einziger Satz genügt, und eine interaktive Ansicht entsteht.\nSpiele 🎮 und viele weitere unterhaltsame 🎉 Inhalte entstehen ganz ohne Code und Dateien und lassen sich sofort nutzen.";
+"updates.26.11.replies" = "Rich-Text-Ausgaben werden jetzt unterstützt – weitere Ausgabeformen warten darauf, von dir entdeckt zu werden.\nAußerdem kann Palmi dir jetzt Fragen stellen und schlägt nach jeder Antwort automatisch nächste Eingaben vor. Die Bedienung ist dadurch deutlich angenehmer 👍";
 "updates.26.11.files" = "Projektdateien gemeinsam durchsuchen, Ordner öffnen, Dateien ansehen und teilen sowie Anhänge leichter finden.";
 "updates.26.11.questions" = "Fragen erscheinen über dem aktuellen Bildschirm. Nacheinander antworten, Details ergänzen, oder zum fragenden Gespräch zurückkehren.";
 "updates.26.11.background" = "Bessere Hintergrundarbeit mit aktuellerem Fortschritt, auch für Bionic-Antworten. Lange Aufgaben werden nicht mehr durch die bisherigen Zeit- und Rundengrenzen unterbrochen.";

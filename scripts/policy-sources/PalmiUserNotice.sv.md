@@ -6,7 +6,7 @@ Läs dokumentet innan du konfigurerar en modell. Genom att välja ”Jag har lä
 
 ## 1. Syfte och omfattning
 
-Detta dokument är Palmis (PalmiAgents) användarinformation som visas innan en modell konfigureras för första gången. Det förklarar möjliga dataflöden mellan den lokala appen, modelltjänster som användaren väljer, systembehörigheter och tredjepartsverktyg, och ber användaren att uttryckligen bekräfta informationen innan hen fortsätter.
+Detta dokument är Palmis (Palmis) användarinformation som visas innan en modell konfigureras för första gången. Det förklarar möjliga dataflöden mellan den lokala appen, modelltjänster som användaren väljer, systembehörigheter och tredjepartsverktyg, och ber användaren att uttryckligen bekräfta informationen innan hen fortsätter.
 
 Dokumentet är inte någon modellleverantörs integritetspolicy. Det ersätter inte användarvillkor, integritetspolicy, utvecklaravtal, personuppgiftsbiträdesavtal, policy för godtagbar användning, modelllicens eller säkerhetsregler för någon tredjepartsmodellleverantör, molnleverantör, modellaggregator, företagsgateway, systemtjänst eller lokal driftsättning.
 

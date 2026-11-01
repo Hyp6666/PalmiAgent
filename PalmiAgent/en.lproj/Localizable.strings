@@ -445,9 +445,6 @@
 "privacy.local.keychain" = "API Keys are stored in the system Keychain.";
 "privacy.local.noServer" = "PalmiAgent does not use its own cloud server.";
 "privacy.local.storedOnDevice" = "Sessions and files are stored on this device.";
-"privacy.policy.currentLanguage" = "Policy file for current language";
-"privacy.policy.en" = "English policy file";
-"privacy.policy.zhHans" = "Simplified/Traditional Chinese policy file";
 "privacy.section.localData" = "Local Data";
 "privacy.section.policyDocuments" = "Policy Documents";
 "privacy.section.thirdParty" = "Third Party";
@@ -1654,8 +1651,7 @@
 "updates.source" = "Read the original GitHub Release";
 "updates.dismiss" = "Done";
 "updates.more.title" = "More Improvements";
-"updates.link.repository" = "GitHub Repository";
-"updates.link.release" = "Palmi v26.11 Release Notes";
+"updates.link.release" = "Release Notes";
 "updates.openBionic" = "Open Bionic mode";
 "updates.bionic.title" = "Bionic mode";
 "updates.bionic.characters.title" = "Characters and memories";
@@ -2014,11 +2010,11 @@
 "updates.26.11.continued" = "Fixed background processing: tasks now keep running within the time the system allows after you leave Palmi or lock your device, with live progress on the Lock Screen and in the Dynamic Island. It is on by default and can be turned off in Settings.";
 "updates.26.11.chat" = "Open Palmi straight into a conversation, with a more consistent experience across Chat and Professional modes.";
 "updates.26.11.interface" = "A refreshed interface brings conversation history, files, skills and settings together in a new sidebar.";
-"updates.26.11.browser" = "Browser control is here in beta! Direct the built-in browser in everyday language in Professional mode, view multiple pages and take over for sign-in or verification.";
-"updates.26.11.models" = "Organize models into groups and choose a default. Your previous three-model setup moves over automatically, and you can switch models in a conversation.";
+"updates.26.11.browser" = "A more capable built-in browser:\n\nManaging and using the built-in browser has been refined throughout.\nPalmi can now operate the built-in browser for you 🎉";
+"updates.26.11.models" = "A new model setup:\n\nModels are grouped by service with a default model, replacing the previous three-model arrangement. Existing settings move over automatically, and you can switch models in any conversation.\nVision, automatic approval, web search and image generation can each use their own model ⚙️";
 "updates.26.11.tools" = "Choose separate models for more tools:\nAutomatic approval;\nVisual help for models that cannot see images;\nRemote web search and page reading;\nImage generation.";
-"updates.26.11.interactive" = "Interactive replies are ready with no extra setup. A cycling pelican? Qin Shi Huang riding a polar bear? Tetris? The weather? Explore them right inside the reply.";
-"updates.26.11.replies" = "Replies appear as they are written, bringing text, images and interactive content together. Keep chatting with suggested next messages.";
+"updates.26.11.interactive" = "Chat and Professional modes now support interactive output: describe what you want in a single sentence and an interactive scene appears.\nCreate games 🎮 and more fun 🎉 content without touching code or files, and use it the moment it is generated.";
+"updates.26.11.replies" = "Rich text output is now supported, with more output layouts waiting for you to explore.\nPalmi can now ask you questions and suggests what to say next when a reply finishes, making the whole experience much smoother 👍";
 "updates.26.11.files" = "Browse project files together, open folders, preview and share files, and view conversation attachments more easily.";
 "updates.26.11.questions" = "Questions appear over your current screen when Palmi needs a decision. Answer in sequence, add details, or return to the conversation that asked.";
 "updates.26.11.background" = "Improved background work with more timely progress, including Bionic replies. Long tasks are no longer interrupted by the previous fixed time and turn limits.";

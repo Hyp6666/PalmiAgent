@@ -445,9 +445,6 @@
 "privacy.local.keychain" = "API-nycklar lagras i systemets Nyckelring.";
 "privacy.local.noServer" = "PalmiAgent använder ingen egen molnserver.";
 "privacy.local.storedOnDevice" = "Sessioner och filer lagras på den här enheten.";
-"privacy.policy.currentLanguage" = "Policyfil för aktuellt språk";
-"privacy.policy.en" = "Engelsk policyfil";
-"privacy.policy.zhHans" = "Policyfil på förenklad/traditionell kinesiska";
 "privacy.section.localData" = "Lokala data";
 "privacy.section.policyDocuments" = "Policydokument";
 "privacy.section.thirdParty" = "Tredje part";
@@ -1642,8 +1639,7 @@
 "updates.source" = "Läs den ursprungliga GitHub-versionen";
 "updates.dismiss" = "Klart";
 "updates.more.title" = "Fler förbättringar";
-"updates.link.repository" = "GitHub-repository";
-"updates.link.release" = "Versionsinformation för Palmi v26.11";
+"updates.link.release" = "Versionsinformation";
 "updates.openBionic" = "Öppna Bionic-läget";
 "updates.bionic.title" = "Bionic-läge";
 "updates.bionic.characters.title" = "Karaktärer och minnen";
@@ -1966,11 +1962,11 @@
 "updates.26.11.continued" = "Fortsatt bearbetning i bakgrunden har åtgärdats: uppgifter fortsätter under den tid systemet tillåter när du lämnar Palmi eller låser enheten, med aktuellt förlopp på låsskärmen och i Dynamic Island. Funktionen är på som standard och kan stängas av i Inställningar.";
 "updates.26.11.chat" = "Palmi öppnar direkt i en konversation. Chatt och professionellt läge känns mer enhetliga.";
 "updates.26.11.interface" = "Ett nytt gränssnitt samlar historik, filer, färdigheter och inställningar i en sidopanel.";
-"updates.26.11.browser" = "Webbläsarstyrning i beta! Styr med vanliga ord i professionellt läge, visa flera sidor och ta över vid inloggning eller verifiering.";
-"updates.26.11.models" = "Gruppera modeller och välj en standardmodell. Dina tidigare tre modellinställningar flyttas automatiskt. Byt även modell under samtalet.";
+"updates.26.11.browser" = "En mer komplett inbyggd webbläsare:\n\nHantering och användning av den inbyggda webbläsaren har förbättrats genomgående.\nPalmi kan nu dessutom styra den inbyggda webbläsaren 🎉";
+"updates.26.11.models" = "En ny modellkonfiguration:\n\nModeller grupperas efter tjänst med en standardmodell, i stället för den tidigare uppdelningen på tre modeller. Befintliga inställningar flyttas över automatiskt, och du kan byta modell i varje konversation.\nBildförståelse, automatisk granskning, webbsökning och bildgenerering kan använda var sin modell ⚙️";
 "updates.26.11.tools" = "Välj egna modeller för fler verktyg:\nAutomatiskt godkännande;\nBildhjälp för modeller som inte kan se bilder;\nFjärrsökning på webben och sidläsning;\nBildgenerering.";
-"updates.26.11.interactive" = "Interaktiva svar utan extra inställningar: en cyklande pelikan, Qin Shi Huang på en isbjörn, Tetris eller vädret – direkt i svaret.";
-"updates.26.11.replies" = "Svaren visas medan de skrivs och förenar text, bilder och interaktivt innehåll. Fortsätt med föreslagna meddelanden.";
+"updates.26.11.interactive" = "Lägena Chatt och Professionellt har nu stöd för interaktiva svar: beskriv vad du vill ha i en mening så skapas en interaktiv vy.\nSkapa spel 🎮 och mycket annat roligt 🎉 utan att röra kod eller filer, och använd det direkt när det har skapats.";
+"updates.26.11.replies" = "Formaterad text stöds nu, och fler typer av svar väntar på att du ska upptäcka dem.\nPalmi kan nu också ställa frågor till dig och föreslår automatiskt nästa meddelande när ett svar är klart, vilket gör upplevelsen betydligt smidigare 👍";
 "updates.26.11.files" = "Bläddra bland projektfiler, öppna mappar, förhandsvisa och dela filer och se bilagor enklare.";
 "updates.26.11.questions" = "Frågor visas ovanpå aktuell skärm. Svara i följd, lägg till detaljer, eller återgå till samtalet som frågade.";
 "updates.26.11.background" = "Bättre bakgrundsarbete och aktuellare framsteg, även för bioniska svar. Långa uppgifter avbryts inte längre av tidigare tids- och turgränser.";

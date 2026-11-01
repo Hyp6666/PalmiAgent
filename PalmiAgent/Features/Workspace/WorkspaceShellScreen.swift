@@ -992,9 +992,17 @@ private struct OnboardingAIDataSharingConsentStep: View {
         let parts = PalmiL10n.tr("consent.accept.format").components(separatedBy: "%@")
         var name = AttributedString(document.displayName)
         name.link = document.linkURL
-        let leading = parts.first ?? ""
+        var leading = parts.first ?? ""
         let trailing = parts.dropFirst().joined()
-        return Text("\(leading)\(documentIcon(document))\(name)\(trailing)")
+        // PDF 图标放在书名号或引号外侧：“接受 [图标]《文件名》”。
+        var opening = ""
+        let trimmed = leading.replacing(/\s+$/, with: "")
+        if let mark = trimmed.last, "《「“„«”".contains(mark) {
+            let cut = trimmed.count - 1
+            opening = String(leading.dropFirst(cut))
+            leading = String(leading.prefix(cut))
+        }
+        return Text("\(leading)\(documentIcon(document))\(opening)\(name)\(trailing)")
     }
 
     private func documentIcon(_ document: PalmiPolicyDocument) -> Text {
@@ -1708,33 +1716,18 @@ private struct PrivacyAndPolicySettingsScreen: View {
             }
 
             Section(PalmiL10n.tr("privacy.section.policyDocuments")) {
-                NavigationLink {
-                    PalmiPolicyDocumentScreen(languageID: selectedLanguageID)
-                } label: {
-                    Label {
-                        Text(PalmiL10n.tr("privacy.policy.currentLanguage"))
-                    } icon: {
-                        PalmiFileIcon(name: PalmiPolicyDocumentResource.displayFileName(for: selectedLanguageID), size: 24)
-                    }
-                }
-
-                NavigationLink {
-                    PalmiPolicyDocumentScreen(languageID: PalmiLanguage.zhHans.rawValue)
-                } label: {
-                    Label {
-                        Text(PalmiL10n.tr("privacy.policy.zhHans"))
-                    } icon: {
-                        PalmiFileIcon(name: PalmiPolicyDocumentResource.displayFileName(for: PalmiLanguage.zhHans.rawValue), size: 24)
-                    }
-                }
-
-                NavigationLink {
-                    PalmiPolicyDocumentScreen(languageID: PalmiLanguage.en.rawValue)
-                } label: {
-                    Label {
-                        Text(PalmiL10n.tr("privacy.policy.en"))
-                    } icon: {
-                        PalmiFileIcon(name: PalmiPolicyDocumentResource.displayFileName(for: PalmiLanguage.en.rawValue), size: 24)
+                ForEach(PalmiPolicyDocument.allCases) { document in
+                    NavigationLink {
+                        PalmiPolicyDocumentScreen(languageID: selectedLanguageID, document: document)
+                    } label: {
+                        Label {
+                            Text(document.displayName)
+                        } icon: {
+                            PalmiFileIcon(
+                                name: PalmiPolicyDocumentResource.displayFileName(for: selectedLanguageID, document: document),
+                                size: 24
+                            )
+                        }
                     }
                 }
             }

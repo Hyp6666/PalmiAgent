@@ -13,8 +13,12 @@ enum ReleaseNotesCatalog {
     ]
     static let repositoryURL = URL(string: "https://github.com/Hyp6666/PalmiAgent")!
     static let currentReleaseURL = URL(string: "https://github.com/Hyp6666/PalmiAgent/releases/tag/v26.11")!
+    /// 已在海报页文字中提到的条目（提问、工具单独选模型），第五页不再重复。
+    static let coveredByFeatured: Set<String> = ["questions", "tools"]
     static var listedItems: [String] {
-        currentItems.filter { item in !featuredItems.contains { $0.item == item } }
+        currentItems.filter { item in
+            !featuredItems.contains { $0.item == item } && !coveredByFeatured.contains(item)
+        }
     }
     static let acknowledgedKey = "palmi.release-notes.acknowledged"
     static func title(for version: String) -> String {
@@ -72,10 +76,28 @@ struct CurrentReleaseNotesScreen: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(PalmiL10n.tr("updates.current"))
-                .font(.largeTitle.bold())
-                .padding(.horizontal, 24)
-                .padding(.top, 12)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(PalmiL10n.tr("updates.current"))
+                    .font(.largeTitle.bold())
+                HStack(spacing: 18) {
+                    Link(destination: ReleaseNotesCatalog.repositoryURL) {
+                        Label {
+                            Text(verbatim: "Hyp6666/PalmiAgent")
+                        } icon: {
+                            Image("GitHubMark")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 16, height: 16)
+                        }
+                    }
+                    Link(destination: ReleaseNotesCatalog.currentReleaseURL) {
+                        Label(PalmiL10n.tr("updates.link.release"), systemImage: "tag")
+                    }
+                }
+                .font(.subheadline)
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 12)
             TabView {
                 ForEach(ReleaseNotesCatalog.featuredItems, id: \.item) { feature in
                     page {
@@ -97,13 +119,6 @@ struct CurrentReleaseNotesScreen: View {
                             Text(PalmiL10n.tr("updates.26.11.\(item)"))
                                 .fixedSize(horizontal: false, vertical: true)
                         }
-                    }
-                    Divider().padding(.vertical, 4)
-                    Link(destination: ReleaseNotesCatalog.repositoryURL) {
-                        Label(PalmiL10n.tr("updates.link.repository"), systemImage: "chevron.left.forwardslash.chevron.right")
-                    }
-                    Link(destination: ReleaseNotesCatalog.currentReleaseURL) {
-                        Label(PalmiL10n.tr("updates.link.release"), systemImage: "tag")
                     }
                 }
             }

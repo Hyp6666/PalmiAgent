@@ -445,9 +445,6 @@
 "privacy.local.keychain" = "API Anahtarları sistem Keychain'inde saklanır.";
 "privacy.local.noServer" = "PalmiAgent kendi bulut sunucusunu kullanmaz.";
 "privacy.local.storedOnDevice" = "Oturumlar ve dosyalar bu cihazda saklanır.";
-"privacy.policy.currentLanguage" = "Geçerli dilin politika dosyası";
-"privacy.policy.en" = "İngilizce politika dosyası";
-"privacy.policy.zhHans" = "Basitleştirilmiş/Geleneksel Çince politika dosyası";
 "privacy.section.localData" = "Yerel Veriler";
 "privacy.section.policyDocuments" = "Politika Belgeleri";
 "privacy.section.thirdParty" = "Üçüncü Taraf";
@@ -1642,8 +1639,7 @@
 "updates.source" = "Özgün GitHub Sürümünü Okuyun";
 "updates.dismiss" = "Bitti";
 "updates.more.title" = "Diğer İyileştirmeler";
-"updates.link.repository" = "GitHub Deposu";
-"updates.link.release" = "Palmi v26.11 Sürüm Notları";
+"updates.link.release" = "Sürüm Notları";
 "updates.openBionic" = "Bionic modunu aç";
 "updates.bionic.title" = "Bionic modu";
 "updates.bionic.characters.title" = "Karakterler ve anılar";
@@ -1966,11 +1962,11 @@
 "updates.26.11.continued" = "Arka planda işlemeye devam etme düzeltildi: Palmi'den ayrıldığınızda veya cihazı kilitlediğinizde görevler sistemin izin verdiği süre boyunca çalışmaya devam eder; ilerleme kilit ekranında ve Dynamic Island'da canlı olarak gösterilir. Bu özellik varsayılan olarak açıktır ve Ayarlar'dan kapatılabilir.";
 "updates.26.11.chat" = "Palmi doğrudan bir konuşmayla açılır. Sohbet ve Profesyonel modları daha tutarlı bir deneyim sunar.";
 "updates.26.11.interface" = "Yeni arayüz; geçmişi, dosyaları, becerileri ve ayarları bir kenar çubuğunda toplar.";
-"updates.26.11.browser" = "Tarayıcı kontrolü beta olarak geldi! Profesyonel modda kendi sözlerinizle yönlendirin, birden fazla sayfayı görün, giriş veya doğrulama için kontrolü devralın.";
-"updates.26.11.models" = "Modelleri gruplandırın ve varsayılanı seçin. Eski üç modelli ayarlarınız otomatik taşınır. Konuşma sırasında da model değiştirebilirsiniz.";
+"updates.26.11.browser" = "Daha kapsamlı yerleşik tarayıcı:\n\nYerleşik tarayıcının yönetimi ve kullanımı baştan sona iyileştirildi.\nAyrıca Palmi artık yerleşik tarayıcıyı sizin için kullanabiliyor 🎉";
+"updates.26.11.models" = "Yeni model yapılandırması:\n\nModeller hizmete göre gruplanıyor ve bir varsayılan model seçiliyor; önceki üç modelli düzenin yerini alıyor. Mevcut ayarlar otomatik olarak taşınır ve her sohbette model değiştirebilirsiniz.\nGörsel anlama, otomatik onay, web araması ve görsel oluşturma ayrı ayrı modeller kullanabilir ⚙️";
 "updates.26.11.tools" = "Daha fazla araç için ayrı model seçin:\nOtomatik onay;\nGörselleri göremeyen modeller için görsel yardım;\nUzaktan web araması ve sayfa okuma;\nGörsel oluşturma.";
-"updates.26.11.interactive" = "Ek ayar gerektirmeyen etkileşimli yanıtlar: bisiklet süren pelikan, kutup ayısına binen Qin Shi Huang, Tetris veya hava durumu, doğrudan yanıtın içinde.";
-"updates.26.11.replies" = "Yanıtlar yazılırken görünür; metin, görsel ve etkileşimli içerik birleşir. Önerilen mesajlarla sohbeti sürdürün.";
+"updates.26.11.interactive" = "Sohbet ve Profesyonel modları artık etkileşimli çıktıları destekliyor: İstediğinizi tek bir cümleyle anlatın, etkileşimli bir görünüm oluşsun.\nOyunlar 🎮 ve daha birçok eğlenceli 🎉 içeriği koda ya da dosyalara dokunmadan oluşturun ve oluşturulduğu anda kullanın.";
+"updates.26.11.replies" = "Zengin metin çıktısı artık destekleniyor; keşfetmeniz için daha fazla çıktı biçimi sizi bekliyor.\nPalmi artık size soru da sorabiliyor ve her yanıtın sonunda bir sonraki mesaj için otomatik öneriler sunuyor; deneyim çok daha akıcı hâle geldi 👍";
 "updates.26.11.files" = "Proje dosyalarını birlikte gezin, klasörleri açın, dosyaları önizleyip paylaşın ve ekleri daha kolay görüntüleyin.";
 "updates.26.11.questions" = "Kararınız gerektiğinde sorular mevcut ekranın üzerinde görünür. Sırayla yanıtlayın, ayrıntı ekleyin, veya soran konuşmaya dönün.";
 "updates.26.11.background" = "Biyonik yanıtlar dahil arka plan çalışması ve ilerleme gösterimi iyileştirildi. Uzun görevler önceki süre ve tur sınırlarıyla kesilmez.";

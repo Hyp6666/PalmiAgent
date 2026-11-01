@@ -445,9 +445,6 @@
 "privacy.local.keychain" = "API Key 存储在系统 Keychain。";
 "privacy.local.noServer" = "PalmiAgent 不使用自有云端服务器。";
 "privacy.local.storedOnDevice" = "会话和文件存储在本机。";
-"privacy.policy.currentLanguage" = "当前语言政策文件";
-"privacy.policy.en" = "英文政策文件";
-"privacy.policy.zhHans" = "简体/繁体中文政策文件";
 "privacy.section.localData" = "本地数据";
 "privacy.section.policyDocuments" = "政策文件";
 "privacy.section.thirdParty" = "第三方服务";
@@ -1655,8 +1652,7 @@
 "updates.source" = "查看 GitHub Release 原文";
 "updates.dismiss" = "完成";
 "updates.more.title" = "更多改进";
-"updates.link.repository" = "GitHub 仓库";
-"updates.link.release" = "Palmi v26.11 发布说明";
+"updates.link.release" = "发布说明";
 "updates.openBionic" = "打开仿生模式";
 "updates.bionic.title" = "仿生模式";
 "updates.bionic.characters.title" = "角色与记忆";
@@ -2015,11 +2011,11 @@
 "updates.26.11.continued" = "修复了后台继续处理：离开 Palmi 或锁屏后，任务会在系统允许的时间内继续运行，锁屏和灵动岛会显示实时进度。此功能现已默认开启，可在设置中关闭。";
 "updates.26.11.chat" = "重构了交互体感，现在打开 Palmi 直接进入聊天，聊天与专业模式的体验更加统一。";
 "updates.26.11.interface" = "系统化升级了整体界面。全新侧栏集中收纳历史会话、文件、技能与设置，切换更顺手。";
-"updates.26.11.browser" = "浏览器操控测试版来了！现可在专业模式下用自然语言指挥内置浏览器，查看多个网页，需要登录或验证时也能亲自接手。";
-"updates.26.11.models" = "全新的模型分组与默认模型选择，告别过去的三模型分工方案。已有配置自动迁移，会话中也能随时切换模型。";
+"updates.26.11.browser" = "更完善的内置浏览器：\n\n内置浏览器的管理与使用体验全面完善。\n同时，Palmi 现已可以操控内置浏览器🎉";
+"updates.26.11.models" = "全新的模型配置：\n\n模型按服务分组管理，可设置默认模型，告别过去的三模型分工方案；已有配置自动迁移，会话中也能随时切换模型。\n看图、自动审核、网页搜索与图片生成等工具，现可分别指定模型⚙️";
 "updates.26.11.tools" = "更多工具可单独选择模型：\n自动审核；\n专为无法看图的模型准备的视觉工具；\n远端网页搜索与网页读取；\n图片生成。";
-"updates.26.11.interactive" = "可交互式输出现已就绪，无须额外配置。鹈鹕骑自行车？秦始皇骑北极熊？俄罗斯方块？天气查询？丰富的可交互体验直接呈现在回复中。";
-"updates.26.11.replies" = "回复边生成边呈现，文字、图片和交互内容自然衔接。也可以从下一句建议继续聊下去。";
+"updates.26.11.interactive" = "聊天模式与专业模式现已支持交互式输出，一句话即可像许愿一样创造出可交互的画面。\n创造游戏🎮和更多有趣🎉的内容时，无需接触代码和文件，生成后即可当场使用。";
+"updates.26.11.replies" = "富文本输出现已支持，更多输出界面等你亲自探索。\n同时，Palmi 现在会主动向你提问，并在回答结束后自动生成推荐输入，整体交互体验大幅提升👍";
 "updates.26.11.files" = "文件浏览更完整，可统一查看项目文件、展开文件夹、预览与分享文件，会话中的附件也更方便查看。";
 "updates.26.11.questions" = "Palmi 需要你做决定时，问题会浮现在当前界面。支持连续回答、补充说明，也能直接回到发起提问的会话。";
 "updates.26.11.background" = "加强后台持续运行体验，进度展示更及时，仿生回复也能显示后台进度。长任务不再受原先固定时长与轮数限制打断。";

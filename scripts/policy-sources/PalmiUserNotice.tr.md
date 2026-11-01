@@ -6,7 +6,7 @@ Model yapılandırmadan önce bu belgeyi okuyun. “Okudum ve kabul ediyorum” 
 
 ## 1. Amaç ve Kapsam
 
-Bu belge, ilk model yapılandırmasından önce gösterilen Palmi (PalmiAgent) kullanıcı bildirimidir. Yerel uygulama, kullanıcının seçtiği model hizmetleri, sistem izinleri ve üçüncü taraf araçlar arasındaki olası veri akışlarını açıklar ve devam etmeden önce kullanıcıdan açık onay ister.
+Bu belge, ilk model yapılandırmasından önce gösterilen Palmi kullanıcı bildirimidir. Yerel uygulama, kullanıcının seçtiği model hizmetleri, sistem izinleri ve üçüncü taraf araçlar arasındaki olası veri akışlarını açıklar ve devam etmeden önce kullanıcıdan açık onay ister.
 
 Bu belge, herhangi bir model sağlayıcısının gizlilik politikası değildir. Herhangi bir üçüncü taraf model sağlayıcısının, bulut sağlayıcısının, model toplayıcısının, kurumsal ağ geçidinin, sistem hizmetinin veya yerel dağıtımın hizmet koşullarının, gizlilik politikasının, geliştirici sözleşmesinin, veri işleme sözleşmesinin, kabul edilebilir kullanım politikasının, model lisansının veya güvenlik kurallarının yerine geçmez.
 

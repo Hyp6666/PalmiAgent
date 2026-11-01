@@ -6,7 +6,7 @@ Read this document before configuring a model. Selecting “I have read and agre
 
 ## 1. Purpose and Scope
 
-This document is the Palmi (PalmiAgent) user notice shown before first-time model configuration. It explains likely data flows between the local app, user-selected model services, system permissions, and third-party tools, and asks the user to make an explicit acknowledgement before continuing.
+This document is the Palmi user notice shown before first-time model configuration. It explains likely data flows between the local app, user-selected model services, system permissions, and third-party tools, and asks the user to make an explicit acknowledgement before continuing.
 
 This document is not the privacy policy of any model provider. It does not replace the service terms, privacy policy, developer agreement, data processing agreement, acceptable use policy, model license, or safety rules of any third-party model provider, cloud provider, model aggregator, enterprise gateway, system service, or local deployment.
 

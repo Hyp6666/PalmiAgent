@@ -6,7 +6,7 @@ Baca dokumen ini sebelum mengonfigurasi model. Memilih “Saya telah membaca dan
 
 ## 1. Tujuan dan Cakupan
 
-Dokumen ini adalah pemberitahuan pengguna Palmi (PalmiAgent) yang ditampilkan sebelum konfigurasi model pertama kali. Dokumen ini menjelaskan kemungkinan aliran data antara aplikasi lokal, layanan model pilihan pengguna, izin sistem, dan alat pihak ketiga, serta meminta pengguna memberikan pernyataan pengakuan secara tegas sebelum melanjutkan.
+Dokumen ini adalah pemberitahuan pengguna Palmi yang ditampilkan sebelum konfigurasi model pertama kali. Dokumen ini menjelaskan kemungkinan aliran data antara aplikasi lokal, layanan model pilihan pengguna, izin sistem, dan alat pihak ketiga, serta meminta pengguna memberikan pernyataan pengakuan secara tegas sebelum melanjutkan.
 
 Dokumen ini bukan kebijakan privasi penyedia model mana pun. Dokumen ini tidak menggantikan ketentuan layanan, kebijakan privasi, perjanjian pengembang, perjanjian pemrosesan data, kebijakan penggunaan yang dapat diterima, lisensi model, atau aturan keselamatan milik penyedia model pihak ketiga, penyedia cloud, agregator model, gateway perusahaan, layanan sistem, atau penerapan lokal mana pun.
 

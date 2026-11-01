@@ -6,7 +6,7 @@ Lies dieses Dokument, bevor du ein Modell konfigurierst. Die Auswahl „Ich habe
 
 ## 1. Zweck und Geltungsbereich
 
-Dieses Dokument ist der Palmi-Nutzerhinweis (PalmiAgent), der vor der erstmaligen Modellkonfiguration angezeigt wird. Er erläutert mögliche Datenflüsse zwischen der lokalen App, vom Nutzer ausgewählten Modelldiensten, Systemberechtigungen und Drittanbieterwerkzeugen und fordert vor dem Fortfahren eine ausdrückliche Bestätigung des Nutzers.
+Dieses Dokument ist der Palmi-Nutzerhinweis (Palmi), der vor der erstmaligen Modellkonfiguration angezeigt wird. Er erläutert mögliche Datenflüsse zwischen der lokalen App, vom Nutzer ausgewählten Modelldiensten, Systemberechtigungen und Drittanbieterwerkzeugen und fordert vor dem Fortfahren eine ausdrückliche Bestätigung des Nutzers.
 
 Dieses Dokument ist nicht die Datenschutzrichtlinie eines Modellanbieters. Es ersetzt weder die Nutzungsbedingungen, Datenschutzrichtlinie, Entwicklervereinbarung, Auftragsverarbeitungsvereinbarung, Richtlinie zur akzeptablen Nutzung, Modelllizenz noch die Sicherheitsregeln eines Drittanbieter-Modellanbieters, Cloudanbieters, Modellaggregators, Unternehmensgateways, Systemdiensts oder einer lokalen Bereitstellung.
 

@@ -6,7 +6,7 @@ Lisez ce document avant de configurer un modèle. En sélectionnant « J’ai lu
 
 ## 1. Objet et champ d’application
 
-Ce document est la notice utilisateur de Palmi (PalmiAgent) présentée avant la première configuration d’un modèle. Il explique les flux de données probables entre l’application locale, les services de modèles choisis par l’utilisateur, les autorisations système et les outils tiers, et demande à l’utilisateur d’en prendre explicitement connaissance avant de poursuivre.
+Ce document est la notice utilisateur de Palmi présentée avant la première configuration d’un modèle. Il explique les flux de données probables entre l’application locale, les services de modèles choisis par l’utilisateur, les autorisations système et les outils tiers, et demande à l’utilisateur d’en prendre explicitement connaissance avant de poursuivre.
 
 Ce document n’est la politique de confidentialité d’aucun fournisseur de modèles. Il ne remplace ni les conditions de service, ni la politique de confidentialité, ni l’accord développeur, ni l’accord de traitement des données, ni la politique d’utilisation acceptable, ni la licence de modèle, ni les règles de sécurité d’un fournisseur de modèles tiers, d’un fournisseur cloud, d’un agrégateur de modèles, d’une passerelle d’entreprise, d’un service système ou d’un déploiement local.
 

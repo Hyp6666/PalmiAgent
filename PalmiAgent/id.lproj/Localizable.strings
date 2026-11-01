@@ -445,9 +445,6 @@
 "privacy.local.keychain" = "Kunci API disimpan dalam Keychain sistem.";
 "privacy.local.noServer" = "PalmiAgent tidak menggunakan server cloud sendiri.";
 "privacy.local.storedOnDevice" = "Sesi dan file disimpan di perangkat ini.";
-"privacy.policy.currentLanguage" = "File kebijakan untuk bahasa saat ini";
-"privacy.policy.en" = "File kebijakan bahasa Inggris";
-"privacy.policy.zhHans" = "File kebijakan bahasa Tionghoa Sederhana/Tradisional";
 "privacy.section.localData" = "Data Lokal";
 "privacy.section.policyDocuments" = "Dokumen Kebijakan";
 "privacy.section.thirdParty" = "Pihak Ketiga";
@@ -1642,8 +1639,7 @@
 "updates.source" = "Baca GitHub Release asli";
 "updates.dismiss" = "Selesai";
 "updates.more.title" = "Peningkatan Lainnya";
-"updates.link.repository" = "Repositori GitHub";
-"updates.link.release" = "Catatan Rilis Palmi v26.11";
+"updates.link.release" = "Catatan Rilis";
 "updates.openBionic" = "Buka mode Bionic";
 "updates.bionic.title" = "Mode Bionic";
 "updates.bionic.characters.title" = "Karakter dan ingatan";
@@ -1966,11 +1962,11 @@
 "updates.26.11.continued" = "Pemrosesan lanjutan di latar belakang telah diperbaiki: tugas tetap berjalan selama waktu yang diizinkan sistem setelah Anda meninggalkan Palmi atau mengunci perangkat, dengan progres langsung di Layar Terkunci dan Dynamic Island. Fitur ini aktif secara default dan dapat dimatikan di Pengaturan.";
 "updates.26.11.chat" = "Palmi langsung membuka percakapan. Mode Obrolan dan Profesional kini terasa lebih seragam.";
 "updates.26.11.interface" = "Tampilan baru menyatukan riwayat, berkas, keterampilan, dan pengaturan dalam bilah samping.";
-"updates.26.11.browser" = "Kendali browser hadir dalam versi beta! Arahkan dengan bahasa sehari-hari di mode Profesional, lihat beberapa halaman, lalu ambil alih untuk masuk atau verifikasi.";
-"updates.26.11.models" = "Kelompokkan model dan pilih model bawaan. Pengaturan tiga model lama berpindah otomatis. Anda juga dapat berganti model saat mengobrol.";
+"updates.26.11.browser" = "Peramban bawaan yang lebih lengkap:\n\nPengelolaan dan penggunaan peramban bawaan disempurnakan secara menyeluruh.\nKini Palmi juga dapat mengoperasikan peramban bawaan 🎉";
+"updates.26.11.models" = "Konfigurasi model yang baru:\n\nModel dikelompokkan menurut layanan dengan satu model default, menggantikan pembagian tiga model sebelumnya. Pengaturan lama dipindahkan secara otomatis, dan Anda dapat mengganti model di setiap percakapan.\nPemahaman gambar, persetujuan otomatis, pencarian web, dan pembuatan gambar dapat memakai model masing-masing ⚙️";
 "updates.26.11.tools" = "Pilih model tersendiri untuk lebih banyak alat:\nPersetujuan otomatis;\nBantuan visual untuk model yang tidak dapat melihat gambar;\nPencarian web jarak jauh dan pembacaan halaman;\nPembuatan gambar.";
-"updates.26.11.interactive" = "Balasan interaktif tanpa pengaturan tambahan: pelikan bersepeda, Qin Shi Huang menunggang beruang kutub, Tetris, atau cuaca, langsung di dalam balasan.";
-"updates.26.11.replies" = "Balasan tampil saat ditulis, memadukan teks, gambar, dan konten interaktif. Lanjutkan obrolan dengan saran pesan berikutnya.";
+"updates.26.11.interactive" = "Mode Obrolan dan Profesional kini mendukung keluaran interaktif: jelaskan keinginan Anda dalam satu kalimat dan tampilan interaktif langsung muncul.\nBuat game 🎮 dan berbagai konten seru 🎉 lainnya tanpa menyentuh kode atau file, lalu gunakan begitu selesai dibuat.";
+"updates.26.11.replies" = "Keluaran teks kaya kini didukung, dengan lebih banyak tampilan keluaran yang siap Anda jelajahi.\nPalmi kini juga dapat bertanya kepada Anda dan otomatis menyarankan masukan berikutnya setelah jawaban selesai, sehingga pengalaman terasa jauh lebih lancar 👍";
 "updates.26.11.files" = "Jelajahi berkas proyek, buka folder, pratinjau dan bagikan berkas, serta lihat lampiran percakapan dengan lebih mudah.";
 "updates.26.11.questions" = "Pertanyaan muncul di atas layar saat Palmi membutuhkan keputusan Anda. Jawab berurutan, tambahkan penjelasan, atau kembali ke percakapan asal.";
 "updates.26.11.background" = "Pekerjaan latar belakang dan tampilan kemajuan ditingkatkan, termasuk balasan Bionik. Tugas panjang tidak lagi terputus oleh batas waktu dan giliran lama.";
