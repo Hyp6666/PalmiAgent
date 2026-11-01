@@ -1641,6 +1641,9 @@
 "updates.history" = "Rilis sebelumnya";
 "updates.source" = "Baca GitHub Release asli";
 "updates.dismiss" = "Selesai";
+"updates.more.title" = "Peningkatan Lainnya";
+"updates.link.repository" = "Repositori GitHub";
+"updates.link.release" = "Catatan Rilis Palmi v26.11";
 "updates.openBionic" = "Buka mode Bionic";
 "updates.bionic.title" = "Mode Bionic";
 "updates.bionic.characters.title" = "Karakter dan ingatan";

@@ -1654,6 +1654,9 @@
 "updates.history" = "历代版本";
 "updates.source" = "查看 GitHub Release 原文";
 "updates.dismiss" = "完成";
+"updates.more.title" = "更多改进";
+"updates.link.repository" = "GitHub 仓库";
+"updates.link.release" = "Palmi v26.11 发布说明";
 "updates.openBionic" = "打开仿生模式";
 "updates.bionic.title" = "仿生模式";
 "updates.bionic.characters.title" = "角色与记忆";

@@ -1653,6 +1653,9 @@
 "updates.history" = "이전 버전";
 "updates.source" = "GitHub 릴리스 원문 보기";
 "updates.dismiss" = "완료";
+"updates.more.title" = "기타 개선 사항";
+"updates.link.repository" = "GitHub 저장소";
+"updates.link.release" = "Palmi v26.11 릴리스 노트";
 "updates.openBionic" = "바이오닉 모드 열기";
 "updates.bionic.title" = "바이오닉 모드";
 "updates.bionic.characters.title" = "캐릭터와 기억";

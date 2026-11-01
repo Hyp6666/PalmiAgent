@@ -1641,6 +1641,9 @@
 "updates.history" = "Önceki sürümler";
 "updates.source" = "Özgün GitHub Sürümünü Okuyun";
 "updates.dismiss" = "Bitti";
+"updates.more.title" = "Diğer İyileştirmeler";
+"updates.link.repository" = "GitHub Deposu";
+"updates.link.release" = "Palmi v26.11 Sürüm Notları";
 "updates.openBionic" = "Bionic modunu aç";
 "updates.bionic.title" = "Bionic modu";
 "updates.bionic.characters.title" = "Karakterler ve anılar";

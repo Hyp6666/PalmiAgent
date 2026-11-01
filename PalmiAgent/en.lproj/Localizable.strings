@@ -1653,6 +1653,9 @@
 "updates.history" = "Previous releases";
 "updates.source" = "Read the original GitHub Release";
 "updates.dismiss" = "Done";
+"updates.more.title" = "More Improvements";
+"updates.link.repository" = "GitHub Repository";
+"updates.link.release" = "Palmi v26.11 Release Notes";
 "updates.openBionic" = "Open Bionic mode";
 "updates.bionic.title" = "Bionic mode";
 "updates.bionic.characters.title" = "Characters and memories";

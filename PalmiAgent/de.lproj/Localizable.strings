@@ -1641,6 +1641,9 @@
 "updates.history" = "Frühere Versionen";
 "updates.source" = "Originalveröffentlichung auf GitHub lesen";
 "updates.dismiss" = "Fertig";
+"updates.more.title" = "Weitere Verbesserungen";
+"updates.link.repository" = "GitHub-Repository";
+"updates.link.release" = "Versionshinweise zu Palmi v26.11";
 "updates.openBionic" = "Bionic-Modus öffnen";
 "updates.bionic.title" = "Bionic-Modus";
 "updates.bionic.characters.title" = "Figuren und Erinnerungen";

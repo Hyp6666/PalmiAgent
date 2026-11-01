@@ -11,6 +11,8 @@ enum ReleaseNotesCatalog {
         ("browser", "ReleaseNotes2611Browser"),
         ("models", "ReleaseNotes2611Models")
     ]
+    static let repositoryURL = URL(string: "https://github.com/Hyp6666/PalmiAgent")!
+    static let currentReleaseURL = URL(string: "https://github.com/Hyp6666/PalmiAgent/releases/tag/v26.11")!
     static var listedItems: [String] {
         currentItems.filter { item in !featuredItems.contains { $0.item == item } }
     }
@@ -69,20 +71,47 @@ struct CurrentReleaseNotesScreen: View {
     var onClose: (() -> Void)? = nil
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                Text(PalmiL10n.tr("updates.current")).font(.largeTitle.bold())
-                featuredPages
-                ForEach(ReleaseNotesCatalog.listedItems, id: \.self) { item in
-                    HStack(alignment: .top, spacing: 10) {
-                        Text("•").foregroundStyle(.secondary)
-                        Text(PalmiL10n.tr("updates.26.11.\(item)"))
+        VStack(alignment: .leading, spacing: 12) {
+            Text(PalmiL10n.tr("updates.current"))
+                .font(.largeTitle.bold())
+                .padding(.horizontal, 24)
+                .padding(.top, 12)
+            TabView {
+                ForEach(ReleaseNotesCatalog.featuredItems, id: \.item) { feature in
+                    page {
+                        Image(feature.image)
+                            .resizable()
+                            .scaledToFit()
+                            .clipShape(.rect(cornerRadius: 16))
+                            .frame(maxWidth: .infinity, maxHeight: 340)
+                            .accessibilityHidden(true)
+                        Text(PalmiL10n.tr("updates.26.11.\(feature.item)"))
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+                page {
+                    Text(PalmiL10n.tr("updates.more.title")).font(.title2.bold())
+                    ForEach(ReleaseNotesCatalog.listedItems, id: \.self) { item in
+                        HStack(alignment: .top, spacing: 10) {
+                            Text("•").foregroundStyle(.secondary)
+                            Text(PalmiL10n.tr("updates.26.11.\(item)"))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    Divider().padding(.vertical, 4)
+                    Link(destination: ReleaseNotesCatalog.repositoryURL) {
+                        Label(PalmiL10n.tr("updates.link.repository"), systemImage: "chevron.left.forwardslash.chevron.right")
+                    }
+                    Link(destination: ReleaseNotesCatalog.currentReleaseURL) {
+                        Label(PalmiL10n.tr("updates.link.release"), systemImage: "tag")
+                    }
+                }
             }
-            .frame(maxWidth: 680, alignment: .leading).padding(24).frame(maxWidth: .infinity)
+            .tabViewStyle(.page(indexDisplayMode: .always))
+            .indexViewStyle(.page(backgroundDisplayMode: .always))
         }
+        .frame(maxWidth: 680, alignment: .leading)
+        .frame(maxWidth: .infinity)
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 10) {
                 Button(PalmiL10n.tr("updates.dismiss")) { acknowledge() }
@@ -95,26 +124,14 @@ struct CurrentReleaseNotesScreen: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private var featuredPages: some View {
-        TabView {
-            ForEach(ReleaseNotesCatalog.featuredItems, id: \.item) { feature in
-                VStack(alignment: .leading, spacing: 14) {
-                    Image(feature.image)
-                        .resizable()
-                        .scaledToFit()
-                        .clipShape(.rect(cornerRadius: 16))
-                        .frame(maxWidth: .infinity, maxHeight: 300)
-                        .accessibilityHidden(true)
-                    Text(PalmiL10n.tr("updates.26.11.\(feature.item)"))
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)
-                }
-                .padding(.bottom, 48)
-            }
+    /// 每页单独纵向滚动，底部留出页码指示的位置。
+    private func page<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14, content: content)
+                .padding(.horizontal, 24)
+                .padding(.top, 8)
+                .padding(.bottom, 56)
         }
-        .tabViewStyle(.page(indexDisplayMode: .always))
-        .indexViewStyle(.page(backgroundDisplayMode: .always))
-        .frame(height: 560)
     }
 
     private func acknowledge() {

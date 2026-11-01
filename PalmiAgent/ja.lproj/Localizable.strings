@@ -1653,6 +1653,9 @@
 "updates.history" = "これまでのバージョン";
 "updates.source" = "GitHub のリリース原文を読む";
 "updates.dismiss" = "完了";
+"updates.more.title" = "その他の改善";
+"updates.link.repository" = "GitHub リポジトリ";
+"updates.link.release" = "Palmi v26.11 リリースノート";
 "updates.openBionic" = "仿生モードを開く";
 "updates.bionic.title" = "仿生モード";
 "updates.bionic.characters.title" = "キャラクターと記憶";
