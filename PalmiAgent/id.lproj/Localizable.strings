@@ -1793,6 +1793,7 @@
 "ml.mainModel" = "Model Default";
 "ml.mainModel.notConfigured" = "Belum ada model default yang dipilih";
 "ml.migration.title" = "Pengaturan model ditingkatkan";
+"ml.migration.entry" = "Migrasi Paket Sebelumnya";
 "ml.model.connectivity" = "Periksa Koneksi";
 "ml.model.delete" = "Hapus Model";
 "ml.model.discoveryEmpty" = "Tidak ada model yang dikembalikan";
@@ -1962,6 +1963,7 @@
 "tool.management.browser.beta" = "Browser（beta）";
 
 // Palmi 26.11
+"updates.26.11.continued" = "Pemrosesan lanjutan di latar belakang telah diperbaiki: tugas tetap berjalan selama waktu yang diizinkan sistem setelah Anda meninggalkan Palmi atau mengunci perangkat, dengan progres langsung di Layar Terkunci dan Dynamic Island. Fitur ini aktif secara default dan dapat dimatikan di Pengaturan.";
 "updates.26.11.chat" = "Palmi langsung membuka percakapan. Mode Obrolan dan Profesional kini terasa lebih seragam.";
 "updates.26.11.interface" = "Tampilan baru menyatukan riwayat, berkas, keterampilan, dan pengaturan dalam bilah samping.";
 "updates.26.11.browser" = "Kendali browser hadir dalam versi beta! Arahkan dengan bahasa sehari-hari di mode Profesional, lihat beberapa halaman, lalu ambil alih untuk masuk atau verifikasi.";

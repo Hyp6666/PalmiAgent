@@ -1793,6 +1793,7 @@
 "ml.mainModel" = "Standardmodell";
 "ml.mainModel.notConfigured" = "Kein Standardmodell ausgewählt";
 "ml.migration.title" = "Modelleinstellungen aktualisiert";
+"ml.migration.entry" = "Migration früherer Pläne";
 "ml.model.connectivity" = "Verbindung prüfen";
 "ml.model.delete" = "Modell löschen";
 "ml.model.discoveryEmpty" = "Keine Modelle zurückgegeben";
@@ -1962,6 +1963,7 @@
 "tool.management.browser.beta" = "Browser（beta）";
 
 // Palmi 26.11
+"updates.26.11.continued" = "Fortsetzung im Hintergrund behoben: Aufgaben laufen im vom System erlaubten Zeitraum weiter, wenn du Palmi verlässt oder das Gerät sperrst, mit Live-Fortschritt auf dem Sperrbildschirm und in der Dynamic Island. Die Funktion ist standardmäßig aktiviert und kann in den Einstellungen ausgeschaltet werden.";
 "updates.26.11.chat" = "Palmi öffnet direkt eine Unterhaltung. Chat und Profi-Modus lassen sich jetzt einheitlicher bedienen.";
 "updates.26.11.interface" = "Die neue Oberfläche bündelt Verlauf, Dateien, Skills und Einstellungen in einer Seitenleiste.";
 "updates.26.11.browser" = "Browsersteuerung als Beta: Im Profi-Modus den Browser in Alltagssprache steuern, mehrere Seiten ansehen und Anmeldung oder Bestätigung selbst übernehmen.";

@@ -110,6 +110,15 @@ struct ModelHubScreen: View {
                     NavigationLink { ChatGPTOAuthScreen(library: library) } label: { Text("Codex OAuth") }
                 }
             }
+
+            // 从旧版方案升级过来的用户可以随时再看一次迁移对照。
+            if let receipt = library.state.migrationReceipt, !receipt.importedPlans.isEmpty {
+                Section {
+                    Button { isShowingMigration = true } label: {
+                        Label(PalmiL10n.tr("ml.migration.entry"), systemImage: "clock.arrow.circlepath")
+                    }
+                }
+            }
         }
         .listStyle(.insetGrouped)
     }

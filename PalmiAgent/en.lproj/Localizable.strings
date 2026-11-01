@@ -1825,6 +1825,7 @@
 "ml.mainModel" = "Default Model";
 "ml.mainModel.notConfigured" = "No default model selected";
 "ml.migration.title" = "Model settings upgraded";
+"ml.migration.entry" = "Previous Plan Migration";
 "ml.model.connectivity" = "Check Connection";
 "ml.model.delete" = "Delete Model";
 "ml.model.discoveryEmpty" = "No models returned";
@@ -2010,6 +2011,7 @@
 "tool.management.browser.beta" = "Browser（beta）";
 
 // Palmi 26.11
+"updates.26.11.continued" = "Fixed background processing: tasks now keep running within the time the system allows after you leave Palmi or lock your device, with live progress on the Lock Screen and in the Dynamic Island. It is on by default and can be turned off in Settings.";
 "updates.26.11.chat" = "Open Palmi straight into a conversation, with a more consistent experience across Chat and Professional modes.";
 "updates.26.11.interface" = "A refreshed interface brings conversation history, files, skills and settings together in a new sidebar.";
 "updates.26.11.browser" = "Browser control is here in beta! Direct the built-in browser in everyday language in Professional mode, view multiple pages and take over for sign-in or verification.";

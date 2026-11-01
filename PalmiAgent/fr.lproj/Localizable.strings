@@ -1793,6 +1793,7 @@
 "ml.mainModel" = "Modèle par défaut";
 "ml.mainModel.notConfigured" = "Aucun modèle par défaut sélectionné";
 "ml.migration.title" = "Réglages des modèles mis à niveau";
+"ml.migration.entry" = "Migration des anciens plans";
 "ml.model.connectivity" = "Vérifier la connexion";
 "ml.model.delete" = "Supprimer le modèle";
 "ml.model.discoveryEmpty" = "Aucun modèle renvoyé";
@@ -1962,6 +1963,7 @@
 "tool.management.browser.beta" = "Navigateur（beta）";
 
 // Palmi 26.11
+"updates.26.11.continued" = "Correction du traitement en arrière-plan : les tâches se poursuivent pendant la durée autorisée par le système lorsque vous quittez Palmi ou verrouillez l’appareil, avec la progression en direct sur l’écran verrouillé et dans la Dynamic Island. Cette fonction est activée par défaut et peut être désactivée dans Réglages.";
 "updates.26.11.chat" = "Palmi ouvre directement une conversation. Les modes Discussion et Professionnel offrent une expérience plus cohérente.";
 "updates.26.11.interface" = "Une interface renouvelée rassemble historique, fichiers, compétences et réglages dans une nouvelle barre latérale.";
 "updates.26.11.browser" = "Le contrôle du navigateur arrive en bêta ! En mode Professionnel, guidez-le avec vos mots, consultez plusieurs pages et reprenez la main pour vous connecter ou confirmer votre identité.";

@@ -1825,6 +1825,7 @@
 "ml.mainModel" = "기본 모델";
 "ml.mainModel.notConfigured" = "기본 모델 미선택";
 "ml.migration.title" = "모델 설정이 업그레이드되었습니다";
+"ml.migration.entry" = "이전 플랜 이전 내역";
 "ml.model.connectivity" = "연결 확인";
 "ml.model.delete" = "모델 삭제";
 "ml.model.discoveryEmpty" = "반환된 모델이 없음";
@@ -2010,6 +2011,7 @@
 "tool.management.browser.beta" = "브라우저 조작（beta）";
 
 // Palmi 26.11
+"updates.26.11.continued" = "백그라운드 계속 처리를 수정했습니다. Palmi를 떠나거나 화면을 잠가도 시스템이 허용하는 시간 동안 작업이 계속되며, 잠금 화면과 Dynamic Island에 진행 상황이 표시됩니다. 이 기능은 기본적으로 켜져 있으며 설정에서 끌 수 있습니다.";
 "updates.26.11.chat" = "Palmi를 열면 바로 대화로 들어갑니다. 채팅과 전문가 모드의 사용 경험이 더욱 일관됩니다.";
 "updates.26.11.interface" = "새로운 화면과 사이드바에서 대화 기록, 파일, 스킬, 설정을 한곳에서 찾으세요.";
 "updates.26.11.browser" = "브라우저 조작 베타가 왔습니다! 전문가 모드에서 말로 브라우저를 지시하고 여러 페이지를 확인하세요. 로그인이나 인증은 직접 이어받을 수 있습니다.";

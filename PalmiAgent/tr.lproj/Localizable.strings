@@ -1793,6 +1793,7 @@
 "ml.mainModel" = "Varsayılan Model";
 "ml.mainModel.notConfigured" = "Varsayılan model seçilmedi";
 "ml.migration.title" = "Model ayarları yükseltildi";
+"ml.migration.entry" = "Önceki Plan Geçişi";
 "ml.model.connectivity" = "Bağlantıyı Denetle";
 "ml.model.delete" = "Modeli Sil";
 "ml.model.discoveryEmpty" = "Model döndürülmedi";
@@ -1962,6 +1963,7 @@
 "tool.management.browser.beta" = "Tarayıcı（beta）";
 
 // Palmi 26.11
+"updates.26.11.continued" = "Arka planda işlemeye devam etme düzeltildi: Palmi'den ayrıldığınızda veya cihazı kilitlediğinizde görevler sistemin izin verdiği süre boyunca çalışmaya devam eder; ilerleme kilit ekranında ve Dynamic Island'da canlı olarak gösterilir. Bu özellik varsayılan olarak açıktır ve Ayarlar'dan kapatılabilir.";
 "updates.26.11.chat" = "Palmi doğrudan bir konuşmayla açılır. Sohbet ve Profesyonel modları daha tutarlı bir deneyim sunar.";
 "updates.26.11.interface" = "Yeni arayüz; geçmişi, dosyaları, becerileri ve ayarları bir kenar çubuğunda toplar.";
 "updates.26.11.browser" = "Tarayıcı kontrolü beta olarak geldi! Profesyonel modda kendi sözlerinizle yönlendirin, birden fazla sayfayı görün, giriş veya doğrulama için kontrolü devralın.";

@@ -1793,6 +1793,7 @@
 "ml.mainModel" = "Standardmodell";
 "ml.mainModel.notConfigured" = "Ingen standardmodell har valts";
 "ml.migration.title" = "Modellinställningarna har uppgraderats";
+"ml.migration.entry" = "Migrering av tidigare planer";
 "ml.model.connectivity" = "Kontrollera anslutning";
 "ml.model.delete" = "Radera modell";
 "ml.model.discoveryEmpty" = "Inga modeller returnerades";
@@ -1962,6 +1963,7 @@
 "tool.management.browser.beta" = "Webbläsare（beta）";
 
 // Palmi 26.11
+"updates.26.11.continued" = "Fortsatt bearbetning i bakgrunden har åtgärdats: uppgifter fortsätter under den tid systemet tillåter när du lämnar Palmi eller låser enheten, med aktuellt förlopp på låsskärmen och i Dynamic Island. Funktionen är på som standard och kan stängas av i Inställningar.";
 "updates.26.11.chat" = "Palmi öppnar direkt i en konversation. Chatt och professionellt läge känns mer enhetliga.";
 "updates.26.11.interface" = "Ett nytt gränssnitt samlar historik, filer, färdigheter och inställningar i en sidopanel.";
 "updates.26.11.browser" = "Webbläsarstyrning i beta! Styr med vanliga ord i professionellt läge, visa flera sidor och ta över vid inloggning eller verifiering.";

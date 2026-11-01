@@ -1825,6 +1825,7 @@
 "ml.mainModel" = "既定のモデル";
 "ml.mainModel.notConfigured" = "既定のモデル未選択";
 "ml.migration.title" = "モデル設定を更新しました";
+"ml.migration.entry" = "旧バージョンのプラン移行";
 "ml.model.connectivity" = "接続を確認";
 "ml.model.delete" = "モデルを削除";
 "ml.model.discoveryEmpty" = "モデルが返されませんでした";
@@ -2010,6 +2011,7 @@
 "tool.management.browser.beta" = "ブラウザ操作（beta）";
 
 // Palmi 26.11
+"updates.26.11.continued" = "バックグラウンドでの継続処理を修正しました。Palmi を離れたり画面をロックしたりしても、システムが許可する時間内でタスクが続行され、ロック画面と Dynamic Island に進行状況が表示されます。この機能はデフォルトでオンになっており、設定でオフにできます。";
 "updates.26.11.chat" = "Palmi を開くとすぐ会話へ。チャットとプロモードの操作感がより統一されました。";
 "updates.26.11.interface" = "画面を刷新。新しいサイドバーから会話履歴、ファイル、スキル、設定にアクセスできます。";
 "updates.26.11.browser" = "ブラウザ操作のベータ版が登場！プロモードで言葉で指示し、複数のページを確認。ログインや認証は自分で引き継げます。";

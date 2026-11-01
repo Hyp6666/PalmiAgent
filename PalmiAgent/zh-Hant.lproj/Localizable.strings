@@ -1825,6 +1825,7 @@
 "ml.mainModel" = "預設模型";
 "ml.mainModel.notConfigured" = "尚未選擇預設模型";
 "ml.migration.title" = "模型設定已升級";
+"ml.migration.entry" = "舊版方案遷移對照";
 "ml.model.connectivity" = "檢查連線";
 "ml.model.delete" = "刪除模型";
 "ml.model.discoveryEmpty" = "沒有取得模型";
@@ -2010,6 +2011,7 @@
 "tool.management.browser.beta" = "瀏覽器操控（beta）";
 
 // Palmi 26.11
+"updates.26.11.continued" = "修復了背景繼續處理：離開 Palmi 或鎖定螢幕後，任務會在系統允許的時間內繼續執行，鎖定畫面和動態島會顯示即時進度。此功能現已預設開啟，可在設定中關閉。";
 "updates.26.11.chat" = "重整互動體驗，現在開啟 Palmi 直接進入聊天，聊天與專業模式更加一致。";
 "updates.26.11.interface" = "全新介面與側欄集中收納歷史對話、檔案、技能與設定，切換更順手。";
 "updates.26.11.browser" = "瀏覽器操控測試版登場！可在專業模式用自然語言指揮內建瀏覽器，查看多個網頁，登入或驗證時也能親自接手。";
