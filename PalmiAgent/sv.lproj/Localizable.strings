@@ -1973,6 +1973,7 @@
 "updates.26.11.bionic" = "Bättre bioniska samtal och lässtatus. Lästa meddelanden markeras mer exakt när samtalet öppnas.";
 "updates.26.11.languages" = "Tyska, svenska, arabiska, turkiska, indonesiska och franska har lagts till. Svar och samtalstitlar följer också ditt språkval bättre.";
 "updates.26.11.navigation" = "Åtgärdat att samtalet försvann när webbläsaren fälldes ihop och att fel läge valdes när sidopanelen öppnades från bioniskt läge.";
+"updates.26.11.darkMode" = "Stöd för mörkt läge. Palmi följer nu systemets utseende.";
 
 "browser.searchEngine" = "Sökmotor";
 

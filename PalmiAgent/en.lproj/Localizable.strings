@@ -2021,6 +2021,7 @@
 "updates.26.11.bionic" = "Improved Bionic conversations, read status and unread reminders, with more accurate read status when you open a conversation.";
 "updates.26.11.languages" = "Added German, Swedish, Arabic, Turkish, Indonesian and French. Replies and conversation titles also follow your chosen language more closely.";
 "updates.26.11.navigation" = "Fixed losing the current conversation after collapsing the browser and the wrong mode being selected when opening the sidebar from Bionic mode.";
+"updates.26.11.darkMode" = "Added Dark Mode support. Palmi now follows the system appearance.";
 
 "browser.searchEngine" = "Search Engine";
 

@@ -1973,6 +1973,7 @@
 "updates.26.11.bionic" = "Conversations Bioniques et rappels de messages non lus améliorés. Le statut de lecture est plus précis à l’ouverture.";
 "updates.26.11.languages" = "Ajout de l’allemand, du suédois, de l’arabe, du turc, de l’indonésien et du français. Réponses et titres suivent mieux la langue choisie.";
 "updates.26.11.navigation" = "Correction de la perte de conversation après avoir réduit le navigateur et du mauvais mode sélectionné en ouvrant la barre latérale depuis le mode Bionique.";
+"updates.26.11.darkMode" = "Prise en charge du mode sombre. Palmi suit désormais l’apparence du système.";
 
 "browser.searchEngine" = "Moteur de recherche";
 

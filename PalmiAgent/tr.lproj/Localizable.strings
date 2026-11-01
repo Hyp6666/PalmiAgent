@@ -1973,6 +1973,7 @@
 "updates.26.11.bionic" = "Biyonik sohbetler, okundu durumu ve okunmamış mesaj hatırlatmaları iyileştirildi.";
 "updates.26.11.languages" = "Almanca, İsveççe, Arapça, Türkçe, Endonezce ve Fransızca eklendi. Yanıtlar ve konuşma başlıkları da dil seçiminizi daha iyi izler.";
 "updates.26.11.navigation" = "Tarayıcı kapatılınca mevcut konuşmanın kaybolması ve Biyonik moddan kenar çubuğu açıldığında yanlış modun seçilmesi düzeltildi.";
+"updates.26.11.darkMode" = "Karanlık mod desteği eklendi. Palmi artık sistem görünümünü izler.";
 
 "browser.searchEngine" = "Arama motoru";
 

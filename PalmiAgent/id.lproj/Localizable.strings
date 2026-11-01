@@ -1973,6 +1973,7 @@
 "updates.26.11.bionic" = "Percakapan Bionik, status dibaca, dan pengingat pesan belum dibaca kini lebih baik saat percakapan dibuka.";
 "updates.26.11.languages" = "Menambahkan bahasa Jerman, Swedia, Arab, Turki, Indonesia, dan Prancis. Balasan serta judul percakapan lebih mengikuti pilihan bahasa Anda.";
 "updates.26.11.navigation" = "Memperbaiki hilangnya percakapan setelah browser diciutkan dan mode yang salah terpilih saat membuka bilah samping dari mode Bionik.";
+"updates.26.11.darkMode" = "Mendukung mode gelap. Palmi kini mengikuti tampilan sistem.";
 
 "browser.searchEngine" = "Mesin pencari";
 

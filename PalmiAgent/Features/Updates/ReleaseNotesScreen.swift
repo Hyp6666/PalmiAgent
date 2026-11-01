@@ -3,7 +3,7 @@ import SwiftUI
 /// Content identifiers are independent of build numbers, so patch builds do not repeat an announcement.
 enum ReleaseNotesCatalog {
     static let currentID = "release-26.11"
-    static let currentItems = ["continued", "chat", "interface", "browser", "models", "tools", "interactive", "replies", "files", "questions", "background", "bionic", "languages", "navigation"]
+    static let currentItems = ["continued", "chat", "interface", "browser", "models", "tools", "interactive", "replies", "files", "questions", "background", "bionic", "languages", "navigation", "darkMode"]
     /// 可滑动展示页：只放 26.11 新增且有对应海报的条目；素材固定用 iPhone Duo 英文版，文字仍按语言本地化。
     static let featuredItems: [(item: String, image: String)] = [
         ("interactive", "ReleaseNotes2611Play"),

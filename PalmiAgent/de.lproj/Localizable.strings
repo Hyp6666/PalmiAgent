@@ -1973,6 +1973,7 @@
 "updates.26.11.bionic" = "Bionic-Gespräche und Lesestatus verbessert. Nach dem Öffnen wird genauer angezeigt, was gelesen ist.";
 "updates.26.11.languages" = "Deutsch, Schwedisch, Arabisch, Türkisch, Indonesisch und Französisch ergänzt. Auch Antworten und Gesprächstitel richten sich besser nach der gewählten Sprache.";
 "updates.26.11.navigation" = "Behoben: Nach dem Einklappen des Browsers geht die Unterhaltung nicht mehr verloren. Die Seitenleiste zeigt beim Öffnen aus Bionic den richtigen Modus.";
+"updates.26.11.darkMode" = "Dunkelmodus wird unterstützt. Palmi folgt jetzt dem Erscheinungsbild des Systems.";
 
 "browser.searchEngine" = "Suchmaschine";
 

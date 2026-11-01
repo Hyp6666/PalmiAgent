@@ -22,7 +22,7 @@ struct PalmiComposerSurface<Attachments: View, Editor: View, Controls: View>: Vi
             .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 10)
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .stroke(Color.black.opacity(0.06), lineWidth: 1).allowsHitTesting(false))
+                .stroke(Color.palmiInk(0.06), lineWidth: 1).allowsHitTesting(false))
         }
         .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 8).zIndex(1)
     }

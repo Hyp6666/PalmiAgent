@@ -149,7 +149,7 @@ struct SkillCatalogScreen: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.black.opacity(0.05), lineWidth: 1)
+                .stroke(Color.palmiInk(0.05), lineWidth: 1)
         )
     }
 
@@ -345,7 +345,7 @@ private struct SkillCard: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.black.opacity(0.05), lineWidth: 1)
+                .stroke(Color.palmiInk(0.05), lineWidth: 1)
         )
     }
 

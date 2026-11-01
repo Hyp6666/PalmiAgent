@@ -188,9 +188,9 @@ struct PalmiAttachmentMenu: View {
         .padding(14)
         .background {
             RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .fill(Color.white.opacity(0.16))
+                .fill(Color.palmiSurface(0.16))
                 .glassEffect(
-                    .regular.tint(Color.white.opacity(0.30)),
+                    .regular.tint(Color.palmiSurface(0.30)),
                     in: RoundedRectangle(cornerRadius: 30, style: .continuous)
                 )
                 .shadow(color: .black.opacity(0.10), radius: 18, y: 10)
@@ -218,11 +218,11 @@ struct PalmiAttachmentMenu: View {
             .frame(height: 88)
             .background(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(Color.white.opacity(0.22))
+                    .fill(Color.palmiSurface(0.22))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                    .stroke(Color.palmiSurface(0.22), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -257,11 +257,11 @@ struct PalmiAttachmentMenu: View {
             .frame(height: 58)
             .background(
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(Color.white.opacity(0.22))
+                    .fill(Color.palmiSurface(0.22))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                    .stroke(Color.palmiSurface(0.22), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)

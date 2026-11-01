@@ -35,7 +35,7 @@ struct ChatStartScreen: View {
         VStack(spacing: 22) {
             Text(ChatStartGreeting.text(for: mode, seed: greetingSeed))
                 .font(.system(size: 26, weight: .semibold, design: .rounded))
-                .foregroundStyle(Color.black.opacity(0.86))
+                .foregroundStyle(Color.palmiInk(0.86))
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .id(mode.rawValue + String(greetingSeed))
@@ -100,7 +100,7 @@ private struct ChatStartWorkspacePicker: View {
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(.secondary)
                 }
-                .foregroundStyle(Color.black.opacity(0.86))
+                .foregroundStyle(Color.palmiInk(0.86))
                 .padding(.horizontal, 18)
                 .frame(height: 46)
                 .frame(maxWidth: 300)

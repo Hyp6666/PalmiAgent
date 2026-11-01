@@ -7,8 +7,8 @@ private let efficiencyCapabilityAccent = Color(red: 0.14, green: 0.68, blue: 0.3
 
 // 聊天画布与上下蒙版共用同一套「中性白」：顶端纯白、底端极浅中性灰，无任何暖色/彩色偏向。
 // 蒙版的实色端直接取这两个值，保证画布与蒙版拼接处零色差、无接缝。
-private let chatCanvasTopColor = Color(red: 1.0, green: 1.0, blue: 1.0)
-private let chatCanvasBottomColor = Color(red: 0.965, green: 0.967, blue: 0.972)
+private let chatCanvasTopColor = Color.palmiAdaptive(light: Color(red: 1.0, green: 1.0, blue: 1.0), dark: .palmiDarkBase)
+private let chatCanvasBottomColor = Color.palmiAdaptive(light: Color(red: 0.965, green: 0.967, blue: 0.972), dark: .palmiDarkRaised)
 
 // 大框底排控制元素（加号圆、极致药丸、模式芯片圆、上下文轮、发送圆）统一的高度/直径。
 private let composerControlSize: CGFloat = 40
@@ -47,7 +47,7 @@ private struct QuickConfigurationCardStyle: ViewModifier {
             }
         } else {
             content
-                .background(Color.white, in: shape)
+                .background(Color.palmiSurface(), in: shape)
         }
     }
 }
@@ -766,7 +766,7 @@ struct ChatScreen: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(38)
-                .presentationBackground(Color(red: 0.948, green: 0.950, blue: 0.958))
+                .presentationBackground(Color.palmiAdaptive(light: Color(red: 0.948, green: 0.950, blue: 0.958), dark: .palmiDarkBase))
         }
         .palmiAttachmentImporter(
             presentation: $attachmentPresentation,
@@ -820,7 +820,7 @@ struct ChatScreen: View {
             } label: {
                 Label(PalmiL10n.tr("browser.entry"), systemImage: "globe")
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Color.black.opacity(0.88))
+                    .foregroundStyle(Color.palmiInk(0.88))
                     .padding(.horizontal, 14)
                     .frame(height: 40)
                     // 柔光垫在文字下面、玻璃上面，不再像一层雾罩在整颗按钮上。
@@ -1347,7 +1347,7 @@ struct ChatScreen: View {
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(Color(uiColor: .systemBlue))
             .frame(width: 32, height: 32)
-            .background(Circle().fill(Color.white.opacity(0.86)))
+            .background(Circle().fill(Color.palmiSurface(0.86)))
             .glassEffect(.regular.interactive(), in: Circle())
             .overlay {
                 Circle()
@@ -2319,7 +2319,7 @@ struct ChatScreen: View {
 
         return GeometryReader { proxy in
             ZStack {
-                Color(red: 0.948, green: 0.950, blue: 0.958)
+                Color.palmiAdaptive(light: Color(red: 0.948, green: 0.950, blue: 0.958), dark: .palmiDarkBase)
                     .opacity(isExtreme ? 0 : 1)
                     .ignoresSafeArea()
 
@@ -2348,9 +2348,9 @@ struct ChatScreen: View {
                             } label: {
                                 Image(systemName: "xmark")
                                     .font(.system(size: 21, weight: .semibold))
-                                    .foregroundStyle(isExtreme ? Color.white.opacity(0.92) : Color.black.opacity(0.84))
+                                    .foregroundStyle(isExtreme ? Color.white.opacity(0.92) : Color.palmiInk(0.84))
                                     .frame(width: 52, height: 52)
-                                    .background(isExtreme ? Color.white.opacity(0.13) : Color.white.opacity(0.86), in: Circle())
+                                    .background(isExtreme ? Color.white.opacity(0.13) : Color.palmiSurface(0.86), in: Circle())
                                     .glassEffect(.regular.interactive(), in: .circle)
                             }
                             .buttonStyle(.plain)
@@ -2557,7 +2557,7 @@ struct ChatScreen: View {
 
     private func configurationDivider(isExtreme: Bool = false) -> some View {
         Rectangle()
-            .fill(isExtreme ? Color.white.opacity(0.16) : Color.black.opacity(0.10))
+            .fill(isExtreme ? Color.white.opacity(0.16) : Color.palmiInk(0.10))
             .frame(height: 1)
             .padding(.leading, 20)
             .padding(.trailing, 20)
@@ -2629,14 +2629,14 @@ struct ChatScreen: View {
                 .accessibilityHidden(true)
         }
         .font(.system(size: 20, weight: .semibold, design: .rounded))
-        .foregroundStyle(Color.black.opacity(0.88))
+        .foregroundStyle(Color.palmiInk(0.88))
         .frame(width: topModelMenuWidth, height: topChromeControlSize)
         .contentShape(Capsule())
-        .background(Color.white.opacity(0.34), in: Capsule())
+        .background(Color.palmiSurface(0.34), in: Capsule())
         .glassEffect(.regular.interactive(), in: .capsule)
         .overlay {
             Capsule()
-                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                .stroke(Color.palmiInk(0.08), lineWidth: 1)
                 .allowsHitTesting(false)
         }
         .clipShape(Capsule())
@@ -2889,7 +2889,7 @@ struct ChatScreen: View {
 
     private var topChromeDivider: some View {
         Divider()
-            .overlay(Color.black.opacity(0.08))
+            .overlay(Color.palmiInk(0.08))
             .padding(.horizontal, 12)
     }
 
@@ -3864,7 +3864,7 @@ private struct ContextCompactionDivider: View {
     var body: some View {
         HStack(spacing: 12) {
             Capsule()
-                .fill(Color.black.opacity(0.08))
+                .fill(Color.palmiInk(0.08))
                 .frame(height: 1)
 
             HStack(spacing: 8) {
@@ -3888,7 +3888,7 @@ private struct ContextCompactionDivider: View {
             )
 
             Capsule()
-                .fill(Color.black.opacity(0.08))
+                .fill(Color.palmiInk(0.08))
                 .frame(height: 1)
         }
         .frame(maxWidth: .infinity)
@@ -3987,7 +3987,7 @@ private struct SessionHeaderStrip: View {
 
                 if showsDivider {
                     Capsule()
-                        .fill(Color.black.opacity(0.08))
+                        .fill(Color.palmiInk(0.08))
                         .frame(height: 1)
                 }
 
@@ -5358,7 +5358,7 @@ private struct TopChromeIconButton: View {
                     .font(.system(size: 19, weight: .semibold))
             }
         }
-        .foregroundStyle(Color.black.opacity(0.88))
+        .foregroundStyle(Color.palmiInk(0.88))
         .frame(width: size, height: size)
         .contentShape(Circle())
         .chatGlassSurface(
@@ -5640,7 +5640,7 @@ private struct ContextUsageWheel: View {
 
         let ring = ZStack {
             Circle()
-                .stroke(Color.black.opacity(0.10), lineWidth: 4)
+                .stroke(Color.palmiInk(0.10), lineWidth: 4)
 
             Circle()
                 .trim(from: 0, to: clampedProgress)

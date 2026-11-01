@@ -770,7 +770,7 @@ private struct OnboardingLanguageStep: View {
 
             ZStack {
                 Capsule()
-                    .fill(Color.white.opacity(0.96))
+                    .fill(Color.palmiSurface(0.96))
                     .shadow(color: .black.opacity(0.08), radius: 16, y: 8)
 
                 Picker(selection: Binding(
