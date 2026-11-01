@@ -1,10 +1,8 @@
 # Pemberitahuan Privasi dan Layanan AI Pihak Ketiga Palmi
 
-Dokumen untuk dibaca dan disetujui sebelum konfigurasi model pertama kali.
+Versi: v26.11  Tanggal versi: 2026.11.01
 
-Versi: v26.7 · Tanggal versi: 2026.07.01 · Pembaca: pengguna aplikasi seluler Palmi / PalmiAgent
-
-**Penting:** baca dokumen ini sebelum mengonfigurasi model. Memilih “Saya telah membaca dan setuju” berarti Anda memahami dan mengakui aliran data, batas layanan pihak ketiga, peringatan informasi sensitif, dan tanggung jawab pilihan pengguna yang dijelaskan di sini. Ini tidak berarti Anda telah menerima ketentuan pihak ketiga yang belum ditampilkan kepada Anda. Ketentuan resmi layanan pihak ketiga adalah halaman terkini yang diterbitkan oleh layanan tersebut.
+Baca dokumen ini sebelum mengonfigurasi model. Memilih “Saya telah membaca dan setuju” berarti Anda memahami dan mengakui aliran data, batas layanan pihak ketiga, peringatan informasi sensitif, dan tanggung jawab pilihan pengguna yang dijelaskan di sini. Ini tidak berarti Anda telah menerima ketentuan pihak ketiga yang belum ditampilkan kepada Anda. Ketentuan resmi layanan pihak ketiga adalah halaman terkini yang diterbitkan oleh layanan tersebut.
 
 ## 1. Tujuan dan Cakupan
 
@@ -211,7 +209,7 @@ Biasanya digunakan untuk layanan model desktop lokal atau LAN. Jika unduhan jara
 
 ### Anthropic / Claude
 
-Palmi saat ini tidak secara langsung melakukan prakonfigurasi protokol native Anthropic, tetapi Claude dapat muncul melalui OpenRouter, gateway perusahaan, atau lapisan kompatibilitas kustom.
+Salah satu akses cepat penyedia yang saat ini dapat dipilih di Palmi, terhubung melalui API Messages native Anthropic; Claude juga dapat muncul melalui OpenRouter, gateway perusahaan, atau endpoint kustom.
 
 - [Kebijakan Privasi Anthropic](https://www.anthropic.com/legal/privacy)
 - [Ketentuan dan kebijakan Anthropic](https://www.anthropic.com/legal)

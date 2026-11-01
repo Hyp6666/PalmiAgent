@@ -1,0 +1,24 @@
+# Hinweis zur Datenübermittlung an KI-Dienste Dritter
+
+Version: v26.11  Versionsdatum: 2026.11.01
+
+PalmiAgent ist ein KI-Werkzeug mit vorrangig lokaler Verarbeitung. Es betreibt keinen Cloud-Modellserver, der deine Chats, Anhänge oder Werkzeugergebnisse empfängt, speichert oder analysiert, und sammelt und überträgt diese Informationen nicht eigenständig zur KI-Verarbeitung, wenn du keine Aktion ausgeführt oder die entsprechende Berechtigung erteilt hast. Erst nachdem du im nächsten Schritt ein Modell konfiguriert, eine KI-Anfrage ausgelöst und die entsprechenden Inhalte ausgewählt hast, sendet die App die zur Bearbeitung dieser Anfrage erforderlichen Inhalte an den von dir persönlich gewählten KI-Modelldienst eines Drittanbieters.
+
+## 1. Daten, die gesendet werden können
+
+1. Nachrichten, Prompts und Anweisungen, die du aktiv eingibst, zusammen mit vorherigen Nachrichten, Gesprächskontext und Aufgabenstatus, die das Modell zum Verstehen und Abschließen der aktuellen Anfrage benötigt; allein das Öffnen der App, das Verbleiben auf einem Bildschirm oder das Verschieben der App in den Hintergrund lädt keine unbeteiligten Chats hoch;
+2. Bilder, Dokumente und andere Dateien, die du ausdrücklich zur aktuellen Aufgabe hinzufügst, einschließlich extrahiertem Text, OCR-Ergebnissen, Dateiformatinformationen oder erforderlichen Zusammenfassungen, die dem Modell beim Verstehen dieser Anhänge helfen; andere lokale Dateien, die du der Anfrage nicht hinzufügst, werden aus diesem Grund nicht gesendet;
+3. Kalender-, Erinnerungs-, Kontakt-, Standort-, Foto- oder andere Werkzeugergebnisse, die in der aktuellen Aufgabe enthalten sind, nachdem du die entsprechende iOS-Berechtigung separat erteilt und das Werkzeug ausdrücklich aufgerufen hast; eine Systemberechtigung zu erteilen ist für sich genommen keine Zustimmung zur Datenübertragung, und nur Ergebnisse, die tatsächlich in der aktuellen KI-Anfrage verwendet werden, dürfen gesendet werden;
+4. Systemanweisungen, Werkzeugdefinitionen und -ergebnisse, Modellkennungen, Generierungsparameter und technische Informationen, die zur Organisation, Durchführung oder Wiederherstellung der aktuellen Anfrage benötigt werden; diese Informationen ermöglichen dem Drittanbietermodell, die von dir gestartete Aufgabe korrekt zu verarbeiten.
+
+## 2. Empfänger
+
+Empfänger ist der KI-Modelldienst und API-Endpunktbetreiber eines Drittanbieters, den du im nächsten Schritt persönlich auswählst oder eingibst und bestätigst, nicht PalmiAgent. Die App wählt in diesem Hinweis keinen bestimmten Dienst vor, empfiehlt oder suggeriert ihn nicht und zeigt keine Konfiguration an, die du noch nicht abgeschlossen hast. Nach der Konfiguration werden Inhalte einer von dir ausgelösten KI-Anfrage über das Netzwerk an eine von diesem Dienstbetreiber kontrollierte Schnittstelle übertragen. Der konkrete rechtliche Betreiber, die Serverregion und der tatsächliche Datenverarbeiter hängen von dem Dienst und den Bedingungen ab, die du letztlich wählst. Wenn du die Identität, Datenschutzrichtlinie oder Datenverarbeitungsregeln dieses Dienstes nicht überprüfen kannst oder ihnen nicht vertraust, schließe seine Konfiguration nicht ab und sende ihm keine Inhalte.
+
+## 3. Zweck
+
+Die Inhalte werden nur zur Verarbeitung von Anfragen gesendet, die du aktiv auslöst, etwa zur Erzeugung von Modellantworten, zum Verstehen ausgewählter Bilder oder Dateien, zur Ausführung angeforderter Agentenaufgaben und zur Pflege des für die Anfrage erforderlichen Kontexts. Der Drittanbieterdienst kann die Daten gemäß seiner eigenen Datenschutzrichtlinie, seinen Bedingungen und Kontoeinstellungen protokollieren, prüfen, aufbewahren, an vorgelagerte Verarbeiter weiterleiten oder löschen. PalmiAgent kann die Aufbewahrungsdauer, Trainingsnutzung, grenzüberschreitende Verarbeitung oder Löschpraktiken dieses Drittanbieters nicht bestimmen. Nach der Übertragung müssen Anträge auf Zugriff, Berichtigung, Export oder Löschung über die vom Dienstbetreiber bereitgestellten Wege gestellt werden.
+
+## 4. Grenzen der lokalen Verarbeitung
+
+PalmiAgent betreibt keinen eigenen Cloud-Modellserver zur Weiterleitung, zum Empfang oder zur zentralen Speicherung der oben beschriebenen KI-Anfrageinhalte. In der aktuellen Architektur gelangen Modellanfragen von deinem Gerät zum konfigurierten Drittanbieterendpunkt. Die App kann Arbeitsbereiche, Unterhaltungen und Einstellungen lokal speichern, soweit dies für genutzte Funktionen erforderlich ist; allein das Öffnen der App führt jedoch nicht zum eigenständigen Sammeln und Hochladen unbeteiligter personenbezogener Informationen. iOS-Berechtigungen für Kontakte, Kalender, Fotos, Standort und ähnliche Daten werden bei der Funktionsnutzung separat vom System angefordert; die Erlaubnis in diesem Hinweis betrifft nur das Senden von Inhalten, die du ausdrücklich in eine KI-Aufgabe aufnimmst, an den anschließend ausgewählten Drittanbieter-Modelldienst.

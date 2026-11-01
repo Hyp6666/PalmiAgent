@@ -62,13 +62,25 @@ final class ToolActionLocalizationTests: XCTestCase {
     }
 
     func testRequestedLanguagePolicyPDFsAreBundledAndReadable() throws {
-        for language in [PalmiLanguage.de, .sv, .arEG, .tr, .indonesian, .fr] {
+        for language in PalmiLanguage.allCases {
             let url = try XCTUnwrap(Bundle.main.url(forResource: "PalmiUserNotice.\(language.rawValue)", withExtension: "pdf"))
             let document = try XCTUnwrap(PDFDocument(url: url))
             XCTAssertGreaterThan(document.pageCount, 0)
             let text = try XCTUnwrap(document.string)
-            XCTAssertTrue(text.contains("2026.07.01"))
-            XCTAssertTrue(text.contains("v26.7"))
+            XCTAssertTrue(text.contains("2026.11.01"))
+            XCTAssertTrue(text.contains("v26.11"))
+            XCTAssertTrue(text.contains("https://openrouter.ai/privacy"))
+        }
+    }
+
+    func testDataNoticePDFsCoverEveryInterfaceLanguage() throws {
+        for language in PalmiLanguage.allCases {
+            let url = try XCTUnwrap(Bundle.main.url(forResource: "PalmiAIDataNotice.\(language.rawValue)", withExtension: "pdf"))
+            let document = try XCTUnwrap(PDFDocument(url: url))
+            XCTAssertGreaterThan(document.pageCount, 0)
+            let text = try XCTUnwrap(document.string)
+            XCTAssertTrue(text.contains("2026.11.01"))
+            XCTAssertTrue(text.contains("v26.11"))
         }
     }
 }

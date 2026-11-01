@@ -1,12 +1,8 @@
 # Palmi Gizlilik ve Üçüncü Taraf Yapay Zekâ Hizmetleri Bildirimi
 
-İlk model yapılandırmasından önce okunup onaylanacak belge
+Sürüm: v26.11  Sürüm tarihi: 2026.11.01
 
-Sürüm: v26.7  
-Sürüm tarihi: 2026.07.01  
-Hedef kitle: Palmi / PalmiAgent mobil uygulaması kullanıcıları
-
-**Önemli:** Model yapılandırmadan önce bu belgeyi okuyun. “Okudum ve kabul ediyorum” seçeneğini belirlemek, burada açıklanan veri akışlarını, üçüncü taraf hizmetlerin sınırlarını, hassas bilgilere ilişkin uyarıları ve kullanıcı seçiminden doğan sorumlulukları anladığınız ve onayladığınız anlamına gelir. Size gösterilmeyen herhangi bir üçüncü taraf koşulunu kabul ettiğiniz anlamına gelmez. Üçüncü taraf hizmetlerin resmî koşulları, bu hizmetlerin yayımladığı güncel sayfalardır.
+Model yapılandırmadan önce bu belgeyi okuyun. “Okudum ve kabul ediyorum” seçeneğini belirlemek, burada açıklanan veri akışlarını, üçüncü taraf hizmetlerin sınırlarını, hassas bilgilere ilişkin uyarıları ve kullanıcı seçiminden doğan sorumlulukları anladığınız ve onayladığınız anlamına gelir. Size gösterilmeyen herhangi bir üçüncü taraf koşulunu kabul ettiğiniz anlamına gelmez. Üçüncü taraf hizmetlerin resmî koşulları, bu hizmetlerin yayımladığı güncel sayfalardır.
 
 ## 1. Amaç ve Kapsam
 
@@ -213,7 +209,7 @@ Genellikle yerel masaüstü veya LAN model hizmetleri için kullanılır. Uzak i
 
 ### Anthropic / Claude
 
-Palmi şu anda Anthropic'in yerel protokolünü doğrudan önceden yapılandırmaz; ancak Claude, OpenRouter, kurumsal ağ geçidi veya özel uyumluluk katmanı üzerinden görünebilir.
+Palmi'nin şu anda seçilebilen hızlı sağlayıcı seçeneklerinden biridir ve Anthropic'in yerel Messages API'si üzerinden bağlanır; Claude ayrıca OpenRouter, kurumsal ağ geçidi veya özel bir uç nokta üzerinden de görünebilir.
 
 - Anthropic Gizlilik Politikası: https://www.anthropic.com/legal/privacy
 - Anthropic koşulları ve politikaları: https://www.anthropic.com/legal

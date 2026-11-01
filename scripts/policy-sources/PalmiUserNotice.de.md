@@ -1,12 +1,8 @@
 # Palmi-Hinweis zu Datenschutz und KI-Diensten Dritter
 
-Dokument zum Lesen und Bestätigen vor der erstmaligen Modellkonfiguration
+Version: v26.11  Versionsdatum: 2026.11.01
 
-Version: v26.7  
-Versionsdatum: 2026.07.01  
-Zielgruppe: Nutzer der mobilen App Palmi / PalmiAgent
-
-**Wichtig:** Lies dieses Dokument, bevor du ein Modell konfigurierst. Die Auswahl „Ich habe gelesen und stimme zu“ bedeutet, dass du die hier beschriebenen Datenflüsse, Grenzen von Drittanbieterdiensten, Vorsichtsmaßnahmen bei sensiblen Informationen und Verantwortlichkeiten bei Nutzerentscheidungen verstehst und bestätigst. Dies bedeutet nicht, dass du Drittanbieterbedingungen akzeptiert hast, die dir nicht angezeigt wurden. Maßgeblich sind die aktuellen offiziellen Bedingungen auf den von diesen Diensten veröffentlichten Seiten.
+Lies dieses Dokument, bevor du ein Modell konfigurierst. Die Auswahl „Ich habe gelesen und stimme zu“ bedeutet, dass du die hier beschriebenen Datenflüsse, Grenzen von Drittanbieterdiensten, Vorsichtsmaßnahmen bei sensiblen Informationen und Verantwortlichkeiten bei Nutzerentscheidungen verstehst und bestätigst. Dies bedeutet nicht, dass du Drittanbieterbedingungen akzeptiert hast, die dir nicht angezeigt wurden. Maßgeblich sind die aktuellen offiziellen Bedingungen auf den von diesen Diensten veröffentlichten Seiten.
 
 ## 1. Zweck und Geltungsbereich
 
@@ -213,7 +209,7 @@ Prüfe außerdem die Anbieter-/Datenseiten sowie die Richtlinie des gewählten v
 
 ### Anthropic / Claude
 
-Palmi konfiguriert Anthropics natives Protokoll derzeit nicht direkt vor; Claude kann jedoch über OpenRouter, ein Unternehmensgateway oder eine benutzerdefinierte Kompatibilitätsschicht erscheinen.
+Einer der derzeit auswählbaren Anbieter-Schnelleinträge von Palmi, angebunden über die native Anthropic Messages API; Claude kann auch über OpenRouter, ein Unternehmensgateway oder einen benutzerdefinierten Endpunkt erscheinen.
 
 - [Anthropic-Datenschutzrichtlinie](https://www.anthropic.com/legal/privacy)
 - [Anthropic-Bedingungen und -Richtlinien](https://www.anthropic.com/legal)

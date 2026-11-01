@@ -1,12 +1,8 @@
 # Palmis information om integritet och AI-tjänster från tredje part
 
-Dokument att läsa och bekräfta innan en modell konfigureras för första gången
+Version: v26.11  Versionsdatum: 2026.11.01
 
-Version: v26.7  
-Versionsdatum: 2026.07.01  
-Målgrupp: användare av mobilappen Palmi / PalmiAgent
-
-**Viktigt:** Läs dokumentet innan du konfigurerar en modell. Genom att välja ”Jag har läst och godkänner” bekräftar du att du förstår och är införstådd med de dataflöden, gränser för tredjepartstjänster, försiktighetsåtgärder för känslig information och ansvar vid användarval som beskrivs här. Det innebär inte att du har godkänt tredjepartsvillkor som inte har visats för dig. De officiella villkoren för tredjepartstjänster är de aktuella sidor som tjänsterna publicerar.
+Läs dokumentet innan du konfigurerar en modell. Genom att välja ”Jag har läst och godkänner” bekräftar du att du förstår och är införstådd med de dataflöden, gränser för tredjepartstjänster, försiktighetsåtgärder för känslig information och ansvar vid användarval som beskrivs här. Det innebär inte att du har godkänt tredjepartsvillkor som inte har visats för dig. De officiella villkoren för tredjepartstjänster är de aktuella sidor som tjänsterna publicerar.
 
 ## 1. Syfte och omfattning
 
@@ -213,7 +209,7 @@ Används vanligtvis för lokala skrivbordsmodelltjänster eller modelltjänster 
 
 ### Anthropic / Claude
 
-Palmi förkonfigurerar för närvarande inte Anthropics inbyggda protokoll direkt, men Claude kan förekomma via OpenRouter, en företagsgateway eller ett anpassat kompatibilitetslager.
+Ett av Palmis för närvarande valbara snabbleverantörsalternativ, anslutet via Anthropics inbyggda Messages API; Claude kan också förekomma via OpenRouter, en företagsgateway eller en anpassad ändpunkt.
 
 - [Anthropics integritetspolicy](https://www.anthropic.com/legal/privacy)
 - [Anthropics villkor och policyer](https://www.anthropic.com/legal)

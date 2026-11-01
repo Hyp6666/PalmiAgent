@@ -4,6 +4,16 @@ import SwiftUI
 enum ReleaseNotesCatalog {
     static let currentID = "release-26.11"
     static let currentItems = ["chat", "interface", "browser", "models", "tools", "interactive", "replies", "files", "questions", "background", "bionic", "languages", "navigation"]
+    /// 可滑动展示页：只放 26.11 新增且有对应海报的条目；素材固定用 iPhone Duo 英文版，文字仍按语言本地化。
+    static let featuredItems: [(item: String, image: String)] = [
+        ("interactive", "ReleaseNotes2611Play"),
+        ("replies", "ReleaseNotes2611Results"),
+        ("browser", "ReleaseNotes2611Browser"),
+        ("models", "ReleaseNotes2611Models")
+    ]
+    static var listedItems: [String] {
+        currentItems.filter { item in !featuredItems.contains { $0.item == item } }
+    }
     static let acknowledgedKey = "palmi.release-notes.acknowledged"
     static func title(for version: String) -> String {
         let legacyVersions = ["1.0.0", "1.0.1", "26.7", "26.8", "26.9"]
@@ -62,7 +72,8 @@ struct CurrentReleaseNotesScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 Text(PalmiL10n.tr("updates.current")).font(.largeTitle.bold())
-                ForEach(ReleaseNotesCatalog.currentItems, id: \.self) { item in
+                featuredPages
+                ForEach(ReleaseNotesCatalog.listedItems, id: \.self) { item in
                     HStack(alignment: .top, spacing: 10) {
                         Text("•").foregroundStyle(.secondary)
                         Text(PalmiL10n.tr("updates.26.11.\(item)"))
@@ -82,6 +93,28 @@ struct CurrentReleaseNotesScreen: View {
         }
         .navigationTitle(PalmiL10n.tr("updates.title"))
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var featuredPages: some View {
+        TabView {
+            ForEach(ReleaseNotesCatalog.featuredItems, id: \.item) { feature in
+                VStack(alignment: .leading, spacing: 14) {
+                    Image(feature.image)
+                        .resizable()
+                        .scaledToFit()
+                        .clipShape(.rect(cornerRadius: 16))
+                        .frame(maxWidth: .infinity, maxHeight: 300)
+                        .accessibilityHidden(true)
+                    Text(PalmiL10n.tr("updates.26.11.\(feature.item)"))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                .padding(.bottom, 48)
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: .always))
+        .indexViewStyle(.page(backgroundDisplayMode: .always))
+        .frame(height: 560)
     }
 
     private func acknowledge() {

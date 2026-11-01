@@ -1,10 +1,8 @@
 # Notice Palmi relative à la confidentialité et aux services d’IA tiers
 
-Document à lire et à accepter avant la première configuration d’un modèle.
+Version : v26.11  Date de version : 2026.11.01
 
-Version : v26.7 · Date de version : 2026.07.01 · Public : utilisateurs de l’application mobile Palmi / PalmiAgent
-
-**Important :** lisez ce document avant de configurer un modèle. En sélectionnant « J’ai lu et j’accepte », vous indiquez comprendre et reconnaître les flux de données, les limites des services tiers, les précautions relatives aux informations sensibles et les responsabilités liées à vos choix décrits ici. Cela ne signifie pas que vous acceptez des conditions tierces qui ne vous ont pas été présentées. Les conditions officielles des services tiers sont celles des pages actuellement publiées par ces services.
+Lisez ce document avant de configurer un modèle. En sélectionnant « J’ai lu et j’accepte », vous indiquez comprendre et reconnaître les flux de données, les limites des services tiers, les précautions relatives aux informations sensibles et les responsabilités liées à vos choix décrits ici. Cela ne signifie pas que vous acceptez des conditions tierces qui ne vous ont pas été présentées. Les conditions officielles des services tiers sont celles des pages actuellement publiées par ces services.
 
 ## 1. Objet et champ d’application
 
@@ -211,7 +209,7 @@ Généralement utilisé pour des services de modèles sur ordinateur local ou r�
 
 ### Anthropic / Claude
 
-Palmi ne préconfigure actuellement pas directement le protocole natif d’Anthropic, mais Claude peut être utilisé via OpenRouter, une passerelle d’entreprise ou une couche de compatibilité personnalisée.
+L’un des fournisseurs rapides actuellement proposés dans Palmi, connecté via l’API Messages native d’Anthropic ; Claude peut aussi être utilisé via OpenRouter, une passerelle d’entreprise ou un point de terminaison personnalisé.
 
 - [Politique de confidentialité Anthropic](https://www.anthropic.com/legal/privacy)
 - [Conditions et politiques Anthropic](https://www.anthropic.com/legal)

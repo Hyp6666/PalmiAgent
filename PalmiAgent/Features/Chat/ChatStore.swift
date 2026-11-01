@@ -1,10 +1,5 @@
 import Foundation
 
-nonisolated struct BionicSuggestionTicket: Equatable, Sendable {
-    let runID: UUID
-    let deadline: Date
-}
-
 @MainActor
 @Observable
 final class LiveReasoningBuffer {
@@ -165,8 +160,6 @@ final class ChatStore {
     }
 
     private final class ActiveRun {
-        let bionicSuggestionDeadline = Date.now.addingTimeInterval(5)
-        var bionicSuggestionOffered = false
         let selection: WorkspaceSelection
         let loop: AgentLoop
         let runID: UUID
@@ -233,7 +226,6 @@ final class ChatStore {
     // 目标 / 深度研究模式开关（一次性）。选中后保持到本轮最终总结结束，再由 send() 收尾清回 .standard。
     var composerMode: AgentComposerMode = .standard
     var isLoading = false
-    private(set) var bionicSuggestionRevision = 0
     var isCompactingContext = false
     var errorMessage: String?
     var pendingApprovalRequest: AgentApprovalRequest?
@@ -332,28 +324,6 @@ final class ChatStore {
     /// 不另设镜像状态，避免“维护层”自身又产生不一致。
     private var displayedSelection: WorkspaceSelection? {
         workspaceStore.selectedSelection
-    }
-
-    var bionicSuggestionTicket: BionicSuggestionTicket? {
-        let _ = bionicSuggestionRevision
-        guard let selection = displayedSelection,
-              surface(for: selection) == .professional,
-              let thread = workspaceStore.thread(for: selection),
-              thread.subagentOrigin == nil,
-              let run = activeRuns[selection],
-              !run.bionicSuggestionOffered else { return nil }
-        return BionicSuggestionTicket(runID: run.runID, deadline: run.bionicSuggestionDeadline)
-    }
-
-    func claimBionicSuggestion(_ runID: UUID) -> Bool {
-        guard let selection = displayedSelection,
-              surface(for: selection) == .professional,
-              workspaceStore.thread(for: selection)?.subagentOrigin == nil,
-              let run = activeRuns[selection], run.runID == runID,
-              !run.bionicSuggestionOffered else { return false }
-        run.bionicSuggestionOffered = true
-        bionicSuggestionRevision &+= 1
-        return true
     }
 
     private var displayedAgentLoop: AgentLoop {

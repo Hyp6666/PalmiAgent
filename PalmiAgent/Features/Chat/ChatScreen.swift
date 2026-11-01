@@ -80,7 +80,6 @@ struct ChatScreen: View {
     let onShowFiles: (() -> Void)?
     let shellMode: AppShellMode?
     let onOpenModeSwitcher: (() -> Void)?
-    let onOpenBionic: (() -> Void)?
     /// 统一会话外壳（侧栏 + 聊天/专业切换 + 新会话草稿）。nil 时保持旧的顶栏。
     let shellChrome: ChatShellChrome?
 
@@ -114,7 +113,6 @@ struct ChatScreen: View {
     @State private var messageListNearBottom = true
     @State private var screenIsVisible = false
     @State private var messageGeometryReady = false
-    @State private var isShowingBionicSuggestion = false
     @State private var markdownImageRoot: URL?
     @State private var showingMarkdownImage = false
     @State private var initialUnreadTarget: UUID?
@@ -132,7 +130,6 @@ struct ChatScreen: View {
     @AppStorage(ChatModeToolFilter.chatWebToolsEnabledStorageKey) private var areChatWebToolsEnabled = false
     @AppStorage("palmi.chat.tools-enabled") private var areToolsEnabled = true
     @AppStorage("palmi.chat.external-reasoning-enabled") private var isExternalReasoningEnabled = true
-    @AppStorage("palmi.prof.bionic-suggestion.never") private var neverSuggestBionic = false
     @AppStorage(PalmiReasoningUIStyle.storageKey) private var reasoningUIStyleRaw = PalmiReasoningUIStyle.defaultStyle.rawValue
 
     private let bottomAnchorID = "chat-bottom-anchor"
@@ -164,7 +161,6 @@ struct ChatScreen: View {
         onShowFiles: (() -> Void)? = nil,
         shellMode: AppShellMode? = nil,
         onOpenModeSwitcher: (() -> Void)? = nil,
-        onOpenBionic: (() -> Void)? = nil,
         shellChrome: ChatShellChrome? = nil
     ) {
         self._store = Bindable(wrappedValue: store)
@@ -175,7 +171,6 @@ struct ChatScreen: View {
         self.onShowFiles = onShowFiles
         self.shellMode = shellMode
         self.onOpenModeSwitcher = onOpenModeSwitcher
-        self.onOpenBionic = onOpenBionic
         self.shellChrome = shellChrome
     }
 
@@ -198,36 +193,14 @@ struct ChatScreen: View {
         screenIsVisible && scenePhase == .active && unreadSnapshot.readingAllowed
             && store.hasLoadedDisplayedConversation
             && store.pendingApprovalRequest == nil && store.browserPresentation == nil
-            && !isShowingQuickConfiguration && !isShowingBionicSuggestion
+            && !isShowingQuickConfiguration
             && previewedWorkspaceFile == nil && previewedAttachmentFiles == nil
             && linkSharePayload == nil && attachmentPresentation == nil
             && !isShowingPlusMenu && !isShowingContextInfo && pendingLinkAction == nil
             && !isShowingModeInfo && !showingMarkdownImage && !isShowingReasoningPanel
     }
-    @State private var openBionicAfterSuggestion = false
     /// 长会话只渲染最近若干轮；滚到最早一轮时再逐批展开。按会话记忆，切换会话自动回到默认窗口。
     @State private var turnWindow = ChatTurnWindow()
-
-    private struct BionicSuggestionPresentationKey: Equatable {
-        let ticket: BionicSuggestionTicket?
-        let eligible: Bool
-    }
-
-    private var canPresentBionicSuggestion: Bool {
-        shellMode == .professional && screenIsVisible && scenePhase == .active
-            && store.isLoading && onOpenBionic != nil && !neverSuggestBionic
-            && unreadSnapshot.readingAllowed
-            && store.pendingApprovalRequest == nil && store.browserPresentation == nil
-            && !isShowingQuickConfiguration && !isShowingPlusMenu && !isShowingReasoningPanel
-            && !isShowingContextInfo && !isShowingModeInfo && !isShowingBionicSuggestion
-            && previewedWorkspaceFile == nil && previewedAttachmentFiles == nil
-            && linkSharePayload == nil && attachmentPresentation == nil
-            && pendingLinkAction == nil && !showingMarkdownImage
-    }
-
-    private var bionicSuggestionPresentationKey: BionicSuggestionPresentationKey {
-        .init(ticket: store.bionicSuggestionTicket, eligible: canPresentBionicSuggestion)
-    }
 
     private var turns: [ChatTurn] {
         store.hasLoadedDisplayedConversation ? ChatTurn.build(from: store.messages) : []
@@ -707,24 +680,6 @@ struct ChatScreen: View {
             contextRefreshID = UUID()
         }
         .onDisappear { screenIsVisible = false }
-        .onChange(of: store.isLoading) { _, loading in
-            if !loading { isShowingBionicSuggestion = false }
-        }
-        .task(id: bionicSuggestionPresentationKey) {
-            let captured = bionicSuggestionPresentationKey
-            guard captured.eligible, let ticket = captured.ticket else { return }
-            let remaining = ticket.deadline.timeIntervalSinceNow
-            if remaining > 0 {
-                do { try await Task.sleep(for: .seconds(remaining)) }
-                catch { return }
-            } else {
-                await Task.yield()
-            }
-            guard !Task.isCancelled, canPresentBionicSuggestion,
-                  store.bionicSuggestionTicket?.runID == ticket.runID,
-                  store.claimBionicSuggestion(ticket.runID) else { return }
-            isShowingBionicSuggestion = true
-        }
         .task(id: workspaceStore.selectedSelection) {
             initialUnreadTarget = nil
             markdownImageRoot = nil
@@ -812,32 +767,6 @@ struct ChatScreen: View {
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(38)
                 .presentationBackground(Color(red: 0.948, green: 0.950, blue: 0.958))
-        }
-        .sheet(isPresented: $isShowingBionicSuggestion, onDismiss: {
-            guard openBionicAfterSuggestion else { return }
-            openBionicAfterSuggestion = false
-            onOpenBionic?()
-        }) {
-            VStack(spacing: 24) {
-                Text(PalmiL10n.tr("chat.bionicSuggestion.title"))
-                    .font(.title3.weight(.semibold))
-                Toggle(PalmiL10n.tr("chat.bionicSuggestion.never"), isOn: $neverSuggestBionic)
-                HStack(spacing: 16) {
-                    Button(PalmiL10n.tr("chat.bionicSuggestion.stay")) {
-                        openBionicAfterSuggestion = false
-                        isShowingBionicSuggestion = false
-                    }
-                    .buttonStyle(.bordered)
-                    Button(PalmiL10n.tr("chat.bionicSuggestion.open")) {
-                        openBionicAfterSuggestion = true
-                        isShowingBionicSuggestion = false
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-            }
-            .padding(24)
-            .presentationDetents([.height(240)])
-            .presentationDragIndicator(.visible)
         }
         .palmiAttachmentImporter(
             presentation: $attachmentPresentation,

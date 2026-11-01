@@ -36,7 +36,6 @@ struct WorkspaceShellScreen: View {
     /// 当前模式与 iPhone 侧栏开合的唯一状态（会话页在上层，左缘右滑拉出侧栏，侧栏上左滑收回）。
     @State private var navigation: AppShellNavigation
     /// 专业模式「Palmi」入口异步打开仿生会话；任何新的导航意图都取消它。
-    @State private var bionicOpenTask: Task<Void, Never>?
     @State private var hasInitializedShell = false
     /// iPad：侧栏是分栏的左栏。
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
@@ -206,7 +205,6 @@ struct WorkspaceShellScreen: View {
         }
         .onChange(of: navigation.mode) { _, mode in
             storedShellMode = mode.rawValue
-            cancelBionicOpen()
         }
         .onChange(of: horizontalSizeClass) { _, _ in navigation.isDrawerOpen = false }
         .task(id: navigation.mode) {
@@ -227,14 +225,12 @@ struct WorkspaceShellScreen: View {
     private var isDrawerOpen: Bool { navigation.isDrawerOpen }
 
     private func beginDrawerDrag() {
-        cancelBionicOpen()
         dismissKeyboard()
     }
 
     // MARK: - 侧栏
 
     private func openDrawer() {
-        cancelBionicOpen()
         dismissKeyboard()
         if isCompact {
             withAnimation(.palmiDrawer) { navigation.isDrawerOpen = true }
@@ -316,7 +312,6 @@ struct WorkspaceShellScreen: View {
         let isProfessional = shellMode == .professional
         let onOpenSkills: (() -> Void)? = isProfessional ? { isShowingProjectSkills = true } : nil
         let onShowFiles: (() -> Void)? = isProfessional ? { isShowingWorkspaceBrowser = true } : nil
-        let onOpenBionic: (() -> Void)? = isProfessional ? { openPalmiConversation() } : nil
         let chrome = ChatShellChrome(
             onOpenDrawer: openDrawer,
             onSelectMode: { mode in selectShellMode(mode) },
@@ -333,7 +328,6 @@ struct WorkspaceShellScreen: View {
             onOpenSkills: onOpenSkills,
             onShowFiles: onShowFiles,
             shellMode: shellMode,
-            onOpenBionic: onOpenBionic,
             shellChrome: chrome
         )
         .id(chatScreenKey)
@@ -379,34 +373,6 @@ struct WorkspaceShellScreen: View {
         case .chat, .bionic:
             return workspaceStore.materializeChatDraft()
         }
-    }
-
-    /// 专业模式的「Palmi」入口：准备好系统角色并打开它的仿生会话后，才切到仿生模式。
-    private func openPalmiConversation() {
-        guard shellMode == .professional, bionicOpenTask == nil else { return }
-        bionicOpenTask = Task { @MainActor in
-            defer { bionicOpenTask = nil }
-            do {
-                let role = try await bionicStore.ensureSystemRole()
-                try Task.checkCancellation()
-                bionicStore.globalError = nil
-                await bionicStore.open(role.installationID)
-                try Task.checkCancellation()
-                guard bionicStore.selectedID == role.installationID, bionicStore.globalError == nil else {
-                    throw AppError.invalidState(bionicStore.globalError ?? PalmiL10n.tr("bionic.error.operationFailed"))
-                }
-                navigation.navigate(to: .bionic) { true }
-            } catch is CancellationError {
-                return
-            } catch {
-                chatStore.errorMessage = BionicStore.errorText(error)
-            }
-        }
-    }
-
-    private func cancelBionicOpen() {
-        bionicOpenTask?.cancel()
-        bionicOpenTask = nil
     }
 
     /// 侧栏仿生列表里点角色：收起侧栏，进入该角色会话。
@@ -927,12 +893,17 @@ private struct OnboardingAIDataSharingConsentStep: View {
     let onAgree: () -> Void
     let onNotNow: () -> Void
 
-    @State private var isChecked = false
-    @State private var isShowingPolicy = false
+    @State private var acceptedDocuments: Set<PalmiPolicyDocument> = []
+    @State private var presentedDocument: PalmiPolicyDocument?
+    @Environment(\.displayScale) private var displayScale
+
+    private var canContinue: Bool {
+        acceptedDocuments.count == PalmiPolicyDocument.allCases.count
+    }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 14) {
                 Button(action: onBack) {
                     Label(PalmiL10n.tr("common.back"), systemImage: "chevron.left")
                         .font(.headline)
@@ -940,63 +911,11 @@ private struct OnboardingAIDataSharingConsentStep: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(PalmiL10n.tr("common.back"))
+                .padding(.bottom, 14)
 
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(PalmiL10n.tr("consent.title"))
-                        .font(.largeTitle.weight(.bold))
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Text(PalmiL10n.tr("consent.introduction"))
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                ForEach(PalmiPolicyDocument.allCases) { document in
+                    agreementRow(document)
                 }
-
-                disclosureSection(
-                    title: PalmiL10n.tr("consent.data.title"),
-                    systemImage: "doc.text.magnifyingglass"
-                ) {
-                    bullet(PalmiL10n.tr("consent.data.messages"))
-                    bullet(PalmiL10n.tr("consent.data.attachments"))
-                    bullet(PalmiL10n.tr("consent.data.tools"))
-                    bullet(PalmiL10n.tr("consent.data.system"))
-                }
-
-                disclosureSection(
-                    title: PalmiL10n.tr("consent.recipients.title"),
-                    systemImage: "network"
-                ) {
-                    Text(PalmiL10n.tr("consent.recipients.description"))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                disclosureSection(
-                    title: PalmiL10n.tr("consent.purpose.title"),
-                    systemImage: "sparkles"
-                ) {
-                    Text(PalmiL10n.tr("consent.purpose.description"))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Text(PalmiL10n.tr("consent.noProxy"))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                consentCheckbox
-
-                Button {
-                    isShowingPolicy = true
-                } label: {
-                    Label {
-                        Text(PalmiL10n.tr("consent.viewPolicy"))
-                    } icon: {
-                        PalmiFileIcon(name: PalmiPolicyDocumentResource.displayFileName(for: selectedLanguageID), size: 24)
-                    }
-                        .font(.headline)
-                        .frame(maxWidth: .infinity, minHeight: 52)
-                }
-                .buttonStyle(.bordered)
             }
             .frame(maxWidth: 760, alignment: .leading)
             .padding(.horizontal, 22)
@@ -1007,60 +926,93 @@ private struct OnboardingAIDataSharingConsentStep: View {
         .safeAreaInset(edge: .bottom) {
             actionBar
         }
-        .sheet(isPresented: $isShowingPolicy) {
+        .sheet(item: $presentedDocument) { document in
             NavigationStack {
-                PalmiPolicyDocumentScreen(languageID: selectedLanguageID)
+                PalmiPolicyDocumentScreen(languageID: selectedLanguageID, document: document)
                     .toolbar {
                         ToolbarItem(placement: .topBarTrailing) {
                             Button(PalmiL10n.tr("common.done")) {
-                                isShowingPolicy = false
+                                presentedDocument = nil
                             }
                         }
                     }
             }
         }
+        // 句中的文件名是应用内链接：打开对应 PDF，而不是交给系统。
+        .environment(\.openURL, OpenURLAction { url in
+            guard let document = PalmiPolicyDocument(linkURL: url) else { return .systemAction }
+            presentedDocument = document
+            return .handled
+        })
     }
 
-    private var consentCheckbox: some View {
-        Button {
-            isChecked.toggle()
-        } label: {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: isChecked ? "checkmark.circle.fill" : "circle")
+    private func agreementRow(_ document: PalmiPolicyDocument) -> some View {
+        let isAccepted = acceptedDocuments.contains(document)
+        return HStack(alignment: .top, spacing: 12) {
+            Button {
+                if isAccepted {
+                    acceptedDocuments.remove(document)
+                } else {
+                    acceptedDocuments.insert(document)
+                }
+            } label: {
+                Image(systemName: isAccepted ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(isChecked ? Color.accentColor : .secondary)
-                    .accessibilityHidden(true)
-
-                Text(PalmiL10n.tr("consent.checkbox"))
-                    .font(.body)
-                    .foregroundStyle(.primary)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Spacer(minLength: 0)
+                    .foregroundStyle(isAccepted ? Color.accentColor : .secondary)
+                    .padding(10)
+                    .contentShape(Rectangle())
             }
-            .padding(16)
-            .contentShape(Rectangle())
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.primary.opacity(0.10), lineWidth: 1)
-            }
+            .buttonStyle(.plain)
+            .padding(-10)
+            .accessibilityLabel(PalmiL10n.tr("consent.accept.format", document.displayName))
+            .accessibilityValue(
+                isAccepted
+                    ? PalmiL10n.tr("consent.checkbox.selected")
+                    : PalmiL10n.tr("consent.checkbox.notSelected")
+            )
+
+            acceptanceText(document)
+                .font(.body)
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 0)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(PalmiL10n.tr("consent.checkbox"))
-        .accessibilityValue(
-            isChecked
-                ? PalmiL10n.tr("consent.checkbox.selected")
-                : PalmiL10n.tr("consent.checkbox.notSelected")
+        .padding(16)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.primary.opacity(0.10), lineWidth: 1)
+        }
+    }
+
+    /// “我已完整阅读并接受《文件名》”：文件名带 PDF 图标并可点开，其余文字按语言模板拼接。
+    private func acceptanceText(_ document: PalmiPolicyDocument) -> Text {
+        let parts = PalmiL10n.tr("consent.accept.format").components(separatedBy: "%@")
+        var name = AttributedString(document.displayName)
+        name.link = document.linkURL
+        let leading = parts.first ?? ""
+        let trailing = parts.dropFirst().joined()
+        return Text("\(leading)\(documentIcon(document))\(name)\(trailing)")
+    }
+
+    private func documentIcon(_ document: PalmiPolicyDocument) -> Text {
+        let renderer = ImageRenderer(
+            content: PalmiFileIcon(
+                name: PalmiPolicyDocumentResource.displayFileName(for: selectedLanguageID, document: document),
+                size: 18
+            )
         )
-        .accessibilityAddTraits(.isButton)
+        renderer.scale = displayScale
+        guard let image = renderer.uiImage else { return Text(verbatim: "") }
+        return Text(Image(uiImage: image)).baselineOffset(-3)
     }
 
     private var actionBar: some View {
         VStack(spacing: 10) {
             Button {
-                guard isChecked else { return }
+                guard canContinue else { return }
                 onAgree()
             } label: {
                 Text(PalmiL10n.tr("consent.allowContinue"))
@@ -1068,7 +1020,7 @@ private struct OnboardingAIDataSharingConsentStep: View {
                     .frame(maxWidth: .infinity, minHeight: 52)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(!isChecked)
+            .disabled(!canContinue)
 
             Button(action: onNotNow) {
                 Text(PalmiL10n.tr("consent.notNow"))
@@ -1084,66 +1036,54 @@ private struct OnboardingAIDataSharingConsentStep: View {
         .frame(maxWidth: .infinity)
         .background(.ultraThinMaterial)
     }
+}
 
-    private func disclosureSection<Content: View>(
-        title: String,
-        systemImage: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 13) {
-            Label(title, systemImage: systemImage)
-                .font(.title3.weight(.semibold))
-            VStack(alignment: .leading, spacing: 11, content: content)
-                .font(.body)
+/// 首次引导需要用户分别阅读并接受的两份文件。
+enum PalmiPolicyDocument: String, CaseIterable, Identifiable {
+    case dataNotice
+    case privacyPolicy
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .dataNotice: PalmiL10n.tr("consent.document.dataNotice")
+        case .privacyPolicy: PalmiL10n.tr("consent.document.privacyPolicy")
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
-    private func bullet(_ text: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 9) {
-            Text("•")
-                .accessibilityHidden(true)
-            Text(text)
-                .fixedSize(horizontal: false, vertical: true)
-        }
+    var linkURL: URL { URL(string: "palmi-policy://\(rawValue)")! }
+
+    init?(linkURL url: URL) {
+        guard url.scheme == "palmi-policy", let document = Self(rawValue: url.host() ?? "") else { return nil }
+        self = document
     }
 }
 
 private enum PalmiPolicyDocumentResource {
-    static func resourceName(for languageID: String) -> String {
-        switch languageID {
-        case "zh-Hans", "zh-Hant":
-            return "PalmiUserNotice.zh-Hans"
-        case "de", "sv", "ar-EG", "tr", "id", "fr":
-            return "PalmiUserNotice.\(languageID)"
-        default:
-            return "PalmiUserNotice.en"
+    static func resourceName(for languageID: String, document: PalmiPolicyDocument = .privacyPolicy) -> String {
+        // 两份文件都覆盖全部界面语言；未知语言回落到英文。
+        let language = PalmiLanguage(rawValue: languageID)?.rawValue ?? PalmiLanguage.en.rawValue
+        switch document {
+        case .dataNotice: return "PalmiAIDataNotice.\(language)"
+        case .privacyPolicy: return "PalmiUserNotice.\(language)"
         }
     }
 
-    static func displayFileName(for languageID: String) -> String {
-        "\(resourceName(for: languageID)).pdf"
+    static func displayFileName(for languageID: String, document: PalmiPolicyDocument = .privacyPolicy) -> String {
+        "\(resourceName(for: languageID, document: document)).pdf"
     }
 
     static func providerLinksPageIndex(for languageID: String) -> Int {
-        switch languageID {
-        case "zh-Hans", "zh-Hant":
-            return 2
-        case "de", "sv", "ar-EG", "tr", "id", "fr":
-            guard let url = url(for: languageID), let document = PDFDocument(url: url) else { return 0 }
-            // Translated prose has different pagination. Locate section 9 rather than assuming an English page number.
-            return (0..<document.pageCount).first { index in
-                document.page(at: index)?.string?.range(of: #"(?m)^\s*9\.\s"#, options: .regularExpression) != nil
-            } ?? 0
-        default:
-            return 3
-        }
+        guard let url = url(for: languageID), let document = PDFDocument(url: url) else { return 0 }
+        // 各语言分页不同。按第 9 节标题行（“9”后接空白再接标题）定位，不写死页码。
+        return (0..<document.pageCount).first { index in
+            document.page(at: index)?.string?.range(of: #"(?m)^[ \t]*9[ \t\u{2002}]+\S"#, options: .regularExpression) != nil
+        } ?? 0
     }
 
-    static func url(for languageID: String) -> URL? {
-        let name = resourceName(for: languageID)
+    static func url(for languageID: String, document: PalmiPolicyDocument = .privacyPolicy) -> URL? {
+        let name = resourceName(for: languageID, document: document)
         if let url = Bundle.main.url(
             forResource: name,
             withExtension: "pdf",
@@ -1807,32 +1747,32 @@ private struct PrivacyAndPolicySettingsScreen: View {
 
 private struct PalmiPolicyDocumentScreen: View {
     let languageID: String
+    let document: PalmiPolicyDocument
     let initialPageIndex: Int?
 
-    init(languageID: String, initialPageIndex: Int? = nil) {
+    init(languageID: String, document: PalmiPolicyDocument = .privacyPolicy, initialPageIndex: Int? = nil) {
         self.languageID = languageID
+        self.document = document
         self.initialPageIndex = initialPageIndex
     }
 
     private var title: String {
-        switch languageID {
-        case "zh-Hans", "zh-Hant":
-            return PalmiL10n.tr("policy.document.title")
-        default:
-            return PalmiL10n.tr("policy.document.title")
+        switch document {
+        case .dataNotice: document.displayName
+        case .privacyPolicy: PalmiL10n.tr("policy.document.title")
         }
     }
 
     var body: some View {
         Group {
-            if let url = PalmiPolicyDocumentResource.url(for: languageID) {
+            if let url = PalmiPolicyDocumentResource.url(for: languageID, document: document) {
                 PalmiPolicyPDFView(url: url, initialPageIndex: initialPageIndex)
                     .background(Color(uiColor: .systemGroupedBackground))
             } else {
                 ContentUnavailableView(
                     PalmiL10n.tr("policy.missing.title"),
                     systemImage: "doc.badge.exclamationmark",
-                    description: Text(PalmiL10n.tr("policy.missing.withFile", PalmiPolicyDocumentResource.displayFileName(for: languageID)))
+                    description: Text(PalmiL10n.tr("policy.missing.withFile", PalmiPolicyDocumentResource.displayFileName(for: languageID, document: document)))
                 )
             }
         }
